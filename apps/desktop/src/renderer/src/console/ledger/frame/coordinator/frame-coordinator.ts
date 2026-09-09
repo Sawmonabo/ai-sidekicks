@@ -65,14 +65,19 @@ import {
 export const LEDGER_FRAME_PHASES = ["scroll-writes", "reveal-and-rail"] as const;
 
 /**
- * The series the frame meter records under.
+ * The label every frame meter series carries, before this coordinator's own ordinal.
  *
- * One key rather than one per phase: the budget the reading is compared against is a
- * FRAME budget, and a per-phase split would be two series neither of which is the
- * number `Spec-023 §Console Design (Meridian)` states. One coordinator drives a
- * window's frames, so one key is one window's frames.
+ * One key per COORDINATOR rather than one per phase or one per window. Per phase is
+ * wrong because the budget the reading is compared against is a FRAME budget, and a
+ * split would be two series neither of which is the number the budget names. Per
+ * window is wrong because there is one coordinator per FEED — `coordinator-binding.ts`
+ * says so in its first line and `ledger/pane/feed/model/ledger-feed-windows.ts` mints
+ * one per feed model — so two feeds open side by side would have folded two feeds'
+ * frames into one series, and the p95 an author read would have been an average over
+ * a feed that was blowing the budget and one that was idle, with no second series
+ * anywhere to notice it by.
  */
-const FRAME_TIME_METER_SERIES = "ledger-frame";
+const FRAME_TIME_METER_LABEL = "ledger-frame";
 
 /** One frame phase. Derived from the enumeration, never restated. */
 export type LedgerFramePhase = (typeof LEDGER_FRAME_PHASES)[number];
@@ -97,6 +102,19 @@ export class LedgerFrameCoordinator {
     LEDGER_FRAME_PHASES.map((phase) => [phase, new Map<string, () => void>()]),
   );
 
+  /**
+   * The ordinal the next coordinator takes.
+   *
+   * On the CLASS rather than in a module binding, which is the package's rule for a
+   * counter that has to be shared: a class field is state a reader meets where the
+   * thing it identifies is declared. It never resets, which is what makes two
+   * coordinators in one renderer process two identities for the life of that process.
+   */
+  static #nextCoordinatorOrdinal = 1;
+
+  /** This coordinator's identity — the prefix every reading it produces is keyed by. */
+  readonly #coordinatorId: string;
+
   #armedFrame: ScheduledHandle | undefined;
   #drainingPhaseIndex: number | undefined;
   #nextTaskKeyOrdinal = 1;
@@ -104,6 +122,20 @@ export class LedgerFrameCoordinator {
 
   public constructor(options: LedgerFrameCoordinatorOptions) {
     this.#clock = options.clock;
+    this.#coordinatorId = `${FRAME_TIME_METER_LABEL}#${String(LedgerFrameCoordinator.#nextCoordinatorOrdinal)}`;
+    LedgerFrameCoordinator.#nextCoordinatorOrdinal += 1;
+  }
+
+  /**
+   * This coordinator's identity, for a meter series that has to name which feed it
+   * came from.
+   *
+   * Read by `reveal/reveal-engine.ts`, whose own task key is unique per coordinator
+   * and not across them: every feed's first engine claims the same ordinal, so a
+   * reading keyed by the task key alone merged every feed's drains into one series.
+   */
+  public get coordinatorId(): string {
+    return this.#coordinatorId;
   }
 
   /**
@@ -247,7 +279,7 @@ export class LedgerFrameCoordinator {
     }
     this.#drainingPhaseIndex = undefined;
     if (__SIDEKICKS_CONSOLE_FIXTURES__) {
-      recordFrameTime(FRAME_TIME_METER_SERIES, perfMeterNow() - startedAt);
+      recordFrameTime(this.#coordinatorId, perfMeterNow() - startedAt);
     }
     // AFTER the recording and before the next frame is armed: the sample belongs to
     // the frame that has just finished, and arming first would put the next frame's

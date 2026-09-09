@@ -36,6 +36,27 @@ describe("LedgerFrameCoordinator", () => {
     expect(Number(reading?.latest)).toBeGreaterThanOrEqual(0);
   });
 
+  test("keys its frame time by coordinator, so two feeds are two series", () => {
+    // There is one coordinator per FEED, not per window (`coordinator-binding.ts`), so
+    // two feeds open side by side are two coordinators. Under a shared module constant
+    // both feeds' frames landed in one series, and the p95 an author reads was an
+    // average over a feed blowing the budget and a feed sitting idle — with no second
+    // series anywhere to notice it by.
+    const clock = new ManualClock();
+    const firstFeed = new LedgerFrameCoordinator({ clock });
+    const secondFeed = new LedgerFrameCoordinator({ clock });
+
+    firstFeed.scheduleScrollWrite(firstFeed.claimTaskKey("scroll"), () => {});
+    secondFeed.scheduleScrollWrite(secondFeed.claimTaskKey("scroll"), () => {});
+    clock.runFrame();
+
+    const frameTimes =
+      devPerfMeters?.readings().filter((entry) => entry.kind === "frame-time") ?? [];
+    expect(frameTimes).toHaveLength(2);
+    expect(new Set(frameTimes.map((entry) => entry.seriesKey)).size).toBe(2);
+    expect(firstFeed.coordinatorId).not.toBe(secondFeed.coordinatorId);
+  });
+
   test("runs scroll writes before reveal and rail work, whatever order they were submitted in", () => {
     const { clock, coordinator } = constructCoordinator();
     const order: string[] = [];

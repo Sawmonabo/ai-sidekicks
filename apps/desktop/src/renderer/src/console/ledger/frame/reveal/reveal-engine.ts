@@ -257,11 +257,16 @@ export class RevealEngine {
       });
     }
     this.#frameEmitter.emit({ state: this.state, lanes: this.lanes(), charactersRevealed: spent });
-    // Keyed by this engine's own frame-task key, which the coordinator minted with an
-    // ordinal: two engines on one coordinator are two series rather than one series
-    // whose samples came from two drains.
+    // Keyed by the coordinator's identity AND this engine's own frame-task key. The
+    // task key alone separates two engines on one coordinator and nothing else: the
+    // ordinal restarts at 1 in every coordinator, and there is one coordinator per
+    // FEED, so every feed's first engine claimed the same key and two feeds' drains
+    // folded into one series. The composed key is one series per engine per feed.
+    //
+    // Composed inside the define's branch so a release build folds the concatenation
+    // away with the recording it feeds.
     if (__SIDEKICKS_CONSOLE_FIXTURES__) {
-      recordRevealDrain(this.#frameTaskKey, spent);
+      recordRevealDrain(`${this.#frameCoordinator.coordinatorId}/${this.#frameTaskKey}`, spent);
     }
     this.#armFrame();
   }

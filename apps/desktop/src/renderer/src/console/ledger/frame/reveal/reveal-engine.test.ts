@@ -52,6 +52,25 @@ describe("the reveal engine — the frame budget", () => {
     }
   });
 
+  it("keys a drain by its coordinator too, so two feeds are two series", () => {
+    // The task key alone cannot carry this: the ordinal restarts at 1 inside every
+    // coordinator, and there is one coordinator per feed, so both engines below hold
+    // the identical `ledger-reveal-drain#1` and their drains folded into one series.
+    const clock = new ManualClock();
+    const firstFeed = new LedgerFrameCoordinator({ clock });
+    const secondFeed = new LedgerFrameCoordinator({ clock });
+    const first = new RevealEngine({ frameCoordinator: firstFeed });
+    const second = new RevealEngine({ frameCoordinator: secondFeed });
+
+    first.ingest({ laneId: "lane-a", mode: "direct", text: prose(40) });
+    second.ingest({ laneId: "lane-b", mode: "direct", text: prose(40) });
+    clock.runFrame();
+
+    const drains = devPerfMeters?.readings().filter((entry) => entry.kind === "reveal-drain") ?? [];
+    expect(drains).toHaveLength(2);
+    expect(new Set(drains.map((entry) => entry.seriesKey)).size).toBe(2);
+  });
+
   it("arms nothing until there is work, and nothing again once settled", () => {
     const clock = new ManualClock();
     const engine = engineOn(clock);
