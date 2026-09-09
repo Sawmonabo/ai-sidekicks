@@ -18,7 +18,6 @@
 import "./pane.css";
 import "../lease/lease.css";
 import "../emulator/emulator.css";
-import "../focus-ring.css";
 
 import { paneBodyForKind, type ConsolePaneContext } from "../../seats/index.js";
 import { TerminalPane } from "./TerminalPane.js";

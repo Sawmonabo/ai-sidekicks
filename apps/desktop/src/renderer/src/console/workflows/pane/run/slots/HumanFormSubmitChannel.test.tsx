@@ -26,7 +26,7 @@ import {
   bridgeHoldingSubmits,
   bridgeWatchingSubmits,
   fixtureWaitPhase,
-  loadSchemaFormBody,
+  resolveSchemaFormChunks,
   pressSubmit,
   renderSwitchableSlot,
 } from "./HumanFormShell.test-support.js";
@@ -58,10 +58,11 @@ function pressingBody(answer: Readonly<Record<string, unknown>>) {
   };
 }
 
-// The schema form arrives as its own chunk. Resolved once here so every case below
-// renders the loaded form rather than the reserved region its mount would otherwise
-// suspend on — the loader memoises the load, so this is the state a second form opens in.
-beforeAll(loadSchemaFormBody);
+// The schema form opens in two chunks: its own body, and the compiler the one act stays
+// closed until. Both are resolved once here, so every case below renders a loaded form
+// whose submit is armed rather than the reserved region its mount would otherwise suspend
+// on — each loader memoises, so this is the state a second form opens in.
+beforeAll(resolveSchemaFormChunks);
 
 describe("the seat keeps the submit and the settlement, and the body keeps neither", () => {
   it("composes the registered submit out of the mount when the body presses", async () => {

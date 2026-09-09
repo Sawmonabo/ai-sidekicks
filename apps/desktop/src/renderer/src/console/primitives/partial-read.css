@@ -50,6 +50,6 @@
  * leading margin for the control it usually sits beside, and inside this box the
  * sentence above is the spacing.
  */
-.meridian-partial-read .meridian-refusal--inline {
-  margin-block-start: 0;
+.meridian-partial-read {
+  --meridian-refusal-inline-margin-block-start: 0;
 }

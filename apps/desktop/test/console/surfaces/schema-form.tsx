@@ -66,10 +66,11 @@ import { waitFor } from "@testing-library/react";
 
 import { renderSettled } from "../console-harness.js";
 import { schemaFormChunk } from "../../../src/renderer/src/console/seats/index.js";
-// The seat's own wait for the compiler chunk, taken from the module that owns it rather
-// than restated: `loadSchemaValidatorCompiler` has one home for this job, and the three
-// console-unit supports already take it from there.
-import { resolveSchemaValidatorCompiler } from "../../../src/renderer/src/console/seats/schema-form/containers/use-schema-form.test-support.js";
+// The seat's own wait for its two chunks, taken from the module that owns them rather
+// than restated: that wait has one home for this job, and the three console-unit supports
+// already take it from there. Re-exported below rather than merely used, so this file
+// stays the one import the tiers reach every seat reading through.
+import { resolveSchemaFormChunks } from "../../../src/renderer/src/console/seats/schema-form/containers/use-schema-form.test-support.js";
 
 /**
  * How long a verdict may take before the mount is refused rather than returned.
@@ -79,7 +80,10 @@ import { resolveSchemaValidatorCompiler } from "../../../src/renderer/src/consol
  * `phase-graph-settled.ts`'s reasoning: a tier that audited a form which never got its
  * verdict reports clean over the surface it was written to cover.
  */
-const VERDICT_DEADLINE_MS = 5_000;
+export const SCHEMA_FORM_VERDICT_DEADLINE_MS = 5_000;
+
+// Re-exported, not re-documented — its JSDoc lives on the declaration imported above.
+export { resolveSchemaFormChunks };
 
 /**
  * The class the seat puts on its own `<form>`, read here and set there.
@@ -136,7 +140,7 @@ export function isSchemaFormSettled(region: ParentNode): boolean {
  * and then assert on a callback rather than on what the form drew.
  */
 export async function mountSettledSchemaForm(mounting: SchemaFormMounting): Promise<HTMLElement> {
-  await resolveSchemaValidatorCompiler();
+  await resolveSchemaFormChunks();
   const { SchemaFormAnswer } = await schemaFormChunk.load();
   const { container } = await renderSettled(
     <SchemaFormAnswer
@@ -151,7 +155,7 @@ export async function mountSettledSchemaForm(mounting: SchemaFormMounting): Prom
         throw new Error("the schema form is still waiting for its compiler");
       }
     },
-    { timeout: VERDICT_DEADLINE_MS },
+    { timeout: SCHEMA_FORM_VERDICT_DEADLINE_MS },
   );
   return container;
 }
