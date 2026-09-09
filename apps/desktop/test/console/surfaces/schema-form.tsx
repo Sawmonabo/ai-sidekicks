@@ -82,24 +82,7 @@ import { resolveSchemaFormChunks } from "../../../src/renderer/src/console/seats
  */
 export const SCHEMA_FORM_VERDICT_DEADLINE_MS = 5_000;
 
-/**
- * Resolve both chunks the seat rides before a caller mounts anything that draws it.
- *
- * The form kit is one `import()` and the validator compiler is a second, and each is
- * memoized behind its chunk, so resolving them here puts both in the module cache and the
- * seat's own `loadSchemaValidatorCompiler()` then settles in a microtask of the mount. A
- * mount that skipped this raced its wait against a COLD load — a Vite transform of the
- * compiler on a runner that had never served it — and lost on the busiest host the tier
- * runs on, under a message naming a compiler that was merely late.
- *
- * DECLARED WHERE THE SEAT IS, RE-EXPORTED HERE. Two lanes reached this pair from opposite
- * ends in the same week — this tier's mounts, and the console-unit suites that press the
- * form's one act — and briefly defined it twice. `apps/desktop/AGENTS.md` §Shared code
- * settles which one survives: the lowest module that owns the concern, which is the
- * hook's own test-support beside the compiler wait it already owns. It is re-exported
- * rather than deep-imported by each caller so `workflows.tsx` still takes every seat
- * reading it needs from this one module.
- */
+// Re-exported, not re-documented — its JSDoc lives on the declaration imported above.
 export { resolveSchemaFormChunks };
 
 /**

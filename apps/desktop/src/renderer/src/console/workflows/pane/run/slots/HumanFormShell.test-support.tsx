@@ -39,28 +39,7 @@ import { humanFormPhaseFor } from "../human-form-selection.js";
 import { HumanFormSlot } from "./HumanFormSlot.js";
 import type { HumanFormBody, HumanFormPhase } from "./human-form-mount.js";
 
-/**
- * The seat's own wait for BOTH chunks a schema form opens in, re-exported for the suites.
- *
- * WHAT IT BUYS A SUITE HERE. The form arrives as its own chunk, so a mount that begins
- * cold suspends for the turn its module lands in and every synchronous query against the
- * controls runs against the reserved region instead — and the schema compiler is a
- * SECOND chunk, which is the half a pane mount used to go without: `SchemaFormAnswer`
- * disables the one act while the validator reads `compiling`, so a form whose body chunk
- * has landed still offers a control nothing can press. A press there dispatches nothing
- * at all, which cost this file a case that failed one run in three on a park-card count
- * naming none of it, over a race measured at ~13-21 ms on this tree.
- *
- * Awaited once per suite rather than settled per case: both loaders memoise, so this is
- * the same promise every mount in the file would have joined — and a suite that waits
- * here reads exactly what a person who has already opened one form sees.
- *
- * DECLARED IN THE SEAT'S OWN TEST-SUPPORT and taken from there, because the tier mounts
- * under `test/console/surfaces/` need the identical pair and `apps/desktop/AGENTS.md`
- * §Shared code puts one implementation in the lowest module that owns the concern. Named
- * here so the suites below keep reading their own scaffolding rather than each carrying a
- * cross-family specifier for one warm.
- */
+// Re-exported, not re-documented — its JSDoc lives on the declaration imported above.
 export { resolveSchemaFormChunks };
 
 /** The refusal a daemon raises on a submission composed against a stale revision. */
@@ -296,12 +275,24 @@ export async function renderSwitchableSlot(
  * assertions later on a park-card count that names none of that. Read here, the press
  * says what actually happened, and every suite that drives this button gets the same
  * sentence rather than each one's own downstream symptom.
+ *
+ * AND THE NARROWING IS AN ASSERTION RATHER THAN A CONDITION. `getByRole` answers with an
+ * `HTMLElement`, so folding the instance check into the disabled test fails OPEN: an
+ * `<input type="submit">`, or this role grown onto another element, skips the guard
+ * silently and gets pressed anyway — which is the same silence the guard exists to end.
+ * Two throws, and each says only what it saw: the first what the role resolved to, the
+ * second what state that control was in.
  */
 export function pressSubmit(): void {
   const submit = screen.getByRole("button", { name: "Submit answer" });
-  if (submit instanceof HTMLButtonElement && submit.disabled) {
+  if (!(submit instanceof HTMLButtonElement)) {
     throw new Error(
-      "the submit control is still closed: the schema compiler's chunk had not landed when the press was put",
+      `the "Submit answer" role resolved to <${submit.tagName.toLowerCase()}>, which carries no disabled state to read`,
+    );
+  }
+  if (submit.disabled) {
+    throw new Error(
+      "the submit control is disabled at press time; the usual reason is a suite that never warmed the schema compiler's chunk",
     );
   }
   fireEvent.click(submit);

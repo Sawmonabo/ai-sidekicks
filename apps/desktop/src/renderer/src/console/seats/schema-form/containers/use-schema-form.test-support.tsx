@@ -106,6 +106,10 @@ export async function resolveSchemaValidatorCompiler(): Promise<void> {
  * Three mounts across two tiers hit one side or the other of that pair; this is their one
  * answer, and it lives beside the compiler wait for the reason that wait lives here.
  *
+ * Measured rather than assumed: a pane suite that warmed only the kit lost that race by
+ * ~13-21 ms on this tree and failed about one run in three, on a park-card count naming
+ * none of it. That is the evidence for warming BOTH, and the reason to keep doing so.
+ *
  * THE ANSWER MOUNT AND NOT THE BARE CHUNK, because `LoadedLazyBody` holds a SECOND memo:
  * the settled body it renders directly. Resolving `schemaFormChunk` alone leaves that
  * memo empty, so a warmed mount still commits the reserved region for a frame — the one
