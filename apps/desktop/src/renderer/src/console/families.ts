@@ -10,11 +10,10 @@
 // branch touches, and none of them conflicts.
 //
 // SEVEN IS THE ONLY COUNT THIS HEADER STATES, and it is the number of reserved seat
-// lines at the foot of the composition — asserted by `families.seat-board.test.ts`
-// rather than kept in step by hand. It was not: this header spelled the count twice
-// and the spellings disagreed, because 1C-8 was read as an audit task when it lands a
-// family of its own. A second spelling of one count is a second thing to edit, and the
-// one that goes stale is the one nothing reads.
+// lines at the foot of the composition. It was not always: this header spelled the
+// count twice and the spellings disagreed, because 1C-8 was read as an audit task
+// when it lands a family of its own. A second spelling of one count is a second thing
+// to edit, and the one that goes stale is the one nothing reads.
 //
 // WHAT A FAMILY DOES
 //
@@ -171,7 +170,7 @@ export function registerConsoleFamilies(
   // read identically, and the difference is the whole question a reader arrives with.
   // The seat line itself stays in its reserved shape, which is the shape it would
   // take either way — a seat is a seat filled or not, and the board counts it. Said
-  // HERE rather than beside that line, because the census below admits seats only.
+  // HERE rather than beside that line, because the block below holds seats only.
   // Each seat below receives the boards it writes into, out of the seven this
   // composition was handed. A family claims a surface slot, a pane kind, the event
   // kinds whose fold it owns, a sidebar section, an inline-card body, a frame-lifetime
@@ -191,22 +190,20 @@ export function registerConsoleFamilies(
   // may not import another, so this root — the one file allowed to name more than one —
   // says which component a family's slot mounts. It is NAMED here rather than written
   // into the seat, because a seat line passes identifiers and nothing else, which is
-  // what lets `seat-census.test-support.ts` read this block as a grammar rather than
-  // parse it.
+  // what keeps the block a grammar a reviewer can read at a glance.
   const ledgerComposition = { workspace: Workspace };
   // The sessions destination's composition, on the same terms one line up: that
   // surface is the collaboration family's and the composed new-session draft is the
   // workspace family's, and one view family may not import another — so the root says
   // which component fills the place beside the shipped probe. Named for what it
-  // MOUNTS rather than `…Composition` because a seat is one line and the census
-  // reads it as one: with four boards beside it, the longer name is what pushes the
-  // call past the formatter's width and onto four lines the grammar cannot read.
+  // MOUNTS rather than `…Composition` because a seat is one line and has to stay
+  // one: with four boards beside it, the longer name is what pushes the call past
+  // the formatter's width and onto four lines a reviewer cannot read as a seat.
   const sessionsMount = { newSessionControl: NewSessionControl };
   //
   // NOTHING BUT SEATS BELOW THIS LINE. A paragraph between two seats reads to a
   // branch exactly like this one does above them, and only one of the two leaves
-  // seven one-line diffs at seven distinct positions; `families.seat-board.test.ts`
-  // reads the block as a census and refuses anything that is not a seat.
+  // seven one-line diffs at seven distinct positions.
   registerLedger(surfaces, ledgerComposition); // T-023p-1C-2 ledger
   registerComposerFamily(projectors, sidebarSections); // T-023p-1C-3 composer
   registerCollaborationFamily(surfaces, sidebarSections, projectors, frameBindings, sessionsMount); // T-023p-1C-4 collaboration

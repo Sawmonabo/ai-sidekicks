@@ -8,9 +8,8 @@
 // read it raced resolves afterwards, which is the one a per-branch reading misses.
 //
 // The fixtures, the mock bridge, and its teardown belong to
-// `participant-roster.test-support.ts`, the lifecycle cases to
-// `participant-roster.test.tsx`, and the CP-002-5 source-text read to
-// `participant-roster.projection.test.tsx`.
+// `participant-roster.test-support.ts`, and the lifecycle cases to
+// `participant-roster.test.tsx`.
 //
 // Vitest 4 `globals: true` (renderer project) supplies `describe`/`it`/`expect`/`vi`/
 // `afterEach`; the renderer test tsconfig adds `vitest/globals` to `types`.
