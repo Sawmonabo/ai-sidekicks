@@ -1120,32 +1120,8 @@ shipped:
       - apps/desktop/src/renderer/src/console/console-env.d.ts
       - apps/desktop/src/renderer/src/console/core/clock.test.ts
       - apps/desktop/src/renderer/src/console/core/clock.ts
-      - apps/desktop/src/renderer/src/console/core/constants/agents-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/approvals-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/artifact-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/attachment-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/bound-relations.test.ts
-      - apps/desktop/src/renderer/src/console/core/constants/browser-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/collaboration-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/diff-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/fixture-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/invite-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/live-announcement-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/palette-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/persistence-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/provider-quota-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/refresh-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/restore-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/runs-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/session-goal-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/session-store-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/sessions-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/settings-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/shell-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/terminal-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/tripwire-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/workflows-caps.ts
-      - apps/desktop/src/renderer/src/console/core/constants/workspace-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants.test.ts
+      - apps/desktop/src/renderer/src/console/core/constants.ts
       - apps/desktop/src/renderer/src/console/core/emitter.test.ts
       - apps/desktop/src/renderer/src/console/core/emitter.ts
       - apps/desktop/src/renderer/src/console/core/fixture-globals.ts
@@ -1259,33 +1235,29 @@ shipped:
       - apps/desktop/src/renderer/src/console/routing/routes.ts
       - apps/desktop/src/renderer/src/console/store/degradation.test.ts
       - apps/desktop/src/renderer/src/console/store/degradation.ts
-      - apps/desktop/src/renderer/src/console/store/entities/entities.test.ts
-      - apps/desktop/src/renderer/src/console/store/entities/entities.ts
-      - apps/desktop/src/renderer/src/console/store/entities/entity-partitions.ts
-      - apps/desktop/src/renderer/src/console/store/entities/entity-projection.ts
+      - apps/desktop/src/renderer/src/console/store/entities.test.ts
+      - apps/desktop/src/renderer/src/console/store/entities.ts
+      - apps/desktop/src/renderer/src/console/store/entity-partitions.ts
+      - apps/desktop/src/renderer/src/console/store/entity-projection.ts
+      - apps/desktop/src/renderer/src/console/store/failure-modes.test.ts
+      - apps/desktop/src/renderer/src/console/store/frame-store.test.ts
+      - apps/desktop/src/renderer/src/console/store/frame-store.ts
+      - apps/desktop/src/renderer/src/console/store/hooks.test.tsx
+      - apps/desktop/src/renderer/src/console/store/hooks.ts
       - apps/desktop/src/renderer/src/console/store/index.ts
-      - apps/desktop/src/renderer/src/console/store/read/apply-queue.test.ts
-      - apps/desktop/src/renderer/src/console/store/read/apply-queue.ts
-      - apps/desktop/src/renderer/src/console/store/read/refresh-scheduler.ts
+      - apps/desktop/src/renderer/src/console/store/open-session-entry.test.ts
+      - apps/desktop/src/renderer/src/console/store/open-session-entry.ts
+      - apps/desktop/src/renderer/src/console/store/pre-initialisation-buffer.ts
       - apps/desktop/src/renderer/src/console/store/readable.ts
-      - apps/desktop/src/renderer/src/console/store/session/caller-membership-role.ts
-      - apps/desktop/src/renderer/src/console/store/session/failure-modes.test.ts
-      - apps/desktop/src/renderer/src/console/store/session/open-session-entry.test.ts
-      - apps/desktop/src/renderer/src/console/store/session/open-session-entry.ts
-      - apps/desktop/src/renderer/src/console/store/session/pre-initialisation-buffer.ts
-      - apps/desktop/src/renderer/src/console/store/session/selectors.ts
-      - apps/desktop/src/renderer/src/console/store/session/sequence-reconciler.test.ts
-      - apps/desktop/src/renderer/src/console/store/session/sequence-reconciler.ts
-      - apps/desktop/src/renderer/src/console/store/session/session-hooks.test.tsx
-      - apps/desktop/src/renderer/src/console/store/session/session-hooks.ts
-      - apps/desktop/src/renderer/src/console/store/session/session-state.ts
-      - apps/desktop/src/renderer/src/console/store/session/session-store-registry.test.ts
-      - apps/desktop/src/renderer/src/console/store/session/session-store-registry.ts
-      - apps/desktop/src/renderer/src/console/store/session/session-store.ts
-      - apps/desktop/src/renderer/src/console/store/shell/frame-hooks.ts
-      - apps/desktop/src/renderer/src/console/store/shell/frame-store.test.ts
-      - apps/desktop/src/renderer/src/console/store/shell/frame-store.ts
-      - apps/desktop/src/renderer/src/console/store/shell/location-hash.ts
+      - apps/desktop/src/renderer/src/console/store/scheduling.test.ts
+      - apps/desktop/src/renderer/src/console/store/scheduling.ts
+      - apps/desktop/src/renderer/src/console/store/selectors.ts
+      - apps/desktop/src/renderer/src/console/store/sequence-reconciler.test.ts
+      - apps/desktop/src/renderer/src/console/store/sequence-reconciler.ts
+      - apps/desktop/src/renderer/src/console/store/session-state.ts
+      - apps/desktop/src/renderer/src/console/store/session-store-registry.test.ts
+      - apps/desktop/src/renderer/src/console/store/session-store-registry.ts
+      - apps/desktop/src/renderer/src/console/store/session-store.ts
       - apps/desktop/src/renderer/src/console/tokens/color.ts
       - apps/desktop/src/renderer/src/console/tokens/contrast.test.ts
       - apps/desktop/src/renderer/src/console/tokens/failure-modes.test.ts
@@ -1508,53 +1480,49 @@ shipped:
       - apps/desktop/src/renderer/src/console/primitives/wire-figures.test.ts
       - apps/desktop/src/renderer/src/console/primitives/wire-figures.time.test.ts
       - apps/desktop/src/renderer/src/console/primitives/wire-figures.units.test.ts
-      - apps/desktop/src/renderer/src/console/seats/composer/composer-seat.test.ts
-      - apps/desktop/src/renderer/src/console/seats/composer/composer-seat.ts
+      - apps/desktop/src/renderer/src/console/seats/composer-seat.test.ts
+      - apps/desktop/src/renderer/src/console/seats/composer-seat.ts
       - apps/desktop/src/renderer/src/console/seats/index.ts
-      - apps/desktop/src/renderer/src/console/seats/pane/pane-address.test.ts
-      - apps/desktop/src/renderer/src/console/seats/pane/pane-address.ts
-      - apps/desktop/src/renderer/src/console/seats/pane/pane-kinds.test.ts
-      - apps/desktop/src/renderer/src/console/seats/pane/pane-kinds.ts
-      - apps/desktop/src/renderer/src/console/seats/pane/pane-registry.test.ts
-      - apps/desktop/src/renderer/src/console/seats/pane/pane-registry.ts
-      - apps/desktop/src/renderer/src/console/seats/slots/inline-card-seats.test.ts
-      - apps/desktop/src/renderer/src/console/seats/slots/inline-card-seats.ts
-      - apps/desktop/src/renderer/src/console/seats/slots/owner-slot.ts
-      - apps/desktop/src/renderer/src/console/seats/slots/sidebar-sections.test.ts
-      - apps/desktop/src/renderer/src/console/seats/slots/sidebar-sections.ts
-      - apps/desktop/src/renderer/src/console/seats/slots/single-slot-seat.ts
-      - apps/desktop/src/renderer/src/console/seats/slots/timeline-row-slot.test.ts
-      - apps/desktop/src/renderer/src/console/seats/slots/timeline-row-slot.ts
+      - apps/desktop/src/renderer/src/console/seats/inline-card-seats.test.ts
+      - apps/desktop/src/renderer/src/console/seats/inline-card-seats.ts
+      - apps/desktop/src/renderer/src/console/seats/owner-slot.ts
+      - apps/desktop/src/renderer/src/console/seats/pane-address.test.ts
+      - apps/desktop/src/renderer/src/console/seats/pane-address.ts
+      - apps/desktop/src/renderer/src/console/seats/pane-kinds.test.ts
+      - apps/desktop/src/renderer/src/console/seats/pane-kinds.ts
+      - apps/desktop/src/renderer/src/console/seats/pane-registry.test.ts
+      - apps/desktop/src/renderer/src/console/seats/pane-registry.ts
+      - apps/desktop/src/renderer/src/console/seats/sidebar-sections.test.ts
+      - apps/desktop/src/renderer/src/console/seats/sidebar-sections.ts
+      - apps/desktop/src/renderer/src/console/seats/single-slot-seat.ts
+      - apps/desktop/src/renderer/src/console/seats/timeline-row-slot.test.ts
+      - apps/desktop/src/renderer/src/console/seats/timeline-row-slot.ts
       - apps/desktop/src/renderer/src/console/store/degradation.test.ts
-      - apps/desktop/src/renderer/src/console/store/entities/entities.ts
-      - apps/desktop/src/renderer/src/console/store/entities/entity-partitions.ts
-      - apps/desktop/src/renderer/src/console/store/entities/entity-projector-registry.test.ts
-      - apps/desktop/src/renderer/src/console/store/entities/entity-projector-registry.ts
+      - apps/desktop/src/renderer/src/console/store/entities.ts
+      - apps/desktop/src/renderer/src/console/store/entity-partitions.ts
+      - apps/desktop/src/renderer/src/console/store/entity-projector-registry.test.ts
+      - apps/desktop/src/renderer/src/console/store/entity-projector-registry.ts
+      - apps/desktop/src/renderer/src/console/store/failure-modes.projection.test.ts
+      - apps/desktop/src/renderer/src/console/store/failure-modes.repair.test.ts
+      - apps/desktop/src/renderer/src/console/store/failure-modes.sequence.test.ts
+      - apps/desktop/src/renderer/src/console/store/failure-modes.test-support.ts
+      - apps/desktop/src/renderer/src/console/store/failure-modes.test.ts
+      - apps/desktop/src/renderer/src/console/store/hooks.caller-membership-role.test.tsx
+      - apps/desktop/src/renderer/src/console/store/hooks.test.tsx
+      - apps/desktop/src/renderer/src/console/store/hooks.ts
       - apps/desktop/src/renderer/src/console/store/index.ts
-      - apps/desktop/src/renderer/src/console/store/read/apply-queue.test.ts
-      - apps/desktop/src/renderer/src/console/store/read/apply-queue.ts
-      - apps/desktop/src/renderer/src/console/store/read/refresh-scheduler.test.ts
-      - apps/desktop/src/renderer/src/console/store/read/refresh-scheduler.ts
+      - apps/desktop/src/renderer/src/console/store/open-session-entry.test.ts
+      - apps/desktop/src/renderer/src/console/store/scheduling.refresh-scheduler.test.ts
+      - apps/desktop/src/renderer/src/console/store/scheduling.test.ts
+      - apps/desktop/src/renderer/src/console/store/scheduling.ts
+      - apps/desktop/src/renderer/src/console/store/selectors.test.ts
+      - apps/desktop/src/renderer/src/console/store/selectors.ts
+      - apps/desktop/src/renderer/src/console/store/sequence-reconciler.test.ts
+      - apps/desktop/src/renderer/src/console/store/session-store-registry.gap-repair.test.ts
+      - apps/desktop/src/renderer/src/console/store/session-store-registry.scheduling.test.ts
       - apps/desktop/src/renderer/src/console/store/session-store-registry.test-support.ts
-      - apps/desktop/src/renderer/src/console/store/session/caller-membership-role.test.tsx
-      - apps/desktop/src/renderer/src/console/store/session/caller-membership-role.ts
-      - apps/desktop/src/renderer/src/console/store/session/failure-modes.projection.test.ts
-      - apps/desktop/src/renderer/src/console/store/session/failure-modes.repair.test.ts
-      - apps/desktop/src/renderer/src/console/store/session/failure-modes.sequence.test.ts
-      - apps/desktop/src/renderer/src/console/store/session/failure-modes.test-support.ts
-      - apps/desktop/src/renderer/src/console/store/session/failure-modes.test.ts
-      - apps/desktop/src/renderer/src/console/store/session/open-session-entry.test.ts
-      - apps/desktop/src/renderer/src/console/store/session/selectors.test.ts
-      - apps/desktop/src/renderer/src/console/store/session/selectors.ts
-      - apps/desktop/src/renderer/src/console/store/session/sequence-reconciler.test.ts
-      - apps/desktop/src/renderer/src/console/store/session/session-hooks.test.tsx
-      - apps/desktop/src/renderer/src/console/store/session/session-hooks.ts
-      - apps/desktop/src/renderer/src/console/store/session/session-store-registry.gap-repair.test.ts
-      - apps/desktop/src/renderer/src/console/store/session/session-store-registry.scheduling.test.ts
-      - apps/desktop/src/renderer/src/console/store/session/session-store-registry.test.ts
-      - apps/desktop/src/renderer/src/console/store/session/session-store.ts
-      - apps/desktop/src/renderer/src/console/store/shell/frame-hooks.ts
-      - apps/desktop/src/renderer/src/console/store/shell/location-hash.ts
+      - apps/desktop/src/renderer/src/console/store/session-store-registry.test.ts
+      - apps/desktop/src/renderer/src/console/store/session-store.ts
       - apps/desktop/src/renderer/src/console/tokens/color.ts
       - apps/desktop/src/renderer/src/console/tokens/contrast.test.ts
       - apps/desktop/src/renderer/src/console/tokens/glyphs.test.ts
