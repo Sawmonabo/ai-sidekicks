@@ -27,6 +27,9 @@
 //     clauses composed into one line — headline, continuity, the loss clause, and the
 //     intent this one displaced. Which of them wraps, and whether the line still reads
 //     as one sentence when they all appear, is a layout claim no DOM assertion makes.
+//     WHICH of them appear is not: the fixture carried no displaced intent, so three
+//     clauses were photographed under a claim about four, and the case below is what
+//     holds the subject to the question the picture is taken to answer.
 //
 // TWO SCHEMES FOR THE TWO SURFACES A PERSON LIVES IN, ONE FOR THE TWO THEY VISIT. The
 // pane and the page carry this family's whole palette — cards, chips, refusals, rules,
@@ -159,6 +162,17 @@ describe("screenshot — the agents family's surfaces", () => {
     expect(new Set(PINNED_REFERENCES.map((reference) => reference.referenceName)).size).toBe(
       PINNED_REFERENCES.length,
     );
+  });
+
+  // This one runs everywhere too, and for the same reason: it reads what the subject
+  // IS rather than how it looks, and a picture of a narrower state than the one the
+  // header claims is a green reference that answers a question nobody asked.
+  it("pins the settlement in the widest shape that line can render", async () => {
+    const settlement = await mountProviderSwitchSettlement();
+
+    for (const clause of ["headline", "continuity", "losses", "superseded"]) {
+      expect(settlement.querySelector(`.meridian-settlement__${clause}`), clause).not.toBeNull();
+    }
   });
 
   for (const reference of PINNED_REFERENCES) {

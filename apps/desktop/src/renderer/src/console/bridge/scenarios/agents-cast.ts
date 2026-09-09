@@ -39,7 +39,11 @@ export const AGENT_ARCHITECT = "019b7952-5ec0-7a6e-8110-d1a4c1150041";
 export const AGENT_IMPLEMENTER = "019b7952-5ec0-7a6e-8120-d1a4c1150042";
 export const PENDING_SWITCH_ID = "019b7952-5ec0-7b90-8110-d1a4c1150051";
 export const SUPERSEDED_SWITCH_ID = "019b7952-5ec0-7b90-8120-d1a4c1150052";
-export const APPLIED_SWITCH_ID = "019b7952-5ec0-7b90-8130-d1a4c1150053";
+// Neither of these two leaves the module: `APPLIED_SWITCH_SETTLEMENT` is what every
+// reader takes, and an id exported beside it would be a second way to name the same
+// settlement that no caller asked for.
+const APPLIED_SWITCH_ID = "019b7952-5ec0-7b90-8130-d1a4c1150053";
+const SUPERSEDED_BY_APPLIED_SWITCH_ID = "019b7952-5ec0-7b90-8140-d1a4c1150054";
 export const PROVIDER_ACCOUNT_WORK = "019b7952-5ec0-7d40-8110-d1a4c1150061";
 export const PROVIDER_ACCOUNT_PERSONAL = "019b7952-5ec0-7d40-8120-d1a4c1150062";
 
@@ -175,6 +179,15 @@ export const ATTACHED_AGENTS: readonly [AttachedAgent, AttachedAgent] = [
  * the pairing repair that follows mints a synthetic result for each — and
  * `satisfies` holds them to the registered vocabulary, without which the renderer
  * built for the declared-loss path would be shown a response no daemon may emit.
+ *
+ * IT CARRIES A DISPLACED INTENT, AND THAT IS WHAT MAKES IT THE WIDEST CASE. The
+ * settlement line composes four clauses — headline, continuity, the declared losses,
+ * and the id this acknowledgment displaced — and the screenshot tier pins it to
+ * answer whether all four still read as one sentence. Without `replacedSwitchId`
+ * only three of them rendered, so the picture answered a narrower question than the
+ * one it was taken for. The displaced id is its OWN value rather than
+ * {@link SUPERSEDED_SWITCH_ID}: that one is the intent the scenario's PENDING switch
+ * displaced, and reusing it would say two acknowledgments displaced one intent.
  */
 export const APPLIED_SWITCH_SETTLEMENT: AgentSwitchSettlement = {
   status: "applied",
@@ -185,4 +198,5 @@ export const APPLIED_SWITCH_SETTLEMENT: AgentSwitchSettlement = {
     "provider_private_reasoning",
     "tool_call_history_repaired",
   ] satisfies readonly DeclaredLossKind[],
+  replacedSwitchId: SUPERSEDED_BY_APPLIED_SWITCH_ID,
 };
