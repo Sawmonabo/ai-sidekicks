@@ -20,8 +20,9 @@
  * so a sheet named there would land on every launch. Six sheets enter at the pane's root
  * and two at the settings page's, which is seven distinct files because this one is named
  * at both. The split is read off the module graph rather than off the directory, and
- * `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` is what enforces it
- * in both directions.
+ * `no-restricted-syntax` in `apps/desktop/eslint.config.mjs` admits a relative `.css`
+ * import only from a barrel or a `*-body` chunk root; which root each sheet enters at is
+ * `apps/desktop/AGENTS.md` §Module shape's rule, read in review.
  *
  * It sits at the FAMILY ROOT rather than inside a sub-module directory, and that
  * placement is the claim the sheet already makes below: the shapes here belong to

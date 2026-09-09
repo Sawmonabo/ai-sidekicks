@@ -458,9 +458,9 @@ export default [
   // outnumber its findings is a ban somebody turns off. And `.safeParse(` needs no
   // banning once the import is banned: a schema can only ARRIVE by importing `zod`
   // (banned above), by importing this package (banned here), or through a console
-  // barrel that re-exported one — and no console barrel does, which
-  // `test/console/architecture/contracts-schema-chokepoint.test.ts` establishes
-  // with the TypeScript parser rather than by this comment saying so.
+  // barrel that re-exported one — and no console barrel does, which this ban is what
+  // keeps true: a barrel can only re-export a schema it imported, and both spellings
+  // of that import refuse here.
   //
   // WHY `console/bridge/**` IS EXEMPT RATHER THAN THE CHOKEPOINT FILE ALONE. The
   // registry composes contracts-exported schemas, the run-stream projector decodes

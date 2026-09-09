@@ -235,9 +235,9 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       // job — it would ship every scenario, the engine, and the manifest to
       // users, charge them the bytes on every bundle-budget run, and leave a
       // switch that flips the app into fixture data in production. As a literal,
-      // Rollup folds `if (false)` and drops the whole subtree, which the
-      // architecture tier asserts by grepping the release bundle for a scenario
-      // id.
+      // Rollup folds `if (false)` and drops the whole subtree, which
+      // `test/console/budget/release-absence.test.ts` asserts by sweeping the built
+      // bundle for the scenario corpus's own label and purpose strings.
       //
       // True only under `--mode=fixtures` (the gallery and screenshot builds) and
       // in the Vitest console projects, which set the same define.

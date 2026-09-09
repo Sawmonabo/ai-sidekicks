@@ -135,7 +135,7 @@ const CONSOLE_TIERS: readonly TestProjectInlineConfiguration[] = [
   {
     // Tier: assets. Generated artifacts byte-identical to their sources.
     //
-    // The define is here for the architecture tier's reason, reached the same way:
+    // The define is here for the reason every console tier carries it, reached the same way:
     // this tier imports the generator, and a token module that reaches its own
     // family door for a value — the enumeration row ceiling, whose home is
     // `core/constants/palette-caps.ts` — pulls `core/index.ts` in with it, and that door
