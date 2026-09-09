@@ -2,8 +2,9 @@
 //
 // Plan-023 Phase 1B (T-023p-1B-1). Split out of `./protocol.ts` so every
 // containment arm is unit-testable with no Electron import anywhere in its
-// dependency graph — this module reaches only `node:*` and the scheme
-// constants, and performs no Electron call of any kind.
+// dependency graph — this module reaches only `node:*`, the scheme constants,
+// and the absence predicate main's log shares with it, and performs no Electron
+// call of any kind.
 //
 // The failure matrix, enumerated in `renderer-assets.test.ts` and summarised
 // here:
@@ -32,6 +33,7 @@ import type { Stats } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
+import { isMissingPath } from "./missing-path.js";
 import { RENDERER_HOST, RENDERER_SCHEME } from "./renderer-scheme.js";
 
 // A CLOSED extension map. An unmapped extension answers `application/octet-stream`
@@ -248,7 +250,7 @@ export async function resolveRendererAsset(
   try {
     realCandidate = await realpath(candidatePath);
   } catch (error: unknown) {
-    return isNotFoundError(error) ? NOT_FOUND : FORBIDDEN;
+    return isMissingPath(error) ? NOT_FOUND : FORBIDDEN;
   }
 
   if (!isContainedIn(realRoot, realCandidate)) {
@@ -259,7 +261,7 @@ export async function resolveRendererAsset(
   try {
     candidateStats = await stat(realCandidate);
   } catch (error: unknown) {
-    return isNotFoundError(error) ? NOT_FOUND : FORBIDDEN;
+    return isMissingPath(error) ? NOT_FOUND : FORBIDDEN;
   }
   if (!candidateStats.isFile()) {
     // A directory is not an asset, and there is no directory index.
@@ -280,13 +282,4 @@ function isContainedIn(root: string, candidate: string): boolean {
     return true;
   }
   return candidate.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
-}
-
-/** True for the `ENOENT` / `ENOTDIR` shapes that mean "no such asset". */
-function isNotFoundError(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) {
-    return false;
-  }
-  const code = (error as { code?: unknown }).code;
-  return code === "ENOENT" || code === "ENOTDIR";
 }

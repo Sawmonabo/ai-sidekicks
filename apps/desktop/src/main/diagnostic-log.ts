@@ -1,16 +1,21 @@
 // The main process's own JSONL log.
 //
-// `Spec-023 §Console Design (Meridian)` asks the main process to keep a small JSONL
-// logger — async append, size rotation, level filter — that forwards to the same
-// diagnostic band the renderer's capture reaches. Main is the one process whose
-// failures nothing else can report: a window that never opened has no renderer to
-// capture from, and the sidecar supervisor's refusals happen before any surface
-// exists to render them.
+// `Spec-023 §Console Libraries`' main-process storage-and-logging row asks for a JSONL
+// logger, and this is it: async append, size rotation, level filter. Main is the one
+// process whose failures nothing else can report — a window that never opened has no
+// renderer to capture from, and the sidecar supervisor's refusals happen before any
+// surface exists to render them.
 //
-// OWN-BUILT ON PURPOSE. `Spec-023 §Console Libraries`' main-process row ADOPTs
-// nothing here and names `electron-log` an AVOID: this is one append path, one
-// rotation rule, and one level filter, and a library for it would bring a transport
-// registry, a renderer-side hook, and a format layer for a file three tests read.
+// IT FORWARDS NOWHERE, which is a scope statement rather than an omission. The
+// renderer's capture hands its batches to a forwarder the shell installs; this log
+// writes a file and stops, because the failures it exists to record are the ones that
+// happen before there is a window to install anything into. Whatever reads the file is
+// where the two halves meet, and it is not this module.
+//
+// OWN-BUILT ON PURPOSE. That same row ADOPTs nothing here and names `electron-log` an
+// AVOID: this is one append path, one rotation rule, and one level filter, and a
+// library for it would bring a transport registry, a renderer-side hook, and a format
+// layer for a file three tests read.
 //
 // ONE SINK, AND THE SINK IS INJECTED. The file operations arrive through the
 // constructor rather than being imported, so a test drives real rotation against a
@@ -24,16 +29,27 @@
 // write that reaches the queue — lazily because a log built on a startup path that
 // then never writes has no business touching a disk.
 //
+// AND THE SEEDED COUNT IS STILL PER-PROCESS, which is narrowed by the single-instance
+// lock rather than solved: two processes appending to one `main.jsonl` would each carry
+// their own count, and a rotation by one renames the file out from under the other,
+// whose carried count then rotates a freshly-created file away a line later.
+// `index.ts` takes `app.requestSingleInstanceLock()` and a second instance quits, so
+// the residual is a relaunch overlapping a first instance still on its failed-startup
+// path — recorded here because a later reader looking at the lazy seed should find the
+// bound of the claim beside it.
+//
 // OWNER. No task's text names a main-process logger; the audit that found the gap
 // left it unassigned. It belongs to the measurement task of Plan-023 Phase 1C,
 // T-023p-1C-8, which owns the console's observability floor on the renderer side and
-// is the only task whose scope this module's forward is inside.
+// is the only task whose scope an always-on main-side record is inside.
 //
 // A WRITE NEVER THROWS AT ITS CALLER, AND NEVER SILENTLY SUCCEEDS EITHER. Callers are
 // startup paths whose own failure handling is the thing being logged, so a logger
 // that rejected into them would turn one failure into two. What a failed write does
 // instead is stop accepting and count: `writeFailureCount` and `lastWriteFailure` are
 // the record, and the process's exit path reads them.
+
+import { isMissingPath } from "./missing-path.js";
 
 /** How bad one entry is. Closed, and ordered most severe first. */
 export const DIAGNOSTIC_LOG_LEVELS = ["error", "warning", "notice"] as const;
@@ -159,7 +175,7 @@ export class MainDiagnosticLog {
         let liveByteCount = await this.#resolveLiveFileByteCount();
         if (liveByteCount + lineByteCount > this.#fileByteCeiling) {
           await this.#rotate();
-          liveByteCount = 0;
+          liveByteCount = await this.#resolveLiveFileByteCount();
         }
         await this.#sink.appendUtf8(this.#filePath, line);
         this.#liveFileByteCount = liveByteCount + lineByteCount;
@@ -197,15 +213,23 @@ export class MainDiagnosticLog {
    *
    * The remove comes first and tolerates a missing file, because `replace` onto an
    * existing path is not atomic on every supported platform and the failure it takes
-   * there would be indistinguishable from the append failure above. The byte count
-   * is the caller's to restart — it is advanced by the append that follows, and one
-   * owner for the field is what keeps the two from disagreeing.
+   * there would be indistinguishable from the append failure above.
+   *
+   * THE ROTATION RESETS THE COUNT IT INVALIDATED, rather than leaving that to the
+   * caller. The rename is what makes the carried figure wrong, so the act that renames
+   * is the one owner of the correction — and the caller re-reads through
+   * `#resolveLiveFileByteCount`, which answers the field without a syscall now that it
+   * is set. Left to the caller the field kept its pre-rotation value whenever the
+   * append that followed threw: `#accepting` goes false in the same `catch` so nothing
+   * reads it today, and that is exactly the shape that becomes a bug the day someone
+   * adds a resume path.
    */
   async #rotate(): Promise<void> {
     const rotatedPath = rotatedPathFor(this.#filePath);
     await this.#sink.remove(rotatedPath);
     await this.#sink.replace(this.#filePath, rotatedPath);
     this.#rotationCount += 1;
+    this.#liveFileByteCount = 0;
   }
 
   /** Settle every write issued so far. The quit path and every test await this. */
@@ -242,16 +266,6 @@ export class MainDiagnosticLog {
   public get isAccepting(): boolean {
     return this.#accepting;
   }
-}
-
-/** Whether a rejected file operation failed because the path is not there. */
-function isMissingPath(failure: unknown): boolean {
-  return (
-    typeof failure === "object" &&
-    failure !== null &&
-    "code" in failure &&
-    failure.code === "ENOENT"
-  );
 }
 
 /**

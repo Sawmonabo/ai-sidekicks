@@ -4,7 +4,7 @@
 // directory the sink creates rather than assumes, and a failure that stops the log and
 // is readable afterwards rather than reaching its caller.
 
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -208,6 +208,18 @@ describe("main diagnostic log", () => {
     expect(await readFile(nestedFilePath, "utf8")).toBe(
       toLogLine(entry("error", "sidecar refused to start")),
     );
+  });
+
+  it("reads an absent log as zero bytes when its parent path is a file", async () => {
+    // ENOTDIR rather than ENOENT, which `stat` answers when a component that would have
+    // to be a directory is a file. Both codes say the same thing about the log — there
+    // is no such file — and only ENOENT was being read that way, so a log pointed under
+    // a stray file reported a failed SIZE READ. The append that follows still fails, and
+    // that failure is the honest one: it names the directory that cannot be created.
+    const parentThatIsAFile = join(directory, "occupied");
+    await writeFile(parentThatIsAFile, "not a directory", "utf8");
+
+    await expect(realFileSink.byteCountOf(join(parentThatIsAFile, "main.jsonl"))).resolves.toBe(0);
   });
 
   it("stops accepting on a failed write, records why, and never throws at the caller", async () => {
