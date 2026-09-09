@@ -49,6 +49,12 @@ describe("tool grant line — what each position says", () => {
     expect(lineTextOf(container)).toContain("resolved configuration");
   });
 
+  it('names one tool as one tool, never as "1 tools"', () => {
+    const { container } = render(<ToolGrantLine position={{ kind: "named", toolCount: 1 }} />);
+    expect(lineTextOf(container)).toContain("the one tool it was attached with");
+    expect(lineTextOf(container)).not.toContain("1 tools");
+  });
+
   it("says the node-wide ceiling under every position", () => {
     for (const position of [
       { kind: "not-reported" },

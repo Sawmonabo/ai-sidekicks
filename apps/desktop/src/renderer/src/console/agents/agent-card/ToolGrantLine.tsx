@@ -60,9 +60,15 @@ function positionSentence(position: AgentToolGrantPosition): React.JSX.Element {
         </span>
       );
     case "named":
+      // An explicit one-tool arm, because the console has one figure formatter and no
+      // pluralizer: a count folded into prose has to agree with its noun, and
+      // `${formatCount(1)} tools` reads "the 1 tools" — the same arm
+      // `sessions/notifications/attention-sentences.ts` takes for one session.
       return (
         <span className="meridian-agent-card__axis-derived">
-          {`Restricted to the ${formatCount(position.toolCount)} tools it was attached with, named in the resolved configuration below.`}
+          {position.toolCount === 1
+            ? "Restricted to the one tool it was attached with, named in the resolved configuration below."
+            : `Restricted to the ${formatCount(position.toolCount)} tools it was attached with, named in the resolved configuration below.`}
         </span>
       );
   }
