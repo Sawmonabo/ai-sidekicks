@@ -6,8 +6,8 @@
 //
 // WHY THE HOOKS SHIP THROUGH THE SAME DOOR AS THE STORES. A surface that reads a
 // store through `useSyncExternalStore` itself would be a second subscription path
-// with its own equality rule, and the whole point of `hooks.ts` is that there is
-// exactly one — `Spec-023 §Console Design (Meridian)` §The eight rules, rule 6:
+// with its own equality rule, and the whole point of `session/session-hooks.ts` and
+// `shell/frame-hooks.ts` is that there is exactly one — `Spec-023 §Console Design (Meridian)` §The eight rules, rule 6:
 // a store is read through its selector and never by reaching into its state.
 // Exporting the stores without the hooks would quietly invite the second path.
 //
@@ -125,7 +125,7 @@ export type {
 } from "./shell/shell-state.js";
 // What that condition COSTS, from the module that derives it. Beside the vocabulary
 // rather than inside it: a block is derived from a state and a method name, and the
-// two halves have different readers — see `shell-mutation-block.ts`'s own header.
+// two halves have different readers — see `store/shell/shell-mutation-block.ts`'s own header.
 //
 // `currentShellBlock` ships beside `shellBlockForMethod` because a dispatching surface
 // needs both and they answer different questions: the rendered block draws the control,
@@ -299,9 +299,9 @@ export { earliestFutureDeadline, useDeadlineWake } from "./subject-scoped/deadli
 // families each wrote their own holder and their own generation counter, and the
 // place copies of a guard drift is the predicate.
 //
-// `subject-scoped-holder.ts` holds the rule and `subject-scoped-state.ts` is its
+// `store/subject-scoped/subject-scoped-holder.ts` holds the rule and `store/subject-scoped/subject-scoped-state.ts` is its
 // React half, which together answer what a surface RENDERS for the subject it is
-// bound to; `generation-latch.ts` answers whether an act may be dispatched at all,
+// bound to; `store/read/generation-latch.ts` answers whether an act may be dispatched at all,
 // which a handler settles inside its own tick. `test/console/architecture/
 // subject-state-chokepoint.test.ts` fails the build on a second implementation of
 // either.
@@ -342,7 +342,7 @@ export type { SubjectScopedState } from "./subject-scoped/subject-scoped-state.j
 // this barrel is one a family would route around rather than through.
 //
 // WHAT LEAVES IS THE BASE CLASS AND NOT THE MACHINE, because the pass-through was the
-// last thing still being copied: `act-controller-base.ts` holds the `ActController`
+// last thing still being copied: `store/act/act-controller-base.ts` holds the `ActController`
 // and every family extends that. `ActController` itself therefore has no reader
 // outside this family, and a door line for it would be a name nothing outside
 // `store/` ever types — which the barrel census fails. It rejoins this door the day a

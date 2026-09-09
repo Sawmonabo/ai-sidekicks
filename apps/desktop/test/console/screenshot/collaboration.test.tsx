@@ -74,7 +74,7 @@ import { AttentionPlane } from "../../../src/renderer/src/console/sessions/notif
 import { RuntimeNodesPage } from "../../../src/renderer/src/console/settings/pages/runtime-nodes/RuntimeNodesPage.js";
 // The console's own store harness rather than a second construction: the page
 // context requires a store, and one built here would be a second answer to a
-// question `settings-page-mount.test-support.ts` already answers for every case
+// question `settings-page-mount.test-support.tsx` already answers for every case
 // that mounts a settings page.
 import { consoleTestUiStateStore } from "../../../src/renderer/src/console/settings/settings-page-mount.test-support.js";
 import type { SettingsPageContext } from "../../../src/renderer/src/console/settings/settings-page-registry.js";

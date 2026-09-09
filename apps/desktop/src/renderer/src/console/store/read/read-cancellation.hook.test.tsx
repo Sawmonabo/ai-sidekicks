@@ -13,7 +13,7 @@
 // and not one.
 //
 // The lifetime machinery underneath — the discarded pass, the double-mount corpse,
-// the disposal that is terminal — is `subject-scoped-resource.ts`'s and is asserted
+// the disposal that is terminal — is `store/subject-scoped/subject-scoped-resource.ts`'s and is asserted
 // in its own suites. What is asserted here is that a read scope is wired to it
 // correctly: that the disposal really is the terminal arm, and that the re-mint the
 // double mount forces produces a line a returning surface can read through.

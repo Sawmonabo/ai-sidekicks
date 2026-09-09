@@ -100,7 +100,8 @@ import type { ScenarioEngine } from "../../scenario-runtime/scenario-engine.js";
 /**
  * The workflow operations the fixture answers rather than refuses.
  *
- * Declared here and spread into `FIXTURE_SERVED_GROWTH_OPERATION_IDS` next door, so
+ * Declared here and spread into `FIXTURE_SERVED_GROWTH_OPERATION_IDS` in
+ * `call-plane/served-operations.ts`, so
  * the ids and the implementations below are one set with one home — a second tuple in
  * the port would agree with this one until a read landed in only one of them.
  */

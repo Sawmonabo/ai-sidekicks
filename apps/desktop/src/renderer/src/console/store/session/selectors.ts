@@ -6,7 +6,7 @@
 // pick, never a composed whole-pane object, so `useSyncExternalStore`'s equality
 // check bails on `Object.is` for every kind the last transition did not touch.
 //
-// AND NO SELECTOR HERE NAMES A WIRE SHAPE. `entities.ts` frames
+// AND NO SELECTOR HERE NAMES A WIRE SHAPE. `store/entities/entities.ts` frames
 // `ConsoleSessionEvent` as a renderer-local projection contract so this family
 // holds no wire knowledge, and the two body reads that DID name one — the stamped
 // execution posture and the roster role — moved to `bridge/daemon/entity-body-reads.ts`

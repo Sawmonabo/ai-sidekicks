@@ -1,6 +1,6 @@
 // Onboarding: the six answers, and the one piece of fixture state a caller MOVES.
 //
-// WHY THIS PLANE HAS A MODULE. `workflows/workflow-reads.ts` beside it states the shape
+// WHY THIS PLANE HAS A MODULE. `workflows/workflow-reads.ts` states the shape
 // — a plane whose answers need reasoning of their own leaves the port and takes its
 // served ids with it, so the ids and the handlers stay one set with one home. This
 // plane earns it twice over, because it is the only one in the fixture whose read is
@@ -10,7 +10,7 @@
 //
 // THE LEDGER IS THE SCENARIO RUNTIME'S OWN MECHANISM, not a second one. A scenario is
 // DATA and is replayed tick-for-tick, so it holds no mutable field and `resultFor` is
-// contractually stateless; what holds per-port mutable state in this directory is a
+// contractually stateless; what holds per-port mutable state in this family is a
 // CLASS the port owns, one instance per port — `FixtureShellChannel` in
 // `shell/shell-status.ts` is the precedent and its header carries the reasoning.
 // One instance per port is the load-bearing half: a step recorded in one window must
@@ -41,7 +41,8 @@ import type { ScenarioEngine } from "../../scenario-runtime/scenario-engine.js";
 /**
  * The six onboarding operations the fixture answers.
  *
- * Declared here and spread into `FIXTURE_SERVED_GROWTH_OPERATION_IDS` next door, on
+ * Declared here and spread into `FIXTURE_SERVED_GROWTH_OPERATION_IDS` in
+ * `call-plane/served-operations.ts`, on
  * `FIXTURE_SERVED_WORKFLOW_OPERATION_IDS`' rule: the ids and the implementations below
  * are one set with one home, and a second tuple in the served module would agree with
  * this one until a verb landed in only one of them.

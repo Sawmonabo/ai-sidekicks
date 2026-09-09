@@ -334,7 +334,7 @@ export class KeyBindingTable {
     if (prepared.whenAst === undefined) {
       return true;
     }
-    // The clause evaluator lives in `when-clause.ts` and is called from here
+    // The clause evaluator lives in `palette/when-clause/when-clause.ts` and is called from here
     // rather than re-implemented: a keyboard scope that disagreed with a command's
     // `when` about the same clause would make a chord fire a command the palette
     // says is hidden.

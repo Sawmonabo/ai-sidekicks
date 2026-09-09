@@ -12,7 +12,7 @@
 // names off an event payload, which `store/` deliberately does not do —
 // `store/entities/entities.ts` frames `ConsoleSessionEvent` as a renderer-local projection
 // contract precisely so the store family holds no wire knowledge, the same reason
-// `session-event-binder.ts` states for living here. And it is REGISTERED by the
+// `frame/session/session-event-binder.ts` states for living here. And it is REGISTERED by the
 // composition root, which puts it at or below `frame/` in the family DAG: a view
 // family sits above the frame, so a projector owned there could not be handed to
 // the registry the frame constructs. `frame/` is where those two meet.

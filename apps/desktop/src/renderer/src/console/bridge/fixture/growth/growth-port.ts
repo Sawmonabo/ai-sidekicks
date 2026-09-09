@@ -1,7 +1,7 @@
 // The growth port the fixture bridge actually serves.
 //
 // ONE RULE DECIDES WHICH OPERATIONS IT ANSWERS, and that rule and its whole membership
-// list live in `call-plane/served-operations.ts` beside this file. What is HERE is how each
+// list live in `call-plane/served-operations.ts`. What is HERE is how each
 // served operation composes its answer.
 //
 // WHAT THIS MODULE OWNS, AND WHAT ITS NEIGHBOURS DO
@@ -90,7 +90,8 @@ export function createFixtureGrowthPort(
 ): GrowthPort {
   const served: Pick<GrowthPort, FixtureServedGrowthOperationId> = {
     // workflow, collaboration, onboarding and shell — spread from the modules that
-    // implement them, so the served ids next door and the handlers there are held to
+    // implement them, so the served ids in `call-plane/served-operations.ts` and the
+    // handlers there are held to
     // each other by the `Pick` above. The onboarding and shell planes own the per-caller
     // state, which is why each is a module and not a block here: the onboarding ledger
     // and the shell channel are both minted per port inside those calls, so a step
@@ -307,7 +308,8 @@ export function createFixtureGrowthPort(
         () => growthUnscriptedReply("workspaceExecutionContextRead", REPOS_EXECUTION_CONTEXT_CALL),
       ),
     // diagnostics — the five reads the settings page is built from, spread from the
-    // module that implements them so the served ids next door and the handlers stay one
+    // module that implements them so the served ids in `call-plane/served-operations.ts`
+    // and the handlers stay one
     // set. Two answer under any scenario and three refuse without a script; that
     // module's header carries the whole of why.
     ...fixtureDiagnosticsReads(engine),

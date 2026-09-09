@@ -12,7 +12,7 @@
 // would say the route's data had not arrived, which is a different sentence and a false
 // one — no read has been attempted.
 //
-// The marker `pending-pane-body.ts` owns rides a `hidden` element for that module's
+// The marker `seats/pane/pending-pane-body.ts` owns rides a `hidden` element for that module's
 // reason: `display: none` contributes no box, so what the reserved region costs the
 // layout is nothing.
 

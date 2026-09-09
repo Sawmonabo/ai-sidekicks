@@ -2,7 +2,7 @@
 // three controls that move it.
 //
 // WHY THIS PLANE HAS A MODULE. `workflows/workflow-reads.ts` and
-// `settings/onboarding-answers.ts` beside it state the shape — a plane whose answers
+// `settings/onboarding-answers.ts` state the shape — a plane whose answers
 // need reasoning of their own leaves the port and takes its served ids with it, so the
 // ids and the handlers stay one set with one home. This plane earns it on the same
 // ground the onboarding one does, twice over: five of its six answers are composed from
@@ -40,7 +40,8 @@ import type { ShellReport } from "../../../store/index.js";
 /**
  * The six shell operations the fixture answers.
  *
- * Declared here and spread into `FIXTURE_SERVED_GROWTH_OPERATION_IDS` next door, on
+ * Declared here and spread into `FIXTURE_SERVED_GROWTH_OPERATION_IDS` in
+ * `call-plane/served-operations.ts`, on
  * `FIXTURE_SERVED_WORKFLOW_OPERATION_IDS`' rule: the ids and the implementations below
  * are one set with one home, and a second tuple in the served module would agree with
  * this one until a control landed in only one of them.

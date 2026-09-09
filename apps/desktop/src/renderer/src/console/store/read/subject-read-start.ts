@@ -4,7 +4,8 @@
 // definitions a session can see, the runs a session holds, one run's snapshot — and
 // each is addressed at a subject that can change under a mounted caller. What holds
 // their state across that change, and what a settlement arriving after it may do, is
-// `subject-scoped-holder.ts` and its React half next door. This module answers only
+// `store/subject-scoped/subject-scoped-holder.ts` and its React half
+// `store/subject-scoped/subject-scoped-resource.ts`. This module answers only
 // the question the holder hands back to its caller: given the subject this render is
 // addressed at, what does the read start as?
 //

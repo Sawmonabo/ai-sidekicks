@@ -12,7 +12,7 @@
 // ONE DECLARATION, TWO HALVES DERIVED FROM IT
 //
 // `PaneEntityScopeByKind` below is the declaration — the kind-indexed map
-// `inline-card-seats.ts` uses for its own three card kinds, at the eleven pane
+// `seats/slots/inline-card-seats.ts` uses for its own three card kinds, at the eleven pane
 // kinds. Both halves come off it: the static `ConsolePaneAddress` union that
 // makes a mismatch a compile error at a typed call site, and the runtime table
 // `pane-address-parse.ts` applies at the boundaries where an address arrives

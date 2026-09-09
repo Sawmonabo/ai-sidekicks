@@ -4,11 +4,12 @@
 // `session-event.test-support.ts`'s reason: a third suite outside this family — the
 // collaboration presence wake-up — drives the same clock and the same harness.
 //
-// Two suites read this module — the timer-and-dependency claims in
-// `deadline-wake.test.tsx` and the late-wake-up catch-up in
-// `deadline-wake.catch-up.test.tsx` — and a second copy of either the counting clock
-// or the render harness would be two harnesses that could disagree about what
-// "armed" means while both stayed green.
+// Three suites read this module — the timer-and-dependency claims in
+// `store/subject-scoped/deadline-wake.test.tsx`, the late-wake-up catch-up in
+// `store/subject-scoped/deadline-wake.catch-up.test.tsx`, and the presence wake-up in
+// `collaboration/members/presence-model.wake.test.tsx`, the one outside this family —
+// and a second copy of either the counting clock or the render harness would be two
+// harnesses that could disagree about what "armed" means while both stayed green.
 
 import { render } from "@testing-library/react";
 

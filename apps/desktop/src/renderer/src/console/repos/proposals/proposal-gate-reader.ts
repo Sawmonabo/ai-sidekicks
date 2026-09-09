@@ -25,7 +25,7 @@
 // the owning spec names", under "No interval polling" — so this class arms no timer of
 // its own and owns no listener of
 // its own either: it hands itself to a `SessionRefreshTriggers` exactly as
-// `repo-mounts-reader.ts` beside it does, which is what makes all four reasons reach
+// `repos/mounts/repo-mounts-reader.ts` does, which is what makes all four reasons reach
 // a gate rather than only window focus. A daemon that reconnected, or a `workspace.stale`
 // frame arriving in an already-focused window, used to leave the branch context and
 // the prepared proposal standing with `push` still offered against them.

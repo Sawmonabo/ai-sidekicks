@@ -162,7 +162,7 @@ export function RouteSurface(props: RouteSurfaceProps): React.JSX.Element {
   }
 
   // A route that names a session shows nothing of that session until its store is
-  // open, and the open rides an effect rather than this render (`session-lifecycle.ts`
+  // open, and the open rides an effect rather than this render (`frame/session/session-lifecycle.ts`
   // says why). So there is one frame where the store is absent, and the honest
   // rendering of that frame is a read in flight.
   if (context.frameStore.activeSessionId !== undefined && context.sessionStore === undefined) {

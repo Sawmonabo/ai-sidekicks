@@ -20,7 +20,7 @@
 // passing through console code on its way in. It is recorded here as it passes, and a
 // console surface renders from what the roster itself read.
 //
-// SPLIT OUT OF `absorbed-surfaces.ts`, WHICH IS WHERE THE SEAM WAS WRITTEN. That module
+// SPLIT OUT OF `seats/surface/absorbed-surfaces.ts`, WHICH IS WHERE THE SEAM WAS WRITTEN. That module
 // decides which shipped component is mounted and under which guard; this one owns the
 // seam's identity, its lifetime, and what it remembers. Different subjects, and the file
 // was already the family's longest. What a burst of re-read reasons COSTS is

@@ -61,7 +61,7 @@
 //
 // NOTHING ELSE HERE RENDERS. No store, no scenario, no second console component.
 //
-// `absorbed-surfaces.ts` is the one module here that BUILDS elements, and every
+// `seats/surface/absorbed-surfaces.ts` is the one module here that BUILDS elements, and every
 // component it builds is owned by a renderer subtree outside the console: the three
 // shipped Tier-1 families the console absorbed by import. That is not a sibling's
 // body — it is a component with no owner left to mount it, handed to whichever

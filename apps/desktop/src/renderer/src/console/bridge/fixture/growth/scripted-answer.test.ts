@@ -1,6 +1,6 @@
 // What a caller is handed for each of the four settlements the seam reports.
 //
-// `scripted-reply.test.ts` next door holds the SEAM's claim — that the fixture bridge
+// `scenario-runtime/scripted-reply.test.ts` holds the SEAM's claim — that the fixture bridge
 // and the growth port produce the same codes from the same engine states, and that
 // neither turns a reply which never arrived into an absent value. This file holds the
 // half that is this module's alone: the translation, and in particular the one arm

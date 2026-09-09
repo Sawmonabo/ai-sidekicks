@@ -1,8 +1,9 @@
 // The shell's own condition, answered from the scenario the fixture is playing.
 //
-// WHY IT IS HERE. `index.ts` beside this file states the rule — a module that exists
-// so the fixture can ANSWER something belongs in this directory — and this is the
-// first such answer that is a FEED rather than a reply. The roster read next door is
+// WHY IT IS HERE. `bridge/fixture/index.ts` one level up states the rule — a module
+// that exists so the fixture can ANSWER something belongs in this family — and this is
+// the first such answer that is a FEED rather than a reply. The roster read in
+// `settings/runtime-node-roster.ts` is
 // the closest neighbour and the two are deliberately the same shape at rest: both
 // read a list of frames the scenario declares against the frozen clock's elapsed
 // time, and neither invents a value for a scenario that names none.
@@ -14,7 +15,7 @@
 // yields it only when it differs from the last one it sent. A scenario whose shell
 // frames sit at ticks no beat is due at will therefore not wake on its own, which is
 // stated here rather than papered over: a scenario places its shell frames on beat
-// ticks, and `shell.ts` beside it does.
+// ticks, and `scenarios/shell.ts` does.
 //
 // AND IT IS ONE CHANNEL, NOT FOUR. The feed and the three daemon controls answer
 // about the same shell, so a stop that did not move what the feed says would be a
@@ -40,7 +41,7 @@
 //
 // THE DUE-FRAME READER IS NO LONGER THIS MODULE'S. It was declared privately here
 // until the provider-import feed needed the same rule, and it now lives once in
-// `growth/due-frames.ts` beside this file — which is also where the walk that PACES
+// `growth/due-frames.ts` — which is also where the walk that PACES
 // a scripted feed against this same clock lives. Two consumers, one rule.
 //
 // WHAT IT NEVER DOES. It never synthesises a report. A scenario that declares no
@@ -113,7 +114,7 @@ export class FixtureShellChannel {
    * a frame still happened after that frame became current.
    */
   public current(): ShellReport | undefined {
-    // Annotated rather than inferred: the reader beside this file is generic over
+    // Annotated rather than inferred: the reader in `growth/due-frames.ts` is generic over
     // any frame carrying a tick, and naming the element type here is what says WHICH
     // vocabulary this channel folds over — the same vocabulary `isScripted` above
     // asks about and the same one a scenario declares on its `shellStatus` field.

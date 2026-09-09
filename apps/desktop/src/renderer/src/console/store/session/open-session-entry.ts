@@ -32,7 +32,7 @@
 
 import { RealClock, type ConsoleClock, type ConsoleRefusal } from "../../core/index.js";
 import type { EntityProjectorRegistry } from "../entities/index.js";
-// Deep rather than through `read/index.js`, and `read-triggers.ts`'s own reach back
+// Deep rather than through `read/index.js`, and `store/read/read-triggers.ts`'s own reach back
 // into `session/` is why: that door is an edge to the trigger surface, which reads
 // the session door, which publishes the hooks that reach this directory's registry
 // — so a fifth edge from here would close a ring `no-circular` fails. AGENTS.md

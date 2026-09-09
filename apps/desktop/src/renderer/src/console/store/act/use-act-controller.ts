@@ -1,6 +1,6 @@
 // How a surface holds an act controller, and nothing about the act.
 //
-// SPLIT FROM THE CLASS ON `subject-scoped-resource.ts`'S OWN SEAM. The class beside
+// SPLIT FROM THE CLASS ON `store/subject-scoped/subject-scoped-resource.ts`'S OWN SEAM. The class beside
 // this one collaborates with a wire call and owns what a prerequisite and an act
 // publish; this module collaborates with React's rendering lifecycle and owns when a
 // controller is opened and ended. They meet at one object.
@@ -84,7 +84,7 @@ export interface ActControllerBinding<TController extends ActControllerSurface> 
  * rather than something a caller folds into the key. Every act controller arms its
  * refresh triggers on a store, and a store rebuilt for the same session under an
  * unchanged bridge leaves the whole address standing — so the rule is applied here,
- * once, for every controller that binds through this hook. `session-store-rebind.ts`
+ * once, for every controller that binds through this hook. `store/session/session-store-rebind.ts`
  * states it; a key with the store spelled into it would re-open the controller on a
  * reconnect and lose the prerequisite answer with it, which is a different behaviour
  * and the wrong one.

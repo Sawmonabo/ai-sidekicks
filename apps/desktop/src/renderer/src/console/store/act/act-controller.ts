@@ -31,7 +31,7 @@
 // them, and a late answer landing under a newer question is the one state that would
 // let a consent be given for the wrong tree.
 //
-// AND SUPERSESSION IS `generation-latch.ts`'s AND NOT A FLAG OF ITS OWN. That register
+// AND SUPERSESSION IS `store/read/generation-latch.ts`'s AND NOT A FLAG OF ITS OWN. That register
 // is where this console keeps "may I dispatch" and "may this settlement install", and
 // a fourth hand-rolled epoch counter beside it would be the drift this class exists to
 // end. The act half takes a key with `claim`, so a second press while one call is on

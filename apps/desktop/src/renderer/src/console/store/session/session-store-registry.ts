@@ -176,7 +176,7 @@ export class SessionStoreRegistry {
    * Raise a degraded cause on one session's store, from outside the apply path.
    *
    * ROUTED HERE RATHER THAN REACHED FOR, and that is the whole reason the method
-   * exists. `degradation.ts` states that `markDegraded` has writers outside the
+   * exists. `store/degradation.ts` states that `markDegraded` has writers outside the
    * chokepoint — a read that failed, a subscription that never opened — and the one
    * object that observes the second of those, `frame/session/session-event-binder.ts`, holds
    * no store and must not start: "this class never touches a store, holds no store

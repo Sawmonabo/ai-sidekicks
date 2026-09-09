@@ -37,7 +37,7 @@ const INLINE_CARD_ORIGIN = "inline-card-seats";
  * Every kind of card a ledger row can carry. Closed.
  *
  * The tuple is the declaration and the union is derived from it, for the reason
- * `pane-kinds.ts` gives about its own set.
+ * `seats/pane/pane-kinds.ts` gives about its own set.
  */
 export const INLINE_CARD_KINDS = ["diff", "attachment", "artifact"] as const;
 
@@ -178,7 +178,7 @@ export interface InlineCardBodyDescriptor<TKind extends InlineCardKind = InlineC
 }
 
 export class InlineCardSeatRegistry {
-  // `"owner-scoped"`, for `surface-registry.ts`'s reason: a hot reload
+  // `"owner-scoped"`, for `seats/surface/surface-registry.ts`'s reason: a hot reload
   // re-runs the owning family's module and must replace, while two owners on one
   // card kind is a conflict rather than a swap decided by import order.
   readonly #bodiesByKind = new KeyedRegistry<InlineCardKind, InlineCardBodyDescriptor>({

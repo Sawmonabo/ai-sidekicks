@@ -37,7 +37,7 @@ function descriptor(id: SidebarSectionDescriptor["id"], owner: string): SidebarS
  *
  * `repos` is that sentence's "repos and worktrees" — one section, named for the
  * entity kind its cards open panes for. Transcribed rather than read from the spec
- * file for `pane-kinds.test.ts`'s reason: `node:fs` is banned in renderer programs
+ * file for `seats/pane/pane-kinds.test.ts`'s reason: `node:fs` is banned in renderer programs
  * and the corpus sits outside this package's Vite root, so the honest arrangement
  * is a transcription a reviewer can diff against the quote above.
  */

@@ -120,7 +120,7 @@ export interface ComposerAttachMenuEntry {
  * class would publish a symbol nothing imports — a dead export the gates fail.
  */
 class ComposerAttachMenuRegistry {
-  // `"owner-scoped"`, for `sidebar-sections.ts`' reason: a hot reload re-runs the
+  // `"owner-scoped"`, for `seats/slots/sidebar-sections.ts`' reason: a hot reload re-runs the
   // owning family's module and must replace, while two owners on one id is a conflict
   // rather than a swap decided by import order.
   readonly #entriesById = new KeyedRegistry<string, ComposerAttachMenuEntry>({

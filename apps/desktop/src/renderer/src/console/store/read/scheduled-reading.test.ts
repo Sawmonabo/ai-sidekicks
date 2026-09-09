@@ -7,8 +7,8 @@
 // the two refusal-arm sentences a real reading spells for itself — and every claim is
 // made about the REAL `ScheduledReading`, never about a stand-in.
 //
-// It runs on `ManualClock` and arms no real timer, on `scheduling.refresh-scheduler.
-// test.ts`'s reason: `clock.pendingCount === 0` after a dispose is the only way "the
+// It runs on `ManualClock` and arms no real timer, on `refresh-scheduler.test.ts`'s
+// reason: `clock.pendingCount === 0` after a dispose is the only way "the
 // scheduler stopped" can be CHECKED rather than asserted.
 
 import { describe, expect, it } from "vitest";

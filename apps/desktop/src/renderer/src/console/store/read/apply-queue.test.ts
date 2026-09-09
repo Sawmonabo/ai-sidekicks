@@ -10,8 +10,8 @@
 // "no timer fires" claim can be CHECKED rather than asserted, and a test on real
 // timers could not make it.
 //
-// `RefreshScheduler`, the module's other half, is driven by
-// `scheduling.refresh-scheduler.test.ts`.
+// `RefreshScheduler`, the read plane's other scheduler, is driven by
+// `refresh-scheduler.test.ts` next door.
 
 import { describe, expect, it } from "vitest";
 

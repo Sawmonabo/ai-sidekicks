@@ -228,7 +228,7 @@ export type GrowthOperationId =
   // agent plane — the four `agent.*` verbs the console calls, in the order a surface
   // meets them: read the roster, put a sidekick in, move its provider axes, take it
   // out. Each id is its wire method's tail with the root folded in, which
-  // `growth-operations.test.ts` holds every entry to.
+  // `growth-operations/index.test.ts` holds every entry to.
   | "agentList"
   | "agentAttach"
   | "agentConfigUpdate"

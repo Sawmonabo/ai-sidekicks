@@ -1,6 +1,6 @@
 // A shipped scenario, playing frames its author did not write.
 //
-// A SIBLING OF `call-plane/bridge.test-support.ts` RATHER THAN A RESIDENT OF IT. That module
+// A MODULE OF ITS OWN RATHER THAN A RESIDENT OF `call-plane/bridge.test-support.ts`. That module
 // builds a bridge and drives it; this one composes a `ConsoleScenario` value and touches
 // no bridge, no engine, and no port — different noun, and the file it would have joined
 // is already past the length this package allows.

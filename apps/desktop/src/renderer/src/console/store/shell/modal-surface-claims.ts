@@ -81,7 +81,7 @@ export class ModalSurfaceClaims {
    * How many surfaces hold the window right now.
    *
    * The register's bound, observable — read by the assertion that a closed surface
-   * leaves nothing behind, on `generation-latch.ts`'s `heldKeyCount` precedent.
+   * leaves nothing behind, on `store/read/generation-latch.ts`'s `heldKeyCount` precedent.
    * Nothing on a render path reads it; the frame reads the published cell.
    */
   public get heldClaimCount(): number {

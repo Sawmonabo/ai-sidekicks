@@ -321,7 +321,7 @@ export class KeybindingOverrideStore {
 /**
  * This window's overrides.
  *
- * Module scope IS window scope here, for the reason `command-surface.ts` gives about
+ * Module scope IS window scope here, for the reason `palette/commands/command-surface.ts` gives about
  * the registry it holds the same way: an auxiliary window is its own renderer
  * process, so no channel joins two windows' module graphs — and the settings page
  * reaches the seam the frame installs from without a store threaded through a page

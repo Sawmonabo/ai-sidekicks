@@ -16,7 +16,7 @@
 //     puts a refusal's code in mono and its message verbatim, so the cause renders
 //     through `InlineRefusal` and this component paraphrases none of it.
 //   • **The count is the console's own arithmetic**, so it wears the derived signature
-//     rather than the wire one (rule 4). It is formatted by `wire-figures.ts` and by
+//     rather than the wire one (rule 4). It is formatted by `primitives/figures/wire-figures.ts` and by
 //     nothing else — the model does the formatting, so a caller cannot reach a second
 //     `toLocaleString` on the way here.
 //

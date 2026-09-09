@@ -6,7 +6,7 @@
 // sub-module's.
 //
 // THE PROBE RECORDS COMMITTED STATES AND NOT RENDER CALLS, which is the difference the
-// mechanism turns on. `subject-scoped-holder.ts` re-addresses DURING the render, and a
+// mechanism turns on. `store/subject-scoped/subject-scoped-holder.ts` re-addresses DURING the render, and a
 // render React discards still ran — so a log written from a render body shows a value
 // no commit ever carried, under a correct holder as readily as under a broken one, and
 // therefore proves nothing about what a person saw. An effect runs once per COMMIT,

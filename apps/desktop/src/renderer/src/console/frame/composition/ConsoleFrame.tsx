@@ -4,7 +4,7 @@
 // Everything here runs with a RESOLVED bridge, because `ConsoleFrameHost.tsx` above
 // it is the gate. The pieces this file used to hold inline are spread across the
 // family's sub-modules — `RouteSurface.tsx` beside it resolves a route to a surface
-// and `rail-navigation.ts` beside it builds the rail, `frame-commands.ts` at the
+// and `rail-navigation.ts` beside it builds the rail, `frame/frame-commands.ts` at the
 // family root carries the frame's own commands and chords, `session/` owns the
 // session registry, and `bindings/` owns the durable store's life and the colour
 // scheme end to end — and every decision below is one the rest of the substrate
@@ -19,7 +19,7 @@
 //     a ref has no teardown and both of those have to be given one.
 //   • **The route follows the hash, and the hash follows the route.** Both
 //     directions, because the Window menu opens auxiliary windows by URL and the
-//     rail navigates in-window — owned by `hash-route-binding.ts`, which is where
+//     rail navigates in-window — owned by `frame/bindings/hash-route-binding.ts`, which is where
 //     the rules that make a two-way binding terminate are written down. The store is
 //     still BORN on the hash the window opened with rather than adopting it one
 //     commit later: a store that started on the default route left the route-to-hash
@@ -115,7 +115,7 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   const frameStore = frameStoreRef.current;
 
   // A hook rather than a ref, because this store owns a database connection and a
-  // ref has nowhere to close one from. `ui-state-lifecycle.ts` says what an unclosed
+  // ref has nowhere to close one from. `frame/bindings/ui-state-lifecycle.ts` says what an unclosed
   // one costs; `UiStateStore.opening` still returns immediately, so first paint
   // waits on no storage.
   const uiStateStore = useUiStateStore();
@@ -149,11 +149,11 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   }, [schemePreference]);
 
   // The route follows the hash and the hash follows the route, both through one
-  // owner. `hash-route-binding.ts` says why one owner and not two effects here.
+  // owner. `frame/bindings/hash-route-binding.ts` says why one owner and not two effects here.
   useHashRouteBinding(frameStore, hash);
 
   // Every loader-backed body on both boards, warmed once after this window's first
-  // frame. `lazy-body-warm-binding.ts` says why this is what a loader costs a person
+  // frame. `frame/bindings/lazy-body-warm-binding.ts` says why this is what a loader costs a person
   // rather than a launch: the chunks are fetched on idle callbacks, so the first open
   // of any pane or destination is warm and none of it was charged to the launch.
   useLazyBodyIdleWarm(consolePaneRegistry, consoleSurfaceRegistry);

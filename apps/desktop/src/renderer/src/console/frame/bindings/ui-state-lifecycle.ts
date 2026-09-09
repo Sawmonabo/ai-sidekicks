@@ -9,7 +9,7 @@
 // `close` contract names that exact failure, and nothing was calling it.
 //
 // So the store is owned by a hook rather than by a ref in a render body. The shape
-// is `session-lifecycle.ts`'s, deliberately — same window, same question, and a
+// is `frame/session/session-lifecycle.ts`'s, deliberately — same window, same question, and a
 // second answer to it would be a second place to get the teardown wrong:
 //
 //   • **Held by `useSubjectScopedResource`, not by `useState`.** The store's clock comes
@@ -36,14 +36,14 @@
 //     closed. That arm cannot be a render-phase comparison: the close happens in a
 //     cleanup and is invisible to the render before it, so the hook asks the store
 //     where its lifetime effect runs — which is what makes the arm correct without a
-//     second flag beside it, and the same arm `session-lifecycle.ts` passes.
+//     second flag beside it, and the same arm `frame/session/session-lifecycle.ts` passes.
 //   • **On the bridge's clock, like every other subsystem this window owns.** The
 //     store stamps each record's `updatedAt` from a clock and arms the database
 //     open's timeout on the same one, and both defaulted to the wall clock — so
 //     under the fixture a record written between two scenario beats carried a
 //     timestamp from outside the scenario, and the LRU trim that orders entirely
 //     on those stamps ordered on how fast the host was. `consoleClockFor` is the
-//     one answer to which clock a window runs on; `session-lifecycle.ts` asks it
+//     one answer to which clock a window runs on; `frame/session/session-lifecycle.ts` asks it
 //     the same question for the session registry.
 
 import { consoleClockFor, useConsoleBridge, type ConsoleBridge } from "../../bridge/index.js";
@@ -98,7 +98,7 @@ function closeUiStateStore(store: UiStateStore): void {
 /**
  * How a store ends, stated once: it is closed, and a closed one is readable.
  *
- * THE TERMINAL ARM, for the reason `session-lifecycle.ts` states about the plumbing:
+ * THE TERMINAL ARM, for the reason `frame/session/session-lifecycle.ts` states about the plumbing:
  * `close` shuts one database connection and there is no reopening it, so React's
  * double-mount would leave the window writing into a connection that answers nothing
  * unless the hook can tell a closed store from a live one. `isClosed` is the store's

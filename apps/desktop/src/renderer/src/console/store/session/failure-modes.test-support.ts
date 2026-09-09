@@ -2,7 +2,7 @@
 //
 // One home for the builder the four sibling suites share, and now a thin one: the
 // event literal and the sequence-to-timestamp rule both moved to
-// `session-event.test-support.ts`, which seven suites were each spelling for
+// `store/session-event.test-support.ts`, which seven suites were each spelling for
 // themselves. What survives here is the part that is about THESE suites — the
 // session they all drive, and the overrides shape their cases use to make one member
 // wrong at a time.

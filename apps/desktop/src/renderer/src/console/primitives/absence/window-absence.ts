@@ -1,6 +1,6 @@
 // The ways a WINDOW is not the whole of what it is a window onto.
 //
-// Beside `partial-read.ts` and deliberately not inside it. That module is about a
+// Beside `primitives/reading/partial-read.ts` and deliberately not inside it. That module is about a
 // READ: how completely the answer a surface asked for came back. This one is about a
 // window's own cap — rows the log still holds and this viewport does not, because
 // the cap took them, because a replay position is parked in front of them, or
@@ -123,7 +123,7 @@ function producerNoun(named: string | undefined): string {
  *
  * `subject` is a lowercase PLURAL noun phrase naming what the window holds —
  * "entries", "rows", "deliveries". Plural because every sentence here is about some
- * of them, and mid-sentence in every arm for the reason `partial-read.ts` gives:
+ * of them, and mid-sentence in every arm for the reason `primitives/reading/partial-read.ts` gives:
  * a caller that capitalized it in one place and not another is the drift these
  * modules exist to remove.
  *

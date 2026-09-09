@@ -17,7 +17,7 @@
 // subsystem in a fixture window still reading wall time: a refusal raised by a
 // scenario beat cleared on how fast the runner happened to be, so what a reader
 // hears and what a screenshot captures both depended on the host. `useConsoleClock`
-// is the same answer `ui-state-lifecycle.ts` and `session-lifecycle.ts` ask for,
+// is the same answer `frame/bindings/ui-state-lifecycle.ts` and `frame/session/session-lifecycle.ts` ask for,
 // and the frame is where it is asked because `primitives/` sits below `bridge/` in
 // the family DAG and cannot ask for itself.
 //

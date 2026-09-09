@@ -29,7 +29,7 @@
 // only the pair would find the first visit's publisher still valid on the third, so
 // that visit's reply — dispatched first, answered last — would overwrite the answer the
 // surface on screen had already read. So each addressing takes a serial that is never
-// reissued, the same mechanism `generation-latch.ts` uses next door, and a settlement
+// reissued, the same mechanism `store/read/generation-latch.ts` uses, and a settlement
 // is admitted only while the addressing it was captured under is one still held.
 //
 // AN ADDRESSING IS HELD IN TWO PHASES, BECAUSE A RENDER IS NOT A COMMIT. A pass that

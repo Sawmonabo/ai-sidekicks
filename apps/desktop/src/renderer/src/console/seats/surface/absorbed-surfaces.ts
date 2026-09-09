@@ -202,7 +202,7 @@ export function renderAbsorbedNodeRoster(
  * health, and what it can run — in the main process, off the node registry. A caller
  * that could pass a draft in would be a caller that could compose one, and a renderer
  * composing one is a renderer vouching for a machine on its own word. So the draft is
- * RESOLVED here and invented nowhere: `node-attach-seam.ts` asks the running scenario
+ * RESOLVED here and invented nowhere: `seats/node-roster/node-attach-seam.ts` asks the running scenario
  * under the fixture, and answers nothing under the live bridge, where no registered
  * read delivers such a declaration to this renderer yet.
  *
@@ -251,7 +251,7 @@ export function renderAbsorbedAttachFlow(
  * could reach past the console's bridge, because it reaches for no bridge at all.
  *
  * The map arrives from the roster read the absorbed roster ALREADY performed, through
- * `node-roster-seam.ts`, so the capabilities on screen and the rows beside them are one
+ * `seats/node-roster/node-roster-seam.ts`, so the capabilities on screen and the rows beside them are one
  * answer rather than two that can disagree.
  */
 export function renderAbsorbedCapabilityDeclaration(

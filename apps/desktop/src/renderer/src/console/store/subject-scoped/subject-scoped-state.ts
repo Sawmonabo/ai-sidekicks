@@ -21,7 +21,7 @@
 // a drop releases.
 //
 // WHAT THIS IS NOT. It is not single-flight: whether an act may be dispatched at all
-// is `generation-latch.ts`, which a handler has to decide inside its own tick. It is
+// is `store/read/generation-latch.ts`, which a handler has to decide inside its own tick. It is
 // not a cache — nothing here survives the subject it was held for. And it is not a
 // scheduler; a burst collapsing into one read is `store/read/refresh-scheduler.ts`.
 

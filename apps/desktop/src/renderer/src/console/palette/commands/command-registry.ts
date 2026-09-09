@@ -115,7 +115,7 @@ export class CommandRegistry {
    *
    * False for an unknown command, false for an unparseable clause, false for a
    * clause naming a key the context does not carry. Three different reasons, one
-   * fail-closed answer — see `when-clause.ts`.
+   * fail-closed answer — see `palette/when-clause/when-clause.ts`.
    */
   public isVisible(commandId: string, context: WhenClauseContext): boolean {
     const command = this.#commandsById.get(commandId);

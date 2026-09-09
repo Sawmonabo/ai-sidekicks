@@ -4,7 +4,7 @@
 // together and below everything because they are the family's two INPUT types, and
 // every module here is either a consumer of them (`CommandRegistry`,
 // `KeyBindingTable`) or a decision procedure over them (`command-ranking.ts`,
-// `keybinding-conflicts.ts`).
+// `palette/keybindings/keybinding-conflicts.ts`).
 //
 // WHY THEY ARE NOT DECLARED BESIDE THEIR CONSUMERS. They were, and it closed two
 // cycles: `command-registry.ts` reached down to `command-ranking.ts` for the order
@@ -28,7 +28,7 @@ export interface ConsoleCommand {
   readonly title: string;
   /** The palette category this row sits under. Also a secondary match field. */
   readonly group: string;
-  /** A `when-clause.ts` expression. Absent means unconditional. */
+  /** A `palette/when-clause/when-clause.ts` expression. Absent means unconditional. */
   readonly when?: string;
   /** Extra words a person might type for this command. Matched below the title. */
   readonly keywords?: readonly string[];
@@ -67,7 +67,7 @@ export interface KeyBinding {
   /** tinykeys syntax, single press, `$mod` for Cmd on macOS and Ctrl elsewhere. */
   readonly chord: string;
   readonly commandId: string;
-  /** A `when-clause.ts` expression. Absent means the binding is always live. */
+  /** A `palette/when-clause/when-clause.ts` expression. Absent means the binding is always live. */
   readonly when?: string;
   /**
    * Fire even while focus is in a text field. Default false.

@@ -24,8 +24,8 @@
 // whole record goes when the bridge does: the markers, the settlements, and the
 // durable authority retire together, and a session started under a superseded bridge
 // answers `origin-unreported` — which is true, since nothing this window can reach
-// still reports where that session came from. `absorbed-surfaces.ts` and
-// `session-directory.ts` key their own per-bridge state the same way and for the same
+// still reports where that session came from. `seats/surface/absorbed-surfaces.ts` and
+// `seats/session-directory.ts` key their own per-bridge state the same way and for the same
 // reason.
 //
 // A `WeakMap` rather than a `Map` because the key is the whole lifetime: a superseded
@@ -178,7 +178,7 @@ class BridgeAutoPinRecord {
  *
  * A class with private fields rather than a module-level `Map`, on the rule
  * `apps/desktop/AGENTS.md` §State and views states and the precedent
- * `absorbed-surfaces.ts` sets in this family: module scope is WINDOW scope here,
+ * `seats/surface/absorbed-surfaces.ts` sets in this family: module scope is WINDOW scope here,
  * since an auxiliary window is its own renderer process and no channel joins two
  * windows' module graphs.
  */

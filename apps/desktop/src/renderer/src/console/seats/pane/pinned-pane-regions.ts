@@ -20,7 +20,7 @@
 // KEYED BY PANE KIND, AND THE SET IS NOT WIDENED. `PANE_KINDS` is closed at eleven and
 // fixed by that spec section; a region is a thing a pane of an existing kind wears,
 // never a twelfth kind. One body per kind, owner-scoped exactly as
-// `inline-card-seats.ts` and `sidebar-sections.ts` are: a hot reload re-runs the
+// `seats/slots/inline-card-seats.ts` and `seats/slots/sidebar-sections.ts` are: a hot reload re-runs the
 // owning family's module and must replace, while two owners on one kind is a conflict
 // rather than a swap decided by import order.
 //
@@ -70,7 +70,7 @@ export interface PinnedPaneRegionContext {
   /**
    * How a region body opens a pane, where the pane's host offers the act at all.
    *
-   * Handed down rather than imported, on the shape `sidebar-sections.ts` already
+   * Handed down rather than imported, on the shape `seats/slots/sidebar-sections.ts` already
    * takes for its own sections: a region rendered in an auxiliary window opens panes
    * in THAT window's deck, and a region that reached for a process-wide opener would
    * put its route into whichever deck happened to be composed last.
@@ -117,8 +117,8 @@ export class PinnedPaneRegionRegistry {
    * Which pane kinds have a region body, in declaration order.
    *
    * Enumerated over `PANE_KINDS` rather than over the map's own keys, so the order is
-   * the spec's order and not insertion order — the same reading `inline-card-seats.ts`
-   * and `sidebar-sections.ts` take of their own sets.
+   * the spec's order and not insertion order — the same reading `seats/slots/inline-card-seats.ts`
+   * and `seats/slots/sidebar-sections.ts` take of their own sets.
    */
   public registeredPaneKinds(): readonly PaneKind[] {
     return PANE_KINDS.filter((kind) => this.#descriptorsByKind.has(kind));

@@ -9,7 +9,7 @@
 // process-wide instance — a family calling one would compose into production from
 // inside a composition that had handed it somewhere else.
 //
-// WHY THIS IS NOT `surface-registry.ts`, BESIDE IT IN THIS FAMILY
+// WHY THIS IS NOT `seats/surface/surface-registry.ts`, BESIDE IT IN THIS FAMILY
 //
 // A SURFACE is what a route mounts — one per navigable destination, at most one on
 // screen. A PANE is what the deck holds — several at once, opened by the sidebar,
@@ -93,7 +93,7 @@ export type ConsolePaneRegistration =
     });
 
 export class ConsolePaneRegistry {
-  // `"owner-scoped"`, for `surface-registry.ts`'s reason: re-registering
+  // `"owner-scoped"`, for `seats/surface/surface-registry.ts`'s reason: re-registering
   // under the same owner replaces (a hot reload re-runs a family's module), and a
   // different owner claiming a taken kind is a conflict rather than a swap,
   // because which body mounts would otherwise depend on module import order.

@@ -1,7 +1,7 @@
 // The axis a subject key cannot carry: which SESSION STORE a held resource reads
 // against.
 //
-// `subject-scoped-resource.ts` holds one resource per `(subject, key)`, and every
+// `store/subject-scoped/subject-scoped-resource.ts` holds one resource per `(subject, key)`, and every
 // reading in the console that watches a session has THREE collaborators for those two
 // slots — the bridge it calls through, the identity it is addressed by, and the store
 // whose repair edge and named frames are two of the three reasons
@@ -13,7 +13,7 @@
 // the answer it read before the reconnect with nothing on screen saying why.
 //
 // THE RULE IS WRITTEN ONCE HERE BECAUSE FOUR BINDINGS WOULD OTHERWISE WRITE IT. The
-// three repos act controllers reach it through `use-act-controller.ts`, which every
+// three repos act controllers reach it through `store/act/use-act-controller.ts`, which every
 // act controller binds through, and the workspace execution-context reader calls it
 // directly beside its own `useSubjectScopedResource`. `apps/desktop/AGENTS.md`
 // §Shared code hoists on the second use, and the shape a copy of this drifts in is

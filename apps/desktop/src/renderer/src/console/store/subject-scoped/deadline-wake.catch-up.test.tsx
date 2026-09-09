@@ -4,7 +4,7 @@
 // next door: those are about what gets ARMED, this is about which instant a late
 // wake-up publishes — the difference between one render and one per deadline behind
 // the surface. The clock and the render harness are shared through
-// `deadline-wake.test-support.tsx`.
+// `store/deadline-wake.test-support.tsx`.
 
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

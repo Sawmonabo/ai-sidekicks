@@ -1,6 +1,6 @@
 // What a surface is handed, below every module that hands it one.
 //
-// HOISTED OUT OF `surface-registry.ts` for `pane-context.ts`'s reason and no other: the
+// HOISTED OUT OF `surface-registry.ts` for `seats/pane/pane-context.ts`'s reason and no other: the
 // frame's board mounts a reserved frame while a loader-backed surface is in flight, so
 // the registry reaches `PendingSurfaceBody.tsx`, which names the context a surface is
 // mounted with. Declaring that context in the registry made the pair a cycle, and the

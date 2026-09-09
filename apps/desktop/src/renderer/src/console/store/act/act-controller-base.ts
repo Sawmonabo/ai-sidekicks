@@ -123,7 +123,7 @@ export abstract class ActSurfaceController<TValue, TSettlement extends ActSettle
   /**
    * Whether this controller's triggers are armed on `sessionStore`.
    *
-   * `session-store-rebind.ts` states the axis; this is where every act controller
+   * `store/session/session-store-rebind.ts` states the axis; this is where every act controller
    * answers it, rather than three subclasses each holding the store again. A store
    * replaced under an unchanged bridge and identity retires the triggers this
    * controller armed, and the binding above it mints a replacement on this answer.

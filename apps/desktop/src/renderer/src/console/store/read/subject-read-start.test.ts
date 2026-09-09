@@ -4,7 +4,7 @@
 // Asserted here rather than through a rendered surface because that is the whole of
 // what this module decides. What happens to the value afterwards — which frame carries
 // it, which settlement is admitted, what a re-address discards — belongs to
-// `subject-scoped-holder.ts` and is proved against the holder itself. Three surfaces
+// `store/subject-scoped/subject-scoped-holder.ts` and is proved against the holder itself. Three surfaces
 // disagreed about the rule below in three different ways before it was written down
 // once, and each of them now passes it in as the holder's `initial`.
 

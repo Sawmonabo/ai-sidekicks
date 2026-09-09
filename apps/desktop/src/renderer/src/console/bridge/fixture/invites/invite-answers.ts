@@ -19,7 +19,8 @@ import type { ScenarioEngine } from "../../scenario-runtime/index.js";
 /**
  * The six invite operations the fixture answers.
  *
- * Declared here and spread into `FIXTURE_SERVED_GROWTH_OPERATION_IDS` next door, on
+ * Declared here and spread into `FIXTURE_SERVED_GROWTH_OPERATION_IDS` in
+ * `call-plane/served-operations.ts`, on
  * `FIXTURE_SERVED_SHELL_OPERATION_IDS`' rule: the ids and the implementations below
  * are one set with one home, and a second tuple in the served module would agree with
  * this one until a verb landed in only one of them.

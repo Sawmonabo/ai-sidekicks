@@ -13,7 +13,7 @@
 // owner of a table it consumes, and the next reader would put the next chord
 // concern in the wrong place.
 //
-// The stylesheet is imported HERE and not from `PaletteOverlay.tsx`, so every
+// The stylesheet is imported HERE and not from `palette/overlay/PaletteOverlay.tsx`, so every
 // family's CSS arrives through that family's one door. A component importing its
 // own sheet works until a second component in the family needs it, at which point
 // the sheet's presence depends on which component the bundler reached first.
@@ -33,9 +33,9 @@ export { CommandRegistry } from "./commands/command-registry.js";
 // `registerConsoleCommand`, the singular, is deliberately absent; so is the
 // `CONSOLE_WHEN_CLAUSE_KEYS` tuple the clause types are derived FROM, and so is
 // `ConsoleWhenClauseKey` itself, which now has no reader outside this family at all —
-// `command-surface.ts` beside it scopes the frame's two shapes to the key and imports
-// it as a sibling — and so are `consoleFamilyKeyBindings` and
-// `subscribeToConsoleFamilyContributions`, whose one reader is that same sibling.
+// `palette/commands/command-surface.ts` scopes the frame's two shapes to the key and
+// imports it from inside the family — and so are `consoleFamilyKeyBindings` and
+// `subscribeToConsoleFamilyContributions`, whose one reader is that same module.
 // Every family that contributes contributes a SET, and every family that writes a
 // clause writes it against the CONTEXT. A door line for any of the five would be a
 // specifier no production module reaches, which the barrel census reports rather than
@@ -111,7 +111,7 @@ export { KeyBindingTable } from "./keybindings/keybindings.js";
 // The chord grammar itself, forwarded because it is this family's own and because a
 // second consumer arrived for it: `browser/pane/handback/keyboard-handback.ts` has to decide whether
 // a keystroke inside an embedded page is one the console bound, which is the same
-// question `keybindings.ts` asks and has to be answered by the same parser and the
+// question `palette/keybindings/keybindings.ts` asks and has to be answered by the same parser and the
 // same matcher. A chord grammar written a second time beside that decision is how a
 // mirror and a table start disagreeing about what `$mod+KeyK` means — and the MATCHER
 // rather than the comparison key is what that consumer needs, because the grammar's

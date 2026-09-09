@@ -137,7 +137,7 @@ describe("pane registry — the module-scope door", () => {
   it("claims a kind on the process-wide registry", () => {
     // Driven here rather than left to its first caller to discover: no view family
     // has shipped, so `registeredPaneKinds` is a contract that would otherwise rot
-    // unexercised — the same reason `surface-registry.test.ts` drives its own door.
+    // unexercised — the same reason `seats/surface/surface-registry.test.ts` drives its own door.
     // The claim goes in through the registry itself: the module-scope convenience
     // that used to write here was deleted with the arity-five composition, because a
     // family that called it would write into production from inside a composition

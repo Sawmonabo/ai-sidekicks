@@ -58,7 +58,7 @@ describe("command surface — the chords the frame binds", () => {
 
   it("negative control: no two destinations answer to one chord", () => {
     // Without this, a table that gave every destination `$mod+1` would satisfy the
-    // case above and leave two of the three chords dead — `keybinding-conflicts.ts`
+    // case above and leave two of the three chords dead — `palette/keybindings/keybinding-conflicts.ts`
     // would refuse the install, which is a raise at mount rather than an answer.
     const chords = FRAME_KEY_BINDINGS.map((binding) => binding.chord);
     expect(new Set(chords).size).toBe(chords.length);

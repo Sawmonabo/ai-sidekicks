@@ -111,7 +111,7 @@ export interface ReadRound extends CurrentGenerationClaim {
  * superseded round makes way for the next one; an abandoned scope has no next one,
  * and a round opened on it is born over. The reading is published so the React
  * binding below can recognise the corpse React's double-mount hands back — which is
- * exactly the `{ dispose, isClosed }` pair `subject-scoped-resource.ts` demands, and
+ * exactly the `{ dispose, isClosed }` pair `store/subject-scoped/subject-scoped-resource.ts` demands, and
  * the reason this class carries a reading at all.
  */
 export class ReadScope {

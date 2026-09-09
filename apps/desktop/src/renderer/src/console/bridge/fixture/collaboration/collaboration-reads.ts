@@ -1,9 +1,9 @@
 // What the fixture answers for the channel plane, the membership plane, and the one
 // session-scoped fact the roster renders beside them.
 //
-// One module beside `growth/growth-port.ts` on `workflows/workflow-reads.ts`'s rule:
-// these eight operations share one disposition and one reason for it, and the port
-// next door would carry both twice over if they lived inline.
+// A module of its own rather than a block inside `growth/growth-port.ts`, on
+// `workflows/workflow-reads.ts`'s rule: these eight operations share one disposition
+// and one reason for it, and the port would carry both twice over if they lived inline.
 //
 // EVERY ONE OF THEM REFUSES WHERE THE SCENARIO SCRIPTS NOTHING, and that is the
 // finding rather than an omission. The served set's own rule admits an empty answer
@@ -33,7 +33,8 @@
 //     distinctly from every other, and a fixture that made it the default would put
 //     the claim on screen in every scenario that never mentioned the terminal.
 //
-// So all eight are declared script-only next door, and the sweep in
+// So all eight are declared script-only in `call-plane/script-only-operations.ts`,
+// and the sweep in
 // `growth/growth-port.test.ts` holds each to the `reply-unscripted` refusal rather
 // than to the `wire-unregistered` one a build with no stand-in would take.
 //

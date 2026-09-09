@@ -167,7 +167,7 @@ describe("RouteSurface — an agent-console window collects both identifiers bef
     cleanup();
     // The reset queues a `hashchange` of its own, and happy-dom delivers queued
     // ones on a debounced timer. Landing it here, with no binding mounted, keeps
-    // it out of the next case's flush — `hash-route-binding.test.tsx` records the
+    // it out of the next case's flush — `frame/bindings/hash-route-binding.test.tsx` records the
     // same reason for the same shape.
     window.location.hash = "";
     await crossMacrotaskBoundary();

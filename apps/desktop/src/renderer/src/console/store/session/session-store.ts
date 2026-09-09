@@ -23,9 +23,9 @@
 //     divergence bound past which a sequence is refused rather than admitted.
 //   • `pre-initialisation-buffer.ts` — the bounded hold for events that arrive
 //     before a base state, and the counted drop at its cap.
-//   • `entity-projection.ts` — running one event's projector all-or-nothing.
-//   • `entity-partitions.ts` — the immutable partition merges a mutation performs.
-//   • `degradation.ts` — which cause survives when more than one is standing.
+//   • `store/entities/entity-projection.ts` — running one event's projector all-or-nothing.
+//   • `store/entities/entity-partitions.ts` — the immutable partition merges a mutation performs.
+//   • `store/degradation.ts` — which cause survives when more than one is standing.
 //   • `session-state.ts` / `selectors.ts` — the committed state and its narrow reads.
 //
 // What is left here, and is genuinely this class's own:

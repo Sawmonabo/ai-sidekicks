@@ -1,7 +1,7 @@
 // The runtime-node roster, answered from the scenario the fixture is playing.
 //
-// WHY IT IS HERE. `index.ts` beside this file states the rule: a module that exists so
-// the fixture can ANSWER something belongs in this directory, and a roster is the first
+// WHY IT IS HERE. `bridge/fixture/index.ts` one level up states the rule: a module that
+// exists so the fixture can ANSWER something belongs in this family, and a roster is the first
 // example that header gives. Declared beside the seam's vocabulary instead, this read
 // was the only thing under `bridge/runtime-nodes/` that reached `scenario-runtime/` at
 // all — so the feed directory carried an edge into the scripting engine for one

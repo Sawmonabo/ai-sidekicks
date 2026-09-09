@@ -1,7 +1,7 @@
 // The session's live activity, answered from the scenario the fixture is playing.
 //
-// WHY IT IS HERE. `index.ts` beside this file states the rule: a module that exists
-// so the fixture can ANSWER something belongs in this directory. This is the roster
+// WHY IT IS HERE. `bridge/fixture/index.ts` one level up states the rule: a module
+// that exists so the fixture can ANSWER something belongs in this family. This is the roster
 // read's shape applied to a faster-moving fact — frames over scenario time, resolved
 // by the latest one that has fallen due — and it deliberately shares that module's
 // selection rule rather than restating it, because the two make one claim: a frame

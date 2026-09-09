@@ -14,8 +14,8 @@
 // can answer is wrong before any code runs, and a port whose answer is composed wrongly
 // is wrong at the call. They are also read by different callers —
 // `scenario-runtime/scenario-manifest.ts` ledgers the set and `bridge.ts`
-// publishes it as the bridge's served set, while the builder next door is reached only
-// by the fixture bridge itself. What follows is the reasoning for every membership.
+// publishes it as the bridge's served set, while the builder in `growth/growth-port.ts`
+// is reached only by the fixture bridge itself. What follows is the reasoning for every membership.
 //
 // WHY THE BRANCH-CONTEXT READ IS SERVED FROM THE SCRIPT AND REFUSES WITHOUT ONE
 //
@@ -45,7 +45,7 @@
 //     invent both branch names — and `BranchContextReadResponse` requires them.
 //
 // So a scenario says it in a reply or it does not say it, and `findScenariosNaming`
-// in `growth/growth-port.gitflow.test.ts` beside this file is what keeps that claim
+// in `growth/growth-port.gitflow.test.ts` is what keeps that claim
 // true: it names every scenario that states a branch, and the day the set changes
 // that case fails and this derivation is what has to change.
 //
@@ -85,7 +85,8 @@
 //     either, because a node with no definitions and a node nobody asked are answers
 //     to different questions.
 //
-// `findScenariosNaming` beside this file pins the callback-tool premise the way the
+// `findScenariosNaming` in `growth/growth-port.test-support.ts` pins the callback-tool
+// premise the way the
 // branch finder pins its own, and pins the identity premise from the other side: no
 // scenario states a viewer under any name but the one field the port reads.
 //
