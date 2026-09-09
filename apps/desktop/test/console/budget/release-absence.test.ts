@@ -56,7 +56,17 @@
 // and would have been vacuous as a source-text tripwire: the module is reached from the
 // production entry through `core/index.ts`, so a literal it declares is genuinely in the
 // graph, and its absence from `out/renderer` is evidence of the fold rather than evidence
-// of nothing.
+// of nothing. Which of its kinds are meter-only is the one roster this file NAMES rather
+// than derives, and the block declaring it says why and what that costs.
+//
+// THE FIFTH SUBJECT: THE FIXTURE-ONLY GROWTH LEDGER (2026-09-09). The room a fourth time,
+// and the first one the bundle budget caught before this file did. `GROWTH_PREREQUISITES`
+// is built by CALLS to two row builders, and a call is something Rollup must assume did
+// work — so the whole ledger rode the release entry chunk even though its one non-test
+// consumer is compiled out. Annotating every row `/* @__PURE__ */` removed it, and the
+// module header now tells a later author that a row added without one is a row that
+// ships. That sentence is a claim about a reader's care until something checks it, and
+// the sweep below is what checks it against the artifact.
 //
 // THE MARKERS ARE READ FROM THE CORPUS, never written here, so a scenario a later
 // family adds is swept the day it lands and no roster in this file goes stale. They are
@@ -76,8 +86,12 @@ import ts from "typescript";
 
 import { describe, expect, it } from "vitest";
 
+import { GROWTH_PREREQUISITES } from "../../../src/renderer/src/console/bridge/growth-port/growth-prerequisites.js";
 import { FIXTURE_GLOBAL_NAMES } from "../../../src/renderer/src/console/core/fixture-globals.js";
-import { PERF_METER_KINDS } from "../../../src/renderer/src/console/core/perf-meters/perf-meters.js";
+import {
+  PERF_METER_KINDS,
+  type PerfMeterKind,
+} from "../../../src/renderer/src/console/core/perf-meters/perf-meters.js";
 import { readBuiltTextOrFailLoudly, type BuiltFile } from "./built-renderer-tree.js";
 import {
   CONSOLE_DIRECTORY,
@@ -276,44 +290,76 @@ function ownerSlotShellClassRoots(): readonly string[] {
 
 const OWNER_SLOT_SHELL_CLASS_ROOTS: readonly string[] = ownerSlotShellClassRoots();
 
-/** Where the perf meters live, as the one subtree this sweep's filter subtracts. */
-const PERF_METER_DIRECTORY_PREFIX = "core/perf-meters/";
+/**
+ * The perf-meter kinds a release renderer must not carry, named rather than derived.
+ *
+ * NOT EVERY KIND IN THE TUPLE, and the exceptions are the whole design. `"reveal-drain"`
+ * is also a `ledger/frame/viewport/cycle/window-cap.ts` reason code and a
+ * `viewport-prune-cycle.ts` case label, and `"frame-time"` is written by surfaces that
+ * have nothing to do with the meters — real product strings a clean release build carries
+ * for their own reasons — so sweeping the tuple whole would fail on a correct bundle and
+ * be silenced rather than believed, which is exactly what the scenario-label subject
+ * above already paid for once. `"apply-latency"` and `"store-size"` are the meters' own
+ * words, so their absence from `out/renderer` is evidence of the fold.
+ *
+ * NAMED HERE, THOUGH THE NEIGHBOURING ROSTERS ARE DERIVED (2026-09-09). An earlier form
+ * subtracted the exceptions by reading every console module's SOURCE TEXT, and
+ * `apps/desktop/AGENTS.md` puts that shape out of bounds: a structural rule lives in one
+ * of the package's three configs or in that file, and no test reads source text. The
+ * neighbours above read a fixture CORPUS to learn what a fixture says, which is a
+ * different act from reading the tree to decide what a rule covers; this list was the
+ * second, so it is stated instead.
+ *
+ * WHAT THAT COSTS, IN ONE SENTENCE: a kind on this list that later gains a reader
+ * elsewhere in the console turns the sweep red on a correct build, and a new meter-only
+ * kind is swept only once someone adds it here — the first reports itself the day it
+ * happens and is answered by moving the kind off this list, and the second is what the
+ * `satisfies` clause and the control below exist to keep visible.
+ *
+ * `satisfies` rather than a bare array of strings: the tuple is IMPORTED, so a renamed or
+ * retired kind is a compile error here rather than a case that quietly matches nothing.
+ * That import is a leaf whose only import is its own bounds table, so it reaches neither
+ * the DOM nor a workspace package, and this tier's block in `vitest/console-projects.ts`
+ * names that exact property as the reason it substitutes the define.
+ */
+const RELEASE_ABSENT_METER_KINDS = [
+  "apply-latency",
+  "store-size",
+] as const satisfies readonly PerfMeterKind[];
 
 /**
- * The perf-meter kinds a release renderer must not carry, derived rather than named.
+ * Every id the fixture-only growth ledger declares, as the markers to sweep for.
  *
- * SWEPT FOR THE KINDS NO OTHER CONSOLE MODULE WRITES, and that filter is the whole
- * design. `"reveal-drain"` is also a `ledger/frame/viewport/cycle/window-cap.ts` reason
- * code and a `viewport-prune-cycle.ts` case label — real product strings a clean release
- * build carries for their own reasons — so sweeping the tuple whole would fail on a
- * correct bundle and be silenced rather than believed, which is exactly what the
- * scenario-label subject above already paid for once. The filter reads the tree rather
- * than naming the exceptions, so a kind that gains a second declaration leaves the sweep
- * on the day it does, and a fifth kind joins it on the day IT does.
+ * ONE MARKER PER ROW, THOUGH THE FOLD MEASURES ALL-OR-NOTHING TODAY. Removing a single
+ * annotation brought the WHOLE table back — all twenty-five ids in the entry chunk, and
+ * the initial-bundle budget red beside them at 450,151 B — because one impure initializer
+ * makes the whole exported declaration something Rollup must keep. That behaviour is the
+ * bundler's treatment of this shape and not a contract: a bundler that dropped the
+ * annotated rows and retained only the unannotated call would leave a one-marker sweep
+ * green whenever the row it sampled was not the row that lost its annotation. Sweeping
+ * every row costs a substring scan each, states the claim the module header actually
+ * makes, and gives the failure a roster rather than a sample.
  *
- * The tuple itself is IMPORTED rather than parsed, unlike the scenario corpus: it is a
- * leaf whose only import is its own bounds table, so it reaches neither the DOM nor a
- * workspace package, and this tier's block in `vitest/console-projects.ts` names that
- * exact property as the reason it substitutes the define — a renderer constant a rename
- * should break at compile time.
+ * THE ID RATHER THAN THE SUMMARY, which was the first choice and is wrong (measured
+ * 2026-09-09). The summary reads better in a failure, but the ledger's other half —
+ * `growth-slate.ts` — is on the initial import graph BY DESIGN: its `wire` sentence is
+ * what a person sees when an operation refuses. A prerequisite row and its slate row
+ * describe the SAME missing wire, so a summary phrased as a sub-phrase of that sentence
+ * is a string a correct release build carries, and one of the twenty-five already was.
+ * Subtracting the slate's prose would have papered over a relationship that recurs by
+ * construction. The id has no such twin: `GrowthPrerequisiteId` is a closed union
+ * declared for this table alone, the union is a TYPE and therefore erased, and the table
+ * is the string's only runtime home — measured absent from every file of a release build.
+ * A future collision still goes red on a clean build, and the answer is to rename the
+ * row, never to silence the case.
+ *
+ * IMPORTED RATHER THAN PARSED, for the meter tuple's reason: this table's own imports are
+ * type-only, so it reaches neither the DOM nor a workspace package, and a row renamed or
+ * retired is a compile error here rather than a case that matches nothing.
  */
-function releaseAbsentMeterKinds(): readonly string[] {
-  const declaredElsewhere = new Set<string>();
-  for (const module of consoleSourceModules()) {
-    if (toPosixSeparators(module.relativePath).startsWith(PERF_METER_DIRECTORY_PREFIX)) {
-      continue;
-    }
-    const text = readConsoleSourceModule(module);
-    for (const kind of PERF_METER_KINDS) {
-      if (text.includes(kind)) {
-        declaredElsewhere.add(kind);
-      }
-    }
-  }
-  return PERF_METER_KINDS.filter((kind) => !declaredElsewhere.has(kind));
-}
-
-const RELEASE_ABSENT_METER_KINDS: readonly string[] = releaseAbsentMeterKinds();
+const GROWTH_LEDGER_MARKERS: readonly string[] = Object.values(GROWTH_PREREQUISITES)
+  .map((entry) => entry.id)
+  .sort();
 
 /**
  * Which built files carry a marker.
@@ -396,12 +442,16 @@ describe("release bundle — the fixture surface is absent, not merely unreachab
     ).toStrictEqual([]);
   });
 
-  it("positive control: the meter sweep has kinds left to look for", () => {
-    // The derivation subtracts every kind another console module also writes, so a
-    // filter that widened by one module would empty the set and make the case below
-    // vacuous without failing it. This is the assertion that catches that, and it is
-    // the one that fires the day a family names a meter kind in its own vocabulary.
+  it("positive control: every named meter kind is one the module still declares", () => {
+    // The list next door is written out rather than derived, so this is the control
+    // against it going stale: an emptied list makes the case below vacuous without
+    // failing it, and a kind the tuple no longer holds is a case that can never match.
+    // The `satisfies` clause makes the same claim at compile time; this one makes a
+    // `test` run report it without a `typecheck` beside it.
     expect(RELEASE_ABSENT_METER_KINDS.length).toBeGreaterThan(0);
+    for (const kind of RELEASE_ABSENT_METER_KINDS) {
+      expect(PERF_METER_KINDS).toContain(kind);
+    }
   });
 
   it.each(RELEASE_ABSENT_METER_KINDS)("does not ship the perf-meter kind %s", (kind) => {
@@ -414,6 +464,25 @@ describe("release bundle — the fixture surface is absent, not merely unreachab
         "call site has left its `__SIDEKICKS_CONSOLE_FIXTURES__` guard, or `PERF_METER_KINDS` " +
         "gained a production reader that keeps the tuple in the graph. The guard is the " +
         "mechanism the module's own header claims; this is the outcome.",
+    ).toStrictEqual([]);
+  });
+
+  it("positive control: the ledger sweep has rows to look for", () => {
+    // Derived from the table, so a ledger that stopped declaring rows would make every
+    // case below vacuous without failing one of them.
+    expect(GROWTH_LEDGER_MARKERS.length).toBeGreaterThan(0);
+  });
+
+  it.each(GROWTH_LEDGER_MARKERS)("does not ship the growth-ledger row %s", (marker) => {
+    const carriers = carriersOf(marker, builtFiles);
+    expect(
+      carriers,
+      `"${marker}" reached the built tree, so a release renderer is carrying a row of ` +
+        "the fixture-only growth ledger. Either `out/renderer` currently holds a " +
+        "fixtures build — `pnpm build:fixtures` and `pnpm build` write the same " +
+        "directory — or this row lost its `@__PURE__` annotation in " +
+        "`console/bridge/growth-port/growth-prerequisites.ts`, which leaves its builder " +
+        "call an act Rollup must keep, arguments and all.",
     ).toStrictEqual([]);
   });
 
