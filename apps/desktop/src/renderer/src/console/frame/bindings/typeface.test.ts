@@ -11,7 +11,10 @@ describe("the self-hosted faces", () => {
   // `FONT_STACKS`, because that record is internal to the tokens family — putting
   // it on that family's door for a test would be a door line with no production
   // reader, which the barrel census fails. The sheet is what the document
-  // actually gets, so it is also the better witness.
+  // actually gets, so it is also the better witness. It is also the assertion that
+  // catches the descriptor the variable builds make easy to get wrong: these files
+  // are named `IBM Plex Sans Var` internally, and a face declared under that name
+  // would load and be asked for by nothing.
   it("supply every family the token sheet's stacks name first", () => {
     const sheet = generateMeridianCss();
     for (const family of new Set(TYPEFACE_FACES.map((face) => face.family))) {
@@ -19,12 +22,25 @@ describe("the self-hosted faces", () => {
     }
   });
 
-  it("cover the weights the console's stylesheets ask for, on both families", () => {
-    for (const family of new Set(TYPEFACE_FACES.map((face) => face.family))) {
-      const weights = TYPEFACE_FACES.filter((face) => face.family === family).map(
-        (face) => face.weight,
-      );
-      expect(weights.sort((first, second) => first - second)).toStrictEqual([400, 500, 600]);
+  it("ship one variable file per family and no per-weight cuts", () => {
+    expect(TYPEFACE_FACES.map((face) => face.family)).toStrictEqual([
+      "IBM Plex Sans",
+      "IBM Plex Mono",
+    ]);
+  });
+
+  // The whole point of the variable build over the six static cuts it replaced:
+  // 640 is a weight `palette/palette.css` asks for, and under static instances it
+  // resolved to the nearest declared face. A range that stopped covering it would
+  // reintroduce that silently, so the console's own extremes are asserted against
+  // the declared range rather than the range being asserted against itself.
+  it("declare a weight range that covers every weight the console asks for", () => {
+    for (const face of TYPEFACE_FACES) {
+      const [lowestWeight, highestWeight] = face.weightRange
+        .split(" ")
+        .map((bound) => Number.parseInt(bound, 10));
+      expect(lowestWeight).toBeLessThanOrEqual(400);
+      expect(highestWeight).toBeGreaterThanOrEqual(640);
     }
   });
 
@@ -39,7 +55,7 @@ describe("the self-hosted faces", () => {
     for (const face of TYPEFACE_FACES) {
       expect(face.url).toMatch(/\.woff2$/);
       const familySegment = face.family.split(" ").join("");
-      expect(face.url).toContain(familySegment);
+      expect(decodeURIComponent(face.url).split(" ").join("")).toContain(familySegment);
     }
   });
 
@@ -55,12 +71,25 @@ describe("the generated @font-face block", () => {
     expect(css.match(/@font-face/g)).toHaveLength(TYPEFACE_FACES.length);
   });
 
-  it("carries every face's own family, weight, and bytes", () => {
+  it("carries every face's own family, axes, and bytes", () => {
     for (const face of TYPEFACE_FACES) {
       expect(css).toContain(`font-family: "${face.family}";`);
-      expect(css).toContain(`font-weight: ${face.weight};`);
+      expect(css).toContain(`font-weight: ${face.weightRange};`);
       expect(css).toContain(`url("${face.url}") format("woff2")`);
     }
+  });
+
+  // A `font-stretch` descriptor NARROWS what the browser will take from the file,
+  // so declaring one over a file with no width axis is a claim about bytes that
+  // are not there. Only the sans build carries `wdth`, so only the sans rule may
+  // carry the descriptor — asserted from the face's own record so the sheet and
+  // the roster cannot disagree about which file has an axis.
+  it("bounds the width axis only where the file carries one", () => {
+    const stretchDeclarations = css.match(/font-stretch: /g) ?? [];
+    expect(stretchDeclarations).toHaveLength(
+      TYPEFACE_FACES.filter((face) => face.stretchRange !== null).length,
+    );
+    expect(css).toContain("font-stretch: 85% 100%;");
   });
 
   it("never falls back to a host-installed face", () => {
@@ -74,9 +103,18 @@ describe("the generated @font-face block", () => {
     expect(css).not.toContain("font-display: swap");
   });
 
+  // Each face bounds itself to the codepoints its OWN split carries, and the two
+  // splits do not carry the same set — the sans file covers `U+0000` and `U+000D`
+  // and the mono file does not. One shared range would over-claim for one of them,
+  // which is a glyph rendered from the wrong file rather than fallen through.
   it("bounds every face to the subset it actually contains", () => {
     expect(css.match(/unicode-range: /g)).toHaveLength(TYPEFACE_FACES.length);
-    expect(css).toContain("U+0020-007E");
+    for (const face of TYPEFACE_FACES) {
+      expect(css).toContain(`unicode-range: ${face.unicodeRange};`);
+    }
+    expect(new Set(TYPEFACE_FACES.map((face) => face.unicodeRange)).size).toBe(
+      TYPEFACE_FACES.length,
+    );
   });
 
   it("is deterministic", () => {

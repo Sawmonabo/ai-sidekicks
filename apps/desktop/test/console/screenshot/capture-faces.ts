@@ -32,22 +32,28 @@
 // THE SANS STACK IS DELIBERATELY NOT PINNED, AND NO LONGER NEEDS TO BE. When these
 // references were minted its only by-name entry was a face present on no capture
 // host, so every host fell through to a generic and the hazard had no instance.
-// `console/frame/bindings/typeface.ts` now self-hosts both families, which settles
-// the same question in the stronger direction: the face is a property of the build
-// rather than of the host, on every platform, which is what a pin was ever for.
+// `console/frame/bindings/typeface.ts` now self-hosts both families — one variable
+// file each, emitted by the build — which settles the same question in the stronger
+// direction: the face is a property of the build rather than of the host, on every
+// platform, which is what a pin was ever for.
 //
 // THE COMMITTED REFERENCES PREDATE THAT, AND THE MONO PIN OUTLIVED ITS PREMISE.
 // Measured on 2026-09-09 over the 64 references then committed, all but two differ
 // from what the console now renders, in two groups and no others: 38 because sans
 // resolves to the self-hosted face rather than to the host's generic, and 24 more
-// because the slashed zero and tabular figures are now declared on `body`. The two
+// because the slashed zero is now declared on `body`. (That reading was taken while
+// the console still shipped six static cuts; it now ships one variable file per
+// family, which moves nothing about WHY the references drifted — the same faces
+// resolve and the same feature is declared — and adds one more surface that can
+// move, the weight 640 `palette/palette.css` asks for and now really gets.) The two
 // that remain are a 1 px and a 3 px keycap-glyph difference — this host against the
 // runner, which is the residue this tier already expects. Re-minting the corpus on
-// the pinned runner is therefore one pass, and retiring the monospace pin belongs to
-// it: with the face self-hosted, this constant now overrides a face that SHIPS
-// rather than one the host happened to supply, so a capture taken through it is a
-// picture of Menlo and the product is set in IBM Plex Mono. Both halves move
-// together or the corpus is re-minted twice.
+// the pinned runner
+// is therefore one pass, and retiring the monospace pin belongs to it: with the
+// face self-hosted, this constant now overrides a face that SHIPS rather than one
+// the host happened to supply, so a capture taken through it is a picture of Menlo
+// and the product is set in IBM Plex Mono. Both halves move together or the corpus
+// is re-minted twice.
 
 /**
  * The stack every capture renders monospace text under.

@@ -96,8 +96,8 @@ allowBuilds:
   # `strict-dep-builds` reported it unreviewed and failed the run. Listing all three
   # explicitly rather than leaving any unlisted is what makes this a reviewed
   # decision rather than the absence of one.
-  "@ibm/plex-sans": false
-  "@ibm/plex-mono": false
+  "@ibm/plex-sans-variable": false
+  "@ibm/plex-mono-variable": false
   "@ibm/telemetry-js": false
 
 # Workspace-wide dependency unification per ADR-022 §Decision row 1 (pnpm catalogs).

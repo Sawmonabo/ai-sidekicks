@@ -43,6 +43,17 @@ export const BODY_LINE_HEIGHT = 1.5;
  * including the mono spans, and a per-surface copy would be a second home for a
  * decision that has one. On a face without these features the declaration is
  * inert, which is what makes it safe to state at the root.
+ *
+ * WHICH OF THE TWO EACH FACE ACTUALLY SERVES, MEASURED RATHER THAN ASSUMED. Read
+ * out of the shipped `woff2` files on 2026-09-09: both variable builds carry
+ * `zero` in their `GSUB` feature list, so the slashed zero is a real substitution
+ * on both. Neither carries `tnum` — in `GSUB` or in `GPOS` — and neither carries
+ * `pnum` either, which is the reading that settles it: these faces offer no
+ * proportional figures to switch away FROM, so their digits are tabular by
+ * construction and `"tnum" 1` is the inert case above rather than a missing one.
+ * The declaration stays: it is what the rule asks for, it costs nothing here, and
+ * it is what keeps the figures tabular under any fallback face that does offer
+ * both sets.
  */
 export const TYPEFACE_FEATURE_SETTINGS = '"zero" 1, "tnum" 1';
 
@@ -61,32 +72,28 @@ export const TYPE_SCALE_REM: Readonly<Record<string, number>> = {
 
 /**
  * The font stacks. IBM Plex Sans and IBM Plex Mono are the ratified faces
- * (`Spec-023 §Console Libraries`, the motion/fonts/icons row), and the console
- * now self-hosts them: `frame/bindings/typeface.ts` declares six `@font-face` rules over
- * the foundry packages' own Latin-1 subsets, admitted as a distributed OFL-1.1
- * dependency by ADR-020's Decision Log. The platform fallbacks stay, and they are
- * not decoration — each face carries a `unicode-range`, so a codepoint outside
- * Latin-1 falls through to them rather than rendering as a notdef box.
+ * (`Spec-023 §Console Design (Meridian)` rule 4 and `§Console Libraries`, the
+ * motion/fonts/icons row), and the console self-hosts the VARIABLE builds those
+ * two places name: `frame/bindings/typeface.ts` declares one `@font-face` rule per
+ * family over `@ibm/plex-sans-variable` and `@ibm/plex-mono-variable`, each the
+ * Roman Latin-1 split, admitted as a distributed OFL-1.1 dependency by ADR-020's
+ * Decision Log. The platform fallbacks stay, and they are not decoration — each
+ * face carries a `unicode-range`, so a codepoint outside Latin-1 falls through to
+ * them rather than rendering as a notdef box.
  *
  * These two constants did not move when the faces arrived, which was the point of
  * naming the families here before anything loaded them: the stack is the design's
  * statement of what the console is set in, and the sheet is how those bytes get
- * to the document.
+ * to the document. They did not move when the faces became variable either, and
+ * that is the same property holding: the family a rule ASKS for is this file's,
+ * and which bytes answer is the other module's.
  *
- * THE FACES THIS REVISION SHIPS ARE STATIC, AND THE LIBRARIES ROW DESCRIBES
- * VARIABLE ONES. `@ibm/plex-sans@1.1.0` and `@ibm/plex-mono@2.5.0` publish static
- * instances only — no variable file under any name — so the sheet declares one
- * face per weight, and an intermediate weight resolves to the nearest declared
- * face rather than being interpolated.
- *
- * That is a property of the packages PINNED here rather than of the foundry: the
- * variable builds are published as their own packages, `@ibm/plex-sans-variable`
- * and `@ibm/plex-mono-variable`, which this revision does not take. Which pair
- * belongs here is a decision with a measurement behind it — the six static
- * subsets weigh 118,488 B raw against the two variable subsets the libraries row
- * cites — and it is the amendment's rather than this comment's to make; what this
- * comment must not do is read the absence of a variable file inside these two
- * packages as the absence of one anywhere.
+ * WHAT VARIABLE BUYS, IN THIS CONSOLE, IS ONE WEIGHT. Both files carry a
+ * continuous `wght 100–700` axis, so the 400, 500, and 600 the stylesheets ask for
+ * and the 640 `palette/palette.css` asks for are each a real instance. Under the
+ * static packages that preceded them there were three cuts per family and 640
+ * silently became 600. The sans build additionally carries `wdth 85–100`; nothing
+ * here asks for a width today, and the declaration bounds it rather than using it.
  */
 export const FONT_STACKS: Readonly<Record<string, string>> = {
   "font-sans":

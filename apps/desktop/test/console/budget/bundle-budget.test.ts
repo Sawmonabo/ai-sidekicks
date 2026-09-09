@@ -6,7 +6,7 @@
 // lazy chunks), and `renderer-initial-fonts` over the font files on that same
 // graph, raw. The split is a change of unit rather than an exclusion, and the
 // two negative controls at the bottom are what make that a claim with evidence:
-// a seventh face fails the font row, and a font byte never reaches the code one.
+// a third font file fails the font row, and a font byte never reaches the code one.
 //
 // THIS TEST NEVER SKIPS ITSELF: a budget gate that turns itself off when its
 // subject is missing reports green for a bundle nobody measured. The console
@@ -52,6 +52,19 @@ const rendererOutputDirectory: string =
  * are asserted to have a compressed reading at all, not a smaller one.
  */
 const COMPRESSION_ASSERTION_FLOOR_BYTES = 1024;
+
+/**
+ * The smallest `woff2` split either IBM Plex variable package publishes at the
+ * pinned versions — `IBM Plex Mono Var-Roman-Latin3.woff2`, 13 300 B.
+ *
+ * The size the `renderer-initial-fonts` ceiling was derived to refuse a third file
+ * AT, so the control below plants exactly it: any real third file is this large or
+ * larger, and a control planted at a comfortable size proves only that some larger
+ * number is over. Stated here rather than read out of `node_modules`, because the
+ * budget tier weighs the BUILD's output and a tier that reaches into a package
+ * layout to write its own control acquires a second subject.
+ */
+const SMALLEST_PUBLISHED_SPLIT_BYTES = 13_300;
 
 function measureOrFailLoudly(): RendererBundleMeasurement {
   try {
@@ -260,44 +273,44 @@ describe("the two rows bound disjoint bytes", () => {
     expect(planted.fonts.rawByteCount).toBe(face.rawByteCount);
   });
 
-  it("negative control: a seventh face fails the font row", () => {
-    // The property the 130 kB figure was chosen for, driven rather than asserted:
-    // the six shipped faces plus one more copy of the smallest, measured by the
-    // real measurer and judged by the real row.
+  it("negative control: a third font file fails the font row", () => {
+    // The property the 112 kB figure was chosen for, driven rather than asserted:
+    // the two shipped variable faces plus one more file at the SMALLEST size either
+    // foundry package publishes, measured by the real measurer and judged by the
+    // real row. Planted at that size rather than as a copy of a shipped face,
+    // because a copy of the 32 576 B mono face clears the ceiling by 22 kB and
+    // would pass a control that a 130 kB ceiling also passed — it would drive the
+    // sign of the refusal without driving the figure. The bytes are zeros: this
+    // gate weighs files and parses none, so the only property the plant needs is
+    // its length, and a real face would make the control depend on which one.
     const fontsBudget = registry.requireBudget(RENDERER_FONTS_BUDGET_ID);
-    const smallestFace = [...fontAssets].sort(
-      (left, right) => left.rawByteCount - right.rawByteCount,
-    )[0];
-    expect(smallestFace, "a face to duplicate").toBeDefined();
-    if (smallestFace === undefined) {
-      return;
-    }
-    const seventhFacePath = "assets/seventh-face-planted.woff2";
+    const thirdFacePath = "assets/third-face-planted.woff2";
     const emittedFaces = new Map(
       fontAssets.map((asset) => [
         asset.relativePath,
         path.join(rendererOutputDirectory, asset.relativePath),
       ]),
     );
-    emittedFaces.set(
-      seventhFacePath,
-      path.join(rendererOutputDirectory, smallestFace.relativePath),
-    );
     const directory = outputDirectoryWithManifest(
-      "seventh-face",
-      manifestNaming([...emittedFaces.keys()]),
+      "third-face",
+      manifestNaming([...emittedFaces.keys(), thirdFacePath]),
       emittedFaces,
+    );
+    writeFileSync(
+      path.join(directory, ...thirdFacePath.split("/")),
+      Buffer.alloc(SMALLEST_PUBLISHED_SPLIT_BYTES),
     );
     const planted = new RendererBundleMeasurer(directory).measure();
     expect(planted.fonts.assetCount).toBe(fontAssets.length + 1);
     expect(
       evaluateBudget(fontsBudget, measurement.fonts.rawByteCount).withinBudget,
-      "the six shipped faces are within the ceiling",
+      "the two shipped faces are within the ceiling",
     ).toBe(true);
     expect(
       evaluateBudget(fontsBudget, planted.fonts.rawByteCount).withinBudget,
-      `a seventh face measured ${planted.fonts.rawByteCount.toLocaleString("en-US")} B against a ` +
-        `${fontsBudget.limit.canonicalValue.toLocaleString("en-US")} B ceiling and still passed`,
+      `a third font file measured ${planted.fonts.rawByteCount.toLocaleString("en-US")} B ` +
+        `against a ${fontsBudget.limit.canonicalValue.toLocaleString("en-US")} B ceiling and ` +
+        `still passed`,
     ).toBe(false);
   });
 });
