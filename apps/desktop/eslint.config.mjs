@@ -174,6 +174,42 @@ const RENDERER_RESTRICTED_PATTERNS = [
   },
 ];
 
+/**
+ * The groups a console or shell module may not import: the renderer's, plus the two
+ * that keep wire parsing out of a surface.
+ *
+ * Hoisted because flat config replaces a rule's options at the LAST matching config
+ * object, so every narrower block below that names a console file has to restate this
+ * whole union — and a union spread from one const cannot drift from the block it was
+ * copied out of.
+ */
+const CONSOLE_RESTRICTED_PATTERNS = [
+  ...RENDERER_RESTRICTED_PATTERNS,
+  {
+    // Bare specifier and every subpath (`zod/v4`, `zod/mini`) in one
+    // group: `no-restricted-imports` treats them as distinct, and a ban
+    // on the bare form alone would be one import away from useless.
+    group: ["zod", "zod/**"],
+    message:
+      "Spec-023 §Console Design (Meridian): a console surface never parses a wire value itself. Reach the daemon through `callDaemon` from `console/bridge/`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a local validator.",
+  },
+  {
+    // The same claim as the `zod` group above, on the schemas the corpus
+    // has already built. It is a `patterns` entry rather than a `paths`
+    // one because that is where the rule's schema puts `importNamePattern`
+    // — measured against the installed engine, whose `paths` items admit
+    // only `importNames` — and an exhaustive `importNames` list would go
+    // stale the day the contracts package exports its next schema.
+    group: ["@ai-sidekicks/contracts"],
+    // Every schema the reply registry composes ends this way, and so does
+    // every other schema the package exports: the suffix is how this
+    // corpus spells a parser, not a guess about one.
+    importNamePattern: "Schema$",
+    message:
+      "Spec-023 §Console Design (Meridian): a console surface never parses a wire value itself, and a contracts schema is a parser. Reach the daemon through `callDaemon` from `console/bridge/`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a second reading of one. Types and non-schema values from this package are untouched.",
+  },
+];
+
 export default [
   ...root,
   // `src/shared/**` is imported by BOTH processes (see
@@ -314,30 +350,80 @@ export default [
         "error",
         {
           paths: RENDERER_RESTRICTED_PATHS,
+          patterns: CONSOLE_RESTRICTED_PATTERNS,
+        },
+      ],
+    },
+  },
+  // --- The two stores, held apart ------------------------------------------------
+  //
+  // The console holds window state and session state in two stores on purpose — one
+  // per WINDOW, one per open SESSION — and the split is what keeps a session switch
+  // off the icon rail and gives an auxiliary window its own everything. A flag copied
+  // across that line is a second record of one fact, and the second record is the one
+  // the reconnect path cannot heal: the session store's degraded cause clears on a
+  // re-pull, and a copy of it on the window store clears when somebody remembers to.
+  //
+  // Neither store can read the other's state without importing something from it —
+  // there is no global handle to either — so the import edge IS the reach, and banning
+  // it is exact rather than a proxy. The composition ABOVE the stores reads both by
+  // design (the registry that opens session stores, the hooks, the schedulers), which
+  // is why the ban is scoped to the two store directories and not to `store/`.
+  //
+  // Both blocks restate the console union: flat config replaces a rule's options at
+  // the last matching config object, so a block that named only the isolation group
+  // would silently drop the renderer-untrusted boundary and the wire-parsing ban for
+  // exactly these files.
+  {
+    files: ["src/renderer/src/console/store/shell/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: RENDERER_RESTRICTED_PATHS,
           patterns: [
-            ...RENDERER_RESTRICTED_PATTERNS,
+            ...CONSOLE_RESTRICTED_PATTERNS,
             {
-              // Bare specifier and every subpath (`zod/v4`, `zod/mini`) in one
-              // group: `no-restricted-imports` treats them as distinct, and a ban
-              // on the bare form alone would be one import away from useless.
-              group: ["zod", "zod/**"],
+              // Every spelling that reaches the session store's directory from here:
+              // the relative one a sibling writes and the rooted one a deeper module
+              // would. `no-restricted-imports` matches the specifier TEXT, so a form
+              // left off this list is a form the ban does not see.
+              group: [
+                "../session/*",
+                "../session/**",
+                "../../session/*",
+                "../../session/**",
+                "**/store/session/*",
+                "**/store/session/**",
+              ],
               message:
-                "Spec-023 §Console Design (Meridian): a console surface never parses a wire value itself. Reach the daemon through `callDaemon` from `console/bridge/`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a local validator.",
+                "`apps/desktop/AGENTS.md` §State and views: the window store never holds a copy of anything the session store owns. A flag copied across that line is a second record of one fact, and it is the record the reconnect path cannot heal — read the session store through the registry or a hook above both, which is where composing them belongs.",
             },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/renderer/src/console/store/session/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: RENDERER_RESTRICTED_PATHS,
+          patterns: [
+            ...CONSOLE_RESTRICTED_PATTERNS,
             {
-              // The same claim as the `zod` group above, on the schemas the corpus
-              // has already built. It is a `patterns` entry rather than a `paths`
-              // one because that is where the rule's schema puts `importNamePattern`
-              // — measured against the installed engine, whose `paths` items admit
-              // only `importNames` — and an exhaustive `importNames` list would go
-              // stale the day the contracts package exports its next schema.
-              group: ["@ai-sidekicks/contracts"],
-              // Every schema the reply registry composes ends this way, and so does
-              // every other schema the package exports: the suffix is how this
-              // corpus spells a parser, not a guess about one.
-              importNamePattern: "Schema$",
+              group: [
+                "../shell/*",
+                "../shell/**",
+                "../../shell/*",
+                "../../shell/**",
+                "**/store/shell/*",
+                "**/store/shell/**",
+              ],
               message:
-                "Spec-023 §Console Design (Meridian): a console surface never parses a wire value itself, and a contracts schema is a parser. Reach the daemon through `callDaemon` from `console/bridge/`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a second reading of one. Types and non-schema values from this package are untouched.",
+                "`apps/desktop/AGENTS.md` §State and views: the session store never holds a copy of anything the window store owns. A flag copied across that line is a second record of one fact — read the window store through a hook above both, which is where composing them belongs.",
             },
           ],
         },
