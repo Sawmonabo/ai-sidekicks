@@ -13,6 +13,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 
 import { ACTIVATE_LABEL } from "./SchemaActivationControl.js";
 import { SchemaForm } from "./SchemaForm.js";
+import { settle } from "../../../core/settle.test-support.js";
 import { useSchemaForm } from "./use-schema-form.js";
 
 /** Where the host below writes the answer the controls composed, for a case to read. */
@@ -46,9 +47,19 @@ export function SchemaFormHost(props: { readonly inputSchema: unknown }): React.
   );
 }
 
-/** Render one schema's form and hand back the container it drew into. */
-export function renderForm(inputSchema: unknown): HTMLElement {
+/**
+ * Render one schema's form, let its compiler land, and hand back the container.
+ *
+ * THE WAIT IS PART OF THE MOUNT, because the form opens in two steps: the controls the
+ * mapper drew are on screen immediately, and the schema compiler arrives on its own chunk
+ * — so a container read straight after `render` holds a form with no verdict in it, and
+ * every case in this directory is about a verdict or about a control that carries one.
+ * What happens INSIDE that window is `use-schema-form.compiler.test.tsx`'s subject and is
+ * reached through its own unsettled mount.
+ */
+export async function renderForm(inputSchema: unknown): Promise<HTMLElement> {
   const { container } = render(<SchemaFormHost inputSchema={inputSchema} />);
+  await settle();
   return container;
 }
 

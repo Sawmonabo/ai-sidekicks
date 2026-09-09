@@ -13,9 +13,11 @@
 // could check, because a group holding groups is exactly the shape that has no bottom.
 // So a group holds leaves and a leaf is a field or a list, and the type says so.
 //
-// AND A MEMBER PATH IS THE VALIDATOR'S OWN. `SchemaMemberPath` is declared beside the
-// schema reader that produces one, so a descriptor and a finding are addressed in one
-// representation and the lookup between them is a comparison rather than a translation.
+// AND A MEMBER PATH IS THE BRIDGE'S OWN. `SchemaMemberPath` is declared once, in
+// `bridge/wire-shapes/schema-member-path.ts`, and both the schema reader that produces a
+// finding and every descriptor here take it from there — so a descriptor and a finding are
+// addressed in one representation and the lookup between them is a comparison rather than
+// a translation.
 
 import type { SchemaMemberPath } from "../../../bridge/index.js";
 

@@ -627,31 +627,37 @@ export {
   serializeWorkflowDefinitionFile,
 } from "./wire-shapes/workflow-definition-file-codec.js";
 
+// How an answer's members are ADDRESSED, and it leaves eagerly because everything above
+// reads it before anything is compiled: `SchemaMemberPath` is the one representation a
+// descriptor and an issue both carry, `isSameMemberPath` is how a control finds the
+// findings that are about it, and `encodeMemberPointer` is the single string spelling
+// anything keyed on a path may take. All three sit in one module, because a second
+// reading of a path is exactly how two spellings of one member come apart.
+export { encodeMemberPointer, isSameMemberPath } from "./wire-shapes/schema-member-path.js";
+export type { SchemaMemberPath } from "./wire-shapes/schema-member-path.js";
+
 // The other validator this family holds, and the reason it is here rather than beside
 // the form it serves: a schema the wire delivered, compiled once into something a
 // locally composed draft can be checked against. Every family above this one is barred
 // from importing a schema library at all, which is a claim about the LAYER — a validator
 // sits below every surface, so no surface can hold a second reading of one.
 //
-// `SchemaValidationIssue` IS published, and it was not while every caller only READ a
-// report. The schema form now composes findings of its own — a drawn row the projection
-// dropped, which the answer has no way to express and the schema therefore never sees —
-// and folds them into the report the surface renders, so it constructs issues rather than
-// mapping them and needs the shape. One production importer, one door line.
+// AND THROUGH THE LOADER RATHER THAN THE COMPILER ITSELF, because this door is on the
+// initial import graph and the compiler carries a schema library's JSON-Schema entry
+// point behind it. Its only production readers are inside the schema form seat, which is
+// a loader-backed chunk — so a runtime line for `compileSchemaValidator` assigned that
+// library to the STATIC chunk, on the rule `apps/desktop/AGENTS.md` §Module shape states,
+// and put it on the document of every session that never draws a form. Measured, that
+// line alone carried the initial graph past its budget. The loader is one awaited function
+// body; the module's own header says why the deferral is on this side of the door.
 //
-// The member-path trio DOES leave, because the surfaces that read a report address their
-// controls by those same paths: `SchemaMemberPath` is the one representation a descriptor
-// and an issue both carry, `isSameMemberPath` is how a control finds the findings that are
-// about it, and `encodeMemberPointer` is the single string spelling anything keyed on a
-// path may take. All three sit beside the producer, because a second reading of a path is
-// exactly how two spellings of one member come apart.
-export {
-  compileSchemaValidator,
-  encodeMemberPointer,
-  isSameMemberPath,
-} from "./wire-shapes/json-schema-check.js";
+// THE TYPES ARE FREE AND STAY, because a type reference erases: the seat names the
+// validator and the report it renders, and the loader's own signature names the validator
+// it resolves to. `SchemaValidationIssue` is published for a reader that CONSTRUCTS one —
+// the schema form composes findings of its own, a drawn row the projection dropped, which
+// the answer has no way to express and the schema therefore never sees.
+export { loadSchemaValidatorCompiler } from "./wire-shapes/json-schema-check-loader.js";
 export type {
-  SchemaMemberPath,
   SchemaValidationIssue,
   SchemaValidationReport,
   SchemaValidator,

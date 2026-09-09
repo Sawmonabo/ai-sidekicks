@@ -67,7 +67,7 @@ describe("the seat keeps the submit and the settlement, and the body keeps neith
   it("composes the registered submit out of the mount when the body presses", async () => {
     const probe = bridgeWatchingSubmits();
     const phase = fixtureWaitPhase();
-    renderSwitchableSlot({
+    await renderSwitchableSlot({
       phase,
       bridge: probe.bridge,
       body: pressingBody({ decision: "approve" }),
@@ -91,7 +91,7 @@ describe("the seat keeps the submit and the settlement, and the body keeps neith
 
   it("renders what the daemon answered beneath a body that renders no outcome at all", async () => {
     const probe = bridgeWatchingSubmits();
-    const { container } = renderSwitchableSlot({
+    const { container } = await renderSwitchableSlot({
       phase: fixtureWaitPhase(),
       bridge: probe.bridge,
       body: pressingBody({ decision: "approve" }),
@@ -120,7 +120,7 @@ describe("the seat keeps the submit and the settlement, and the body keeps neith
     // and the answer: a port that served on the calling turn would publish the
     // settlement over it and the case would be asserting nothing about the guard.
     const probe = bridgeHoldingSubmits();
-    const { container } = renderSwitchableSlot({
+    const { container } = await renderSwitchableSlot({
       phase: fixtureWaitPhase(),
       bridge: probe.bridge,
       body: pressingBody({ decision: "approve" }),
@@ -141,7 +141,7 @@ describe("the seat keeps the submit and the settlement, and the body keeps neith
     // Without this, the cases above would hold over a seat that drew its settlement
     // unconditionally — which would report an answer nobody had given.
     const probe = bridgeWatchingSubmits();
-    const { container } = renderSwitchableSlot({
+    const { container } = await renderSwitchableSlot({
       phase: fixtureWaitPhase(),
       bridge: probe.bridge,
       body: pressingBody({ decision: "approve" }),

@@ -10,6 +10,12 @@
 // schema, which is available only where that schema compiled — and where it did not, this
 // surface says so rather than showing a green tick that means less than it looks like.
 //
+// AND "IT DID NOT" IS NOT THE SAME AS "NOT YET". The compiler arrives on its own chunk, so
+// the validator has a third state this surface must not mistake for a refusal: while it
+// reads `compiling` there is no verdict and no reason to give one, so the uncheckable
+// sentence is withheld rather than shown and then retracted. The syntax check above it is
+// unaffected — it needs nothing that has to be fetched.
+//
 // MONO, BECAUSE IT IS THE WIRE'S OWN SHAPE. What is typed here is the submitted value
 // itself rather than prose about it, so it wears rule 4's provenance signature like every
 // other wire figure on a console surface.
@@ -32,12 +38,8 @@ import { useId } from "react";
 import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
 import { describedByOf } from "./schema-field-control.js";
 import type { SchemaFallback } from "../plan/schema-fields.js";
-import {
-  encodeMemberPointer,
-  type SchemaValidationReport,
-  type SchemaValidator,
-} from "../../../bridge/index.js";
-import type { RawAnswerReading } from "./use-schema-form.js";
+import { encodeMemberPointer, type SchemaValidationReport } from "../../../bridge/index.js";
+import type { RawAnswerReading, SchemaValidatorState } from "./use-schema-form.js";
 
 /** How tall the raw document opens. Layout only; the text is never bounded here. */
 const RAW_EDITOR_ROWS = 12;
@@ -48,8 +50,11 @@ export interface SchemaJsonEditorProps {
   readonly rawText: string;
   readonly onChangeRawText: (text: string) => void;
   readonly rawReading: RawAnswerReading;
-  /** Whether the schema itself could be checked against, and the reason where not. */
-  readonly validator: SchemaValidator;
+  /**
+   * Whether the schema itself could be checked against, the reason where not — and
+   * whether that answer has arrived at all.
+   */
+  readonly validator: SchemaValidatorState;
   /** The schema's verdict, where there is a schema to have one and JSON to check. */
   readonly report: SchemaValidationReport | undefined;
 }

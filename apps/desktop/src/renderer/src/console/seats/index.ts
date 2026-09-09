@@ -560,11 +560,13 @@ export { groupSectionRows, groupedRowCount, normaliseFilterQuery } from "./secti
 // pane answers a parked one, and the input-ask card's structured-options arm is the next
 // reader — three surfaces, one drawing of what a schema means.
 //
-// WHAT LEAVES IS A COMPOSED SURFACE AND NEVER THE KIT. `useSchemaForm`, `planSchemaForm`
-// and `compileSchemaValidator` stay inside, and their absence is the boundary rather than
-// an omission: a caller assembling those three itself would be a second answer to what a
-// schema draws, and the one place a schema is drawn is `SchemaForm.tsx`. So the composers
-// live WITH the parts and leave through this door.
+// WHAT LEAVES IS A COMPOSED SURFACE AND NEVER THE KIT. `useSchemaForm` and
+// `planSchemaForm` stay inside, and their absence is the boundary rather than an omission:
+// a caller assembling them itself would be a second answer to what a schema draws, and the
+// one place a schema is drawn is `SchemaForm.tsx`. So the composers live WITH the parts and
+// leave through this door. What checks an answer against a schema is not in the kit at all
+// — a validator lives in `bridge/`, and the kit reaches the compiler through the loader
+// that family's door publishes, so this seat holds no reading of a schema library either.
 //
 // AND THE SEAT DOES NOT DECIDE WHAT AN ANSWER MEANS. `SchemaFormAnswer` carries the
 // prompt, the controls and the one act that sends what they compose; the mounting body

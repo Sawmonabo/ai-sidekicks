@@ -45,11 +45,34 @@
 // where both readings are held, rather than at the component: deciding it there would show
 // the editor while the composed answer still read controls nobody could see.
 //
-// NOTHING HERE POLLS, CACHES, OR SUBSCRIBES. The compiled validator is minted once per
-// schema through `useMemo`; the draft is one tree; the answer and the report are derived
-// on render from it. There is no effect in this module at all.
+// THE COMPILER ARRIVES, WHICH IS WHY THE VALIDATOR IS STATE AND WHY THERE IS AN ARM FOR
+// BEFORE IT DOES. `compileSchemaValidator` reaches the console through a loader — the
+// bridge door is on the initial import graph and the schema library behind that compiler
+// is not something every launch may be charged for — so between this hook's first render
+// and the chunk landing there is a window in which the form exists and nothing can check
+// what is typed into it. That window is a THIRD arm on this hook's own validator state and
+// never a widening of the door's two-armed `SchemaValidator`: a surface reading `compiling`
+// is being told the verdict has not been reached, which is a different fact from a schema
+// that could not be compiled and from one that came back clean. While it holds, this form
+// has NO report — not a clean one — and `SchemaFormAnswer` offers no act, because a
+// verdict describes the bytes a submission carries and there is no verdict yet.
+//
+// AND THE VALIDATOR IS KEYED ON THE SCHEMA IT WAS COMPILED FOR, held beside it rather than
+// beside a flag. A schema that changes while a compile is in flight would otherwise render
+// the previous schema's verdict over the new schema's controls for as long as the fetch
+// takes, and no reset written into an effect can prevent that: an effect runs after the
+// render that changed the schema. Read here, the arm follows the schema in the same render
+// it moves in. The late settlement is then refused twice over — by `store/generation-latch`
+// , which admits a settlement only while the round that started it is still the live one,
+// and by this key, which would not match it anyway.
+//
+// NOTHING HERE POLLS, CACHES, OR SUBSCRIBES. One compile per schema per mount, which is
+// the lifetime the validator's own header promises; the draft is one tree; the answer and
+// the report are derived on render from it. The one effect in this module fetches the
+// compiler, and it is the only thing in it that is not a pure function of what the hook
+// already holds.
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { leafDrawnAt, seedDraftFromPlan } from "../answer/schema-answer.js";
 import {
@@ -82,11 +105,23 @@ import {
   type SchemaListEntryView,
 } from "../answer/schema-projection.js";
 import {
-  compileSchemaValidator,
+  loadSchemaValidatorCompiler,
   type SchemaMemberPath,
   type SchemaValidationReport,
   type SchemaValidator,
 } from "../../../bridge/index.js";
+import { useGenerationLatch } from "../../../store/index.js";
+
+/**
+ * Where this form is with the compiler it needs: still fetching it, or the verdict.
+ *
+ * The door's two arms plus the one they cannot express. `SchemaValidator` answers what
+ * compiling a schema CAME BACK WITH, and both of its arms are answers — so a third arm
+ * added there would have made every reader of a compiled validator re-check whether an
+ * answer had arrived at all. Here it is one union in one module, above the two consumers
+ * that branch on it (`armFor` and the raw editor), and the door's shape is untouched.
+ */
+export type SchemaValidatorState = { readonly status: "compiling" } | SchemaValidator;
 
 /** What the raw editor's text currently is, as a value rather than a parse. */
 export type RawAnswerReading =
@@ -136,14 +171,34 @@ export interface SchemaFormState {
   readonly setRawText: (text: string) => void;
   /** Whether the raw text is JSON at all, and what it parsed to. */
   readonly rawReading: RawAnswerReading;
-  /** Whether the schema itself could be checked against, and the reason where not. */
-  readonly validator: SchemaValidator;
-  /** The schema's verdict on the answer, or nothing where the schema is uncheckable. */
+  /**
+   * Whether the schema itself could be checked against, the reason where not — and
+   * whether the answer to that question has arrived at all.
+   */
+  readonly validator: SchemaValidatorState;
+  /**
+   * The schema's verdict on the answer, or nothing where the schema is uncheckable and
+   * nothing while the compiler is still arriving.
+   */
   readonly report: SchemaValidationReport | undefined;
 }
 
 /** The empty raw document, which is what an unanswered JSON editor holds. */
 const EMPTY_RAW_TEXT = "{}";
+
+/**
+ * The one key this form's compile round is claimed under.
+ *
+ * One key and not one per schema: the rule is that a form has at most one compile in
+ * flight, so a schema that supersedes another has to take the SAME key to abandon it.
+ */
+const VALIDATOR_COMPILE_KEY = "schema-validator-compile";
+
+/**
+ * What the validator reads as before an answer exists. Held once, so a render that has
+ * not compiled yet hands the surface the same value as the one before it.
+ */
+const COMPILING_VALIDATOR: SchemaValidatorState = { status: "compiling" };
 
 /** What a control with no descriptor behind it displays, which is nothing at all. */
 const NOTHING_DISPLAYED: SchemaControlView = { value: undefined, unreadableText: "" };
@@ -178,9 +233,31 @@ const UNCHECKABLE_SCHEMA_FALLBACK: SchemaFallback = {
     "This phase's schema could not be compiled here, so the answer is given as JSON rather than in controls that could check nothing you type.",
 };
 
-/** The arm this form opens on: the mapper's reading, unless nothing could check it. */
-function armFor(plan: SchemaFormPlan, validator: SchemaValidator): SchemaFormPlan {
-  if (plan.shape === "raw" || validator.status === "compiled") {
+/**
+ * A compiled validator and the schema identity it was compiled for.
+ *
+ * The two travel together because the answer is only about that schema: held apart, a
+ * settlement for the schema a form has just left would read as this form's verdict for
+ * exactly as long as the next compile takes.
+ */
+interface CompiledForSchema {
+  readonly inputSchema: unknown;
+  readonly validator: SchemaValidator;
+}
+
+/**
+ * The arm this form opens on: the mapper's reading, unless nothing could check it.
+ *
+ * COMPILING KEEPS THE MAPPER'S ARM, and the alternative is worse in both directions. The
+ * drawn controls are what this schema will be answered in if it compiles, so opening them
+ * is opening the form a person is about to use; opening the raw editor instead would show
+ * a fallback whose stated reason — that the schema could not be compiled — is not yet
+ * known to be true, and would then take it away. What a drawn control promises while the
+ * compiler is arriving is kept by the act being closed rather than by the arm being moved:
+ * nothing can be submitted until the verdict exists.
+ */
+function armFor(plan: SchemaFormPlan, validator: SchemaValidatorState): SchemaFormPlan {
+  if (plan.shape === "raw" || validator.status !== "uncompilable") {
     return plan;
   }
   return { shape: "raw", fallback: UNCHECKABLE_SCHEMA_FALLBACK };
@@ -189,17 +266,45 @@ function armFor(plan: SchemaFormPlan, validator: SchemaValidator): SchemaFormPla
 /**
  * Hold one schema-derived form.
  *
- * The schema is read ONCE per identity: both the plan and the compiled validator are
- * memoised on it, so a re-render from a keystroke re-walks nothing and re-compiles
- * nothing. A caller handing a fresh object literal every render would defeat that, which
- * is why every caller in this tree reads the schema off a value the wire delivered.
+ * The schema is read ONCE per identity: the plan is memoised on it and the validator is
+ * compiled once per identity per mount, so a re-render from a keystroke re-walks nothing
+ * and re-compiles nothing. A caller handing a fresh object literal every render would
+ * defeat that, which is why every caller in this tree reads the schema off a value the
+ * wire delivered.
  */
 export function useSchemaForm(inputSchema: unknown): SchemaFormState {
   const mappedPlan = useMemo(() => planSchemaForm(inputSchema), [inputSchema]);
-  const validator = useMemo(() => compileSchemaValidator(inputSchema), [inputSchema]);
+  const compileRounds = useGenerationLatch();
+  const [compiled, setCompiled] = useState<CompiledForSchema | undefined>(undefined);
+  // Read against the schema in hand rather than reset from an effect: an effect runs after
+  // the render that moved the schema, so a reset written there renders the previous
+  // schema's verdict once over the new schema's controls.
+  const validator: SchemaValidatorState =
+    compiled !== undefined && compiled.inputSchema === inputSchema
+      ? compiled.validator
+      : COMPILING_VALIDATOR;
+  useEffect(() => {
+    // The latch is its own subject, which is what makes the round per MOUNT: this hook has
+    // no long-lived object of its own to key on, and the register is the thing whose life
+    // the rule is about. The claim supersedes rather than refuses, because the newest
+    // schema is the one the person is looking at.
+    const round = compileRounds.supersedeAndClaim(compileRounds, VALIDATOR_COMPILE_KEY);
+    void loadSchemaValidatorCompiler().then((compileSchemaValidator) => {
+      round.settle(() => {
+        setCompiled({ inputSchema, validator: compileSchemaValidator(inputSchema) });
+      });
+    });
+    // Released rather than left to the latch's own unmount teardown, so a schema that
+    // moves and a mount that ends abandon an outstanding compile on the same terms — and
+    // so the compile that loses the race never runs `compileSchemaValidator` at all.
+    return () => {
+      round.release();
+    };
+  }, [compileRounds, inputSchema]);
   // Memoised through its inputs rather than on its own: both arms this returns are values
-  // the two memos above already hold — the mapper's plan itself, or the one held fallback
-  // — so the result is stable across a re-render without a third cache to keep in step.
+  // the memo and the state above already hold — the mapper's plan itself, or the one held
+  // fallback — so the result is stable across a re-render without a third cache to keep in
+  // step.
   const plan = armFor(mappedPlan, validator);
   // Seeded per control from what the plan says each one opens holding, and read once: the
   // header's reason, and why this is an initialiser rather than anything that re-runs.

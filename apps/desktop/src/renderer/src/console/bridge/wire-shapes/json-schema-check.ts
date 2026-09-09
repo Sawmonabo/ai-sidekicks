@@ -11,6 +11,19 @@
 // parsed at `daemon/daemon-reply.ts` and nowhere else, and nothing in this module can
 // reach one.
 //
+// AND IT IS REACHED THROUGH A LOADER, WHICH IS WHY IT IS STILL ONLY THE COMPILER. The
+// bridge door is on the console's initial import graph, so a value it publishes is charged
+// to every launch — and the only production readers of this module are inside the schema
+// form seat, which is itself a loader-backed chunk. A door line for the compiler therefore
+// assigned this module, the schema library's JSON-Schema entry point, and everything under
+// it to the STATIC chunk, exactly as `apps/desktop/AGENTS.md` §Module shape says a door
+// line for a body only a lazy chunk reads does. So the door publishes
+// `json-schema-check-loader.ts`, which reaches this module through `import()` and through
+// nothing else, and the ADDRESSING this module used to declare beside the compiler moved
+// to `schema-member-path.ts` — a zod-free sibling the door still publishes eagerly,
+// because the form's descriptors, controls and plan all read it before any schema is
+// compiled. What is left here is the one thing that needs the library.
+//
 // WHY IT IS WRAPPED RATHER THAN CALLED. `Spec-023 §Console Libraries` admits Zod's
 // JSON-Schema reader for exactly this job and nothing else, and the library's own
 // documentation calls that reader experimental and outside its stable API. It THROWS —
@@ -25,18 +38,11 @@
 // syntax and says plainly that the schema itself could not be checked. Two different
 // honesties, and the type keeps them apart.
 //
-// THE ISSUE PATH TRAVELS AS SEGMENTS, BECAUSE A JOINED PATH IS NOT INJECTIVE. The library
-// reports a path of property keys and array indices, and joining those with a dot
-// collapses members a schema keeps apart: a property literally named `items.0` and the
-// first entry of an array named `items` both spell `items.0`, and so do a property named
-// `a.b` and a `b` nested inside an `a`. A surface keyed on that string draws one member's
-// verdict under another member's control — or under both — which is a finding rendered
-// about a value the schema said nothing about. So the segments travel whole, the lookup
-// that matches a control to its findings compares them element by element through
-// `isSameMemberPath`, and the one place a path has to become a string — a React key, an
-// element id, a sentence naming the member — takes the RFC 6901 JSON Pointer that
-// `encodeMemberPointer` composes, which escapes rather than collapses. One representation,
-// one encoder, and no surface re-derives either.
+// THE ISSUE PATH TRAVELS AS SEGMENTS, AND `schema-member-path.ts` STATES WHY. The library
+// reports a path of property keys and array indices; what leaves this module is those
+// segments whole, in the one representation every surface addresses a control by. A
+// second reading of that path is what the split next door exists to prevent, and nothing
+// here re-derives one.
 //
 // THE VERDICT DESCRIBES THE BYTES SENT, WHICH IS WHY IT CARRIES THEM. `safeParse` does
 // not answer about the value it was handed — it answers about the value the schema READS
@@ -65,14 +71,7 @@
 
 import * as zod from "zod";
 
-/**
- * Where one member sits inside an answer: property keys and array positions, in order.
- *
- * `number` is not decoration. The reader reports an array position AS a number, and that
- * is the only thing keeping it apart from a property whose name happens to be a digit —
- * a distinction any single-string spelling of the path throws away.
- */
-export type SchemaMemberPath = readonly (string | number)[];
+import type { SchemaMemberPath } from "./schema-member-path.js";
 
 /** One thing wrong with an answer, addressed the way the form addresses its controls. */
 export interface SchemaValidationIssue {
@@ -115,41 +114,6 @@ export type SchemaValidator =
 
 /** The finding list a clean verdict carries. Held once; nothing ever writes to it. */
 const NOTHING_WRONG: readonly SchemaValidationIssue[] = [];
-
-/**
- * One segment as an RFC 6901 reference token.
- *
- * The escape character is replaced FIRST. Doing the separator first would then escape the
- * `~` this step just wrote, turning `a/b` into `a~01b` — a token that decodes to something
- * nobody wrote.
- */
-function referenceTokenOf(segment: string | number): string {
-  return String(segment).replace(/~/g, "~0").replace(/\//g, "~1");
-}
-
-/**
- * One member path as the RFC 6901 JSON Pointer that names it — the string spelling, where
- * a string is what the platform takes.
- *
- * Reversible where a join is not: `/` and `~` are the two characters that grammar gives
- * meaning to, so a segment carrying either is escaped rather than left to read as a
- * boundary. The empty path encodes as the empty string, which is that grammar's own name
- * for the whole document and is what an issue about the answer itself carries.
- */
-export function encodeMemberPointer(path: SchemaMemberPath): string {
-  return path.map((segment) => `/${referenceTokenOf(segment)}`).join("");
-}
-
-/**
- * Whether two member paths address the same member.
- *
- * Element by element and by identity, so a property named `"0"` and the array position `0`
- * stay apart. This is the comparison every lookup makes, and it is here rather than beside
- * one of them because a second comparison is how two readings of one path come apart.
- */
-export function isSameMemberPath(left: SchemaMemberPath, right: SchemaMemberPath): boolean {
-  return left.length === right.length && left.every((segment, at) => segment === right[at]);
-}
 
 /**
  * A library issue path, carried as segments and never as one joined string.

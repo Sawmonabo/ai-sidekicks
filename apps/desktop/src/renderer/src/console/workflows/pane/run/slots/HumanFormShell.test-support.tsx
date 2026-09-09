@@ -30,6 +30,7 @@ import { WORKFLOWS_SCENARIO } from "../../../../bridge/scenarios/workflows.js";
 import { WORKFLOWS_PARKED_RUN } from "../../../../bridge/scenarios/workflow-fixture-runs.js";
 import type { WireErrorEnvelope } from "../../../../core/index.js";
 import { schemaFormAnswerMount } from "../../../../seats/index.js";
+import { settle } from "../../../../core/settle.test-support.js";
 import { humanFormPhaseFor } from "../human-form-selection.js";
 import { HumanFormSlot } from "./HumanFormSlot.js";
 import type { HumanFormBody, HumanFormPhase } from "./human-form-mount.js";
@@ -190,15 +191,27 @@ export function fixtureWaitPhase(): HumanFormPhase {
 }
 
 /** The slot with the shell inside it, under a bridge the case supplies. */
-export function renderSlot(phase: HumanFormPhase | undefined, bridge?: ConsoleBridge): HTMLElement {
-  return renderSwitchableSlot({ phase, ...(bridge === undefined ? {} : { bridge }) }).container;
+export async function renderSlot(
+  phase: HumanFormPhase | undefined,
+  bridge?: ConsoleBridge,
+): Promise<HTMLElement> {
+  const mounted = await renderSwitchableSlot({
+    phase,
+    ...(bridge === undefined ? {} : { bridge }),
+  });
+  return mounted.container;
 }
 
 /** What a case that moves the pane from one wait to another holds on to. */
 export interface SwitchableSlot {
   readonly container: HTMLElement;
-  /** Put another wait in the same slot, or clear it, without unmounting anything above. */
-  readonly switchTo: (next: HumanFormPhase | undefined) => void;
+  /**
+   * Put another wait in the same slot, or clear it, without unmounting anything above.
+   *
+   * Awaited for the reason the mount is: the form the second wait opens is a second form,
+   * and it opens in the same two steps.
+   */
+  readonly switchTo: (next: HumanFormPhase | undefined) => Promise<void>;
 }
 
 /**
@@ -225,8 +238,16 @@ export interface HumanFormSlotMounting {
  * The bridge is composed ONCE and reused across both renders, which is what makes the
  * switch a switch: a fresh bridge would re-address every subject-scoped holder in the
  * tree and reset the form for a reason that has nothing to do with the phase.
+ *
+ * AND IT SETTLES, because the form opens in two steps. `loadSchemaFormBody` above resolves
+ * the seat's own chunk; the schema COMPILER is a second one, fetched by the form's own
+ * hook when it mounts, and the one act this shell offers is closed until it lands — so a
+ * case that pressed submit straight after `render` would press a control the form has
+ * deliberately not armed yet.
  */
-export function renderSwitchableSlot(mounting: HumanFormSlotMounting): SwitchableSlot {
+export async function renderSwitchableSlot(
+  mounting: HumanFormSlotMounting,
+): Promise<SwitchableSlot> {
   const held = mounting.bridge ?? createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
   // Spread on the arm that carries one rather than passed as an explicit `undefined`,
   // which `exactOptionalPropertyTypes` refuses on an optional prop.
@@ -237,10 +258,12 @@ export function renderSwitchableSlot(mounting: HumanFormSlotMounting): Switchabl
     </SidekicksBridgeProvider>
   );
   const { container, rerender } = render(slotFor(mounting.phase));
+  await settle();
   return {
     container,
-    switchTo: (next) => {
+    switchTo: async (next) => {
       rerender(slotFor(next));
+      await settle();
     },
   };
 }

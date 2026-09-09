@@ -312,12 +312,17 @@ export async function mountWorkflowsDestination(): Promise<MountedFamilySurface>
  * has instead of its busiest, and the park banner is the thing an operator opens
  * this pane for.
  *
- * WAITED ON TWICE, because the pane arrives in two steps. The run read landing puts the
- * park banners on the page; the waiting-human park then mounts the schema form, whose
- * kit is its own chunk and rides the pending-body marker until it lands. A mount that
- * returned on the first step handed the screenshot tier a tree still carrying that
- * marker, and the tier refused the capture — correctly, and non-deterministically,
- * since the chunk sometimes beat the capture and sometimes did not.
+ * WAITED ON THREE TIMES, because the pane arrives in three steps. The run read landing
+ * puts the park banners on the page; the waiting-human park then mounts the schema form,
+ * whose kit is its own chunk and rides the pending-body marker until it lands; and the
+ * form itself then fetches the schema compiler, which is a second chunk and the one thing
+ * that decides whether its submit control is armed. A mount that returned on the first
+ * step handed the screenshot tier a tree still carrying the pending marker, and the tier
+ * refused the capture — correctly, and non-deterministically, since the chunk sometimes
+ * beat the capture and sometimes did not. The third wait is that same hazard one layer
+ * in, and it photographs rather than refuses: the form announces the window with
+ * `aria-busy`, so a capture taken inside it pins a quieted, un-pressable submit against a
+ * baseline of an armed one.
  */
 export async function mountWorkflowParkedRunPane(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
@@ -344,6 +349,9 @@ export async function mountWorkflowParkedRunPane(): Promise<MountedFamilySurface
     const pendingKinds = pendingPaneKindsIn(region);
     if (pendingKinds.length > 0) {
       throw new Error(`a pane body is still arriving (${pendingKinds.join(", ")})`);
+    }
+    if (region.querySelector("[aria-busy]") !== null) {
+      throw new Error("the schema form's compiler has not arrived yet");
     }
   });
   return { element: region, bridge };

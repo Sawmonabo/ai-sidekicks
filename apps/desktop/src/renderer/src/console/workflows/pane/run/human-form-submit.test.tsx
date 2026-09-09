@@ -57,7 +57,7 @@ async function submitAnswered(
   answers: readonly (readonly [string, string])[],
 ): Promise<ReturnType<typeof bridgeWatchingSubmits>> {
   const probe = bridgeWatchingSubmits();
-  renderSlot({ ...fixtureWaitPhase(), inputSchema: TWO_ARTIFACTS_SCHEMA }, probe.bridge);
+  await renderSlot({ ...fixtureWaitPhase(), inputSchema: TWO_ARTIFACTS_SCHEMA }, probe.bridge);
   for (const [label, value] of answers) {
     answer(label, value);
   }
@@ -108,7 +108,7 @@ describe("the submitted request carries artifact answers through the attachment 
     // Absent rather than empty: the wire declares the member optional for exactly this
     // case, and an empty list would answer a question this phase never put.
     const probe = bridgeWatchingSubmits();
-    renderSlot(fixtureWaitPhase(), probe.bridge);
+    await renderSlot(fixtureWaitPhase(), probe.bridge);
     await act(async () => {
       pressSubmit();
     });

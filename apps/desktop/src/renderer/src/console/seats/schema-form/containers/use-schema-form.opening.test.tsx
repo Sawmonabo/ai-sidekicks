@@ -69,11 +69,11 @@ const REQUIRED_BOOLEAN_SCHEMA = {
 } as const;
 
 describe("what a schema form opens holding", () => {
-  it("submits the value the schema accepted, and opens its controls holding it", () => {
+  it("submits the value the schema accepted, and opens its controls holding it", async () => {
     // The divergence this closes: the reader supplies a member declaring a default, so
     // `{}` is valid — and a form that sent `{}` while showing a blank control would put
     // a clean verdict beside bytes nobody could see and nobody chose.
-    const form = mountForm(DEFAULTED_SCHEMA);
+    const form = await mountForm(DEFAULTED_SCHEMA);
 
     expect(form().report?.status).toBe("valid");
     expect(form().answer).toEqual({ approver: "ada" });
@@ -81,18 +81,18 @@ describe("what a schema form opens holding", () => {
     expect(memberValueOf(form(), ["approver"])).toBe("ada");
   });
 
-  it("negative control: a member the schema declares no value for opens empty", () => {
+  it("negative control: a member the schema declares no value for opens empty", async () => {
     // Without this, the case above would hold over a form that pre-filled every control
     // with something — the seed has to be the schema's own reading and nothing else.
-    const form = mountForm(DEFAULTED_SCHEMA);
+    const form = await mountForm(DEFAULTED_SCHEMA);
 
     expect(memberValueOf(form(), ["note"])).toBeUndefined();
   });
 
-  it("carries a typed answer over the schema's own value for that member", () => {
+  it("carries a typed answer over the schema's own value for that member", async () => {
     // The other half of the seed: it is a starting value and never an override, so
     // answering the member replaces it rather than being replaced by it.
-    const form = mountForm(DEFAULTED_SCHEMA);
+    const form = await mountForm(DEFAULTED_SCHEMA);
 
     act(() => {
       answerMember(form(), ["approver"], "bela");
@@ -101,21 +101,21 @@ describe("what a schema form opens holding", () => {
     expect(form().answer).toEqual({ approver: "bela" });
   });
 
-  it("seeds a member's own default while a different member is still unanswered", () => {
+  it("seeds a member's own default while a different member is still unanswered", async () => {
     // The all-or-nothing seed's failure: `{}` is refused because `note` is missing, so a
     // schema that DID declare a value for `approver` opened that control blank — and the
     // value reappeared in the submission the moment the unrelated member was answered.
-    const form = mountForm(PARTLY_DEFAULTED_SCHEMA);
+    const form = await mountForm(PARTLY_DEFAULTED_SCHEMA);
 
     expect(form().report?.status).toBe("invalid");
     expect(memberValueOf(form(), ["approver"])).toBe("ada");
     expect(form().answer).toEqual({ approver: "ada" });
   });
 
-  it("negative control: the answer holds no member the controls are not showing", () => {
+  it("negative control: the answer holds no member the controls are not showing", async () => {
     // The property the seed exists for, asserted over the answer rather than over one
     // member: every member a submission would carry is readable from a control.
-    const form = mountForm(PARTLY_DEFAULTED_SCHEMA);
+    const form = await mountForm(PARTLY_DEFAULTED_SCHEMA);
 
     act(() => {
       answerMember(form(), ["note"], "looks good");
@@ -129,30 +129,30 @@ describe("what a schema form opens holding", () => {
     expect(answer).toEqual({ approver: "ada", note: "looks good" });
   });
 
-  it("answers a required yes-or-no with the false its box is already showing", () => {
+  it("answers a required yes-or-no with the false its box is already showing", async () => {
     // An unchecked box is not a blank one: it says no. Submitting immediately therefore
     // carries `false` rather than nothing, and expressing it costs no second toggle.
-    const form = mountForm(REQUIRED_BOOLEAN_SCHEMA);
+    const form = await mountForm(REQUIRED_BOOLEAN_SCHEMA);
 
     expect(memberValueOf(form(), ["approved"])).toBe(false);
     expect(form().answer).toEqual({ approved: false });
     expect(form().report?.status).toBe("valid");
   });
 
-  it("opens an optional yes-or-no unanswered, so a presence-sensitive schema is answerable", () => {
+  it("opens an optional yes-or-no unanswered, so a presence-sensitive schema is answerable", async () => {
     // Seeded `false`, the drawn form opened INVALID on a member nobody had touched, and
     // the only state that cleared it was answering the question — a box can write `true`
     // or `false` and neither of them is "not answered".
-    const form = mountForm(PRESENCE_SENSITIVE_SCHEMA);
+    const form = await mountForm(PRESENCE_SENSITIVE_SCHEMA);
 
     expect(form().answer).toEqual({});
     expect(form().report?.status).toBe("valid");
   });
 
-  it("writes the yes-or-no a person picks, which is what makes the third state an answer", () => {
+  it("writes the yes-or-no a person picks, which is what makes the third state an answer", async () => {
     // The negative control on the case above: a control that could only ever report
     // nothing would satisfy it while answering the question for nobody.
-    const form = mountForm(PRESENCE_SENSITIVE_SCHEMA);
+    const form = await mountForm(PRESENCE_SENSITIVE_SCHEMA);
 
     act(() => {
       answerMember(form(), ["notify"], true);
@@ -162,12 +162,12 @@ describe("what a schema form opens holding", () => {
     expect(form().report?.status).toBe("valid");
   });
 
-  it("answers a schema the reader cannot compile as JSON rather than in a control it drew", () => {
+  it("answers a schema the reader cannot compile as JSON rather than in a control it drew", async () => {
     // Measured at the pin: the admitted reader throws on `not`, so the schema the seeding
     // defect was reported against never reaches a drawn control at all — it is answerable
     // in the editor, which is this subtree's whole rule and is why the cases above are
     // written over a schema this console draws.
-    const form = mountForm({
+    const form = await mountForm({
       type: "object",
       properties: { notify: { type: "boolean" } },
       not: { required: ["notify"] },
@@ -177,8 +177,8 @@ describe("what a schema form opens holding", () => {
     expect(form().validator.status).toBe("uncompilable");
   });
 
-  it("opens a yes-or-no at the value its schema declared", () => {
-    const form = mountForm({
+  it("opens a yes-or-no at the value its schema declared", async () => {
+    const form = await mountForm({
       type: "object",
       properties: { approved: { type: "boolean", default: true } },
     });
@@ -187,18 +187,18 @@ describe("what a schema form opens holding", () => {
     expect(form().answer).toEqual({ approved: true });
   });
 
-  it("negative control: a text member the schema declares no value for stays absent", () => {
+  it("negative control: a text member the schema declares no value for stays absent", async () => {
     // The seed is the schema's declared values plus the one state a box cannot leave
     // blank — never a value invented for every control, which would submit `note: \"\"`
     // for a member nobody answered.
-    const form = mountForm(PARTLY_DEFAULTED_SCHEMA);
+    const form = await mountForm(PARTLY_DEFAULTED_SCHEMA);
 
     expect(memberValueOf(form(), ["note"])).toBeUndefined();
     expect(form().answer).not.toHaveProperty("note");
   });
 
-  it("adds a yes-or-no list entry as the false its box shows", () => {
-    const form = mountForm({
+  it("adds a yes-or-no list entry as the false its box shows", async () => {
+    const form = await mountForm({
       type: "object",
       properties: { flags: { type: "array", items: { type: "boolean" } } },
     });
@@ -210,8 +210,8 @@ describe("what a schema form opens holding", () => {
     expect(listValuesOf(form(), ["flags"])).toEqual([false]);
   });
 
-  it("adds a repeated number entry the schema reads as unanswered rather than as text", () => {
-    const form = mountForm({
+  it("adds a repeated number entry the schema reads as unanswered rather than as text", async () => {
+    const form = await mountForm({
       type: "object",
       properties: { scores: { type: "array", items: { type: "number" } } },
     });
@@ -229,11 +229,11 @@ describe("what a schema form opens holding", () => {
     ).toBe(true);
   });
 
-  it("answers a required collection that accepts none with the empty list it is showing", () => {
+  it("answers a required collection that accepts none with the empty list it is showing", async () => {
     // Before, the member was omitted while the control drew an empty collection, so a
     // required array legally satisfied by zero entries opened invalid and could only be
     // submitted by adding an entry and taking it away again.
-    const form = mountForm({
+    const form = await mountForm({
       type: "object",
       properties: { reviewers: { type: "array", items: { type: "string" } } },
       required: ["reviewers"],
@@ -244,8 +244,8 @@ describe("what a schema form opens holding", () => {
     expect(form().report?.status).toBe("valid");
   });
 
-  it("opens a control at the value its enclosing group declared for it", () => {
-    const form = mountForm({
+  it("opens a control at the value its enclosing group declared for it", async () => {
+    const form = await mountForm({
       type: "object",
       properties: {
         release: {
@@ -262,8 +262,8 @@ describe("what a schema form opens holding", () => {
     expect(form().answer).toEqual({ release: { tag: "v1" } });
   });
 
-  it("negative control: a text list entry is still added empty rather than as false", () => {
-    const form = mountForm(NESTED_SCHEMA);
+  it("negative control: a text list entry is still added empty rather than as false", async () => {
+    const form = await mountForm(NESTED_SCHEMA);
 
     act(() => {
       form().appendListEntry(["reviewers"]);
@@ -272,8 +272,8 @@ describe("what a schema form opens holding", () => {
     expect(listValuesOf(form(), ["reviewers"])).toEqual([""]);
   });
 
-  it("opens a member one level down at the value its own schema declared", () => {
-    const form = mountForm({
+  it("opens a member one level down at the value its own schema declared", async () => {
+    const form = await mountForm({
       type: "object",
       properties: {
         release: { type: "object", properties: { tag: { type: "string", default: "v1" } } },
@@ -284,8 +284,8 @@ describe("what a schema form opens holding", () => {
     expect(form().answer).toEqual({ release: { tag: "v1" } });
   });
 
-  it("opens a list holding the entries its schema declared", () => {
-    const form = mountForm({
+  it("opens a list holding the entries its schema declared", async () => {
+    const form = await mountForm({
       type: "object",
       properties: { reviewers: { type: "array", items: { type: "string" }, default: ["ada"] } },
     });

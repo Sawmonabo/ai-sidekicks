@@ -10,27 +10,65 @@
 // A HANDLE RATHER THAN A SNAPSHOT, because the state is a new object on every render: a
 // case that captured one and read it after an `act` would be reading the form as it was
 // before the edit it just made.
+//
+// AND THE SETTLED MOUNT IS THE DEFAULT, because the form opens in two steps. The schema
+// compiler arrives on its own chunk, so a mount read straight after `render` is read
+// during the window where nothing has checked anything — every case about what a form
+// HOLDS would be asserting against a form that had not finished opening. So `mountForm`
+// waits, and the window itself has its own mount and its own suite
+// (`use-schema-form.compiler.test.tsx`), which is the one place a case may read the form
+// before the compiler lands.
 
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 
 import { answeredScalar, UNANSWERED_SCALAR } from "../answer/schema-draft.js";
+import { settle } from "../../../core/settle.test-support.js";
 import { useSchemaForm, type SchemaFormState } from "./use-schema-form.js";
 import type { SchemaMemberPath } from "../../../bridge/index.js";
 
-/** Mount the hook and hand back a live handle on its latest state. */
-export function mountForm(inputSchema: unknown): () => SchemaFormState {
+/** One mounted form: its latest state, the schema it is showing, and its ending. */
+export interface MountedSchemaForm {
+  /** The hook's latest state, read live for the reason the header gives. */
+  readonly form: () => SchemaFormState;
+  /** Re-render this same mount over another schema, which is what moves the identity. */
+  readonly showSchema: (inputSchema: unknown) => void;
+  readonly unmount: () => void;
+}
+
+/**
+ * Mount the hook and hand it back without waiting for anything.
+ *
+ * For the one suite whose subject IS the window before the compiler lands. Every other
+ * case wants {@link mountForm}, which is this plus the wait.
+ */
+export function mountFormUnsettled(inputSchema: unknown): MountedSchemaForm {
   let latest: SchemaFormState | undefined;
-  function Probe(): React.JSX.Element {
-    latest = useSchemaForm(inputSchema);
+  function Probe(props: { readonly inputSchema: unknown }): React.JSX.Element {
+    latest = useSchemaForm(props.inputSchema);
     return <div />;
   }
-  render(<Probe />);
-  return () => {
-    if (latest === undefined) {
-      throw new Error("the hook never rendered");
-    }
-    return latest;
+  const { rerender, unmount } = render(<Probe inputSchema={inputSchema} />);
+  return {
+    form: () => {
+      if (latest === undefined) {
+        throw new Error("the hook never rendered");
+      }
+      return latest;
+    },
+    showSchema: (nextSchema) => {
+      act(() => {
+        rerender(<Probe inputSchema={nextSchema} />);
+      });
+    },
+    unmount,
   };
+}
+
+/** Mount the hook, let its compiler land, and hand back a live handle on its state. */
+export async function mountForm(inputSchema: unknown): Promise<() => SchemaFormState> {
+  const mounted = mountFormUnsettled(inputSchema);
+  await settle();
+  return mounted.form;
 }
 
 /**
