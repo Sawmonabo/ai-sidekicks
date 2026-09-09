@@ -16,8 +16,22 @@
 // what is DUE — the frozen clock, the elapsed tick, the contiguous due prefix, and the
 // teardown that decides whether anything is delivered at all. That one owns the fan-out
 // and the record of what landed: the two emitters, the replay a late subscriber is
-// handed, and the log every delivered position comes from. It is reached from here at
-// exactly five moments, all of them past a liveness guard this file owns.
+// handed, and the log every delivered position comes from.
+//
+// THE LIVENESS RULE OVER THAT SEAM IS NOT UNIFORM, and stating it as though it were
+// would hide the one asymmetry a reader has to know. Every reach that DELIVERS is
+// guarded on this side and never on that one: `advance` returns before
+// `admitScriptedBeats` and `publishAdvance`, and `appendEvent` returns before its own,
+// each dropping onto the tripwire. `subscribe` passes `!#disposed` for the REPLAY
+// alone — the sink still attaches, as that method's own doc says — and
+// `subscribeToAdvances` passes no flag at all. Neither ATTACH needs one: `dispose()`
+// runs `clear()` and closes every producing path in the same act, so a sink registered
+// afterwards is attached to an emitter nothing can ever publish to again, which is
+// what `bridge/failure-modes.test.ts`'s teardown case and `scenario-engine.test.ts`'s
+// late-sink negative control hold between them. The remaining three reaches —
+// `deliveredEvents`, `beatSinkCount`, `clear` — are two reads and teardown itself, and
+// none of them is a delivery. That is why the disposed flag lives here and not there,
+// which `scenario-delivery.ts` states from its own side.
 //
 // A FRAME CAN BE APPENDED THAT THE SCRIPT DOES NOT CARRY. A scenario is a recording,
 // and a person acting on a fixture surface does something the recording does not
