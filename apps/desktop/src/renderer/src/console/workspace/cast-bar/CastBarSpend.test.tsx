@@ -19,7 +19,7 @@ import { CastBarSpend } from "./CastBarSpend.js";
 import { type CastBarSpendReading } from "./model/cast-bar-readings.js";
 import { type CastBarReadState } from "./model/cast-bar-read-projection.js";
 
-vi.mock(import("../../primitives/wire-figures.js"), { spy: true });
+vi.mock(import("../../primitives/figures/wire-figures.js"), { spy: true });
 
 function served(
   committedSpendCents: number,

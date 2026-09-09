@@ -27,7 +27,7 @@
 // against.
 //
 // AND IT IS THE PARTITION THE SHELL BLOCK IS HELD TO, rather than a second opinion
-// beside it. `store/shell-mutation-block.ts` names the writes this console offers a
+// beside it. `store/shell/shell-mutation-block.ts` names the writes this console offers a
 // CONTROL for, which is deliberately a subset — a method no surface dispatches has no
 // control to disable — and its every registered member classifies as a record here. Two
 // answers to "is this a write" that could disagree is the defect that pairing refuses.

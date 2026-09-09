@@ -5,14 +5,34 @@
 // in either one would be a value the other half could only match by copying it,
 // which is how a fixture comes to answer a read about a request no beat ever raised.
 
+import {
+  ParticipantIdSchema,
+  RunIdSchema,
+  SessionIdSchema,
+  type ParticipantId,
+  type RunId,
+  type SessionId,
+} from "@ai-sidekicks/contracts";
+
 // UUID v7 values whose leading bytes are this scenario's own start instant, so a
 // reader scanning a rendered id can still tell one fixture apart from another.
-export const SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55a5";
-export const PARTICIPANT_YOU = "019b7a33-3300-79a4-8110-cca0117a0510";
-export const PARTICIPANT_AWAY = "019b7a33-3300-79a4-8120-cca0117a0520";
+//
+// MINTED THROUGH THE REGISTERED SCHEMAS RATHER THAN `as`-CAST. A scenario constant is
+// where a fixture chooses the bytes, and a cast asserts a brand without checking it —
+// so a malformed id surfaced at the first `.strict()` reply that carried it, which
+// takes the whole reply down and names the reply rather than the value. Parsing at
+// declaration fails the module instead, naming the constant. `AGENT_*` stays
+// unbranded: the corpus registers no `AgentId` brand to mint one through.
+export const SESSION_ID: SessionId = SessionIdSchema.parse("019b7a33-3300-75e5-8510-ada11a5a55a5");
+export const PARTICIPANT_YOU: ParticipantId = ParticipantIdSchema.parse(
+  "019b7a33-3300-79a4-8110-cca0117a0510",
+);
+export const PARTICIPANT_AWAY: ParticipantId = ParticipantIdSchema.parse(
+  "019b7a33-3300-79a4-8120-cca0117a0520",
+);
 export const AGENT_IMPLEMENTER = "019b7a33-3300-7a6e-8110-d1a4c1150501";
 export const AGENT_REVIEWER = "019b7a33-3300-7a6e-8120-d1a4c1150502";
-export const RUN_ID = "019b7a33-3300-740e-8110-d1a4c1150511";
+export const RUN_ID: RunId = RunIdSchema.parse("019b7a33-3300-740e-8110-d1a4c1150511");
 
 export const APPROVAL_RESOLVED = "019b7a33-3300-7f01-8110-d1a4c1150521";
 export const APPROVAL_EXPIRED = "019b7a33-3300-7f01-8120-d1a4c1150522";

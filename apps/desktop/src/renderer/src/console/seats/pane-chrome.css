@@ -1,4 +1,4 @@
-/* The pane frame. One sheet for every pane kind, imported by `ConsolePaneChrome.tsx`
+/* The pane frame. One sheet for every pane kind, imported by `seats/pane/ConsolePaneChrome.tsx`
    — the single edge into it — rather than by the family door six concurrent branches
    each add a line to.
 

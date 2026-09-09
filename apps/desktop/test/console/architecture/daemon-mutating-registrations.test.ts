@@ -1,6 +1,6 @@
 // The console's mutating-method tuple, held to the daemon's own registrations.
 //
-// `store/shell-state.ts` names the methods a supervisor outage closes, and its
+// `store/shell/shell-state.ts` names the methods a supervisor outage closes, and its
 // authority is a registration's `mutating` flag. That agreement was prose until this
 // gate: the tuple was read off the daemon's handlers once, by hand, and nothing
 // reported it the next time one landed — which is how `providerAccount.probe` came to
@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { MUTATING_DAEMON_METHODS } from "../../../src/renderer/src/console/store/shell-mutation-block.js";
+import { MUTATING_DAEMON_METHODS } from "../../../src/renderer/src/console/store/shell/shell-mutation-block.js";
 import {
   contradictedRegistrations,
   daemonIpcRegistrations,

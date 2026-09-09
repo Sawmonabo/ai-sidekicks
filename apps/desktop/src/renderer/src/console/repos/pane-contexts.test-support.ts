@@ -16,43 +16,28 @@ import type { ConsoleBridge } from "../bridge/index.js";
 import type {
   ConsolePaneAddress,
   ConsolePaneContext,
-  ConsolePaneOpener,
   SidebarSectionContext,
 } from "../seats/index.js";
-import { FrameStore, type SessionStore } from "../store/index.js";
+import {
+  sectionContext as seatSectionContext,
+  type SectionBindings,
+} from "../seats/slots/section-context.test-support.js";
+import { type SessionStore } from "../store/index.js";
 
 /**
- * A section context with real collaborators.
+ * A section context with real collaborators, in this family's own vocabulary.
  *
- * Both are reached rather than stubbed: a section body resolves its clock off the
- * bridge and subscribes to the store on its first hook, so a context missing either
- * throws before any assertion runs.
+ * A ONE-LINE WRAPPER over `seats/slots/section-context.test-support.ts` and not a second
+ * builder. That module states the rule — a family WRAPS the seat's context rather than
+ * replacing it — and this file used to hold a byte-equivalent copy of the body instead,
+ * which is exactly the drift that rule exists to prevent: two builders for one seat,
+ * each with its own idea of which member a case has to state.
  *
- * `openPane` DEFAULTS TO A NO-OP AND IS TAKEN WHERE A CASE OBSERVES IT. Opening a pane
- * is the deck's act, so most section cases have nothing to say about it; a case that is
- * about the section reaching the deck — a card's own way into a pane — hands one in
- * rather than rebuilding the context around it.
- *
- * `frameStore` DEFAULTS TO A FRESH ONE ON THE SAME RULE. A fresh store reports nothing
- * about the shell, which is the state that blocks no control — so a case about a
- * section's ordinary rendering gets the shell out of its way, and a case about a write
- * closed by an outage hands in a store it has driven to the condition it is asserting.
+ * It stays as a name in this family because seven repos suites reach it by this
+ * specifier and the seat's own bindings type is what they were already passing.
  */
-export function sectionContext(reached: {
-  readonly isOpen: boolean;
-  readonly bridge: ConsoleBridge;
-  readonly sessionStore: SessionStore;
-  /** The window's store, or a fresh one — born unreported, so nothing is blocked. */
-  readonly frameStore?: FrameStore;
-  readonly openPane?: ConsolePaneOpener;
-}): SidebarSectionContext {
-  return {
-    isOpen: reached.isOpen,
-    bridge: reached.bridge,
-    sessionStore: reached.sessionStore,
-    frameStore: reached.frameStore ?? new FrameStore(),
-    openPane: reached.openPane ?? (() => undefined),
-  };
+export function sectionContext(reached: SectionBindings): SidebarSectionContext {
+  return seatSectionContext(reached);
 }
 
 /**

@@ -23,11 +23,10 @@
 import { useState } from "react";
 import { type ExecutionPosture as WireExecutionPosture } from "@ai-sidekicks/contracts";
 
-import { DerivedFigure } from "../DerivedFigure.js";
+import { DerivedFigure, formatCount } from "../figures/index.js";
 import { PostureFacts } from "./PostureFacts.js";
 import { POSTURE_ENFORCEMENT_CAVEAT } from "./posture-copy.js";
 import type { PostureReading } from "./posture-reading.js";
-import { formatCount } from "../wire-figures.js";
 
 /** The row presentation. `children` is the chip line its sibling composed. */
 export function PostureRow(props: {

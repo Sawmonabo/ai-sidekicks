@@ -10,7 +10,7 @@
 // key is `diffCreateSubjectKey`, so the two id spaces a diff can be opened over cannot
 // collide even if the daemon ever minted one string in both.
 //
-// THE SESSION STORE IS THE AXIS NO KEY CARRIES, which is `store/session-store-rebind.ts`'s
+// THE SESSION STORE IS THE AXIS NO KEY CARRIES, which is `store/session/session-store-rebind.ts`'s
 // rule and is applied by the hook underneath rather than restated here.
 
 import { useCallback, useEffect, useMemo } from "react";

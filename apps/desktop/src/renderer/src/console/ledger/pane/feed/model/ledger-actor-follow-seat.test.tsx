@@ -31,7 +31,7 @@ import {
   unregisterActorFollowHandler,
   type ActorFollowHandler,
 } from "../../../../seats/index.js";
-import { SuspensionGate } from "../../../../store/subject-scoped-drivers.test-support.js";
+import { SuspensionGate } from "../../../../store/subject-scoped/subject-scoped-drivers.test-support.js";
 import {
   buildActorFollowHandler,
   useActorFollowSeat,

@@ -4,7 +4,7 @@
 // `Spec-023 §Console Design (Meridian)` gives a pane one entity and one body; a channel
 // whose conversation started a workflow has a second thing to say that is not a row in
 // the ledger and not the ledger's subject. So it rides the pane chrome's pinned region
-// (`seats/pinned-pane-regions.ts`) — above the body, outside the body's scroller, and
+// (`seats/pane/pinned-pane-regions.ts`) — above the body, outside the body's scroller, and
 // registered by THIS family rather than by the family that owns the pane, because the
 // progress is this family's fold and a sibling import is what the layering rules refuse.
 //
@@ -22,7 +22,7 @@
 //
 // Offers — the route to the run's own pane, and only where the host handed one down.
 // The route is a pane opener, which is the deck's act rather than this card's: it
-// arrives on the pinned region's context (`seats/pinned-pane-regions.ts`), forwarded
+// arrives on the pinned region's context (`seats/pane/pinned-pane-regions.ts`), forwarded
 // by the chrome off the `PaneControls` the deck provides. A host with no deck — the
 // auxiliary window, a full-width surface — hands over nothing, and the card then
 // states the run's identity and draws no control, because a button that cannot open

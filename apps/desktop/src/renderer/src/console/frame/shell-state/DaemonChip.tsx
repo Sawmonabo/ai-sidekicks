@@ -25,7 +25,7 @@
 // WHERE IT GOES IS NOT THIS COMPONENT'S DECISION. The chip is handed the navigation,
 // so it holds no route, no store, and no opinion about which surface answers for the
 // supervisor — and the settings section it lands on is declared once in
-// `store/shell-state.ts`, where the settings rail reads the same id.
+// `store/shell/shell-state.ts`, where the settings rail reads the same id.
 //
 // THE UNREPORTED ARM STAYS INERT. It is an absence rather than a state, `Nothing`
 // carries its own title and detail, and a button around "nobody has said" would offer

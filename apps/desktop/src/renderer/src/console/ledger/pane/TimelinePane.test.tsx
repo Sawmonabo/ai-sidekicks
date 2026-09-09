@@ -34,7 +34,7 @@ import { registerTimelineRowRenderer } from "../../seats/index.js";
 // height would be measuring its own setup.
 import { withLaidOutViewport } from "./feed/surface/LedgerFeedFixtures.test-support.js";
 // Deeply: the teardown is reached by tests alone, so it is not a door line.
-import { unregisterTimelineRowRenderer } from "../../seats/single-slot/timeline-row-slot.js";
+import { unregisterTimelineRowRenderer } from "../../seats/slots/timeline-row-slot.js";
 import { TIMELINE_ROW_SLOT, type TimelinePaneContext } from "./TimelinePane.js";
 import {
   TIMELINE_PANE_SESSION_ID,

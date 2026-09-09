@@ -2,7 +2,7 @@
 //
 // `apps/desktop/AGENTS.md` states the rule — "`.tsx` files are PascalCase, one
 // component each" — and until this file nothing checked it, which is how
-// `primitives/PartialRead.tsx` came to declare `PartialRead` and a second component,
+// `primitives/reading/PartialRead.tsx` came to declare `PartialRead` and a second component,
 // `ReadingNotice`, that no reader looking for a notice would have found and no test
 // could reach except through the first. A convention with no instrument is a
 // convention that holds for as long as everyone remembers it.
@@ -24,7 +24,7 @@
 // function or `const` declaration whose name is PascalCase and which renders markup —
 // either JSX somewhere in its own body, or a declared return type that is a React
 // element. The second half is load-bearing rather than belt-and-braces:
-// `primitives/Nothing.tsx` composes its whole body out of two camelCase helpers and
+// `primitives/absence/Nothing.tsx` composes its whole body out of two camelCase helpers and
 // carries no JSX of its own, so a JSX-only predicate resolved it to ZERO components
 // and would have scored every module beside it against a rule it was not applying.
 // Claim 1 is what keeps that honest — every `.tsx` module resolves at least one

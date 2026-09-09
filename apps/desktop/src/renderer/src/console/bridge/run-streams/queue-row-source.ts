@@ -27,7 +27,7 @@
 // answer for a stream whose payload the fixture has no source for — rather than a
 // made-up priority.
 //
-// WHY THIS IS ITS OWN MODULE. Two sides of one seam: `fixture-bridge.ts` names the
+// WHY THIS IS ITS OWN MODULE. Two sides of one seam: `fixture/call-plane/bridge.ts` names the
 // read when it resolves the scenario's reply, and `run-stream-projection.ts` reads
 // the row out of it. A second spelling of `"run.queueList"` on the other side of
 // that seam would be a fixture looking up a reply nobody scripts.

@@ -17,7 +17,7 @@
 // to `runtime_node.online` alone — one of seven, which is the configuration the
 // sibling module argues is the worst available, because a roster that updates
 // sometimes is the hardest kind of staleness to notice. So the default arm is gone
-// rather than repaired: every mount supplies the seam, `console/seats/absorbed-surfaces.ts`
+// rather than repaired: every mount supplies the seam, `console/seats/surface/absorbed-surfaces.ts`
 // composes it from the console's own bridge, and this view names no wire at all.
 //
 // WHY IT IS A SEAM RATHER THAN A DIRECT BRIDGE CALL. A host that resolves its own
@@ -110,7 +110,7 @@ export type RosterViewState =
  * The "nothing has been read for this subject yet" answer, as one frozen value.
  *
  * A module constant rather than a fresh literal, so the identity of the absence does
- * not change between the passes that produce it — the same reasoning `store/hooks.ts`
+ * not change between the passes that produce it — the same reasoning `store/session/caller-membership-role.ts`
  * gives for freezing its own not-loaded arm.
  */
 const ROSTER_NOT_READ: RosterViewState = { kind: "loading" };

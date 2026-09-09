@@ -5,8 +5,8 @@
 // resolved union, so whatever a group may say about itself, every group with no rows
 // may say the same thing.
 //
-// This suite is a sibling of `DefinitionsBrowser.test.tsx` rather than a section of it:
-// the grouping, resolution and control cases live there, and what a group renders when
+// This suite is a sibling of `DefinitionsBrowser.grouping.test.tsx` rather than a
+// section of it: the grouping, resolution and control cases live there, and what a group renders when
 // it holds nothing is its own concern with its own reason to change.
 
 import { cleanup, render } from "@testing-library/react";

@@ -12,16 +12,15 @@ import { expect } from "vitest";
 
 import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
 import { consoleClockFor, createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT, ManualClock } from "../../core/index.js";
+import { ManualClock } from "../../core/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 // Both deep, and both because the bridge door publishes neither: the console
 // resolves the live bridge inside that family, and the transport marker's readers
 // are this module and the two suites beside it.
 import { SCRIPTED_PANE_VIEW_HOST_TRANSPORT } from "../../bridge/fixture/pane-view-host-script.js";
 import { createLiveBridge } from "../../bridge/live-bridge.js";
-import { DraftStore, UiStateStore } from "../../persistence/index.js";
-import { FrameStore } from "../../store/index.js";
 import type { PaneContextOf } from "../../seats/index.js";
+import { paneContext } from "../../seats/pane/pane-context.test-support.js";
 import { BrowserPane } from "./BrowserPane.js";
 
 /**
@@ -110,15 +109,23 @@ export function recordingBrowserBridge(recordPublish: (paneId: string) => void):
 }
 
 /**
- * The context the deck hands this pane, built once for every suite that mounts it.
+ * The context the deck hands this pane, over the shared builder.
  *
  * Exported because a second suite mounts the pane itself rather than through the
  * mounts below — the geometry binding's double-mount case needs the tree inside
  * `StrictMode`, which is a wrapper no shared mount can impose on the suites that do
- * not want it — and a per-suite copy of the address would be a second answer to which
- * members the `browser` arm carries.
+ * not want it.
+ *
+ * The bridge is handed BACK beside the context because that is what every caller
+ * here is really after: the pane's view host is resolved from the bridge, so a case
+ * about geometry and a case about navigation have to be holding one bridge or they
+ * are describing two windows — and a default argument the caller did not pass is a
+ * bridge it cannot otherwise name.
+ *
+ * The address arm carries no `entity` member: `browser` is session-scoped, so the
+ * union's arm has none and the seat refuses one at this call site.
  */
-export function paneContext(
+export function browserPaneContext(
   bridge: ConsoleBridge = fixtureBrowserBridge(),
   paneId: string = DEFAULT_TEST_PANE_ID,
 ): {
@@ -127,20 +134,7 @@ export function paneContext(
 } {
   return {
     bridge,
-    context: {
-      // No `entity` member at all: the `browser` address is session-scoped, so the
-      // kind's arm of the union carries none and an `undefined` one would be a
-      // reference this pane is documented never to be a view of.
-      kind: "browser",
-      paneId,
-      bridge,
-      frameStore: new FrameStore(),
-      sessionStore: undefined,
-      uiStateStore: UiStateStore.opening(),
-      draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
-      linkedSourcePaneId: undefined,
-      focusHue: undefined,
-    },
+    context: paneContext({ kind: "browser" }, { bridge, sessionStore: undefined, paneId }),
   };
 }
 
@@ -160,7 +154,7 @@ export async function mountBrowserPaneForSubject(
   paneId: string,
   ProbeComponent?: React.ComponentType,
 ): Promise<BrowserPaneSubjectMount> {
-  const built = paneContext(bridge, paneId);
+  const built = browserPaneContext(bridge, paneId);
   let mounted: RenderResult | undefined;
   // A component type rather than a ready-made node, and that is load-bearing: React
   // skips re-rendering a child whose element is referentially identical, so a probe
@@ -180,7 +174,7 @@ export async function mountBrowserPaneForSubject(
     throw new Error("the browser pane did not mount");
   }
   const rerenderFor = async (nextBridge: ConsoleBridge, nextPaneId: string): Promise<void> => {
-    const rebound = paneContext(nextBridge, nextPaneId);
+    const rebound = browserPaneContext(nextBridge, nextPaneId);
     await act(async () => {
       rendered.rerender(tree(rebound));
     });
@@ -239,7 +233,7 @@ export async function renderBrowserPane(bridge?: ConsoleBridge): Promise<{
   readonly region: HTMLElement;
   readonly bridge: ConsoleBridge;
 }> {
-  const built = paneContext(bridge);
+  const built = browserPaneContext(bridge);
   await act(async () => {
     render(<BrowserPane {...built.context} />);
   });

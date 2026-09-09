@@ -14,7 +14,7 @@ import { SidekicksBridgeProvider } from "../../../bridge/index.js";
 import {
   bridgeAnswering,
   type BridgeUnderTest,
-} from "../../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 
 /** A bridge whose one scripted method fails until the case clears the flag. */
 export interface RecoverableBridge {

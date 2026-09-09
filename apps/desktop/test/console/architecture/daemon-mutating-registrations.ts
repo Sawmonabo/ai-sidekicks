@@ -1,7 +1,7 @@
 // What the daemon itself says is mutating, read off its own registrations.
 //
 // The console blocks daemon-bound writes while the supervisor is starting,
-// reconnecting, incompatible, offline, or stopped, and `store/shell-state.ts` names
+// reconnecting, incompatible, offline, or stopped, and `store/shell/shell-state.ts` names
 // the set that rule applies to. That tuple's authority is a registration's `mutating`
 // flag — and until this gate existed the agreement between the two was prose. A claim
 // in a comment is not enforcement: the tuple was resolved by reading the daemon's

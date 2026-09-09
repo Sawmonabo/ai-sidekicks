@@ -5,7 +5,7 @@
 // it is, and which two humans a `direct` one is between. `channel-roster.ts` beside this
 // file is what those three become on screen; this is the call that fetches them.
 //
-// WHY IT IS NO LONGER ASKED ONCE. It was, through `seats/growth-read.ts`, whose whole
+// WHY IT IS NO LONGER ASKED ONCE. It was, through `seats/read/growth-read.ts`, whose whole
 // contract is one read per subject — and the subject is the SESSION, which does not move
 // when a channel is created in it. So a person who created a direct channel while the
 // list stayed mounted watched the row arrive from the directory's own re-read and then
@@ -13,8 +13,8 @@
 // until something unmounted the section. The directory had moved and its enrichment had
 // not, and nothing on screen said which of the two was stale.
 //
-// THAT SEAT SAYS WHERE SUCH A READ GOES: `store/scheduling.ts`, the console's refresh
-// chokepoint, reached through `seats/push-driven-read.ts`. So this read takes the same
+// THAT SEAT SAYS WHERE SUCH A READ GOES: `store/read/refresh-scheduler.ts`, the console's refresh
+// chokepoint, reached through `seats/read/push-driven-read.ts`. So this read takes the same
 // five-part discipline every live read here takes — subscribe before reading, an opaque
 // signal, one read per burst, no stale reply winning, and no flicker back to the unread
 // shape while a refresh is in flight — and it is a `PushDrivenRead` like the directory

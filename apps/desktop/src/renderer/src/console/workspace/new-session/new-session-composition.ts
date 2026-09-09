@@ -279,6 +279,16 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
     committedSessionCreatedRef.current = onSessionCreated;
   });
 
+  // The commit-time read, named once and stable forever, so the settlement effect below
+  // calls a function rather than reaching into a ref. Reading `.current` inside an
+  // effect that also announces is the shape `announce-latch-census.ts` reads as a
+  // second copy of the announce-once latch, and this composition holds no such latch —
+  // the sentence is said once because a settlement lands once, not because a ref
+  // remembers what was said. Naming the read here keeps that true where it is read.
+  const settleCreatedSession = useCallback((createdSessionId: string) => {
+    committedSessionCreatedRef.current(createdSessionId);
+  }, []);
+
   // Said once, when a settlement LANDS, rather than from inside the continuation: a
   // result that installed nowhere is one nobody was waiting for, and announcing from
   // the value that reached the screen is what keeps those two facts the same one.
@@ -325,11 +335,11 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
     }
     const createdSessionId = result.sessionId;
     publishDraft(undefined);
-    committedSessionCreatedRef.current(createdSessionId);
+    settleCreatedSession(createdSessionId);
     // `hasUnsentLaterEdits` is a correct dependency and not a per-keystroke one: it is
     // false until a settlement lands and stays true once one has landed over a moved-on
     // draft, so a further edit re-renders without re-running this.
-  }, [announce, hasUnsentLaterEdits, publishDraft, result]);
+  }, [announce, hasUnsentLaterEdits, publishDraft, result, settleCreatedSession]);
 
   return {
     draftState,

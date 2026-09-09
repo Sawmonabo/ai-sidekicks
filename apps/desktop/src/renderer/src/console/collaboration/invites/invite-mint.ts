@@ -66,7 +66,7 @@ const INVITE_MINT_ORIGIN = "create-invite";
 // THE SHELL'S OWN REFUSAL IS NOT THIS MODULE'S TO NAME, and it used to be: the origin
 // string and the predicate that recognises one both lived here, which was right while
 // this was the only act that aborted on a block. It is not — the ledger's ask answer
-// aborts on the same condition — so both moved to `store/shell-mutation-block.ts`,
+// aborts on the same condition — so both moved to `store/shell/shell-mutation-block.ts`,
 // which owns the condition, and this module composes the refusal through
 // `shellBlockRefusal` rather than spelling an origin of its own.
 

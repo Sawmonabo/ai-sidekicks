@@ -16,9 +16,9 @@
 // unknown key both compile errors; an array beside the union would make neither.
 //
 // ONE MODULE PER WIRE PLANE, AND THE RECORD IS STILL EXHAUSTIVE. The table used to
-// be one module, and its length was its row count — one entry per wire the console
-// does not yet have, growing with every lane that added one until it was past the
-// ~400-line rule `apps/desktop/AGENTS.md` sets. What that file's own header argued
+// be one module holding every wire plane at once — one entry per wire the console
+// does not yet have, growing with every lane that added one until the planes were
+// plainly the seam it should have split on. What that file's own header argued
 // was that splitting the record would lose the exhaustiveness the
 // `Record<GrowthOperationId, …>` annotation is there to get. It does not, because
 // the annotation stays HERE: the composition below is one object literal typed as

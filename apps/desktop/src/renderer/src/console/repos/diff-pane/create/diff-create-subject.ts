@@ -4,7 +4,7 @@
 // WHOLE SUBJECT OF THIS MODULE. `DiffArtifactCreateRequest` is a union discriminated on
 // `attributionMode`: the `run_attributed` arm is keyed by a run and the
 // `workspace_fallback` arm by a workspace, and there is no third arm and no arm carrying
-// both. `seats/pane-address.ts` opens a diff pane over a repo, a workspace, a worktree,
+// both. `seats/pane/pane-address.ts` opens a diff pane over a repo, a workspace, a worktree,
 // an invite, or a member. So three of those five name nothing the create can be keyed
 // by, and the honest answer for them is that no diff can be asked for from here — not a
 // control that is offered and then refuses.

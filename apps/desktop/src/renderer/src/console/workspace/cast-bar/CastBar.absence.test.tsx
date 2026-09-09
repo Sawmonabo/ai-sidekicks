@@ -14,7 +14,7 @@ import { within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { CastBar } from "./CastBar.js";
-import { AGENT_ARCHITECT } from "../../bridge/scenarios/flagship-cast.js";
+import { AGENT_ARCHITECT } from "../../bridge/scenarios/flagship/flagship-cast.js";
 import {
   SESSION_ID,
   attachedAgent,

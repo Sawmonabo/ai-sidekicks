@@ -1,7 +1,7 @@
 // One home for every cap, asserted rather than asked for.
 //
 // `apps/desktop/AGENTS.md` says "One value, one home: budgets and their unit factors
-// in `budgets.json`, caps in `console/core/constants.ts` with a rationale each." That
+// in `budgets.json`, caps in `console/core/constants/` with a rationale each." That
 // rule had no mechanism, and four view families each grew their own bounds module —
 // so the answer to "what caps does this console carry" depended on which of five
 // files an audit opened, and the modules were not even named alike: three said
@@ -48,16 +48,27 @@ import {
   moduleNamed,
   readConsoleSourceModule,
 } from "../console-source-modules.js";
-import { parseSourceText } from "../typescript-source.js";
+import { boundNamesOf, parseSourceText } from "../typescript-source.js";
 import { BOUND_NAME_WORDS } from "./bound-words.js";
 
 /**
- * The one module allowed to declare a bound.
+ * The one DIRECTORY allowed to declare a bound.
  *
- * An allow-list of exactly one, written as a path rather than inferred, so moving
- * the home is an edit a reviewer sees.
+ * An allow-list of exactly one home, written as a path rather than inferred, so moving
+ * the home is an edit a reviewer sees. It is a directory because the home is one module
+ * per concern under `console/core/constants/` — what this rule forbids is a SECOND
+ * home, and a home is where a bound lives rather than how many files it takes.
+ *
+ * The trailing separator is load-bearing: without it `console/core/constants.ts` — the
+ * single file the home was split out of — and any `constants-extra.ts` beside it would
+ * read as part of the home, which is exactly the second home this scans for.
  */
-const BOUNDS_MODULE = ["console", "core", "constants.ts"].join("/");
+const BOUNDS_HOME = ["console", "core", "constants", ""].join("/");
+
+/** Whether one console-relative module sits inside that home. */
+function isBoundsHomeModule(displayPath: string): boolean {
+  return displayPath.startsWith(BOUNDS_HOME);
+}
 
 /**
  * Whether one binding name is a bound, by the vocabulary and the casing together.
@@ -72,19 +83,6 @@ function isBoundName(name: string): boolean {
     /^[A-Z][A-Z0-9_]*$/u.test(name) &&
     name.split("_").some((token) => BOUND_NAME_WORDS.includes(token))
   );
-}
-
-/** Every name one variable declaration binds, destructuring patterns included. */
-function boundNamesOf(name: ts.BindingName, into: string[]): void {
-  if (ts.isIdentifier(name)) {
-    into.push(name.text);
-    return;
-  }
-  for (const element of name.elements) {
-    if (ts.isBindingElement(element)) {
-      boundNamesOf(element.name, into);
-    }
-  }
 }
 
 /**
@@ -136,7 +134,7 @@ function declaredBoundNames(fileName: string, source: string): readonly string[]
     .filter(isBoundName);
 }
 
-describe("console bounds — every cap is declared in one module", () => {
+describe("console bounds — every cap is declared in one home", () => {
   // The shared walk already drops co-located tests and their support modules, which
   // is the exemption this rule needs: a case that plants a would-be offender has to
   // be able to write one.
@@ -146,12 +144,14 @@ describe("console bounds — every cap is declared in one module", () => {
     // Without this, a wrong console directory would scan nothing and the assertion
     // below would pass over the empty set.
     expect(modules.length).toBeGreaterThan(20);
-    expect(modules.map((module) => module.displayPath)).toContain(BOUNDS_MODULE);
+    expect(
+      modules.filter((module) => isBoundsHomeModule(module.displayPath)).length,
+    ).toBeGreaterThan(1);
   });
 
-  it("declares no bound outside that module", () => {
+  it("declares no bound outside that home", () => {
     const secondHomes = modules
-      .filter((module) => module.displayPath !== BOUNDS_MODULE)
+      .filter((module) => !isBoundsHomeModule(module.displayPath))
       .map((module) => ({
         module,
         names: declaredBoundNames(module.displayPath, readConsoleSourceModule(module)),
@@ -165,10 +165,25 @@ describe("console bounds — every cap is declared in one module", () => {
     // The checker reads real files and the pattern matches real declarations.
     // Without this, a typo in the pattern would make the clean result above mean
     // nothing at all.
-    const home = moduleNamed(modules, BOUNDS_MODULE, "the console's bounds module");
-    const declared = declaredBoundNames(home.displayPath, readConsoleSourceModule(home));
-    expect(declared.length).toBeGreaterThan(10);
-    expect(declared).toContain("PALETTE_RESULT_CAP");
+    const palettePath = `${BOUNDS_HOME}palette-caps.ts`;
+    const palette = moduleNamed(modules, palettePath, "the console's palette bounds");
+    expect(declaredBoundNames(palettePath, readConsoleSourceModule(palette))).toContain(
+      "PALETTE_RESULT_CAP",
+    );
+    const declaredInHome = modules
+      .filter((module) => isBoundsHomeModule(module.displayPath))
+      .flatMap((module) => declaredBoundNames(module.displayPath, readConsoleSourceModule(module)));
+    expect(declaredInHome.length).toBeGreaterThan(10);
+  });
+
+  it("negative control: the home is the directory, and a near miss is a second home", () => {
+    // The claim the home's split turned this pin into. A cap module written BESIDE the
+    // home rather than inside it is the shape that would quietly undo it, and the file
+    // the home replaced is that shape exactly.
+    expect(isBoundsHomeModule("console/core/constants/palette-caps.ts")).toBe(true);
+    expect(isBoundsHomeModule("console/core/constants.ts")).toBe(false);
+    expect(isBoundsHomeModule("console/core/constants-extra.ts")).toBe(false);
+    expect(isBoundsHomeModule("console/terminal/constants/terminal-caps.ts")).toBe(false);
   });
 
   it("negative control: it catches the second home this rule was written for", () => {

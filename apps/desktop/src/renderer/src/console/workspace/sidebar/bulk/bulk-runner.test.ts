@@ -4,7 +4,7 @@ import { createFixtureBridge } from "../../../bridge/index.js";
 import {
   unscriptedScenario,
   withDaemonCall,
-} from "../../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { type SidebarBulkItem } from "../../../seats/index.js";
 import { runBulkAct } from "./bulk-runner.js";
 import { BulkSelectionModel } from "./bulk-selection.js";

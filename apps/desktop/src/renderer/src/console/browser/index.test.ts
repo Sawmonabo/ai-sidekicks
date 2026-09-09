@@ -34,7 +34,7 @@ import { registerBrowserPanes } from "./index.js";
  * is manifestly NOT a method: the browser namespace is on `Plan-023 §Console growth
  * slate` and registers none, so the provenance read is keyed on its growth operation
  * id under the `growth:` prefix no daemon method can wear — the discipline
- * `scenarios/workflows.ts` states for the two workflow reads that register no method
+ * `bridge/scenarios/workflows.ts` states for the two workflow reads that register no method
  * either. That is what this list exists to hold the fixture to: a scenario answering
  * `browser.act` would read as scripted behaviour and be a promise the wire has not
  * made, whereas a `growth:` key promises nothing and re-points itself the day the
@@ -50,7 +50,7 @@ describe("browser family — claiming the deck's browser pane", () => {
     expect(descriptor?.kind).toBe("browser");
     expect(descriptor?.owner).toBe("browser");
     // Kind and owner are the whole registration: whether the kind may be torn off
-    // is the window model's answer, and `seats/pane-kinds.test.ts` holds it.
+    // is the window model's answer, and `seats/pane/pane-kinds.test.ts` holds it.
   });
 
   it("composes into the registry it is handed, never a module-scope one", () => {

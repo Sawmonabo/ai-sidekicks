@@ -8,7 +8,7 @@
 //
 // WHERE A REBINDING GOES
 //
-// The palette publishes the seam (`palette/keybinding-override-store.ts`): one store per
+// The palette publishes the seam (`palette/keybindings/keybinding-override-store.ts`): one store per
 // window, holding the overrides a person authored composed onto the chords the
 // console ships, read by the frame's key dispatch through the same accessor this
 // page reads. So a chord recorded here IS the chord installed — no second table, no

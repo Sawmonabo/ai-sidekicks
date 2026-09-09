@@ -61,7 +61,7 @@
 //
 // NOTHING ELSE HERE RENDERS. No store, no scenario, no second console component.
 //
-// `absorbed-surfaces.ts` is the one module here that BUILDS elements, and every
+// `seats/surface/absorbed-surfaces.ts` is the one module here that BUILDS elements, and every
 // component it builds is owned by a renderer subtree outside the console: the three
 // shipped Tier-1 families the console absorbed by import. That is not a sibling's
 // body — it is a component with no owner left to mount it, handed to whichever
@@ -109,7 +109,7 @@ export {
   // claims in a table, and a table needs the type its rows are. The workflows family
   // is the first with two — the rail's destination and the phase deep link.
   type ConsoleSurfaceRegistration,
-} from "./surface-registry.js";
+} from "./surface/surface-registry.js";
 
 // The frame-lifetime binding seat, beside the four that mount bodies. It is on this
 // door for the same reason every other board is — a family claims a place on it and
@@ -138,8 +138,8 @@ export {
 // mounts while a loader-backed body is in flight, and that frame names the context — and
 // re-exporting them from the boards here would put this door's readers back on a
 // specifier the declaration no longer lives at.
-export type { ConsolePaneContext } from "./pane-context.js";
-export type { ConsoleSurfaceContext } from "./surface-context.js";
+export type { ConsolePaneContext } from "./pane/pane-context.js";
+export type { ConsoleSurfaceContext } from "./surface/surface-context.js";
 
 // `PANE_KINDS` and `EPHEMERAL_PANE_KINDS` are deliberately absent: every reader of
 // either SET is inside this family or is a suite that drives the kinds directly, and
@@ -153,7 +153,7 @@ export {
   isEphemeralPaneKind,
   isPaneKind,
   type PaneKind,
-} from "./pane-kinds.js";
+} from "./pane/pane-kinds.js";
 
 export {
   /** @consumedBy T-023p-1C-3 */
@@ -165,7 +165,7 @@ export {
   type ComposerAttachMenuContext,
   type ComposerAttachMenuEntry,
   type ComposerAttachOutcome,
-} from "./composer-attach-menu.js";
+} from "./composer/composer-attach-menu.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */
@@ -178,7 +178,7 @@ export {
   type LayoutPaneDropCode,
   /** @consumedBy T-023p-1C-2 */
   type LayoutRestoreReading,
-} from "./layout-snapshot.js";
+} from "./pane/layout-snapshot.js";
 
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
@@ -189,9 +189,9 @@ export {
   type ConsolePaneOpener,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type PaneEntityScopeDeclaration,
-} from "./pane-address.js";
+} from "./pane/pane-address.js";
 
-export { parseConsolePaneAddress } from "./pane-address-parse.js";
+export { parseConsolePaneAddress } from "./pane/pane-address-parse.js";
 
 export {
   ConsolePaneRegistry,
@@ -200,12 +200,16 @@ export {
   registeredPaneKinds,
   type ConsolePaneDescriptor,
   type ConsolePaneRegistration,
-} from "./pane-registry.js";
+} from "./pane/pane-registry.js";
 
 // The idle warm and its scheduler. Published because the composition that owns a
 // window's first frame is the one that starts the walk, and that composition is
 // `frame/`, a family above this one — the seam a view family never touches.
-export { LazyBodyIdleWarm, idleWarmScheduler, type IdleWarmScheduler } from "./lazy-body-warm.js";
+export {
+  LazyBodyIdleWarm,
+  idleWarmScheduler,
+  type IdleWarmScheduler,
+} from "./lazy-body/lazy-body-warm.js";
 
 // THE LOADER MECHANISM, PUBLISHED FOR THE ONE BOARD THAT IS NOT IN THIS DIRECTORY.
 //
@@ -237,8 +241,8 @@ export { LazyBodyIdleWarm, idleWarmScheduler, type IdleWarmScheduler } from "./l
 // `LazyBodyBoard` and `LazyBodyModule` stay absent — named only by the boards and the
 // walk in this directory — and a family declaring a loader beside its registration writes
 // `body: () => import("./x-body.js")` inline, which names no type at all.
-export { PENDING_PANE_BODY_ATTRIBUTE, reservedBodyRegion } from "./pending-pane-body.js";
-export { LoadedLazyBody, type LazyBodyLoader } from "./lazy-body.js";
+export { PENDING_PANE_BODY_ATTRIBUTE, reservedBodyRegion } from "./pane/pending-pane-body.js";
+export { LoadedLazyBody, type LazyBodyLoader } from "./lazy-body/lazy-body.js";
 
 export {
   actorFollowHandler,
@@ -247,7 +251,7 @@ export {
   type ActorFollowHandler,
   type ActorFollowOutcome,
   type ActorFollowRequest,
-} from "./actor-follow-seat.js";
+} from "./slots/actor-follow-seat.js";
 
 // The floor seat — the deck's half of "Step in", filled by the family that owns the
 // deck and called by the family that owns the run controls. The release call is on the
@@ -261,7 +265,7 @@ export {
   type FloorWorktreeDisposition,
   type TakeTheFloorHandler,
   type TakeTheFloorOutcome,
-} from "./single-slot/take-the-floor-seat.js";
+} from "./slots/take-the-floor-seat.js";
 
 export {
   composerSeatRenderer,
@@ -271,7 +275,7 @@ export {
   type ComposerSeatProps,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ComposerSeatRenderer,
-} from "./single-slot/composer-seat.js";
+} from "./composer/composer-seat.js";
 // The other direction: a surface that told a person to type something asking the
 // mounted composer for the caret. Through the door because the asker and the answerer
 // are two view families that name each other nowhere.
@@ -281,7 +285,7 @@ export {
   requestComposerFocus,
   subscribeToComposerFocus,
   useShellComposerFocusRequests,
-} from "./composer-focus.js";
+} from "./composer/composer-focus.js";
 
 export {
   SIDEBAR_SECTION_IDS,
@@ -292,7 +296,7 @@ export {
   type SidebarSectionContext,
   type SidebarSectionDescriptor,
   type SidebarSectionId,
-} from "./sidebar-sections.js";
+} from "./slots/sidebar-sections.js";
 
 // The rollup tree and the bulk-selection seam, published beside the sections they
 // belong to. Two of the three type names below are read by the sidebar's own fold and
@@ -308,7 +312,7 @@ export {
   type SidebarRollupNode,
   type SidebarRowDragBinder,
   type SidebarRowDragTarget,
-} from "./sidebar-sections.js";
+} from "./slots/sidebar-sections.js";
 
 // The window's one overlay body, filled by the family that owns it and read by the
 // frame. `unregisterWindowOverlaySeat` is deliberately absent: its only reader is
@@ -319,7 +323,7 @@ export {
   sessionOpenerFor,
   windowOverlayRenderer,
   type WindowOverlaySeatProps,
-} from "./single-slot/window-overlay-seat.js";
+} from "./slots/window-overlay-seat.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */
@@ -329,7 +333,7 @@ export {
   type TimelineRowDensity,
   type TimelineRowRenderer,
   type TimelineRowSlotProps,
-} from "./single-slot/timeline-row-slot.js";
+} from "./slots/timeline-row-slot.js";
 
 // The footer seat publishes only what a PRODUCTION reader takes: the shell's
 // registration, the ledger's mount, and the two types both name. Its slot contract,
@@ -342,7 +346,7 @@ export {
   timelineRowFooterRenderer,
   type TimelineRowFooterRenderer,
   type TimelineRowFooterSlotProps,
-} from "./single-slot/timeline-row-footer-seat.js";
+} from "./slots/timeline-row-footer-seat.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */
@@ -362,35 +366,38 @@ export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
   type InlineCardPropsByKind,
   type InlineCardSeatProps,
-} from "./inline-card-seats.js";
+} from "./slots/inline-card-seats.js";
 
 // The pane chrome and the seam its two host controls travel on. No marker on any of
 // these lines, and every half of the reason has now happened: shipped pane bodies
 // import the chrome and narrow through `paneBodyForKind`; the deck — the one host that
-// provides the two controls — ships and mounts every pane inside `PaneControlsContext`,
-// so the agent console's detach control is drawn through the seam a deck provides it
-// through rather than asserted by a test; and two shipped families name the owner
-// slot's contract on the slots they declare — the ledger's message card and timeline
-// pane, and the workflows family's own slot table. A surviving tag would fail the run
-// under `--treat-tag-hints-as-errors`; the pane-body tasks still to land are consumers
-// of exports that already have one.
-export { ConsolePaneChrome, paneBodyForKind, type PaneContextOf } from "./ConsolePaneChrome.js";
+// provides the two controls — ships and mounts every pane inside `PaneControlsContext`
+// and names `PaneControls` on the value it builds, so the agent console's detach
+// control is drawn through the seam a deck provides it through rather than asserted by
+// a test; and two shipped families name the owner slot's contract on the slots they
+// declare — the ledger's message card and timeline pane, and the workflows family's own
+// slot table. A surviving marker would fail the run under `--treat-tag-hints-as-errors`.
+export {
+  ConsolePaneChrome,
+  paneBodyForKind,
+  type PaneContextOf,
+} from "./pane/ConsolePaneChrome.js";
 
-export { PaneControlsContext, type PaneControls } from "./pane-controls.js";
+export { PaneControlsContext, type PaneControls } from "./pane/pane-controls.js";
 
 // The block one pane pins above its body, and the board a family fills it through.
 // The registry and the board travel, exactly as the sidebar's and the inline cards' do:
 // the registry because `families.ts` names it in the composition's signature and a
 // family's registrar takes one, and the process-wide board because
-// `frame/ConsoleRoot.tsx` is the composition site that names every production board out
+// `frame/composition/ConsoleRoot.tsx` is the composition site that names every production board out
 // loud. A FAMILY still never reaches for the board — it is handed one — which is the
 // rule the composition's own header states. The context and descriptor types do NOT
 // travel: a registrar writes its descriptor as an object literal and reads its context
 // from the inferred parameter, so a door line for either would be one no production
 // module reads.
-export { PinnedPaneRegionRegistry, pinnedPaneRegionRegistry } from "./pinned-pane-regions.js";
+export { PinnedPaneRegionRegistry, pinnedPaneRegionRegistry } from "./pane/pinned-pane-regions.js";
 
-export type { OwnerSlotContract, OwnerSlotProps } from "./owner-slot.js";
+export type { OwnerSlotContract, OwnerSlotProps } from "./slots/owner-slot.js";
 
 // The session vocabulary, straight from the module that DECLARES it rather than
 // through `store/index.js`, which would be a barrel chain. Without these four lines
@@ -443,9 +450,9 @@ export type { SessionDirectoryState } from "./session-directory.js";
 // first is read only by the port beside the rule, and the second is met structurally
 // by the object the sessions destination composes at a settled start — so a door line
 // for either would be a specifier no cross-family import uses.
-export { autoPinDecision } from "./auto-pin.js";
-export type { AutoPinDecision, SessionOriginEvidence } from "./auto-pin.js";
-export { recordConsoleStartedSession, settleFirstSendAutoPin } from "./session-auto-pin.js";
+export { autoPinDecision } from "./pinning/auto-pin.js";
+export type { AutoPinDecision, SessionOriginEvidence } from "./pinning/auto-pin.js";
+export { recordConsoleStartedSession, settleFirstSendAutoPin } from "./pinning/session-auto-pin.js";
 
 // The composed new-session draft's seat: the props the control takes, and the props
 // type as a component the composition root hands over.
@@ -463,7 +470,7 @@ export type {
   NewSessionBlockedAct,
   NewSessionControlComponent,
   NewSessionControlProps,
-} from "./new-session-seat.js";
+} from "./slots/new-session-seat.js";
 
 // The read discipline every live wire read in this console follows — subscribe
 // first, answer a push with a fresh read, one read per burst through the refresh
@@ -471,31 +478,68 @@ export type {
 // because four view families now hold one, and a second copy would be a second set
 // of answers to when a surface re-reads.
 // The failure-code vocabulary, the options shape, and the codes' derived union stay
-// inside this family: their readers are the module itself and the suite beside it,
-// and a barrel specifier no cross-family import uses is a dead export rather than a
-// convenience.
+// inside this family: their readers are `read/`'s own modules and the suites beside
+// them, and a barrel specifier no cross-family import uses is a dead export rather
+// than a convenience.
 export {
   PushDrivenRead,
+  usePushDrivenRead,
+  type PushDrivenReadState,
+} from "./read/push-driven-read.js";
+
+// The three reply unwrappers, from the module that DECLARES them. They answer a
+// different question from the model above — a reply's own discriminant, with no
+// subscription, scheduler, or teardown behind it — and a MUTATION needs the same
+// translation with no read to route through, which is why they are free functions
+// and why they left that module when it was split.
+export {
   consoleRefusalFrom,
   servedGrowthValueOrRaise,
   servedValueOrRaise,
-  usePushDrivenRead,
-  type PushDrivenReadState,
-} from "./push-driven-read.js";
+} from "./read/served-value.js";
 
 // The read discipline for the OTHER kind of wire: one the console does not have yet.
 // A growth-port operation has no push signal to subscribe to and no re-read that
 // could answer differently, so it is asked once per subject and held — the sibling
 // rule to the one above, on this door for the same reason and against the same
 // hazard, four surfaces in two sibling families each holding one answer.
-export { useGrowthReadOnMount } from "./growth-read.js";
+export { useGrowthReadOnMount } from "./read/growth-read.js";
+
+// Which participant this window is, composed once for the four sibling view families
+// that ask it. The read lives on the growth port and the roster chaining lives in the
+// store, and neither family may reach the other — so the adapter between them was
+// written out at three composition roots and the narrowing at six. Here it is one
+// module: the identity alone for a surface that only needs to know who is looking,
+// the identity chained to the session roster for one that gates a control on the
+// caller's role, and the served-or-refused narrowing for a reader holding its own
+// outcome.
+// IN `identity/` AND NOT BESIDE THE OTHER SEATS. The seam is the subject rather than
+// a count of what the root will hold: `terminal/lease/viewer-identity.ts` still
+// holds its own effect for the same question and folds in here, which is what makes
+// this a directory rather than one module parked in a new folder.
+// NO SUB-MODULE DOOR — `bridge/readings/index.ts` states the rule and this door obeys
+// it: a family door re-exports from the DECLARING module, and a sub-door publishing
+// symbols no sibling inside the family takes would be a dead export the barrel census
+// counts.
+// The port's own reply shape rides along, because the question has ONE composition and
+// a family that holds its own reading of it must name that reading's inner type rather
+// than re-deriving the reply beside it — which is how two names for one shape appear.
+// `CallerParticipantIdentity` stays off: every reader of the hook narrows on `status`
+// and annotates nothing, so a specifier for it would be a dead export.
+export {
+  CALLER_PARTICIPANT_ORIGIN,
+  callerParticipantIdentityFrom,
+  useCallerMembershipRoleFor,
+  useCallerParticipantIdentity,
+  type CallerParticipantOutcome,
+} from "./identity/caller-participant.js";
 
 // The console's single copy of the daemon-EVENT cast. The brand
 // `SidekicksBridge.daemon.subscribe` takes is `never`-shaped until Plan-007 narrows
 // it, and every caller casts; one module casts, and the day the brand narrows one
 // file changes. Its call-side twin is gone — `bridge/daemon/daemon-reply.ts` names the
 // methods and parses both directions, so no seat casts a call any more.
-export { subscribeDaemonEvent } from "./wire-access.js";
+export { subscribeDaemonEvent } from "./read/wire-access.js";
 
 // The mounts for the two shipped Tier-1 families the console absorbed, one of them
 // carrying the bridge-source guard that decides whether it may be mounted at all, and
@@ -517,28 +561,24 @@ export {
   renderAbsorbedMixedVersionStatus,
   renderAbsorbedNodeRoster,
   renderAbsorbedSessionProbe,
-} from "./absorbed-surfaces.js";
+} from "./surface/absorbed-surfaces.js";
 
 // What the absorbed roster's own read answered, for a surface that renders beside it.
 //
-// The mount above is the only caller that needs the read SEAM, and it takes it through
-// `runtime-node/index.ts`, that directory's own door; what leaves this family is the
-// OBSERVATION — a settings page renders a node's declared capabilities and its version
-// from the response that view already read, rather than putting a second
-// `runtimenode.roster` on the wire that could disagree with what is on screen beside it.
-//
-// FROM THE DECLARING MODULE AND NOT FROM THAT INNER DOOR: a family door re-exporting
-// through a sub-module door is the barrel chain `console-no-barrel-chain` fails, and
-// the name would be published twice with nothing saying which line a reader owes.
+// The mount above is the only caller that needs the read SEAM, and it takes it by its
+// own specifier; what leaves this family is the OBSERVATION — a settings page renders a
+// node's declared capabilities and its version from the response that view already read,
+// rather than putting a second `runtimenode.roster` on the wire that could disagree with
+// what is on screen beside it.
 export {
   useNodeRosterObservation,
   type NodeRosterObservation,
-} from "./runtime-node/node-roster-seam.js";
+} from "./node-roster/node-roster-seam.js";
 
 // When that roster is asked to read again. Beside the observation because the settings
 // page takes both — it renders from the recorded read and owes that read the signals
 // the absorbed view's own presence channel does not carry.
-export { useNodeRosterReReadTriggers } from "./runtime-node/node-roster-triggers.js";
+export { useNodeRosterReReadTriggers } from "./node-roster/node-roster-triggers.js";
 
 // The shared body every sidebar section draws with: the count, the group headings, and
 // the rows that open panes, plus the fold that splits a section's rows into groups.
@@ -554,9 +594,13 @@ export { useNodeRosterReReadTriggers } from "./runtime-node/node-roster-triggers
 // absent: a section body composes the groups and names the component, and no reader
 // outside this family spells either of those types, so a line for one would be a door
 // specifier no production module reads.
-export { SidebarSectionList } from "./SidebarSectionList.js";
-export type { SectionListGroup } from "./SidebarSectionList.js";
-export { groupSectionRows, groupedRowCount, normaliseFilterQuery } from "./section-grouping.js";
+export { SidebarSectionList } from "./slots/SidebarSectionList.js";
+export type { SectionListGroup } from "./slots/SidebarSectionList.js";
+export {
+  groupSectionRows,
+  groupedRowCount,
+  normaliseFilterQuery,
+} from "./slots/section-grouping.js";
 
 // THE JSON-SCHEMA FORM SEAT — the mapper, the six Meridian field controls, the two
 // composed surfaces and the schema-validated raw editor behind them. Here for the reason

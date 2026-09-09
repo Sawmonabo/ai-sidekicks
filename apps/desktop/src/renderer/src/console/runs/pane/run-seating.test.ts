@@ -16,7 +16,7 @@ const RUN_A = "a1b2c3d4-5e6f-4071-8182-93a4b5c6d7e8";
 const RUN_B = "b2c3d4e5-6f70-4182-9293-a4b5c6d7e8f9";
 const RUN_C = "c3d4e5f6-7081-4293-83a4-b5c6d7e8f901";
 
-/** One partition entity, as `frame/run-lifecycle-projector.ts` folds one. */
+/** One partition entity, as `frame/run-projection/run-lifecycle-projector.ts` folds one. */
 function knownEntity(runId: string, overrides: Partial<ConsoleEntity> = {}): ConsoleEntity {
   return { kind: "run", id: runId, state: "completed", ...overrides };
 }

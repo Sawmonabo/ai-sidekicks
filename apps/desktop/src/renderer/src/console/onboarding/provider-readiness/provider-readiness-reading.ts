@@ -3,7 +3,7 @@
 // SPLIT FROM `provider-readiness.ts`, which owns the model. That module says what this
 // window DOES — the read, the one act, the scope it is addressed at, and what the
 // supervisor's condition closes; this one says what a surface is handed and what it may
-// derive from it. The seam is the one `store/shell-state.ts` and its neighbour already
+// derive from it. The seam is the one `store/shell/shell-state.ts` and its neighbour already
 // set: a vocabulary and the behaviour over it are two jobs with two readers, and
 // together they were one file past the package's ceiling.
 //

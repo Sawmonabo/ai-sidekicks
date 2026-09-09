@@ -31,7 +31,7 @@ import type { ConsoleRefusal } from "../core/index.js";
  * refused, a body is mounted.
  *
  * The tuple is the declaration and the union's discriminant is derived from it, for
- * `frame/surface-registry.ts`'s reason: a union written beside a hand-repeated array
+ * `seats/surface/surface-registry.ts`'s reason: a union written beside a hand-repeated array
  * is two closed sets that agree until someone widens one, and the compiler sees
  * neither drift.
  */

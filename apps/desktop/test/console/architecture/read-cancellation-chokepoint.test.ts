@@ -1,7 +1,7 @@
 // A read is stoppable, a mutation is not, and the scheduler cannot produce either
 // wrong — asserted against the source rather than against a reviewer's memory.
 //
-// THREE CLAIMS, ONE SUBJECT. `store/read-cancellation.ts` is where a read stops. The
+// THREE CLAIMS, ONE SUBJECT. `store/read/read-cancellation.ts` is where a read stops. The
 // claims below are that it is the ONLY place one can be stopped from, that the
 // scheduler pairs every read it fires with the round that stops it rather than
 // leaving that to its caller, and that no run control anywhere reaches the mechanism.
@@ -67,10 +67,10 @@ import {
 } from "../console-source-modules.js";
 
 /** The one module allowed to construct an abort controller. */
-const READ_CANCELLATION_SEAM = "console/store/read-cancellation.ts";
+const READ_CANCELLATION_SEAM = "console/store/read/read-cancellation.ts";
 
 /** The module whose pairing claim the second group is about. */
-const REFRESH_SCHEDULER_MODULE = "console/store/scheduling.ts";
+const REFRESH_SCHEDULER_MODULE = "console/store/read/refresh-scheduler.ts";
 
 /** The one door a daemon call leaves the console through. */
 const DAEMON_CALL_FORM = "callDaemon(";

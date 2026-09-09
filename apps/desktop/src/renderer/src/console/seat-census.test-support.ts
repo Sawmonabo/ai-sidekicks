@@ -102,7 +102,7 @@ export const FAMILY_SEAT_BOARD: SeatBoardShape = {
  * Everything that can be wrong with a seat board, in the order a census reports it.
  *
  * The tuple is the declaration and the union is derived from it, for the reason
- * `seats/pane-kinds.ts` gives about its own set: a union written beside a
+ * `seats/pane/pane-kinds.ts` gives about its own set: a union written beside a
  * hand-repeated array is two closed sets that agree until someone widens one.
  */
 const SEAT_BOARD_OFFENCES = [

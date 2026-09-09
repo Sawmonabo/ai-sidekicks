@@ -17,7 +17,7 @@
 // `windowed-row-census.ts`, so no predicate is written twice.
 //
 //   1. **One writer.** The pair is written in exactly one console module,
-//      `primitives/WindowedListRow.tsx`. A family that hand-rolls it fails here, and
+//      `primitives/windowing/WindowedListRow.tsx`. A family that hand-rolls it fails here, and
 //      that is the claim this lane exists to make mechanical. It has a subject on
 //      every branch — the primitive itself — so this half is never vacuous.
 //   2. **No explicit row role without the pair.** In a module that windows a list, an

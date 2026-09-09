@@ -3,8 +3,8 @@
 // WHY THIS IS ITS OWN FILE. `initial-graph-census.test.ts` beside it reads the REAL build and
 // plants nothing; every case here plants a tree and reads no build. The two halves share no
 // fixture, no subject state, and no import beyond the modules under test — so the seam was
-// already in the file, and the ~400-line ceiling in `apps/desktop/AGENTS.md` is only what made
-// someone look at it. Nothing is duplicated across the split: the census half kept its pin and
+// already in the file, and `apps/desktop/AGENTS.md` §Module shape is what splits on one.
+// Nothing is duplicated across the split: the census half kept its pin and
 // its reading, this half kept the planting.
 //
 // WHAT A REFUSAL BUYS THE PIN NEXT DOOR. Each case here is a reading that would otherwise be

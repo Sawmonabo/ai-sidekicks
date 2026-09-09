@@ -148,7 +148,7 @@ export { registerApprovalFlowProjectors } from "./approvals/approval-flow-projec
 // origin pair, or a boolean — and never the schema that produced one.
 //
 // The two BOUNDS a goal is refused against are deliberately not here. They are caps,
-// so `console/core/constants.ts` is their one home and `core/index.js` is the door a
+// so `console/core/constants/session-goal-caps.ts` is their one home and `core/index.js` is the door a
 // surface reads them through — this family consumes them like any other caller.
 export {
   isSendableGoalText,
@@ -229,7 +229,7 @@ export {
   useConsoleClock,
 } from "./BridgeProvider.js";
 
-export { createFixtureBridge } from "./fixture/fixture-bridge.js";
+export { createFixtureBridge } from "./fixture/call-plane/bridge.js";
 
 // The one door a daemon reply enters the console through. Exported as the CALL
 // plus the answer it gives and the method set it admits — and deliberately not the
@@ -349,7 +349,7 @@ export type { GrowthStream } from "./growth-port/growth-outcome.js";
 // report. A reading takes the floor's view instead, off `core/index.js`.
 export { TransportReconnectSignal } from "./transport/transport-reconnect.js";
 // The rule for what an OPEN observed, published beside the signal because the two
-// callers outside this family — `seats/wire-access.ts` and the frame's session-event
+// callers outside this family — `seats/read/wire-access.ts` and the frame's session-event
 // binder — each take a daemon subscription of their own and would otherwise each
 // decide what taking one proves.
 export { openObservedSubscription } from "./transport/observed-subscription.js";

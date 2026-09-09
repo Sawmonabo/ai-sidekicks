@@ -36,7 +36,7 @@ import type { WorkflowRunState } from "./run-list-rows.js";
 /**
  * What this row prints where the start is a value the plane refused.
  *
- * The same em dash `primitives/wire-figures.ts` prints for a figure it cannot stand
+ * The same em dash `primitives/figures/wire-figures.ts` prints for a figure it cannot stand
  * behind, restated here because that module keeps the glyph private and this row
  * refuses under a STRICTER policy than the formatter does — so the branch cannot be
  * delegated to it. Named rather than inlined so the one place it is spent says what it

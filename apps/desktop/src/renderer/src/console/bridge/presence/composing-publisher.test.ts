@@ -11,7 +11,7 @@ import {
   growthAnswering,
   growthServing,
   unscriptedScenario,
-} from "../fixture/fixture-bridge.test-support.js";
+} from "../fixture/call-plane/bridge.test-support.js";
 import { ComposingPublisher, publishableChannelId } from "./composing-publisher.js";
 
 const SESSION_ID = "session-composing";

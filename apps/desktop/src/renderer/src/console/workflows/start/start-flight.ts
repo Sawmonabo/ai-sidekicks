@@ -32,7 +32,7 @@
 // the one from the render that produced it, so a double-click — or a press on one row
 // followed by a press on another before the first answers — finds the picker idle twice
 // and starts two runs, of which the shared `act` then shows whichever reply lands last.
-// The guard is therefore taken at dispatch, from `store/generation-latch.ts`, which is
+// The guard is therefore taken at dispatch, from `store/read/generation-latch.ts`, which is
 // the console's one register for exactly this and the mechanism every other act in this
 // family already takes. The key is released on every settlement — served, refused, and a
 // call that threw instead of answering — because a key held for the life of the flight
@@ -332,7 +332,7 @@ function refusalReading(refusal: GrowthUnavailable | SettledReadRefusal): {
  * The window's one register of start flights.
  *
  * A `const` holding an instance rather than a mutable binding — the shape the package
- * standard admits and `seats/composer-seat.ts` already takes. It is at module scope
+ * standard admits and `seats/composer/composer-seat.ts` already takes. It is at module scope
  * because what it holds is a fact about this renderer and its ports rather than about
  * any one mount, which is exactly the property the picker's body could not supply, and
  * it is reached through the three named functions below rather than exported: the

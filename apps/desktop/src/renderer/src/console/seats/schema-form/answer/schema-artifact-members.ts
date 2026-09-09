@@ -56,7 +56,7 @@
 // the second would be this walk deciding that one of the phase's own questions did not
 // count.
 
-import type { SchemaFormAnswer } from "./schema-answer-paths.js";
+import type { SchemaFormAnswer } from "./schema-answer-shape.js";
 import { asRecord, fieldKindOf } from "../plan/schema-declarations.js";
 import type { SchemaFieldKind } from "../plan/schema-fields.js";
 

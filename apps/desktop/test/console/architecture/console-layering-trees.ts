@@ -84,7 +84,7 @@ export const VIEW_FAMILY_EDGE_TREE: PlantedTree = {
  * prove only that the rule fires, not that it leaves the legal shape alone.
  *
  * A THIRD edge carries what used to be the rule's one named exemption. While the
- * surface registry lived in `frame/`, `frame/surface-registry.ts` was subtracted from
+ * surface registry lived in `frame/`, `seats/surface/surface-registry.ts` was subtracted from
  * this rule's targets by name — a view family needs it and cannot import the frame's
  * door — so a deep specifier to it was reported as nothing. The module now lives in
  * `seats/`, the family whose contracts it is one of; the subtraction is gone, and a
@@ -204,7 +204,7 @@ export const TEST_SUPPORT_SUBTRACTION_TREE: PlantedTree = {
  * same inversion an ordinary module's edge is — the symbol it wants lives above the
  * family that needs it, and the remedy is to hoist the symbol rather than to exempt
  * the reader. `crossMacrotaskBoundary` was exactly this shape in production: a timing
- * helper parked in `bridge/fixture/fixture-bridge.test-support.ts` that `store/` and
+ * helper parked in `bridge/fixture/call-plane/bridge.test-support.ts` that `store/` and
  * `frame/` suites both waited on, hoisted by this branch to
  * `core/macrotask-boundary.test-support.ts`.
  *
@@ -232,7 +232,8 @@ export const TEST_SUPPORT_UPWARD_EDGE_TREE: PlantedTree = {
  *
  * Every other rule here is `from`-scoped to `console/`, so an importer that lives
  * outside it matches none of them — which is how a Tier-1 subtree came to hold a
- * `console/store/subject-scoped-state.js` specifier while three gates reported clean.
+ * `console/store/subject-scoped/subject-scoped-state.js` specifier while three gates reported
+ * clean.
  * The door import beside it is the other half of the control: an outside subtree
  * reaching the DOOR is the shape the console offers and must stay legal.
  *

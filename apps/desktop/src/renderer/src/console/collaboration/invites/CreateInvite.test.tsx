@@ -10,7 +10,10 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
-import { growthRefusing, growthServing } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import {
+  growthRefusing,
+  growthServing,
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { quietShell } from "../../store/shell-condition.test-support.js";
 import { CreateInvite } from "./CreateInvite.js";
 import {

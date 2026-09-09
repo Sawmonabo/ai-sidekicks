@@ -24,7 +24,7 @@ import { StrictMode, useEffect, type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import { useReadScope } from "../../store/index.js";
-import { createFixture } from "../fixture/fixture-bridge.test-support.js";
+import { createFixture } from "../fixture/call-plane/bridge.test-support.js";
 import { PROBE_SESSION_ID } from "../scenario-runtime/scripted-probe.test-support.js";
 import { useSettledGrowthRead } from "./read-settlement.js";
 

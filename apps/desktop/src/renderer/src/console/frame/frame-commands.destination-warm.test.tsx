@@ -18,7 +18,7 @@
 // measured reason: `$mod` resolves against the real host at listen time, so a synthetic
 // press built here would have to guess which modifier this runner watches for, and
 // guessing wrong is a case that passes for the wrong reason. Which chord SHIPS is
-// `palette/command-surface.test.ts`'s claim and not this file's.
+// `palette/commands/command-surface.test.ts`'s claim and not this file's.
 //
 // AND THE IDLE WARM CANNOT MASK IT. The window's own walk would eventually load every
 // registered body, which would make a "did it load" assertion vacuous — so the reading
@@ -29,7 +29,7 @@ import { describe, expect, it } from "vitest";
 
 import { KeyBindingTable, consoleCommands } from "../palette/index.js";
 import { consoleSurfaceRegistry } from "../seats/index.js";
-import { mountConsole } from "./ConsoleRoot.test-support.js";
+import { mountConsole } from "./composition/ConsoleRoot.test-support.js";
 
 /** A key no console chord binds, and one that needs no modifier to press. */
 const PRESSED_CODE = "F9";

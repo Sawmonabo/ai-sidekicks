@@ -1,10 +1,11 @@
 // The accessory rail's named bounds.
 //
-// `console/core/constants.ts` states where a bound belongs: "each view family adds
-// its own module beside its subtree rather than widening this one, so a bound
-// always sits next to the code that spends it". This is that module for the
-// composer's accessories, and every value here is spent by a sibling file in this
-// directory.
+// A bound sits next to the code that spends it, and the console's own caps sit at
+// its floor in `console/core/constants/` — one module per concern, which is what
+// `apps/desktop/AGENTS.md` §Config single-sourcing states. The shell composes console
+// seats but is not a console family, so its bounds have no module down there: this is
+// that module for the composer's accessories, and every value here is spent by a
+// sibling file in this directory.
 //
 // Percentages are stated as the wire states them — whole percent, 0 to 100 — so a
 // threshold read here and a `usagePercent` read off the wire compare without a

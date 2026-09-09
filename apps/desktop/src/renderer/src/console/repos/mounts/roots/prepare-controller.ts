@@ -8,7 +8,7 @@
 // after the fact, and would have no way to ask for the consent the dirty case needs.
 //
 // THE CHECK IS KEYED ON WHAT WAS TYPED AND IS RE-RUN WHEN IT CHANGES, which is why the
-// branch name is the prerequisite QUESTION `store/act-controller.ts` is scoped to: it
+// branch name is the prerequisite QUESTION `store/act/act-controller.ts` is scoped to: it
 // does not exist until someone types one, a different one abandons the answer in
 // flight, and an emptied field withdraws it rather than leaving a verdict on screen
 // attached to a branch nobody named.
@@ -40,9 +40,7 @@ import type { ConsoleClock } from "../../../core/index.js";
 import {
   ActSurfaceController,
   type ActOutcome,
-  type ActPrerequisiteReading,
   type ActReading,
-  type ActSettlementReading,
   type SessionStore,
 } from "../../../store/index.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../../repo-lifecycle-events.js";
@@ -60,12 +58,6 @@ export interface PrepareSettlement {
   readonly executionRoot: string;
   readonly state: string;
 }
-
-/** Where the reuse check stands, for the branch name currently in the form. */
-export type ReuseCheckReading = ActPrerequisiteReading<ReuseVerdict>;
-
-/** Where the prepare stands. Its served arm carries the root the daemon put on disk. */
-export type PrepareActReading = ActSettlementReading<PrepareSettlement>;
 
 /** Both halves, published together so a surface renders one consistent frame. */
 export type PrepareReading = ActReading<ReuseVerdict, PrepareSettlement>;

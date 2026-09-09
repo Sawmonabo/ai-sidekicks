@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   fixtureBridgeWithGrowth,
   unscriptedScenario,
-} from "../../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import { ManualClock, REFRESH_MAX_WAIT_MS } from "../../../core/index.js";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";

@@ -1,6 +1,6 @@
 // What keeps the window's shell state live, and the two producers that fill it.
 //
-// The state itself lives on the frame store (`store/shell-state.ts` owns the
+// The state itself lives on the frame store (`store/shell/shell-state.ts` owns the
 // vocabulary), because the palette, the sessions surfaces, and the settings daemon
 // page all read it and they sit on three different levels of the console DAG. This
 // module owns the one thing a store cannot own: the lifetimes that fill it.
@@ -51,7 +51,7 @@ import {
  * The one act this binding has in flight per port: draining that port's report stream.
  *
  * A key inside the port's own key space rather than an identity, per
- * `store/generation-latch.ts`: one port carries one shell, so one drain.
+ * `store/read/generation-latch.ts`: one port carries one shell, so one drain.
  */
 const SHELL_REPORT_DRAIN_KEY = "shell-report-drain";
 
@@ -111,7 +111,7 @@ export function useShellStateBinding(
  * claim taken when the subscription starts, so a drain whose port has been replaced
  * settles NOWHERE rather than over what its successor has already published. A local
  * boolean said the same thing in this one module and was the seventh copy of the guard
- * `store/generation-latch.ts` owns, which is the shape that drifts: it read a teardown
+ * `store/read/generation-latch.ts` owns, which is the shape that drifts: it read a teardown
  * and could not read a re-address, and it went stale in a different place from every
  * other copy of it. The subject is the PORT, because a port is minted once per bridge
  * and its replacement is exactly what retires the calls made through it.
@@ -197,7 +197,7 @@ function useShellReportSubscription(frameStore: FrameStore, growth: GrowthPort):
  *
  * WHICH IS ALSO WHY THE SHELL'S MUTATION BLOCK NEVER REACHES IT. Every daemon-bound
  * write is closed while the supervisor is reconnecting, incompatible, offline, or
- * stopped — `store/shell-state.ts` owns that rule and the sessions destination applies
+ * stopped — `store/shell/shell-state.ts` owns that rule and the sessions destination applies
  * it to the acts it offers — and the daemon's OWN lifecycle controls, this retry and
  * the stop and restart on its settings page, are the exception by construction rather
  * than by exemption: they are not on `MUTATING_DAEMON_METHODS` because they are not

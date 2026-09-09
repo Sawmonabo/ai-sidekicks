@@ -21,7 +21,7 @@
 // push-driven model the list only receives answers from, so the ordering travels ON the
 // reply instead of aborting it.
 //
-// AND THE SEQUENCE SOURCE IS THE CONSOLE'S OWN. `store/generation-latch.ts` is the
+// AND THE SEQUENCE SOURCE IS THE CONSOLE'S OWN. `store/read/generation-latch.ts` is the
 // monotonic serial this repository already has, keyed by subject and key, and it is what
 // is keyed here: one key per channel, superseded by each settlement for that channel. A
 // counter of this module's own would be a second generation mechanism beside it — the one

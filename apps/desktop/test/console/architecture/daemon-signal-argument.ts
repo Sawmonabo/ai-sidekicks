@@ -19,7 +19,7 @@
 // controller minted in the same function is a line nothing supersedes and nothing
 // abandons — both were `"present"` while the property name was the whole test. So the
 // VALUE is resolved, against the two forms the console's own read line actually
-// produces (`store/read-cancellation.ts`): a round's signal, `round.signal`, off a
+// produces (`store/read/read-cancellation.ts`): a round's signal, `round.signal`, off a
 // name bound either to a `ReadRound` parameter or to a local a `.openRound()` was
 // opened into; and a FORWARDED one, the bare `signal` a read helper took as its own
 // parameter, annotated `AbortSignal` — at the eleven `repos` and inventory helpers and
@@ -288,7 +288,7 @@ function isForwardedSignal(binding: NameBinding | undefined): boolean {
  * Whether this binding is a read round: the only thing whose `signal` member stops a
  * read on this line.
  *
- * The two forms `store/read-cancellation.ts` produces — a `ReadRound` a performer took
+ * The two forms `store/read/read-cancellation.ts` produces — a `ReadRound` a performer took
  * as its parameter, and a local the scope's own `openRound()` was opened into.
  *
  * The parameter arm takes the same requiredness test the signal arm does, and for the

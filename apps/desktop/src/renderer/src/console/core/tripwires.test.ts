@@ -11,7 +11,7 @@
 // four kinds itself could keep passing over a tuple that had lost one.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { TRIPWIRE_REPORT_CAP } from "./constants.js";
+import { TRIPWIRE_REPORT_CAP } from "./constants/tripwire-caps.js";
 import {
   TRIPWIRE_FIXTURE_GLOBAL,
   TRIPWIRE_KINDS,

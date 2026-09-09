@@ -65,7 +65,7 @@ import {
   ParsedConsoleTree,
 } from "./airspace-source.js";
 
-/** The budget this file states rather than inherits; `source-walk-chokepoint.ts`'s figure. */
+/** The budget this file states rather than inherits; `source-walk-chokepoint.test.ts`'s figure. */
 const CONSOLE_PARSE_ALLOWANCE_MS = 30_000;
 
 vi.setConfig({ testTimeout: CONSOLE_PARSE_ALLOWANCE_MS });

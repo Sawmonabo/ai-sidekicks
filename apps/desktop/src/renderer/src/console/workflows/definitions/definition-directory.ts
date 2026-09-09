@@ -30,7 +30,7 @@
 // scenario that scripts a daemon refusal throws it verbatim, and the live seam will
 // throw the same shape once the wire lands — so a fulfilment handler alone left the
 // rejection unhandled and this hook in `reading` for the life of the window.
-// `readings/read-settlement.ts` turns every ending into one value; what arrives here is
+// `bridge/readings/read-settlement.ts` turns every ending into one value; what arrives here is
 // therefore an answer or a refusal, and never a promise nobody is waiting on.
 //
 // THE CURSOR IS KEPT, AND FOLLOWED ONLY WHEN A PERSON ASKS. The reply's
@@ -110,7 +110,7 @@ type SettledDefinitionDirectory =
  * What the browser knows about the definitions visible from here, at one moment.
  *
  * Four states and no others, and the two unsettled ones come from the shared shape in
- * `store/subject-read-start.ts` — the rule this hook established and the runs
+ * `store/read/subject-read-start.ts` — the rule this hook established and the runs
  * directory and the run snapshot now hold to as well, written once so the three
  * cannot drift about which frame is allowed to claim nobody asked, or about which
  * frame is allowed to hold the previous bridge's answer.

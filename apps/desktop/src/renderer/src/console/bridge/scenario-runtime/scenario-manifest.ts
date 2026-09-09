@@ -42,7 +42,7 @@ export { CONSOLE_SCENARIOS };
 /**
  * Growth operations the fixture has a scripted answer for.
  *
- * Read from `fixture-served-operations.ts`, which declares the membership the port
+ * Read from `fixture/call-plane/served-operations.ts`, which declares the membership the port
  * implements against, rather than listed again here. The set that DECIDES which
  * operations are served and the ledger that RECORDS the fixture serving one are two
  * claims about one set, and two hand-written lists is how they come apart —

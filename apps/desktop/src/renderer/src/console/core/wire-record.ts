@@ -6,7 +6,7 @@
 // walk of an untyped payload asks before it indexes anything. Three modules had each
 // written the same three clauses for themselves —
 // `bridge/run-streams/queue-row-source.ts` as `isWireObject`,
-// `frame/run-entity-body.ts` inline in its object reader, and
+// `frame/run-projection/run-entity-body.ts` inline in its object reader, and
 // `persistence/value-classes.ts` as `isPlainObject` over its own value tree — which
 // is one rule with three spellings and no instrument holding them together.
 //

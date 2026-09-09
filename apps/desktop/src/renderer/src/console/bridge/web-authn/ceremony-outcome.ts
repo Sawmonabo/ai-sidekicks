@@ -181,7 +181,7 @@ export type ProducedCeremonyOutcome = Exclude<
  * and whether the OS keystore will hold what the ceremony mints." WHO signs in is none
  * of those. It is the scenario's `viewingParticipantId`, stated once, and a second
  * statement on the ceremony script could disagree with it — which is exactly the
- * fabrication `fixture-growth-port.refusals.test.ts` pins the identity read against.
+ * fabrication `fixture/growth/growth-port.refusals.test.ts` pins the identity read against.
  *
  * So the fixture composes the claims from the viewer the scenario already names, and a
  * scenario that names none cannot script an authenticated host at all: it takes the

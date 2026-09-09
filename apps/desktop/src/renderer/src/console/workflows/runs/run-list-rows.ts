@@ -1,7 +1,7 @@
 // The console's run and phase rows, DERIVED from the substrate's wire declaration
 // rather than written a second time beside it.
 //
-// `bridge/workflow-projection.ts` declares the workflow plane's read shapes and the
+// `bridge/wire-shapes/workflow-projection.ts` declares the workflow plane's read shapes and the
 // closed vocabularies inside them. This module is the one place the console narrows
 // those shapes for a list: it drops what a row does not show, replaces the phase
 // collection with its own row type, and adds the two members a caller joins in from
@@ -182,7 +182,7 @@ export type WorkflowRunSnapshot = ProjectedFrom<
    * where the caller holds one.
    *
    * Optional HERE while it is required on the enumeration's own entry
-   * (`bridge/workflow-projection.ts`), because this row is also built from a single
+   * (`bridge/wire-shapes/workflow-projection.ts`), because this row is also built from a single
    * run read, which carries the pinned `workflowVersionId` and nothing about the
    * definition. A caller holding an enumeration entry passes it through; one holding
    * only a run passes nothing and the row shows the run's own identity rather than a

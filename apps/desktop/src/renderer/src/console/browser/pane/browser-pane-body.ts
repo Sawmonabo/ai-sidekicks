@@ -1,7 +1,7 @@
 // The browser pane's body, as the deck's registry loads it.
 //
 // A LOADER-BACKED BODY, so none of this pane reaches the initial import graph. The
-// family door registers it as `body: () => import("./pane/browser-pane-body.js")`, and
+// family door registers it as `body: () => import("./browser-pane-body.js")`, and
 // the bundler splits everything this module reaches — the pane, its geometry, its
 // bounds bridge, its policy rows — into a chunk that is fetched when the pane is about
 // to open or on the idle warm after the first frame, whichever comes first. The rule is
@@ -68,12 +68,12 @@ import { BrowserPane } from "./BrowserPane.js";
 /**
  * The browser pane, as the deck holds it.
  *
- * Named `Body` because `seats/lazy-body.ts` fixes the export name a loader
+ * Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader
  * module publishes: the registry composes one specifier shape, and a body module is
  * recognisable as one by reading its exports rather than by where it sits.
  *
  * IT ADVERTISES NO DETACH, because a descriptor cannot. Whether this kind may be
- * torn off into a window of its own is `seats/pane-kinds.ts`'s
+ * torn off into a window of its own is `seats/pane/pane-kinds.ts`'s
  * `isDetachablePaneKind`, derived from the window model's own route set — one
  * answer for the whole deck rather than a boolean each family sets for the kind it
  * owns. The answer for `browser` is no, and the reason is a property of the kind:

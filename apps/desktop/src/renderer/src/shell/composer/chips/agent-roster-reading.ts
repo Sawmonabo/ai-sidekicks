@@ -10,7 +10,7 @@
 // account-plane reading wires the window triggers — so one chip carried two
 // staleness rules.
 //
-// `store/read-triggers.ts` owns the four moments and `store/scheduling.ts` owns what
+// `store/read/read-triggers.ts` owns the four moments and `store/read/refresh-scheduler.ts` owns what
 // asking costs; what this class adds is the `ReadTriggerTarget` shape that makes it
 // wireable, which is what the console's other four readings are and what the
 // architecture tier holds every reading to.
@@ -160,7 +160,7 @@ export class AgentRosterReading implements ReadTriggerTarget {
    * `dispose` is one-way — it drops the scheduler and refuses every later
    * `requestRead` — so a holder that re-commits a disposed reading holds something
    * that will never answer again, and says nothing about it. That state is invisible
-   * from the outside without this, which is why `store/subject-scoped-resource.ts`
+   * from the outside without this, which is why `store/subject-scoped/subject-scoped-resource.ts`
    * takes a terminal disposal only together with a reading of it.
    */
   public get isDisposed(): boolean {

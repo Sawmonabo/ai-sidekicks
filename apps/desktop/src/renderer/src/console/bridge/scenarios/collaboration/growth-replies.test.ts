@@ -2,9 +2,9 @@
 //
 // THE DEFECT THESE CASES EXIST FOR. The three receipts read `channelId` off the request
 // and echoed it back, so ANY string was answered with a served receipt — including one
-// this room's directory has never contained. `fixture/fixture-channel-lifecycle.ts` then
+// this room's directory has never contained. `fixture/collaboration/channel-lifecycle.ts` then
 // appended the matching `channel.*` frame, because a served act publishes; the fold in
-// `fixture/fixture-channel-directory.ts` grew a row for it; and the surface that had
+// `fixture/collaboration/channel-directory.ts` grew a row for it; and the surface that had
 // muted a channel by a stale identifier, or by one composed from the wrong row, was
 // answered exactly as a correct press is. The regression a fixture exists to make
 // reachable was the one it made invisible.
@@ -23,7 +23,7 @@ import {
   createFixture,
   subscribeThroughBridge,
   type FixtureUnderTest,
-} from "../../fixture/fixture-bridge.test-support.js";
+} from "../../fixture/call-plane/bridge.test-support.js";
 import type { EventEnvelope } from "@ai-sidekicks/contracts";
 
 /** A channel identifier no reply and no beat of this room's ever names. */

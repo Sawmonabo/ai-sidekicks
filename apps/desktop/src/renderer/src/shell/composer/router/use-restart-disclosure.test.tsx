@@ -9,7 +9,7 @@ import { fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
-import { bridgeAnswering } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
+import { bridgeAnswering } from "../../../console/bridge/fixture/call-plane/bridge.test-support.js";
 import { mountBar, openSessionStore } from "./composer-send-bar.test-support.js";
 
 describe("ComposerSendBar — the store's restart disclosure, once", () => {

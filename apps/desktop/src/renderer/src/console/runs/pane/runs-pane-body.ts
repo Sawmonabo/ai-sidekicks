@@ -14,7 +14,7 @@
 // sheets stay on the door until that collision is settled the way the run-controls one
 // was, by giving the class one owner.
 //
-// Named `Body` because `seats/lazy-body.ts` fixes the export name a loader resolves.
+// Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader resolves.
 
 import { createElement } from "react";
 

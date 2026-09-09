@@ -1,5 +1,10 @@
 // The collaborators every session-store-registry suite constructs a registry with.
 //
+// AT THE FAMILY ROOT AND NOT IN `session/`, for `session-event.test-support.ts`'s
+// reason: six families outside this one build their initialised store through it, and
+// `read/`'s scheduler suites settle microtasks through it, so it is the family's
+// scaffolding rather than one sub-module's.
+//
 // One home for the reader, the projector, the event and snapshot builders, the
 // microtask settle, and the initialised store the sibling suites share. Nothing here
 // is a stand-in for the registry: it is the surrounding cast, and a second copy of the
@@ -13,10 +18,10 @@
 // a required member would have had to move in three places, and the one left behind
 // would have gone green over a store its siblings no longer build.
 
-import type { ConsoleSessionEvent, EntityProjectorRegistry } from "./entities.js";
-import type { SessionSnapshotReader } from "./open-session-entry.js";
+import type { ConsoleSessionEvent, EntityProjectorRegistry } from "./entities/entities.js";
+import type { SessionSnapshotReader } from "./session/open-session-entry.js";
 import { eventOfKind } from "./session-event.test-support.js";
-import { SessionStore, type SessionSnapshot } from "./session-store.js";
+import { SessionStore, type SessionSnapshot } from "./session/session-store.js";
 
 /** A reader that establishes nothing. The honest "no wire is registered" answer. */
 export const readsNothing: SessionSnapshotReader = () => Promise.resolve(undefined);

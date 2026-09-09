@@ -45,7 +45,7 @@ export {
 export {
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
   type ConsoleSessionDiagnostics,
-} from "../../src/renderer/src/console/frame/session-diagnostics-handle.js";
+} from "../../src/renderer/src/console/frame/session/session-diagnostics-handle.js";
 
 /**
  * What one of those reads answers with.

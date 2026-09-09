@@ -56,7 +56,7 @@ import {
 } from "../../../src/renderer/src/console/ledger/pane/TimelinePane.js";
 import { FrameStore, SessionStore } from "../../../src/renderer/src/console/store/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
-import { unregisterTimelineRowRenderer } from "../../../src/renderer/src/console/seats/single-slot/timeline-row-slot.js";
+import { unregisterTimelineRowRenderer } from "../../../src/renderer/src/console/seats/slots/timeline-row-slot.js";
 
 /**
  * The cursor a scenario's log is applied on top of.

@@ -163,19 +163,3 @@ export function appliedReading(
     ? { kind: "read", values: { ...reading.values, [key]: enabled } }
     : { kind: "read", values: { [key]: enabled } };
 }
-
-export function withoutKey<TValue>(
-  entries: Readonly<Record<string, TValue>>,
-  key: string,
-): Readonly<Record<string, TValue>> {
-  if (!Object.hasOwn(entries, key)) {
-    return entries;
-  }
-  const remaining: Record<string, TValue> = {};
-  for (const [heldKey, value] of Object.entries(entries)) {
-    if (heldKey !== key) {
-      remaining[heldKey] = value;
-    }
-  }
-  return remaining;
-}

@@ -38,7 +38,7 @@
 // list until the window itself came down.
 //
 // So the re-read is wired to the same two moments every node-scoped reading in this
-// console is wired to, through `store/read-triggers.ts` and no second mechanism: the
+// console is wired to, through `store/read/read-triggers.ts` and no second mechanism: the
 // mount, and the window regaining focus. `subscribe` is deliberately not routed into
 // the generation below, because the mount read IS the subscribe read — routing it
 // would put two calls on the wire for one arrival.
@@ -155,7 +155,7 @@ function settledDirectoryState(settlement: SettledSessionDirectory): SessionDire
  * How many times this node's directory has been declared stale, per port.
  *
  * DELIBERATELY NOT A SUBJECT-SCOPED HOLDER AND NOT A GENERATION LATCH, which are the
- * two things `store/subject-scoped-state.ts` and `store/generation-latch.ts` already
+ * two things `store/subject-scoped/subject-scoped-state.ts` and `store/read/generation-latch.ts` already
  * are and which no third module may become. It holds no value addressed by a subject —
  * the answer stays in the holder, where it belongs — and it gates no settlement, so a
  * late read is not something it has an opinion about. What it counts is how many times
@@ -166,7 +166,7 @@ function settledDirectoryState(settlement: SettledSessionDirectory): SessionDire
  *
  * A class with private fields rather than a module-level `Map`, on the rule
  * `apps/desktop/AGENTS.md` §State and views states and the precedent
- * `seats/absorbed-surfaces.ts` sets one file over: module scope is WINDOW scope here,
+ * `seats/surface/absorbed-surfaces.ts` sets one file over: module scope is WINDOW scope here,
  * since an auxiliary window is its own renderer process and no channel joins two
  * windows' module graphs.
  *
@@ -226,7 +226,7 @@ const sessionDirectoryStaleness = new SessionDirectoryStaleness();
  *
  * It coalesces nothing and arms nothing. One call is one generation, and the readers
  * put one call each; the reasons this console re-reads on a SCHEDULE all travel
- * through `store/scheduling.ts`, and none of them is this.
+ * through `store/read/refresh-scheduler.ts`, and none of them is this.
  */
 export function requestSessionDirectoryRead(growth: GrowthPort): void {
   sessionDirectoryStaleness.declareStale(growth);
@@ -248,7 +248,7 @@ export function requestSessionDirectoryRead(growth: GrowthPort): void {
  * `reading` and blank a list on every focus.
  *
  * THE WINDOW HALF OF THE TRIGGER SET AND NOT THE SESSION HALF, on the rule
- * `store/read-triggers.ts` states: this read is addressed at the NODE, so no one
+ * `store/read/read-triggers.ts` states: this read is addressed at the NODE, so no one
  * session's repair and no one session's timeline bear on it, and it declares no
  * triggering event kinds because nothing in one session's timeline says the node's
  * list moved. The transport signal is the caller's because it is the BRIDGE's: this

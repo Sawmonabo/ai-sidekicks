@@ -190,7 +190,7 @@ export const ATTENTION_SUBJECT = "what needs you";
  * One fact today and deliberately a set rather than one member: `droppedCount` is
  * members the boundary could not read, which is exactly `partial` — a producer that
  * counted what it could not read. The sentence for it comes from
- * `primitives/partial-read.ts` and from nowhere else, so the panel and the spoken
+ * `primitives/reading/partial-read.ts` and from nowhere else, so the panel and the spoken
  * settlement cannot drift into saying different things about one number.
  *
  * `refusedSessions` is deliberately NOT folded in here. The nearest kind is a

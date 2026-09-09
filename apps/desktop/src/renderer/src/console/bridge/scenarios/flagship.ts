@@ -97,8 +97,8 @@ import {
   SESSION_ID,
   STARTED_AT_ISO,
   attachedAtIso,
-} from "./flagship-cast.js";
-import { FLAGSHIP_SCRIPT } from "./flagship-script.js";
+} from "./flagship/flagship-cast.js";
+import { FLAGSHIP_SCRIPT } from "./flagship/flagship-script.js";
 import { AGREED_NEGOTIATION_REPLY } from "./negotiation-replies.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 

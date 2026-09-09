@@ -11,7 +11,7 @@ import { createFixtureBridge } from "../../bridge/index.js";
 import {
   withDaemonCall,
   type RecordedDaemonCall,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
 import { NewSessionDraft } from "./new-session-draft.js";
 // The methods the SEND names, taken from the module that sends them rather than

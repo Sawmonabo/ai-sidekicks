@@ -9,8 +9,8 @@
 // there is nothing you can do".
 //
 // ITS OWN MODULE because it has more than one producer and never had only one:
-// `frame/RouteSurface.tsx` raises three of these — the unknown address, the session
-// still opening, and the slot nobody has claimed — and `seats/absorbed-surfaces.ts`
+// `frame/composition/RouteSurface.tsx` raises three of these — the unknown address, the session
+// still opening, and the slot nobody has claimed — and `seats/surface/absorbed-surfaces.ts`
 // raises three more, the fixture-source refusal, the address-names-no-session
 // refusal, and the roster mount that was handed no bridge. A second centring wrapper
 // in either would be two renderings of one idea, drifting apart the first time either
@@ -31,8 +31,8 @@
 // one family carrying another family's prefix is the drift the per-family sheet rule
 // exists to prevent, and the frame no longer owns this.
 
-import { ChordHint } from "./ChordHint.js";
-import { COMMAND_PALETTE_OPEN_CHORD } from "./chord-format.js";
+import { ChordHint } from "./chord/ChordHint.js";
+import { COMMAND_PALETTE_OPEN_CHORD } from "./chord/chord-format.js";
 
 export function SurfaceAbsence(props: { readonly children: React.ReactNode }): React.JSX.Element {
   return (

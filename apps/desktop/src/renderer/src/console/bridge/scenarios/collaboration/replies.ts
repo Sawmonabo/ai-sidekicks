@@ -16,7 +16,7 @@
 // AND THE INVITE LEDGER IS A TABLE, NOT A RULE. This room exists in part to show an
 // invitation ageing out, and the ageing itself is NOT here: `pending → expired` on the
 // clock is the daemon's lifecycle rather than this room's, so it lives on the fixture's
-// own invite ledger (`fixture/fixture-invite-ledger.ts`) and reaches every row that
+// own invite ledger (`fixture/invites/invite-ledger.ts`) and reaches every row that
 // read returns. Written here it was a rule one table applied to itself — the rows an
 // ACT mints are ones this scenario cannot see, so a minted invitation could never have
 // aged at all. What stays is the two rows and the instants they carry, which is data.

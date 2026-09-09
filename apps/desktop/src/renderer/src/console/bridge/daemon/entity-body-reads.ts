@@ -14,7 +14,7 @@
 // So the reads sit where the canonical shapes may be imported. That is not a
 // relocation of convenience: `store/` is BELOW `bridge/` on the console DAG, so a
 // store module cannot reach one of these narrowings by import at all, and the seam
-// that carries one downward is a parameter. `store/hooks.ts` already takes its
+// that carries one downward is a parameter. `store/session/caller-membership-role.ts` already takes its
 // caller-identity read that way.
 //
 // BOTH RETURN PRIMITIVES OR STORED REFERENCES, never a value built per call, so they
@@ -48,7 +48,7 @@ import type { ConsoleEntity } from "../../store/index.js";
  * a default would read as a checked answer.
  *
  * WHAT THE PROJECTOR STILL OWES. This selector reads the run entity's body; the
- * projector is what puts a payload member there. `frame/run-lifecycle-projector.ts`
+ * projector is what puts a payload member there. `frame/run-projection/run-lifecycle-projector.ts`
  * claims every `run_lifecycle` kind and today keeps four members —
  * `runVersion`, the two state strings, and `agentId` — so the stamped posture does
  * not reach the run partition at all, and this selector answers `undefined` for
@@ -85,7 +85,7 @@ export function stampedExecutionPostureOf(
  * Takes the ROSTER ENTRY rather than the state and an id, which is what makes it the
  * same shape as the posture read beside it and what keeps this family from naming a
  * store state at all. A hook that holds the state picks the entry with the store's
- * own `selectEntity` and hands it here; `MembershipRoleReader` in `store/hooks.ts`
+ * own `selectEntity` and hands it here; `MembershipRoleReader` in `store/session/caller-membership-role.ts`
  * declares exactly this signature for that injection.
  */
 export function membershipRoleOf(

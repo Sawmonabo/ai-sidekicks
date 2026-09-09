@@ -9,7 +9,7 @@
 // could not perform.
 //
 // WHY IT GOES THROUGH `RefreshScheduler`. `apps/desktop/AGENTS.md` puts every
-// refresh through `store/scheduling.ts`, and this is a refresh: it is the same
+// refresh through `store/read/refresh-scheduler.ts`, and this is a refresh: it is the same
 // `sessionRead` the window's own plumbing performs, asked for again. The scheduler
 // gives it the two properties a bare call would not have — a burst of presses costs
 // one read, and a read requested while one is in flight becomes the NEXT read
@@ -32,7 +32,7 @@
 // needs the projection it is rendering from, which is the closest thing the closed
 // `RefreshReason` vocabulary has to a person asking. It is a diagnostics label and
 // changes nothing about how the read is performed — which is why it is the only
-// thing here that is provisional. The vocabulary lives in `store/scheduling.ts`
+// thing here that is provisional. The vocabulary lives in `store/read/refresh-scheduler.ts`
 // and is that family's to widen; the member this call site takes the moment a
 // participant-request arm is registered there is `"participant-request"`, and the
 // change is this one argument and nothing else.

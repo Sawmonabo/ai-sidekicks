@@ -187,8 +187,9 @@ export default {
         "A renderer subtree OUTSIDE the console deep-imported a console module. Every layering " +
         "rule here is `from`-scoped to `console/`, so an importer that lives beside the console " +
         "rather than inside it matches none of them — which is how a Tier-1 subtree came to hold " +
-        "`console/store/subject-scoped-state.js` while three gates reported clean and the door " +
-        "the symbol is published from could have been deleted without one of them noticing. " +
+        "`console/store/subject-scoped/subject-scoped-state.js` while three gates reported clean " +
+        "and the door the symbol is published from could have been deleted without one of them " +
+        "noticing. " +
         "Import the family door instead (`console/store/index.js` publishes the subject-scoped " +
         "holder for exactly this reason). A symbol no door publishes is a symbol the console has " +
         "not offered, and reaching around the door inverts that decision rather than respecting " +

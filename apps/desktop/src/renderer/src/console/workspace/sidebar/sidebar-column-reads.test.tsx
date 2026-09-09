@@ -26,7 +26,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../../core/index.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "../../primitives/index.js";
-import { politeText } from "../../primitives/live-region.test-support.js";
+import { politeText } from "../../primitives/announce/live-region.test-support.js";
 import { SIDEBAR_SECTION_IDS, type SidebarSectionId } from "../../seats/index.js";
 import { SIDEBAR_DEFAULT_WIDTH_PERCENT } from "../workspace-bounds.js";
 import { type DecodedSidebarLayout } from "./model/sidebar-layout-record.js";

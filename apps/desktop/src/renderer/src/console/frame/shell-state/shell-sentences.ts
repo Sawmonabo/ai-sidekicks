@@ -25,7 +25,7 @@
 // none of them through the console's one formatter. Every such sentence is now a
 // SENTENCE MODEL — words and figure slots — and {@link ShellSentenceText} is what
 // turns one into elements. The words stay here where the whole vocabulary can be read
-// as one page; the figures leave through `primitives/wire-figures.ts`, which is the
+// as one page; the figures leave through `primitives/figures/wire-figures.ts`, which is the
 // only module allowed to format a wire value at all.
 
 import {
@@ -43,7 +43,7 @@ import {
  * string the shell sent — a protocol version — is a `figure` and renders verbatim; a
  * quantity it sent — an attempt out of a ladder — is a `count` and renders through
  * `Intl`. Neither is formatted here: this module states WHICH class a value is, and
- * `primitives/wire-figures.ts` stays the only module that turns one into text.
+ * `primitives/figures/wire-figures.ts` stays the only module that turns one into text.
  *
  * A model rather than a string is what makes that reachable at all. A sentence
  * returned as text has exactly one way to carry a version — pasted into the prose —
@@ -119,7 +119,7 @@ export function versionRemedyFor(reason: string | undefined): VersionRemedy {
 /**
  * The version pair, as one line: what this build speaks and what the runtime chose.
  *
- * Both versions are wire strings — `store/shell-state.ts` types each of them
+ * Both versions are wire strings — `store/shell/shell-state.ts` types each of them
  * "verbatim" — so each takes a figure slot rather than a position in a template. A
  * version pasted into prose is a version a person cannot tell from the sentence around
  * it, and the one thing this banner exists to let them do is read the two and compare.

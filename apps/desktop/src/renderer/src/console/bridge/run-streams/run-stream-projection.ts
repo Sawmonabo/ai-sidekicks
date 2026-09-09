@@ -54,7 +54,7 @@
 // budget is enforced, and this module's sibling `session-event-streams.ts` keeps its
 // contracts import type-only for exactly that reason — it is on the release path,
 // reached from the binder one family up. This module is not: its only importer is
-// `fixture-bridge.ts`, which `BridgeProvider.tsx` reaches solely inside the
+// `fixture/call-plane/bridge.ts`, which `BridgeProvider.tsx` reaches solely inside the
 // `__SIDEKICKS_CONSOLE_FIXTURES__` branch, and that identifier is a build-time
 // literal, so a release bundle folds the branch away and drops this module with the
 // rest of the fixture subtree. The budget therefore pays nothing for the schemas,

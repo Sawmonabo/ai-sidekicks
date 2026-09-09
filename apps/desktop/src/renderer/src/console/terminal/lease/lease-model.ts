@@ -22,7 +22,7 @@
 // somebody who does not hold the shell.
 //
 // WHY A PURE FOLD AND NOT A CLASS. The store's own projector discipline
-// (`store/entities.ts`) is that a projector reads the event and nothing else, so
+// (`store/entities/entities.ts`) is that a projector reads the event and nothing else, so
 // a replayed prefix is deterministic and a reconnect heals by re-running it. The
 // lease is exactly that shape: given the same events and the same viewer, the same
 // state. A class holding the fold's result beside the store would be a second

@@ -97,7 +97,7 @@ export function registerCollaborationFamily(
   // The window's one overlay body: the deep-link invite lifecycle, which is
   // bridge-scoped rather than session-scoped and therefore belongs to the window and
   // not to any surface in it. The seat takes no board parameter because it holds one
-  // occupant rather than a keyed table — `seats/single-slot/window-overlay-seat.ts` says why — so
+  // occupant rather than a keyed table — `seats/slots/window-overlay-seat.ts` says why — so
   // the claim is this call and the frame reads whatever it left there.
   registerInviteLifecycleOverlay();
 }

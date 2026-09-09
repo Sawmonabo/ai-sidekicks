@@ -18,8 +18,8 @@ import { describe, expect, it } from "vitest";
 import type { DaemonMethod } from "@ai-sidekicks/contracts";
 
 import { SCENARIO_PENDING_REPLY_CAP } from "../../core/index.js";
-import { FixtureBridgeError } from "../fixture/fixture-refusal.js";
-import { createFixture } from "../fixture/fixture-bridge.test-support.js";
+import { FixtureBridgeError } from "../fixture/call-plane/refusal.js";
+import { createFixture } from "../fixture/call-plane/bridge.test-support.js";
 import { GROWTH_PORT_REFUSAL_CODES, type GrowthOutcome } from "../growth-port/growth-outcome.js";
 import type { GrowthPort } from "../growth-port/growth-port.js";
 import { createLiveBridge } from "../live-bridge.js";
@@ -63,7 +63,7 @@ const UNSCRIPTED_MOUNT_ID = "9f2c4a10-1111-4000-8000-000000000003";
  *
  * WHOLE `RepoMountReadResponse`s and not two-member stand-ins. `repo.mountRead` is
  * a method the corpus registers, so the fixture holds a scripted reply for it to
- * that shape (`fixture-bridge.wire-contract.test.ts`) — and a scenario that could
+ * that shape (`fixture/call-plane/bridge.wire-contract.test.ts`) — and a scenario that could
  * answer it with `{id, health}` would be teaching every mount surface a frame the
  * daemon cannot send. Only `id` and `health.status` vary between the two, which is
  * what these cases read.

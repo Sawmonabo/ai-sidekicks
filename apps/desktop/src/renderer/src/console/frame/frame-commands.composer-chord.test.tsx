@@ -23,7 +23,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { composerChordPrimaryModifier } from "../../../../shared/composer-chord.js";
 import { CONSOLE_CHORD_PLATFORM } from "../palette/index.js";
 import { subscribeToComposerFocus } from "../seats/index.js";
-import { mountConsole } from "./ConsoleRoot.test-support.js";
+import { mountConsole } from "./composition/ConsoleRoot.test-support.js";
 
 const openSubscriptions: (() => void)[] = [];
 

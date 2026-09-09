@@ -9,7 +9,10 @@ import { act, fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { consoleKeybindingOverrides } from "../../../palette/index.js";
 import { LiveAnnouncerProvider, formatCount } from "../../../primitives/index.js";
-import { liveRegionText, politeText } from "../../../primitives/live-region.test-support.js";
+import {
+  liveRegionText,
+  politeText,
+} from "../../../primitives/announce/live-region.test-support.js";
 import { KeyboardPage } from "./KeyboardPage.js";
 import {
   RECORDED_PRESS,

@@ -9,7 +9,7 @@
 // THE VISIT IS TAKEN FROM THE HOLDER AND NOT RE-DERIVED HERE. A draft key names a
 // TARGET, and a composer routed away from a target and back is at the same key on two
 // different visits — the case where "same address" and "same act" come apart.
-// `store/subject-scoped-state.ts` already owns exactly that distinction: its
+// `store/subject-scoped/subject-scoped-state.ts` already owns exactly that distinction: its
 // initializer runs on the pass that first sees a new subject, which is the definition
 // of a new visit. This module started by counting its own serial off a ref, which is
 // a seventh copy of the console's one addressing epoch under a seventh name; it now
@@ -25,7 +25,7 @@
 // see the value from the render that produced the handler.
 //
 // AND THEY MOVE AT THE COMMIT, NOT DURING THE RENDER. They were assigned in the render
-// body, which opted out of the very case `store/subject-scoped-holder.ts` spends its
+// body, which opted out of the very case `store/subject-scoped/subject-scoped-holder.ts` spends its
 // two-phase design on: a pass that addresses a new subject and is then THROWN AWAY.
 // In that window the mirrors named a visit nothing committed, so `isCurrent` answered
 // false for a settlement belonging to the visit actually on screen — its refusal

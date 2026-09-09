@@ -26,7 +26,7 @@ import {
   growthAnswering,
   growthRefusing,
   unscriptedScenario,
-} from "../bridge/fixture/fixture-bridge.test-support.js";
+} from "../bridge/fixture/call-plane/bridge.test-support.js";
 import { type ConsolePaneAddress, type SidebarSectionContext } from "../seats/index.js";
 import { duplicateKeyReports, reportsWhileReactRan } from "../core/react-reports.test-support.js";
 import { AgentsSection } from "./AgentsSection.js";

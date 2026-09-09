@@ -13,7 +13,7 @@
 // types and the one refusal constructor both arms stamp their `origin` through;
 // `runtime-node-roster-transport.ts` holds everything that touches a real transport.
 // Neither arm can invent a name the other does not know. The fixture's arm is not here
-// at all — it is `fixture/fixture-runtime-node-roster.ts`, on that directory's own rule
+// at all — it is `fixture/settings/runtime-node-roster.ts`, on that directory's own rule
 // that a module which makes the fixture ANSWER something belongs beside the fixture —
 // which is why nothing under this directory imports `scenario-runtime/`.
 //

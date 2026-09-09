@@ -35,7 +35,7 @@
 // its expiry re-reads, and both of those overlap with each other and with the
 // receipt below — so the read line, its ordering, and the answer it holds are
 // `sent-invites-reading.ts`, and this file renders what that hook publishes. Still
-// no interval: `store/scheduling.ts` is where a periodic re-read would go and there
+// no interval: `store/read/refresh-scheduler.ts` is where a periodic re-read would go and there
 // is none, which that module states with its reasons.
 //
 // REVOKE IS DRAWN, because both of its inputs exist: the session comes from the
@@ -103,7 +103,7 @@ import { CreateInvite } from "./CreateInvite.js";
  * The wire method the revoke control calls, through the daemon gateway.
  *
  * The `satisfies` IS the binding, on `onboarding/provider-readiness/`'s precedent:
- * `store/shell-mutation-block.ts` is the console's registration of what a supervisor's
+ * `store/shell/shell-mutation-block.ts` is the console's registration of what a supervisor's
  * condition closes, so a revoke that ever left that tuple stops compiling here rather
  * than quietly going back to being dispatchable through a stopped shell. The literal
  * type survives it, which is what `callDaemon` needs to type the request and the

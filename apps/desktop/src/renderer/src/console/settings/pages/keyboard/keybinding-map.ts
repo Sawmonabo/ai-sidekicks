@@ -11,7 +11,7 @@
 //
 // EVERY VERDICT ABOUT A BINDING SET IS THE KEYBINDING SERVICE'S OWN
 //
-// None of them is decided here, and none may be. `palette/keybinding-audit.ts` asks
+// None of them is decided here, and none may be. `palette/keybindings/keybinding-audit.ts` asks
 // the service — the same service that will install the result — and this module
 // only joins the answers to rows a person reads. The reserved-chord table lives
 // there too: it was here, and the frame's override store became its second reader,
@@ -24,7 +24,7 @@
 // page's half of the seam: what it produces is offered to the override store, which
 // is the authority on whether the chord can be bound at all. Chords are composed in
 // `KeyboardEvent.code` form wherever the host supplies one — `KeyK` rather than `k`
-// — for the reason `primitives/chord-format.ts` gives about the same choice: `code`
+// — for the reason `primitives/chord/chord-format.ts` gives about the same choice: `code`
 // is layout-independent, so a binding stays on the same physical key on AZERTY and
 // Dvorak.
 

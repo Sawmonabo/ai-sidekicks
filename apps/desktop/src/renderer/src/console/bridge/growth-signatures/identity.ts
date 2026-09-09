@@ -19,7 +19,7 @@ export interface IdentityGrowthSignatures {
   // missing. A session's participant roster already carries every member's role, and
   // the store partitions by participant, so a `role` member here would be a second
   // source of truth for a fact another partition owns — and the two could disagree
-  // with nothing able to say which was right (`store/entities.ts`: a store never
+  // with nothing able to say which was right (`store/entities/entities.ts`: a store never
   // caches a flag another store owns). What no registered read supplies is which
   // entry in that roster this window IS; given that, the role is a lookup.
   callerParticipantRead: {

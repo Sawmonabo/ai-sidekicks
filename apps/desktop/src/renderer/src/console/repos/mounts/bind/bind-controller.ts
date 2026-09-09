@@ -18,7 +18,7 @@
 // answers with its root on the same reply. Both are settlements a person reads, and a
 // dialog that closed on the press would report the refusal as a success.
 //
-// EVERYTHING ELSE IS `store/act-controller-base.ts`'S, on the attach controller's note:
+// EVERYTHING ELSE IS `store/act/act-controller-base.ts`'S, on the attach controller's note:
 // the scheduler, the triggers, the arms, the single-flight guard, the disposed latch,
 // and the six members a surface reads them by were written three times in this
 // directory and are now written once.
@@ -38,9 +38,7 @@ import {
   ActSurfaceController,
   useActController,
   type ActOutcome,
-  type ActPrerequisiteReading,
   type ActReading,
-  type ActSettlementReading,
   type SessionStore,
 } from "../../../store/index.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../../repo-lifecycle-events.js";
@@ -55,13 +53,6 @@ export interface BindSettlement {
   readonly status: "bound";
   readonly response: WorkspaceBindResponse;
 }
-
-/** Where the pre-bind capabilities read stands, in the four states rule 8 keeps apart. */
-export type BindCapabilitiesReading =
-  ActPrerequisiteReading<WorkspaceExecutionModeCapabilitiesReadResponse>;
-
-/** Where the bind itself stands. */
-export type BindActReading = ActSettlementReading<BindSettlement>;
 
 /** Both halves, published together so a surface renders one consistent frame. */
 export type BindReading = ActReading<

@@ -182,7 +182,7 @@ export interface SessionGrowthSignatures {
     value: GrowthNotificationPermission;
   };
   // The shell's own condition. The value is `ShellReport` rather than a shape
-  // declared beside it, because the console already has one: `store/shell-state.ts`
+  // declared beside it, because the console already has one: `store/shell/shell-state.ts`
   // owns the vocabulary every reader of this feed narrows on, and a second
   // declaration here would be the same closed set written twice — the case the
   // `growth-values/` door names as belonging to the module that already declares it.

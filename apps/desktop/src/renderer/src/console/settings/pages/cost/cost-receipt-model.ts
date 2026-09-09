@@ -24,11 +24,11 @@
 // `formatCentsAsCurrency` was declared here while this page was its only reader. The
 // session cast bar renders the same committed figure from the same accountant, and
 // `workspace/` and `settings/` are sibling view families that may not import each
-// other — so the adapter is hoisted to `console/primitives/wire-figures.ts`, which
-// `apps/desktop/AGENTS.md` already makes the one module that formats a wire value.
-// What it added was the unit conversion, which is a fact about the receipt's wire
-// shape; that fact now sits beside the money formatter it adapts, where both readers
-// reach it and neither owns it.
+// other — so the adapter is hoisted to `console/primitives/figures/wire-figures.ts`,
+// which `apps/desktop/AGENTS.md` already makes the one module that formats a wire
+// value. What it added was the unit conversion, which is a fact about the receipt's
+// wire shape; that fact now sits beside the money formatter it adapts, where both
+// readers reach it and neither owns it.
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import type { GrowthReading } from "../../../bridge/index.js";

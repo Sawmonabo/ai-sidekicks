@@ -11,7 +11,7 @@
 // That section says so in terms: "Absorb the four shipped views under
 // `runtime-node-attach/` … wholesale and with every tripwire intact: no collapsed
 // health scalar, no filter that hides a node, no loading flash on re-read, and the
-// out-of-order read guard." The absorbed mount is `seats/absorbed-surfaces.ts`'s —
+// out-of-order read guard." The absorbed mount is `seats/surface/absorbed-surfaces.ts`'s —
 // it hands the view the roster read and the presence subscription this page's own
 // bridge serves — and this page composes it rather than reaching for the
 // component, exactly as the agent console does. Restyling is Meridian tokens over
@@ -24,7 +24,7 @@
 // map a node declares about itself nor the client version a floor verdict is computed
 // from. Both are Plan-003's own shipped views — `CapabilityDeclaration` and
 // `MixedVersionStatus`, absorbed by import beside the roster — and this page mounts
-// them in its own block from the SAME read: `seats/runtime-node/node-roster-seam.ts` records each
+// them in its own block from the SAME read: `seats/node-roster/node-roster-seam.ts` records each
 // response as it passes through the console's own read seam on its way to that view,
 // so what a node declares and how it is doing are one answer rather than two that can
 // disagree.
@@ -50,7 +50,7 @@
 // snapshot refresh. The roster is session-scoped and the settings address carries no
 // session, so the page asks for the session the console has open and renders the
 // absence when there is none. The attach control mounts the shipped flow through
-// `seats/absorbed-surfaces.ts`, which resolves the attach draft rather than accepting
+// `seats/surface/absorbed-surfaces.ts`, which resolves the attach draft rather than accepting
 // one: that draft is a machine's claim about its own identity, contract version,
 // health and capability set, and `Spec-023 §Trust Stance` puts its composition in the
 // main process, off the node registry. So the page names the control and the SEAT

@@ -9,7 +9,7 @@
 import { render } from "@testing-library/react";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
-import { PARTICIPANT_PRIYA } from "../../bridge/scenarios/flagship-cast.js";
+import { PARTICIPANT_PRIYA } from "../../bridge/scenarios/flagship/flagship-cast.js";
 import { SessionStore, type ConsoleEntity } from "../../store/index.js";
 import type { ConsoleScenario } from "../../bridge/scenario-runtime/index.js";
 

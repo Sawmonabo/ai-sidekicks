@@ -31,7 +31,7 @@ import { TerminalPane } from "./TerminalPane.js";
  * terminal would put the one shared shell (`Spec-023 §Console Design (Meridian)`
  * 8.8 — one per session, not one per node and not one per pane) behind two mount
  * points, while the write lease is held by one participant at a time regardless of
- * how many surfaces are showing it. `seats/pane-kinds.ts` answers that for the kind
+ * how many surfaces are showing it. `seats/pane/pane-kinds.ts` answers that for the kind
  * through `isDetachablePaneKind`, so the reason is recorded here and the answer is
  * given once there.
  *

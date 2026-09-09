@@ -24,7 +24,7 @@
 //
 // The budget this witness sits INSIDE is a different subject with a different
 // failure mode, and it is `launch-deadline.test.ts`. The two were one file until
-// that file passed 400 lines carrying three subjects at once.
+// the seams between its three subjects were drawn.
 
 import { describe, expect, it } from "vitest";
 

@@ -8,7 +8,7 @@
 // taking the verification code the operator was typing and the cancel control that was
 // the only way to stop the flow, over a press the page should never have accepted.
 //
-// SO THE GUARD IS `store/generation-latch.ts` AND NOT A FLAG. Single flight is that
+// SO THE GUARD IS `store/read/generation-latch.ts` AND NOT A FLAG. Single flight is that
 // register's one job, its key is per SUBJECT rather than per mount, and its refusal is
 // the answer `claim` already gives: a key that is held answers `undefined`, in the same
 // tick as the press, before anything is dispatched. A boolean read out of the rendered

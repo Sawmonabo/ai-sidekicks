@@ -10,12 +10,19 @@
 // the registered `RuntimeNodeRosterResponseSchema`, so a frame that drifted from the
 // contract fails there rather than rendering as a shape no daemon would send.
 
+import {
+  EventEnvelopeVersionSchema,
+  NodeIdSchema,
+  ParticipantIdSchema,
+  SessionIdSchema,
+} from "@ai-sidekicks/contracts";
 import type {
   EventEnvelopeVersion,
   NodeId,
   ParticipantId,
   RuntimeNodeAttachResponse,
   RuntimeNodeRosterEntry,
+  SessionId,
 } from "@ai-sidekicks/contracts";
 
 import type { RuntimeNodeAttachDraft } from "../../../../runtime-node-attach/index.js";
@@ -31,25 +38,30 @@ import type {
 // The three the ROSTER read carries are branded at their declaration rather than at
 // each of the four rows that use them: `RuntimeNodeRosterEntry` types `nodeId`,
 // `participantId`, and `clientVersion` as brands, an event payload types every
-// member `unknown`, and one assertion per constant is what keeps the rows free of
-// them. The assertion is a claim, and the bridge seam's test discharges it by parsing
-// every shipped frame with the registered `RuntimeNodeRosterResponseSchema`.
-export const SESSION_ID = "019b7892-1c00-75e5-8510-ada11a5a55a5";
-export const PARTICIPANT_YOU = "019b7892-1c00-79a4-8110-cca0117a0550" as ParticipantId;
-const NODE_WORKSTATION = "node-workstation" as NodeId;
-const NODE_BUILDER = "node-builder" as NodeId;
+// member `unknown`, and one brand per constant is what keeps the rows free of casts.
+// MINTED THROUGH THE REGISTERED SCHEMAS RATHER THAN `as`-CAST: a cast asserts the
+// brand and checks nothing, so a malformed value surfaced at the first `.strict()`
+// reply that carried it and named the reply rather than the value. The parse fails
+// this module instead, and the bridge seam's test still checks the frames it
+// composes against the registered `RuntimeNodeRosterResponseSchema`.
+export const SESSION_ID: SessionId = SessionIdSchema.parse("019b7892-1c00-75e5-8510-ada11a5a55a5");
+export const PARTICIPANT_YOU: ParticipantId = ParticipantIdSchema.parse(
+  "019b7892-1c00-79a4-8110-cca0117a0550",
+);
+const NODE_WORKSTATION = NodeIdSchema.parse("node-workstation");
+const NODE_BUILDER = NodeIdSchema.parse("node-builder");
 // The machine the attach control is offered FOR, and it is deliberately not one of
 // the two above: an attach is a machine arriving, so pointing the declaration at a
 // node already in the roster would script a control whose success changes nothing a
 // reader can see.
-const NODE_LAPTOP = "node-laptop" as NodeId;
+const NODE_LAPTOP = NodeIdSchema.parse("node-laptop");
 
 // The MAJOR.MINOR wire-contract version each daemon reported at attach, which is
 // what the below-floor verdict is derived from — deliberately NOT the node's
 // software release version (`nodeVersion` on the table below, a bounded free string
 // that carries a patch segment this brand's pattern rejects outright).
-const CLIENT_VERSION_CURRENT = "1.4" as EventEnvelopeVersion;
-const CLIENT_VERSION_BELOW_FLOOR = "1.3" as EventEnvelopeVersion;
+const CLIENT_VERSION_CURRENT = EventEnvelopeVersionSchema.parse("1.4");
+const CLIENT_VERSION_BELOW_FLOOR = EventEnvelopeVersionSchema.parse("1.3");
 
 /**
  * The two machines, and the health story each one tells.

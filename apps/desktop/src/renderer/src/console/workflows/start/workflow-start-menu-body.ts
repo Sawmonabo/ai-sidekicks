@@ -30,7 +30,7 @@
 // document. A sheet imported here would charge every opener of this menu for rules
 // nothing on this chunk renders against.
 //
-// Named `Body` because `seats/lazy-body.ts` fixes the export name a loader resolves.
+// Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader resolves.
 
 import "./workflow-start-menu.css";
 

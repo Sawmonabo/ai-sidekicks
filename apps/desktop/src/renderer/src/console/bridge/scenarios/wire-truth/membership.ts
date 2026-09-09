@@ -49,7 +49,7 @@ export function describeViewerDefect(
  *
  * `membershipRoleByParticipantId` is the fact every role gate resolves through: the
  * fixture's session read turns each entry into a `participant` row and
- * `store/selectors.ts`'s `membershipRoleOf` reads the role back off it. Both legs
+ * `store/session/selectors.ts`'s `membershipRoleOf` reads the role back off it. Both legs
  * therefore catch a defect that renders as nothing at all.
  *
  *   • A key outside `participantIdsInJoinOrder` mints a roster row for someone the

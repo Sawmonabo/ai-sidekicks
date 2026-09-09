@@ -65,7 +65,7 @@ import { consoleSourceModules, readConsoleSourceModule } from "../console-source
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
 /** The module under audit, by the display path the walk reports it under. */
-const REGISTRY_DISPLAY_PATH = "console/store/session-store-registry.ts";
+const REGISTRY_DISPLAY_PATH = "console/store/session/session-store-registry.ts";
 
 /**
  * Members a reader reaches by another name, and why each is exempt.

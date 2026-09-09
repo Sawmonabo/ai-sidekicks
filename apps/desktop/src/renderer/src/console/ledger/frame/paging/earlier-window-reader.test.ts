@@ -17,7 +17,7 @@ import type { SessionId, TimelineReadRequest, TimelineRow } from "@ai-sidekicks/
 import {
   createFixture,
   SCRIPTED_LATENCY_MS,
-} from "../../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import type { ConsoleScenario } from "../../../bridge/scenario-runtime/index.js";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import { SessionStore } from "../../../store/index.js";

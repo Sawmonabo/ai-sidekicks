@@ -20,7 +20,7 @@ import { settle } from "../../../core/settle.test-support.js";
 import {
   withDaemonCall,
   type RecordedDaemonCall,
-} from "../../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { capabilityReadout } from "./driver-capability-readout.test-support.js";
 import { dispatchRunControlCommand } from "./run-control-commands.js";
 import { runProjection } from "./run-control-commands.test-support.js";

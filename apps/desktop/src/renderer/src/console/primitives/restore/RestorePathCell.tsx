@@ -1,5 +1,5 @@
-import { WireFigure } from "../WireFigure.js";
-import { type WindowedRowTargetProps } from "../WindowedListRow.js";
+import { WireFigure } from "../figures/index.js";
+import { type WindowedRowTargetProps } from "../windowing/index.js";
 
 /** One path, and the row's own statement about where its tab stop went. */
 export type RestorePathCellProps = {

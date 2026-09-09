@@ -1,5 +1,9 @@
 // A document that reports a given focus, for the length of one construction.
 //
+// AT THE FAMILY ROOT AND NOT IN `shell/`, for `session-event.test-support.ts`'s reason:
+// the sessions family's attention-notifier suite reports a focus through it beside
+// `shell/frame-store.test.ts`.
+//
 // `FrameStore` seeds `isWindowFocused` from its own document, so a case about a window
 // that opened unfocused has to make the document say so — the shim this tier runs
 // under reports a focused, visible document, which is the state a shipped window is in

@@ -5,7 +5,7 @@
 // and a prepare publish; this module collaborates with React's rendering lifecycle and
 // owns when a controller is opened, armed, and ended. They meet at one object.
 //
-// THE SEAM IS `store/use-act-controller.ts` AND NOT `useMemo`, which is that module's
+// THE SEAM IS `store/act/use-act-controller.ts` AND NOT `useMemo`, which is that module's
 // own distinction: a memo opened during a pass React discards really constructs the
 // controller and really arms its triggers, and no effect ever commits to end it. The
 // resource seam that hook is built on closes one inside the render that drops it.

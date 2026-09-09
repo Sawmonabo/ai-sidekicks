@@ -22,7 +22,7 @@ import {
   fixtureBridgeWithGrowth,
   growthServing,
   unscriptedScenario,
-} from "../../console/bridge/fixture/fixture-bridge.test-support.js";
+} from "../../console/bridge/fixture/call-plane/bridge.test-support.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../console/core/index.js";
 import { DraftStore } from "../../console/persistence/index.js";
 import { FrameStore, SessionStore, type ConsoleEntity } from "../../console/store/index.js";

@@ -3,7 +3,7 @@
 //
 // IT SITS IN `fixture/` BECAUSE IT EXISTS SO THE FIXTURE CAN ANSWER, and `bridge/`'s
 // contract module reaches it by this specifier rather than through `fixture/index.ts`:
-// the door is an edge to every module it re-exports, `fixture-bridge.ts` imports the
+// the door is an edge to every module it re-exports, `call-plane/bridge.ts` imports the
 // contract, and taking that door from the contract would close the cycle `no-circular`
 // fails. The deep specifier is the remedy for exactly that one edge.
 //

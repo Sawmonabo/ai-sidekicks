@@ -7,7 +7,7 @@
 // two teardowns for one seam. `apps/desktop/AGENTS.md` calls that hoist-on-second-
 // use, and `primitives/` is the lowest family both consumers sit above.
 //
-// ITS OWN LEAF MODULE, for `chord-format.ts`'s reason: a primitive never imports
+// ITS OWN LEAF MODULE, for `primitives/chord/chord-format.ts`'s reason: a primitive never imports
 // upward, and this one imports a single type from the DAG floor and nothing else. It
 // renders nothing and holds no state, so it is a `.ts` module beside the components
 // rather than one of them.

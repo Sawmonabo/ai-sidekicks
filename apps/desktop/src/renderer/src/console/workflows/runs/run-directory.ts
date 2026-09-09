@@ -52,7 +52,7 @@
 // throws verbatim rather than folding into the outcome union — deliberately, so a
 // fixture never paraphrases a daemon's `{code, message}` into a growth vocabulary.
 // A hook that attached only a fulfilment handler would leave the second one
-// unhandled and the surface reading forever. `readings/read-settlement.ts` turns every ending
+// unhandled and the surface reading forever. `bridge/readings/read-settlement.ts` turns every ending
 // into one value, so what arrives here is an answer or a refusal and never a promise
 // nobody is waiting on — and the refusal's `origin` is what still says which of the
 // two authors raised it.
@@ -100,7 +100,7 @@ type SettledRunDirectory =
  * What a runs surface knows about the runs this session holds, at one moment.
  *
  * Four states and no others, and the two unsettled ones are the shared shape rather
- * than a third spelling of it: `store/subject-read-start.ts` owns what a subject-keyed
+ * than a third spelling of it: `store/read/subject-read-start.ts` owns what a subject-keyed
  * read starts as, so this hook and the two beside it cannot drift about which frame is
  * allowed to claim nobody asked, or about which frame is allowed to hold the previous
  * bridge's answer.

@@ -1,7 +1,7 @@
 // The carrier's ledger: which attachments there are, in which order, and where each
 // one's ingest stands.
 //
-// It is a separate module from `attachment-ingest.ts` because the two answer
+// It is a separate module from `attachment-ingest-machine.ts` because the two answer
 // different questions. The ledger answers "what does this carrier hold right now",
 // and every one of its operations settles before it returns. The client answers "what
 // has been sent", and every one of its operations spans an await. Keeping them in one
@@ -51,7 +51,7 @@ import {
  *
  * IT IS THE CONSOLE'S ONE GENERATION REGISTER RATHER THAN A COUNTER OF THIS FILE'S
  * OWN. The hand-rolled `Map<string, number>` this replaces was a second implementation
- * of `store/generation-latch.ts` — and one whose size nothing bounded or reported,
+ * of `store/read/generation-latch.ts` — and one whose size nothing bounded or reported,
  * where the register frees a key on the supersede and answers `heldKeyCount` for what
  * it still holds.
  */

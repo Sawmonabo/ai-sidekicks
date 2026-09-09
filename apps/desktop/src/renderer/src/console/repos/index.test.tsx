@@ -71,7 +71,7 @@ function contextForSection(isOpen: boolean): SidebarSectionContext {
 /**
  * The address each kind's pane is opened at.
  *
- * Both REQUIRE a subject — `seats/pane-address.ts` narrows the entity with the kind
+ * Both REQUIRE a subject — `seats/pane/pane-address.ts` narrows the entity with the kind
  * — so this table is what lets one loop mount both bodies without either arm being
  * handed a reference the other's body would read out of the wrong partition. Typed
  * as the seat's own union, so a wrong pairing fails here rather than at the mount.
@@ -167,7 +167,7 @@ describe("repos family — the sidebar section", () => {
 
 describe("repos family — the artifacts section", () => {
   it("claims the artifacts section under the same owner", () => {
-    // `seats/sidebar-sections.ts` names both sections as this family's, and this is
+    // `seats/slots/sidebar-sections.ts` names both sections as this family's, and this is
     // the second: the attachment carrier, which is the ingest trio's only production
     // entry point. A door that registered one of the two would leave the Init /
     // Chunk / Complete flow reachable from tests and from nothing else.

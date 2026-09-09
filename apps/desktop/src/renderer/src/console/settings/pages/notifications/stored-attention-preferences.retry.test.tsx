@@ -20,7 +20,7 @@ import { describe, expect, it, vi } from "vitest";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 
 import { growthUnavailable } from "../../../bridge/index.js";
-import type { CallerParticipantOutcome } from "./attention-preference-model.js";
+import type { CallerParticipantOutcome } from "../../../seats/index.js";
 import {
   SERVED_PARTICIPANT,
   bridgeWith,

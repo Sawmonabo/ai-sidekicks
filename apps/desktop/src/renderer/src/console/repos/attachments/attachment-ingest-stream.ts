@@ -77,7 +77,7 @@ export interface AttachmentIngestStreamDriverOptions {
  * One attachment's stream, from Init to Complete, driven on demand.
  *
  * THE RUNNING SET IS RE-ENTRANCY AND NOT SUPERSESSION, which is why it is a set here
- * rather than a key taken from `store/generation-latch.ts`. Supersession in this family
+ * rather than a key taken from `store/read/generation-latch.ts`. Supersession in this family
  * is the ledger's stamp, which that register already supplies; what this one answers is
  * whether a second `drive` for the same attachment would put a second Init on the wire —
  * and the caller has to be able to ASK, because a retry offered while a stream is
@@ -129,7 +129,7 @@ export class AttachmentIngestStreamDriver {
    * would re-publish into the same throwing sink and lose the diagnostic too.
    *
    * `apply-chokepoint-bypass` is the kind for it, on the two sites that already report
-   * under it (`frame/session-event-binder.ts`, `bridge/scenario-runtime/scenario-engine.ts`): a store
+   * under it (`frame/session/session-event-binder.ts`, `bridge/scenario-runtime/scenario-engine.ts`): a store
    * and the surfaces reading it are out of step because a delivery did not arrive. In
    * a development build the registry throws after recording, which is the console's
    * standing policy and the one arm where this promise does reject — loudly, at the

@@ -19,7 +19,7 @@ import type { ConsoleBridge } from "../../../bridge/index.js";
 import {
   fixtureBridgeWithGrowth,
   withDaemonCall,
-} from "../../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
 import { RootDisposalConfirmation } from "./RootDisposalConfirmation.js";
 

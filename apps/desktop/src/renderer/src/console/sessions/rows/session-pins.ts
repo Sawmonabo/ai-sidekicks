@@ -205,7 +205,7 @@ function setTierThrough(
  *
  * KEYED ON THE STORE'S IDENTITY, through this window's one pin holder. It was built
  * by a `useState` initializer instead — which runs once per mounted component and is
- * never recomputed — so when `frame/ui-state-lifecycle.ts` replaced this window's
+ * never recomputed — so when `frame/bindings/ui-state-lifecycle.ts` replaced this window's
  * store after a bridge or scenario change, the pins stayed attached to the closed
  * one: the previous scenario's map stayed on screen, every later write went to a
  * database nothing reads, and the replacement was never hydrated. The HOLDER's own

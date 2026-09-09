@@ -5,7 +5,7 @@
 // reader's. Nothing here knows what a reading MEANS — the two members below that touch
 // one are abstract, and the subclass answers them.
 //
-// A BASE CLASS AND NOT A COMPOSED COLLABORATOR, on `store/act-controller-base.ts`'s
+// A BASE CLASS AND NOT A COMPOSED COLLABORATOR, on `store/act/act-controller-base.ts`'s
 // precedent and for a reason that is mechanical rather than stylistic.
 // `test/console/architecture/read-triggers.test.ts` defines a READING as one class that
 // publishes what a surface reads off it AND holds the daemon connection, and it requires
@@ -25,7 +25,7 @@
 //
 // NO TIMER AND NO POLL, AND ALSO NO RACE. The reads run once when the pane mounts and
 // again when the participant asks, and BOTH go through the console's one
-// `RefreshScheduler` (`store/scheduling.ts`, the `repos/mounts/repo-mounts-reader.ts`
+// `RefreshScheduler` (`store/read/refresh-scheduler.ts`, the `repos/mounts/repo-mounts-reader.ts`
 // precedent) rather than straight at the port. A reader that called the port on every
 // press started a second list/allow-list pair beside the first: two presses cost two
 // read pairs, an older answer could land after a newer one and overwrite it, and the
@@ -44,7 +44,7 @@
 // `artifact.visibility_updated` frame, held a manifest list and an effective
 // allow-list that were stale indefinitely and looked exactly like fresh ones. The
 // other three reasons now reach the same scheduler through
-// `store/refresh-triggers.ts`, which is the mechanism the repos section's two readers
+// `store/read/refresh-triggers.ts`, which is the mechanism the repos section's two readers
 // already use; the KINDS are this pane's own, because those three frames are what
 // `Spec-006 §Artifact and Diff Publication (artifact_publication)` names as terminal
 // for an artifact. A `workspace.stale` frame is deliberately not among them: it says a

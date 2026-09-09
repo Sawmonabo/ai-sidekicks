@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import { ParkedDaemonCalls } from "../../parked-daemon-calls.test-support.js";
 import type { ConsoleBridge } from "../../../../console/bridge/index.js";
-import { createFixture } from "../../../../console/bridge/fixture/fixture-bridge.test-support.js";
+import { createFixture } from "../../../../console/bridge/fixture/call-plane/bridge.test-support.js";
 import {
   isSameCompactionTarget,
   useCompactionDispatch,

@@ -9,7 +9,7 @@ import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.j
 import {
   unscriptedScenario,
   withDaemonCall,
-} from "../../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { airspaceRegistryFor } from "../../../core/index.js";
 import { type SidebarBulkItem } from "../../../seats/index.js";
 import { BulkActionBar } from "./BulkActionBar.js";

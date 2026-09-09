@@ -9,7 +9,7 @@
 // chunk: importing them at the family door would put an approvals queue's rules on the
 // initial document of every session that never opens one.
 //
-// Named `Body` because `seats/lazy-body.ts` fixes the export name a loader resolves.
+// Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader resolves.
 
 import { createElement } from "react";
 

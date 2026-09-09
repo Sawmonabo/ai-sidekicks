@@ -26,9 +26,6 @@ import type { ConsoleRefusal } from "../../../core/index.js";
 import type { TakeTheFloorOutcome } from "../../../seats/index.js";
 import { inFlightKeyFor, type RunControlSurface } from "./run-control-surface.js";
 
-/** The subsystem name every refusal the step-in control raises carries. */
-export const STEP_IN_REFUSAL_ORIGIN = "composer-step-in";
-
 /**
  * Where one step-in has got to.
  *

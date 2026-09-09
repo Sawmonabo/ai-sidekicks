@@ -13,7 +13,7 @@ import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import {
   withDaemonCall,
   type RecordedDaemonCall,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { ONBOARDING_SCENARIO } from "../../bridge/scenarios/onboarding.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { FrameStore, UNREPORTED_SHELL_STATE, type ShellConnection } from "../../store/index.js";

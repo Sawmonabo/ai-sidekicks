@@ -18,7 +18,7 @@
 import { describe, expect, it } from "vitest";
 
 import { growthUnavailable } from "../../bridge/index.js";
-import { liveRegionText, politeText } from "../../primitives/live-region.test-support.js";
+import { liveRegionText, politeText } from "../../primitives/announce/live-region.test-support.js";
 import {
   RegistryStub,
   buttonNamed,

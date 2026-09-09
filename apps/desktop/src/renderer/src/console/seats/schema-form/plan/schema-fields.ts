@@ -103,9 +103,6 @@ const EMPTY_TEXT = "";
 /** What a collection nobody has added to holds. Never written to; only ever replaced. */
 const NO_ENTRIES: readonly unknown[] = [];
 
-/** What a group nobody has answered into holds. Never written to; only ever rebuilt. */
-const NO_MEMBERS: Readonly<Record<string, unknown>> = {};
-
 /**
  * What one control of a kind DISPLAYS while nobody has answered it, as a value.
  *
@@ -190,11 +187,6 @@ export function containerOpensAnswered(isRequired: boolean, hasDeclaredValue: bo
 /** What the answer holds at a collection NOBODY IS ANSWERING, which a required one never is. */
 export function unansweredListValue(list: SchemaListDescriptor): unknown {
   return list.isRequired ? NO_ENTRIES : undefined;
-}
-
-/** What the answer holds at a group none of whose members is answered. */
-export function unansweredGroupValue(group: SchemaGroupDescriptor): unknown {
-  return group.isRequired ? NO_MEMBERS : undefined;
 }
 
 /**

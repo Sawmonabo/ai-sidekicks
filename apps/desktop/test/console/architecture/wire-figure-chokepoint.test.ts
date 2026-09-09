@@ -1,7 +1,7 @@
 // The byte-scaling chokepoint, asserted.
 //
 // `Spec-023 §Console Design (Meridian)` §The eight rules holds the console to
-// `Intl` for every derived quantity, and `primitives/wire-figures.ts` carries the
+// `Intl` for every derived quantity, and `primitives/figures/wire-figures.ts` carries the
 // single amendment to that rule: `Intl` has no kibibyte, so exactly one function
 // scales by powers of 1024 and appends a label from a closed set. That module's
 // header states this test exists and says what it asserts. Until this file it did
@@ -14,7 +14,7 @@
 // WHAT COUNTS AS SCALING, and why the line is drawn where it is. A binary unit
 // LABEL is the giveaway: a module that scales bytes has to name the unit it scaled
 // to, and a module that merely bounds a byte count does not. That is why
-// `core/constants.ts` may hold `64 * 1024` — a cap is a bound, it names no unit,
+// `core/constants/` may hold `64 * 1024` — a cap is a bound, it names no unit,
 // and nothing renders it — while `/ 1024` is flagged, because dividing is the
 // scaling step itself. Multiplying up to a bound and dividing down to a display
 // figure are different acts, and only one of them is this chokepoint's business.
@@ -54,7 +54,7 @@ import {
  * An allow-list of exactly one, written as a path rather than inferred from a
  * naming convention, so moving the chokepoint is an edit a reviewer sees.
  */
-const CHOKEPOINT_MODULE = "console/primitives/wire-figures.ts";
+const CHOKEPOINT_MODULE = "console/primitives/figures/wire-figures.ts";
 
 /**
  * The binary unit labels. Naming one of these in a source module is the
@@ -92,7 +92,7 @@ const SENTENCE_PLANE_PREFIX = "console/frame/shell-state/";
 /**
  * The members the shell's report carries, each a value the supervisor supplied.
  *
- * Taken from `store/shell-state.ts`'s `ShellNegotiation` and `ShellConnection`: the
+ * Taken from `store/shell/shell-state.ts`'s `ShellNegotiation` and `ShellConnection`: the
  * three the negotiation types "verbatim" plus the ladder's own counters, the last
  * error, and the heartbeat stamp. Every one of them is a figure by rule 4's two
  * classes, and none of them is a word this console wrote.
@@ -113,7 +113,7 @@ const SHELL_REPORT_MEMBERS: readonly string[] = [
  * The interpolation is what makes it PROSE. Reading a member into a local, passing one
  * to a figure slot, or comparing two is ordinary code and is not this rule's business;
  * `${…}` around one is the module deciding how that value reads, which is the decision
- * `primitives/wire-figures.ts` owns.
+ * `primitives/figures/wire-figures.ts` owns.
  */
 function proseEmbeddedReportMembers(source: string): readonly string[] {
   return [...source.matchAll(/\$\{[^}]*\}/gu)].flatMap((interpolation) =>

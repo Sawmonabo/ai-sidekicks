@@ -34,8 +34,8 @@ import { AUXILIARY_MENU_CHORDS } from "../../../src/shared/auxiliary-menu-chords
 import {
   normalizePressForComparison,
   parseChord,
-} from "../../../src/renderer/src/console/palette/keybinding-chord.js";
-import { reservedChordReason } from "../../../src/renderer/src/console/palette/keybinding-audit.js";
+} from "../../../src/renderer/src/console/palette/keybindings/keybinding-chord.js";
+import { reservedChordReason } from "../../../src/renderer/src/console/palette/keybindings/keybinding-audit.js";
 
 /** One chord literal the console declares, and where a reader finds it. */
 interface DeclaredChord {

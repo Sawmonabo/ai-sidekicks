@@ -32,7 +32,7 @@ export type ConsoleBridgeSource = "live" | "fixture";
 /**
  * Subscribe to the attention plane's movement. Returns the disposer the caller owes.
  *
- * The shape `store/open-session-signal.ts` already publishes for the stores half of
+ * The shape `store/session/open-session-signal.ts` already publishes for the stores half of
  * the same question — a callback that carries nothing and a handle that releases it —
  * so a consumer can hold both halves without narrowing on two vocabularies at once.
  */
@@ -100,7 +100,7 @@ export interface ConsoleBridge {
    *
    * BESIDE THE SESSION STORES RATHER THAN INSTEAD OF THEM, and the gap it closes is
    * the whole reason it exists. The console's other signal over attention is
-   * `store/open-session-signal.ts`, which watches the stores this window has OPEN —
+   * `store/session/open-session-signal.ts`, which watches the stores this window has OPEN —
    * so a session the node reports and nobody in this window ever opened has no store
    * to move, and its approval, its input request, and its failed run reached the
    * badge, the centre, and the banner never. The projection read is fanned out over

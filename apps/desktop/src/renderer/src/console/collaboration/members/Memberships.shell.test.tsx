@@ -2,7 +2,7 @@
 // deliberately does NOT do to the rows beside them.
 //
 // `membership.update` is a write this console puts THROUGH the daemon rather than one
-// that terminates in it, and `store/shell-mutation-block.ts` is where the console
+// that terminates in it, and `store/shell/shell-mutation-block.ts` is where the console
 // registers that it is a write at all. This suite is the consequence of that
 // registration reaching the screen: every row's controls close while the runtime is
 // not serving, the cause is said once above everything under the heading, and the
@@ -19,7 +19,7 @@ import {
   unscriptedScenario,
   withDaemonCall,
   type RecordedDaemonCall,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { createFixtureBridge } from "../../bridge/index.js";
 import { settle } from "../../core/settle.test-support.js";
 import type { FrameStore } from "../../store/index.js";

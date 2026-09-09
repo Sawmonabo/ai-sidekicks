@@ -23,12 +23,12 @@
 //     being born and no document names the state it came from.
 //   • **Nothing scripts `session.list`.** No method registry in the corpus carries
 //     that name. The session directory reaches a surface through the growth
-//     operation `sessionList`, which `bridge/fixture/fixture-growth-port.ts` serves from
+//     operation `sessionList`, which `bridge/fixture/growth/growth-port.ts` serves from
 //     the state this scenario's own `session.read` reply declares — so a scripted
 //     reply here would be a second, unreachable answer to a question the fixture
 //     already answers from the read below.
 //
-// WHICH CALLS ARE SCRIPTED, AND WHY ONLY THOSE. `fixture-bridge.ts` refuses an
+// WHICH CALLS ARE SCRIPTED, AND WHY ONLY THOSE. `fixture/call-plane/bridge.ts` refuses an
 // unscripted call as `reply-unscripted`, which is the fixture's authoring error and
 // a state some surfaces are built to render. So a reply is scripted here exactly
 // when a composer-family surface issues that call: `session.read`, which the frame

@@ -16,7 +16,7 @@
 // that had already stopped being true. Both are invisible — a correct-looking ledger
 // composed from a reply the console had already superseded.
 //
-// SO EVERY READ IS STAMPED WHERE IT IS ISSUED. `store/read-cancellation.ts` is the
+// SO EVERY READ IS STAMPED WHERE IT IS ISSUED. `store/read/read-cancellation.ts` is the
 // console's one mechanism for that, and it is the whole pairing rather than half of
 // it: a round is the generation claim AND the signal as one value, so a read on this
 // line cannot be ordered without also being stoppable. Opening a round supersedes
@@ -43,7 +43,7 @@
 // discards is strictly older than the receipt on the one row the two can disagree
 // about, and whatever else it carried is asked for again by the next mint or expiry.
 //
-// WHAT IS DELIBERATELY NOT HERE IS A SCHEDULER. `store/scheduling.ts` is where a
+// WHAT IS DELIBERATELY NOT HERE IS A SCHEDULER. `store/read/refresh-scheduler.ts` is where a
 // periodic re-read would go and there is no periodic re-read: nothing on this line
 // polls, a mint and a crossed expiry are each one act at one moment, and the fixture's
 // clock is frozen — a debounce window under it would never elapse at all, so a read

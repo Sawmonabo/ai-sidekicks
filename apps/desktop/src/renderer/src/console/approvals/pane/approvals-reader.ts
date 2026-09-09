@@ -4,7 +4,7 @@
 // rules this surface has to keep are rules about a MACHINE and not about a render:
 //
 //   • **Two reads, one scheduler.** Both the projection read and the standing-rule
-//     list refresh through `store/scheduling.ts`'s `RefreshScheduler`, which is the
+//     list refresh through `store/read/refresh-scheduler.ts`'s `RefreshScheduler`, which is the
 //     console's one refresh chokepoint (`Spec-023 §Rules every console surface
 //     obeys`). Nothing here arms a timer of its own and nothing polls.
 //   • **A control is disabled while ITS call is in flight, and only that one.**

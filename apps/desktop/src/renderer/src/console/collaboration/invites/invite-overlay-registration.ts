@@ -8,7 +8,7 @@
 // composition is what registers.
 //
 // A `.ts` MODULE THAT BUILDS AN ELEMENT, the shape `sections.ts` and
-// `seats/absorbed-surfaces.ts` already take: it owns the CLAIM — which seat this family
+// `seats/surface/absorbed-surfaces.ts` already take: it owns the CLAIM — which seat this family
 // fills and what mounts in it — rather than a view, so it takes `createElement` instead
 // of JSX.
 

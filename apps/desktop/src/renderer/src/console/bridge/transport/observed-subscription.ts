@@ -2,7 +2,7 @@
 //
 // THE CYCLE THIS BREAKS. `transport-reconnect.ts` next door emits on one transition,
 // `unreachable → reachable`, and the only live-path producer of either state was
-// `frame/session-event-binder.ts` — which is also the only consumer that acts on the
+// `frame/session/session-event-binder.ts` — which is also the only consumer that acts on the
 // edge. Producer and consumer were one object, so a window whose ONLY session took a
 // transient `daemon.subscribe` failure could never leave the state that failure put it
 // in: the binder needed a returning edge to retry, and the returning edge needed a

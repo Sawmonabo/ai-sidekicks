@@ -80,7 +80,7 @@ export function createClientCommandExecutor(options: {
     if (handler !== undefined) {
       try {
         // CALLED INSIDE THE BOUNDARY rather than awaited from outside it, on
-        // `palette/bridge-commands.ts`'s own reasoning: a handler that throws
+        // `palette/commands/bridge-commands.ts`'s own reasoning: a handler that throws
         // synchronously and one that returns a rejected promise are the same failure
         // to the person who typed the line, and only this placement catches both.
         return await handler(line);

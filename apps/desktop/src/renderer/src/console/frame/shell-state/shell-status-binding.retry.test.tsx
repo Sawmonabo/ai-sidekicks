@@ -31,7 +31,7 @@ import {
   fixtureBridgeWithGrowth,
   growthRefusing,
   growthServing,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import type { GrowthOutcome } from "../../bridge/growth-port/growth-outcome.js";
 import { SHELL_SCENARIO } from "../../bridge/scenarios/shell.js";
 import { FrameStore, shellMutationBlock } from "../../store/index.js";

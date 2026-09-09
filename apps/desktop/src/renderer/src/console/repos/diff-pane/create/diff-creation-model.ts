@@ -1,6 +1,6 @@
 // What one diff creation publishes, and the sentences its own refusals render as.
 //
-// TWO HALVES, BECAUSE THE FAMILY'S ACT VOCABULARY ALREADY HAS TWO. `store/act-reading.ts`
+// TWO HALVES, BECAUSE THE FAMILY'S ACT VOCABULARY ALREADY HAS TWO. `store/act/act-reading.ts`
 // separates the QUESTION an act depends on from the act itself, and a diff create has
 // both: the subject has to be resolved to one of the wire's two attribution keys before
 // any request can be built, and that resolution fails for reasons — a worktree this

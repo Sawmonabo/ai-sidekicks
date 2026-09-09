@@ -34,7 +34,7 @@ import { describe, expect, it, vi } from "vitest";
 import { callDaemon } from "./daemon-reply.js";
 import { CONSOLE_DAEMON_METHOD_BINDINGS } from "./daemon-reply-registry.js";
 import { refusalOf, SESSION_ID } from "./daemon-reply.test-support.js";
-import { bridgeAnswering } from "../fixture/fixture-bridge.test-support.js";
+import { bridgeAnswering } from "../fixture/call-plane/bridge.test-support.js";
 
 /** The code the door raises for a read whose owner has gone. */
 const READ_ABANDONED = "read-abandoned";
@@ -50,7 +50,7 @@ const RUN_ID = "019b79ee-0280-7f00-8110-a11ce0000002" as RunId;
  * scope instead would put a second module inside every assertion and make a failure
  * ambiguous between the two. The scope's own behaviour — that it aborts on unmount,
  * on re-address, and on supersession — is asserted where it lives, in
- * `store/read-cancellation.test.ts` and its hook suite beside it.
+ * `store/read/read-cancellation.test.ts` and its hook suite beside it.
  */
 function readLine(): AbortController {
   return new AbortController();

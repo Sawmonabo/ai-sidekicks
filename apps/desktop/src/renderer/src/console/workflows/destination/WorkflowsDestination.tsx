@@ -87,7 +87,7 @@ import { useCallback } from "react";
 
 import type { GrowthPort } from "../../bridge/index.js";
 import type { TransportReconnectObservable } from "../../core/index.js";
-import { WireFigure } from "../../primitives/index.js";
+import { useReadSettlementAnnouncement, WireFigure } from "../../primitives/index.js";
 import { useFrameStore, type FrameStore, type SessionStoreRegistry } from "../../store/index.js";
 import type { ConsolePaneOpener } from "../../seats/index.js";
 import {
@@ -97,7 +97,6 @@ import {
   type WorkflowsScopeState,
 } from "./destination-scope.js";
 import type { WorkflowDefinitionRow } from "../definitions/definition-rows.js";
-import { useReadSettlementAnnouncement } from "../read-announcement.js";
 import type { WorkflowRunListRow } from "../runs/run-list-projection.js";
 import { WorkflowRuns } from "../runs/WorkflowRuns.js";
 import { WorkflowsBrowser } from "../browser/index.js";
@@ -164,7 +163,7 @@ export function WorkflowsDestination(props: WorkflowsDestinationProps): React.JS
   // The scope is a settlement like the two reads below it, and it is announced through
   // the same latch: keyed on the session id's own identity, so a move to a different
   // session speaks and a re-render of the same one is silent. Polite, never assertive
-  // — `frame/banner-announcements.ts` reserves the loud lane for a refusal that changed
+  // — `frame/composition/banner-announcements.ts` reserves the loud lane for a refusal that changed
   // what the whole room can do, and this is a surface describing its own subject.
   useReadSettlementAnnouncement(
     sessionId,

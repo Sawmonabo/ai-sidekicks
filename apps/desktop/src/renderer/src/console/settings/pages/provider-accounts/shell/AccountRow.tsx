@@ -12,7 +12,7 @@ import { observationAgeInDays } from "./quota-rows.js";
  * rather than being hidden". What crossing this line changes is the chip's tone, so a
  * reading a fortnight old reads as one rather than as current.
  *
- * Not in `core/constants.ts` because it bounds no resource — it is a word this one row
+ * Not in `core/constants/` because it bounds no resource — it is a word this one row
  * chooses, in the way the stall badge chooses its own volume.
  */
 const STALE_OBSERVATION_DAYS = 14;

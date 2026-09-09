@@ -48,7 +48,7 @@ import { fileURLToPath } from "node:url";
  * claim and it is closed by construction rather than by vigilance — the faces are a
  * `Record<GlyphName, …>` over a closed `GLYPH_NAMES` array, so a thirty-seventh face is a
  * member added to a set the compiler makes total, which is a reviewed edit to
- * `console/tokens/glyphs.ts` and to `console/primitives/glyph-faces.ts`. The faces module
+ * `console/tokens/glyphs.ts` and to `console/primitives/figures/glyph-faces.ts`. The faces module
  * is pinned as a module of its own; the tokens module contributes the closed array and
  * its types, and the entry chunk keeps none of its runtime values, so it is not a named
  * source there and holds no row. The bytes the faces weigh are on the budget gated next

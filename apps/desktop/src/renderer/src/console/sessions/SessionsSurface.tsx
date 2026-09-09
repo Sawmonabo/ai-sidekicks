@@ -37,7 +37,7 @@
 // different reason. The two causes are separate facts — a lost stream is this window's,
 // a reconnecting or stopped supervisor is the shell's — and the shell's is the stronger
 // one, so it is the sentence a control carries when both stand. Neither cause is
-// derived here: `store/shell-state.ts` owns the one that is the shell's, which is what
+// derived here: `store/shell/shell-state.ts` owns the one that is the shell's, which is what
 // keeps this destination's disabled controls and the palette's read-only line from
 // naming two different reasons for one state, and `acts/session-act-block.ts` owns the
 // ranking — for every act on this destination, the composed draft's Send included,

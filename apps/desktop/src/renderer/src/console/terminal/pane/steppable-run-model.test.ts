@@ -15,9 +15,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { RUN_LIFECYCLE_PROJECTORS } from "../../frame/run-lifecycle-projector.js";
-import { emptyPartitions } from "../../store/entities.js";
-import { EntityProjectionRunner } from "../../store/entity-projection.js";
+import { RUN_LIFECYCLE_PROJECTORS } from "../../frame/run-projection/run-lifecycle-projector.js";
+import { emptyPartitions } from "../../store/entities/entities.js";
+import { EntityProjectionRunner } from "../../store/entities/entity-projection.js";
 import { eventOfKind } from "../../store/session-event.test-support.js";
 import type { ConsoleEntity } from "../../store/index.js";
 import { hasSteppableRun } from "./steppable-run-model.js";

@@ -11,25 +11,36 @@
 // store that no longer has a consumer. So `dispose()` is final: every later tick is
 // dropped and reported on the tripwire rather than delivered.
 //
-// The engine also answers a subscription that arrives LATE. `session.subscribe` is
-// registered replay-then-tail — the whole log, then what follows — and the engine
-// used to register a sink for future emissions only. A store opened after the clock
-// had already delivered beats therefore read the next beat as a real sequence gap
-// (its snapshot answers at cursor zero, so every position in between counts as
-// missing) and entered degradation and repair, or, if the scenario had already
-// finished, stayed empty forever. The replay is served from the engine's OWN record
-// of what it has delivered, which is `scenario-log.ts` beside this file.
+// WHO IS LISTENING IS `scenario-delivery.ts`, one directory entry away, and the split
+// is where the two jobs meet rather than through the middle of either. This file owns
+// what is DUE — the frozen clock, the elapsed tick, the contiguous due prefix, and the
+// teardown that decides whether anything is delivered at all. That one owns the fan-out
+// and the record of what landed: the two emitters, the replay a late subscriber is
+// handed, and the log every delivered position comes from.
 //
-// AND A FRAME CAN BE APPENDED THAT THE SCRIPT DOES NOT CARRY. A scenario is a
-// recording, and a person acting on a fixture surface does something the recording
-// does not contain: a lifecycle move answers, and against a daemon the event it
-// produced would arrive on this session's stream. `appendEvent` is that, and it is the
-// engine's because the stream is — a fixture namespace that emitted onto its own feed
-// would be a second delivery path into stores this one already owns. It is NOT a clock
-// move: an act happens now rather than at a tick, so it delivers to whatever is
-// subscribed and is replayed to whatever subscribes later, and no advance is published
-// for it. Where its position in the log comes from is `scenario-log.ts`'s answer, and
-// it is one line rather than two.
+// THE LIVENESS RULE OVER THAT SEAM IS NOT UNIFORM, and stating it as though it were
+// would hide the one asymmetry a reader has to know. Every reach that DELIVERS is
+// guarded on this side and never on that one: `advance` returns before
+// `admitScriptedBeats` and `publishAdvance`, and `appendEvent` returns before its own,
+// each dropping onto the tripwire. `subscribe` passes `!#disposed` for the REPLAY
+// alone — the sink still attaches, as that method's own doc says — and
+// `subscribeToAdvances` passes no flag at all. Neither ATTACH needs one: `dispose()`
+// runs `clear()` and closes every producing path in the same act, so a sink registered
+// afterwards is attached to an emitter nothing can ever publish to again, which is
+// what `bridge/failure-modes.test.ts`'s teardown case and `scenario-engine.test.ts`'s
+// late-sink negative control hold between them. The remaining three reaches —
+// `deliveredEvents`, `beatSinkCount`, `clear` — are two reads and teardown itself, and
+// none of them is a delivery. That is why the disposed flag lives here and not there,
+// which `scenario-delivery.ts` states from its own side.
+//
+// A FRAME CAN BE APPENDED THAT THE SCRIPT DOES NOT CARRY. A scenario is a recording,
+// and a person acting on a fixture surface does something the recording does not
+// contain: a lifecycle move answers, and against a daemon the event it produced would
+// arrive on this session's stream. `appendEvent` is that, and it is the engine's
+// because the stream is — a fixture namespace that emitted onto its own feed would be
+// a second delivery path into stores this one already owns. It is NOT a clock move: an
+// act happens now rather than at a tick, so it delivers to whatever is subscribed and
+// is replayed to whatever subscribes later, and no advance is published for it.
 //
 // The engine holds ONE more thing than the script: the replies a scripted latency
 // has parked. A `ScenarioReply` carrying `afterMs` is a request that has not been
@@ -39,10 +50,10 @@
 // spent the delay itself would be a second clock, and the one property this module
 // exists for is that there is only one.
 //
-// THE QUEUE ITSELF IS `held-reply-queue.ts`, one directory entry away, and the split
-// is where the two jobs meet rather than through the middle of either. This file owns
-// scenario TIME; that one owns SCHEDULING against it, reads no clock of its own, and
-// is reached from here at exactly two moments — every advance, and teardown.
+// THE QUEUE ITSELF IS `held-reply-queue.ts`, one directory entry away, on the same
+// split: this file owns scenario TIME; that one owns SCHEDULING against it, reads no
+// clock of its own, and is reached from here at exactly two moments — every advance,
+// and teardown.
 //
 // AND AN ADVANCE IS PUBLISHED EVEN WHEN NO BEAT IS DUE, which is the second thing a
 // subscriber may ask for. Beats reach `subscribe`; every other frame a scenario
@@ -50,12 +61,10 @@
 // — reaches `subscribeToAdvances`. Routing those through the beat emitter is not
 // available and would be wrong twice over: the beat emitter carries session events
 // and is silent on an advance that crosses no beat, so a frame whose tick fell in a
-// quiet stretch of the script would never be delivered. What travels is the tick the
-// clock now stands at, and each subscriber walks its OWN due rule against it — the
-// engine holds no second table of what is due for whom.
+// quiet stretch of the script would never be delivered. Why they are two emitters
+// rather than one widened sink list is `scenario-delivery.ts`'s to state.
 
 import {
-  Emitter,
   ManualClock,
   SCENARIO_PENDING_REPLY_CAP,
   SCENARIO_TICK_MS,
@@ -67,7 +76,12 @@ import {
 } from "../../core/index.js";
 import type { ConsoleSessionEvent } from "../../store/index.js";
 import { HeldReplyQueue, type ScenarioReplyOutcome } from "./held-reply-queue.js";
-import { ScenarioSessionLog, type UnpositionedSessionEvent } from "./scenario-log.js";
+import {
+  ScenarioDelivery,
+  type ScenarioSink,
+  type ScenarioSubscribeOptions,
+} from "./scenario-delivery.js";
+import type { UnpositionedSessionEvent } from "./scenario-log.js";
 import type { ScenarioReply } from "./scenario-reply.js";
 import type { ConsoleScenario } from "./scenario.js";
 
@@ -78,27 +92,6 @@ export interface ScenarioProgress {
   readonly deliveredBeatCount: number;
   readonly totalBeatCount: number;
   readonly isComplete: boolean;
-}
-
-/**
- * A subscriber to delivered beats.
- *
- * `core/emitter.ts`'s sink type rather than a fourth hand-written one — that module
- * names the engine's flat sink `Set` as one of the three copies it exists to
- * replace, and the alias keeps the engine's own vocabulary readable at call sites.
- */
-export type ScenarioSink = EmitterSink<readonly ConsoleSessionEvent[]>;
-
-/** What one subscriber asks of the engine beyond being handed later beats. */
-export interface ScenarioSubscribeOptions {
-  /**
-   * Deliver the already-delivered prefix on attach, then tail.
-   *
-   * The registered behaviour of the whole-session stream and of nothing else. A
-   * narrowed run stream and the relay are live streams: replaying a projection into
-   * one would hand a runs surface transitions it is not opening a subscription for.
-   */
-  readonly replayDeliveredPrefix?: boolean;
 }
 
 export interface ScenarioEngineOptions {
@@ -113,28 +106,10 @@ export class ScenarioEngine {
   readonly #scenario: ConsoleScenario;
   readonly #clock: ConsoleClock & { advance?: (deltaMs: number) => void };
   readonly #tickMs: number;
-  // The subscribe / emit / unsubscribe idiom is `core/emitter.ts`'s. Two of its
-  // behaviours matter here specifically: delivery iterates a SNAPSHOT, so a pane
-  // that unsubscribes during a beat cannot make a sibling pane miss the beat it was
-  // still subscribed for; and a throwing sink does not silence the others, so one
-  // broken surface does not stop a scenario delivering to the rest.
-  readonly #beats = new Emitter<readonly ConsoleSessionEvent[]>("scenario beat");
-  // Every advance the engine performs, carrying the tick the frozen clock now stands
-  // at. Separate from the beat emitter because it fires on an advance that delivers
-  // no beat, which is exactly the case a frame scheduled between two beats needs.
-  //
-  // A SECOND emitter beside the beats one, and not a widening of it. A beat sink is
-  // handed the events that fell due, so a subscriber interested in the CLOCK rather
-  // than in the log would have to be delivered an empty array on every advance that
-  // carried none — which is a delivery of nothing wearing a delivery's clothes, and
-  // it would reach every beat subscriber in the console. What rides this one is the
-  // elapsed scenario time after the advance, which is what a scripted schedule of
-  // non-event facts (a transport outage) is written against.
-  readonly #advances = new Emitter<number>("scenario advance");
+  // Who is listening, and the record of what has landed. Every delivery this class
+  // decides on goes out through it, and it decides no delivery of its own.
+  readonly #delivery = new ScenarioDelivery();
   readonly #heldReplies = new HeldReplyQueue(SCENARIO_PENDING_REPLY_CAP);
-  // Where a delivered frame's position comes from, and the record a late subscriber is
-  // replayed. One line for scripted beats and appended frames alike.
-  readonly #log = new ScenarioSessionLog();
   // How many computed answers this playback has produced for each call name.
   // `nextComputedReplyOrdinal` below is the whole of the rule.
   readonly #computedRepliesByCall = new Map<string, number>();
@@ -192,11 +167,9 @@ export class ScenarioEngine {
    * `session-event-streams.ts`'s — so the engine takes the answer and holds none of
    * that vocabulary itself.
    *
-   * The prefix is delivered synchronously, in log order, in one batch, BEFORE the
-   * sink is registered. Ordering it that way is what makes a beat impossible to see
-   * twice or miss: nothing can advance the frozen clock between the two statements
-   * (the caller is the only thing that moves it), so the sink is attached to a stream
-   * standing exactly where the replay left off.
+   * How the prefix is delivered — synchronously, in log order, before the sink is
+   * registered — is `scenario-delivery.ts`'s, and so is why that ordering makes a beat
+   * impossible to see twice or miss. What is decided HERE is whether it happens at all.
    *
    * A DISPOSED engine replays nothing, on the same rule as `advance`: a delivery into
    * a torn-down subscriber is the failure this module's teardown exists to prevent,
@@ -204,18 +177,10 @@ export class ScenarioEngine {
    * which is what it would have done before.
    */
   public subscribe(sink: ScenarioSink, options?: ScenarioSubscribeOptions): Unsubscribe {
-    // Keyed on what the LOG holds and never on the consumed script prefix: an appended
-    // frame advances the first and not the second, so a scenario appended to before its
-    // first advance would replay nothing and hand a late subscriber a log it reads as
-    // starting at a gap.
-    if (
-      options?.replayDeliveredPrefix === true &&
-      !this.#disposed &&
-      this.#log.deliveredCount > 0
-    ) {
-      sink(this.deliveredEvents());
-    }
-    return this.#beats.subscribe(sink);
+    return this.#delivery.subscribeToBeats(
+      sink,
+      options?.replayDeliveredPrefix === true && !this.#disposed,
+    );
   }
 
   /**
@@ -241,7 +206,7 @@ export class ScenarioEngine {
    * here already does when it opens a feed.
    */
   public subscribeToAdvances(sink: EmitterSink<number>): Unsubscribe {
-    return this.#advances.subscribe(sink);
+    return this.#delivery.subscribeToAdvances(sink);
   }
 
   /**
@@ -265,9 +230,7 @@ export class ScenarioEngine {
       );
       return undefined;
     }
-    const appended = this.#log.appendEvent(event);
-    this.#beats.emit([appended]);
-    return appended;
+    return this.#delivery.appendEvent(event);
   }
 
   /**
@@ -286,7 +249,7 @@ export class ScenarioEngine {
    * defect, and neither is reachable without the record of what has actually landed.
    */
   public deliveredEvents(): readonly ConsoleSessionEvent[] {
-    return this.#log.delivered();
+    return this.#delivery.deliveredEvents();
   }
 
   /** Advance one tick. A no-op after teardown, reported rather than silent. */
@@ -340,10 +303,7 @@ export class ScenarioEngine {
     this.#heldReplies.releaseThrough(this.#elapsedMs);
     if (due.length > 0) {
       this.#deliveredBeatCount += due.length;
-      // Stamped on the way out rather than read off the script: an appended frame has
-      // already taken a position, and a beat delivered at the number its author wrote
-      // would be a duplicate the store drops.
-      this.#beats.emit(this.#log.admitScriptedBeats(due.map((beat) => beat.event)));
+      this.#delivery.admitScriptedBeats(due.map((beat) => beat.event));
     }
     // LAST, and unconditional. Last, because a subscriber walking its own due rule
     // against this tick should see a scenario whose beats for the same tick have
@@ -352,7 +312,7 @@ export class ScenarioEngine {
     // clock, and the early return this replaced is exactly what would have made a
     // scripted outage between two beats unobservable: a frame whose tick sits in a
     // quiet stretch of the script is due exactly then.
-    this.#advances.emit(this.#elapsedMs);
+    this.#delivery.publishAdvance(this.#elapsedMs);
   }
 
   /**
@@ -368,7 +328,7 @@ export class ScenarioEngine {
    * Never rejects. The outcome carries the refusal, because the vocabulary a
    * surface renders belongs to the bridge and not to the engine — and that holds
    * for a scripted REFUSAL too: the release says only that the reply came due,
-   * and `fixture-bridge.ts` is what turns a due `ScenarioRejectingReply` into a
+   * and `fixture/call-plane/bridge.ts` is what turns a due `ScenarioRejectingReply` into a
    * rejection. An engine that rejected here would have to know the wire's error
    * shape, which is the bridge boundary's vocabulary and not the playback
    * engine's.
@@ -424,7 +384,7 @@ export class ScenarioEngine {
 
   /** How many sinks are attached. Read by tests and by the diagnostics surface. */
   public get sinkCount(): number {
-    return this.#beats.sinkCount;
+    return this.#delivery.beatSinkCount;
   }
 
   /**
@@ -437,8 +397,7 @@ export class ScenarioEngine {
    */
   public dispose(): void {
     this.#disposed = true;
-    this.#beats.clear();
-    this.#advances.clear();
+    this.#delivery.clear();
     this.#heldReplies.abandonAll();
   }
 }

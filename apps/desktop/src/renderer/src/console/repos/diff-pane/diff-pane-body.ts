@@ -25,7 +25,7 @@ import { paneBodyForKind, type ConsolePaneContext } from "../../seats/index.js";
 /**
  * The diff pane, at an address the deck resolved to this kind.
  *
- * Named `Body` because `seats/lazy-body.ts` fixes the export name a loader
+ * Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader
  * module publishes. The narrowing and the mismatch refusal are `paneBodyForKind`'s, for
  * the reason `family-bodies.ts` states about them: six families writing that comparison
  * themselves is six answers to one question, and a mismatch is a rendered refusal rather

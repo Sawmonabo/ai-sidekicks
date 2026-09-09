@@ -24,7 +24,7 @@ export interface PresenceGrowthSignatures {
   //
   // A READ AND NOT A SUBSCRIPTION, and the reason is the roster's. Awareness state
   // is a map each publisher owns, the session's presence stream already delivers a
-  // change signal, and `seats/push-driven-read.ts` is the console's one answer to
+  // change signal, and `seats/read/push-driven-read.ts` is the console's one answer to
   // "subscribe first, answer the signal with a fresh read". A second subscription
   // here would be a second delivery path for one session's presence traffic, and the
   // two could disagree about who is composing with nothing able to say which was

@@ -41,7 +41,7 @@ import { DrivenGrowthStream } from "../../bridge/growth-port/driven-growth-strea
 import {
   fixtureBridgeWithGrowth,
   growthServing,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { settle } from "../../core/settle.test-support.js";
 import type { ConsoleBridge, GrowthImportProgress } from "../../bridge/index.js";
 

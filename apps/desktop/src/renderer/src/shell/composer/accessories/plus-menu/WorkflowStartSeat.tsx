@@ -57,14 +57,14 @@ export interface WorkflowStartSeatProps {
  * What stands in the picker's place while its chunk is in flight.
  *
  * Supplied HERE rather than by the family that owns the body, on the rule
- * `seats/LazyBody.tsx` states: what a body reserves while it loads is a question about the
+ * `seats/lazy-body/LazyBody.tsx` states: what a body reserves while it loads is a question about the
  * frame it loads inside, and that frame is the `+` panel this file mounts into.
  *
  * IT SAYS WHAT THE PICKER ITSELF SAYS while its definition read is in flight, so the two
  * states read as one rather than as a surface that flickered through a second sentence on
  * its way to the first.
  *
- * A camelCase REGION rather than a component, on `primitives/Nothing.tsx`' precedent: it
+ * A camelCase REGION rather than a component, on `primitives/absence/Nothing.tsx`' precedent: it
  * is one of this module's regions and not a body with a life of its own, and this module
  * is named for the one component it declares.
  */

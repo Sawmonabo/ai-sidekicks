@@ -46,7 +46,7 @@ export interface PendingInviteSnapshot {
    * Whether the bound turned an arrival away that has not been brought back yet.
    *
    * Never silent: the queue is bounded, so a burst past it is deferred rather than
-   * held, and this says so until the replay `core/constants.ts` names has re-delivered
+   * held, and this says so until the replay `core/constants/invite-caps.ts` names has re-delivered
    * what main is still holding.
    */
   readonly hasDeferredArrivals: boolean;

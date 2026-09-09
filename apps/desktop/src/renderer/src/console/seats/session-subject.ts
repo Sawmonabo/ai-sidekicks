@@ -1,6 +1,6 @@
 // What a session-scoped holder is FOR, said in the vocabulary of a session.
 //
-// A DOOR, NOT A SECOND IMPLEMENTATION. `store/subject-scoped-holder.ts` holds the
+// A DOOR, NOT A SECOND IMPLEMENTATION. `store/subject-scoped/subject-scoped-holder.ts` holds the
 // rule — a value belongs to the subject it was produced under, the comparison happens
 // during render, and a late settlement is dropped rather than installed. That family
 // sits below `bridge/` in the console's DAG and may not name a `ConsoleBridge` or a
@@ -61,7 +61,6 @@ export function useSessionScopedState<TValue>(
  */
 export type SessionScopedKey = string | undefined;
 
-// Consumed by T-023p-1C-4
 /**
  * The exact pair a session-scoped registry's contents belong to.
  *
@@ -75,7 +74,6 @@ export interface SessionSubject {
   readonly sessionStore: SessionStore;
 }
 
-// Consumed by T-023p-1C-4
 /**
  * Whether a held subject is still the one being rendered.
  *

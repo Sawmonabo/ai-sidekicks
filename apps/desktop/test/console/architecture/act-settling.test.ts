@@ -128,7 +128,7 @@ describe("act-settling — a settle is a boundary, never a count", () => {
     // the walk to narrow back with nothing reporting the difference.
     expect(DISPLAY_PATHS.length).toBeGreaterThan(400);
     expect(DISPLAY_PATHS).toContain("test/console/console-harness.tsx");
-    expect(DISPLAY_PATHS).toContain("src/renderer/src/console/frame/ConsoleRoot.tsx");
+    expect(DISPLAY_PATHS).toContain("src/renderer/src/console/frame/composition/ConsoleRoot.tsx");
     expect(DISPLAY_PATHS.filter((path) => path.endsWith(".test.tsx"))).not.toStrictEqual([]);
     expect(DISPLAY_PATHS.filter((path) => path.includes(".test-support."))).not.toStrictEqual([]);
   });

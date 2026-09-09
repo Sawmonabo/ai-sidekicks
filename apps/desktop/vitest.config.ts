@@ -23,11 +23,17 @@
 // runtime in this test surface.
 //
 // Plan-023 Phase 1C (T-023p-1C-1) registers the console's test tiers
-// (`Spec-023 §Console Test Tiers`). Seven of the nine tiers are Vitest projects
-// declared below; `end-to-end` and `endurance` need a real Electron window and
-// live in `playwright.config.ts` beside this file. Every glob is disjoint —
-// including the two NARROWINGS this phase makes to pre-existing projects, which
-// are load-bearing rather than tidying:
+// (`Spec-023 §Console Test Tiers`). All NINE of them are Vitest projects,
+// declared in `vitest/console-projects.ts` and spread below — there is no
+// `playwright.config.ts` anywhere in this repository, and the two tiers that
+// need a real Electron window do not want one: `console-e2e` and
+// `console-endurance` run in a NODE environment where the test file is the
+// DRIVER, and they launch the shell through `test/console/electron-harness.ts`,
+// which holds the single `_electron` call site. Playwright is a library on both
+// halves of this package rather than a second runner — browser mode drives it
+// for the three page tiers, and the harness drives it for the two window ones.
+// Every glob is disjoint — including the two NARROWINGS this phase makes to
+// pre-existing projects, which are load-bearing rather than tidying:
 //
 //   • `main`'s `test/**/*.test.ts` would otherwise swallow every console tier
 //     under `test/console/**` and run it in the smoke project's node
@@ -223,8 +229,10 @@ export default defineConfig({
 
       // --- Console test tiers (`Spec-023 §Console Test Tiers`) --------------
       //
-      // Declared in `vitest/console-projects.ts`, spread here. The seven tiers are
-      // one subject and this file composes rather than declares them.
+      // Declared in `vitest/console-projects.ts`, spread here. The tiers are one
+      // subject and this file composes rather than declares them, so the count
+      // lives there beside the projects it counts rather than here, where a reader
+      // would have to trust it.
       ...CONSOLE_TIER_PROJECTS,
     ],
   },

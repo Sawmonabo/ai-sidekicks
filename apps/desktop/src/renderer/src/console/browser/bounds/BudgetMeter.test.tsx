@@ -9,7 +9,7 @@
 // The BLOCK's own claims — that it is total over the declared set, that the payload
 // ceilings are the contract's constant rather than a copy of its digits, and that a
 // deferred ceiling names its owner — moved with the block to
-// `core/constants.test.ts`, which is where the numbers now live.
+// `browser-bounds.test.ts`, which is where the numbers now live.
 
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

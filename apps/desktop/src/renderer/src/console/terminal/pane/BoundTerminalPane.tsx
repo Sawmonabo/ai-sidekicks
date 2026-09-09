@@ -39,15 +39,14 @@
 // renderer it will carry them at, rather than a placeholder that gets swapped for
 // something with different behaviour on the day the wire lands.
 
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 
-import { membershipRoleOf, type ConsoleBridge } from "../../bridge/index.js";
+import { type ConsoleBridge } from "../../bridge/index.js";
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
+import { useCallerMembershipRoleFor } from "../../seats/index.js";
 import {
-  useCallerMembershipRole,
   useSessionPartition,
   useSessionStore,
-  type CallerParticipantReader,
   type SessionStore,
   type SessionStoreState,
 } from "../../store/index.js";
@@ -97,17 +96,13 @@ export function BoundTerminalPane(props: BoundTerminalPaneProps): React.JSX.Elem
   const viewerIdentity = useTerminalViewerIdentity(bridge, sessionId);
   // The entitlement beside the identity, because the claim control needs both: the
   // fold compares the holder against WHO this window is, and the daemon checks what
-  // that participant MAY DO before it moves the shell. The reader is adapted here
-  // because `store/` sits below `bridge/` on the console's DAG and may not reach a
-  // port; the served arm hands over the participant id and the refusing arm travels
-  // as the `ConsoleRefusal` it already is.
-  const readCallerParticipant: CallerParticipantReader = useCallback(async () => {
-    const outcome = await bridge.growth.callerParticipantRead({ sessionId });
-    return outcome.status === "served" ? outcome.value.participantId : outcome;
-  }, [bridge, sessionId]);
-  const callerRole = useCallerMembershipRole(readCallerParticipant, sessionStore, membershipRoleOf);
+  // that participant MAY DO before it moves the shell. Through the seat that composes
+  // that question, because `store/` sits below `bridge/` on the console's DAG and may
+  // not reach a port — the adaptation belongs above both families and not in each
+  // surface that wants an answer.
+  const callerRole = useCallerMembershipRoleFor(bridge, sessionStore);
 
-  // Derivation under `useMemo`, which is where `store/hooks.ts` puts it: the
+  // Derivation under `useMemo`, which is where `store/session/session-hooks.ts` puts it: the
   // selector returns the stored array and the fold runs only when that array's
   // identity changes.
   //

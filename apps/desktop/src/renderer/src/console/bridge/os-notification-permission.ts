@@ -23,7 +23,7 @@
 //
 // AND IT IS RE-READ, BECAUSE THE ANSWER MOVES UNDERNEATH IT. Granting the permission
 // happens outside this application, so the person leaves the window and comes back —
-// which is exactly what `store/read-triggers.ts` calls a window trigger. Read once and
+// which is exactly what `store/read/read-triggers.ts` calls a window trigger. Read once and
 // never again, a window on a fresh install maps `not-determined` forever: the first
 // banner raised the prompt, the person declined it, and both surfaces went on saying
 // the machine was willing.
@@ -36,9 +36,9 @@
 // touches is never.
 //
 // SO IT IS ORDERED TWICE OVER, AND BOTH HALVES ARE THE SUBSTRATE'S. Every trigger
-// reaches `store/scheduling.ts`, which coalesces the burst into one call and serializes
+// reaches `store/read/refresh-scheduler.ts`, which coalesces the burst into one call and serializes
 // what it performs, so the ordinary case never has two probes out at all. And every
-// settlement is measured against `store/generation-latch.ts` under one key, so a reply
+// settlement is measured against `store/read/generation-latch.ts` under one key, so a reply
 // from a round something superseded — a probe still travelling when the surface was
 // left, or one the host answered out of order — installs nothing. The scheduler alone
 // would not be enough: it orders the calls it FIRES and says nothing about a reply that

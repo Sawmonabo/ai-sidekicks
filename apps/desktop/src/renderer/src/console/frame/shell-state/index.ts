@@ -9,7 +9,7 @@
 // settings pages read it too and they sit on the other side of this family in the
 // console DAG — a view family may not import a sub-module door at all, and the
 // frame's own door would close a cycle. The vocabulary and the two sentences both
-// sides say therefore live in `store/shell-state.ts`, which is the lowest family that
+// sides say therefore live in `store/shell/shell-state.ts`, which is the lowest family that
 // owns the inputs.
 //
 // The sheet enters here, so a consumer cannot mount a component whose CSS did not

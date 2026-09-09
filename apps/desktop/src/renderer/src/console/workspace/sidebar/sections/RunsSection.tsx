@@ -179,7 +179,7 @@ export function RunsSection(context: SidebarSectionContext): React.JSX.Element {
         stateLabel: run.state ?? "unknown",
         openLabel: `${GROUP_LABEL[group]}: run ${run.id}`,
         // The session's runs pane, not an inspector over this row. No pane kind is
-        // a view of one run — `seats/pane-address.ts` settles which entity kinds
+        // a view of one run — `seats/pane/pane-address.ts` settles which entity kinds
         // each kind admits, and the inspector's are the five sidebar-card kinds the
         // spec enumerates — so a row opens the surface that holds every run rather
         // than an address the deck would have to refuse.

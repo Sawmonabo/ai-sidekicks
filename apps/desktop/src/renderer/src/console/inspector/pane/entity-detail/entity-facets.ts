@@ -4,7 +4,7 @@
 // WHY FACETS ARE DATA AND NOT NODES. Twelve detail components each declare the
 // rows their kind carries. If a row were a `React.ReactNode` the twelve would each
 // pick a formatter, and twelve pickings is twelve chances to reach for `toFixed`
-// instead of `primitives/wire-figures.ts`. A facet is therefore a VALUE with a
+// instead of `primitives/figures/wire-figures.ts`. A facet is therefore a VALUE with a
 // closed form, and `EntityRecord.tsx` is the only module that turns one into
 // markup — which is the same chokepoint discipline the figures module itself is.
 //

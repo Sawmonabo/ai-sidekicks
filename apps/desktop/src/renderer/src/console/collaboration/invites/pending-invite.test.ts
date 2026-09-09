@@ -285,7 +285,7 @@ describe("the deep-link lifecycle — more than the queue holds", () => {
   });
 
   it("asks main to re-deliver once the queue has room, and shows what it held back", async () => {
-    // The recovery `core/constants.ts` names beside the bound: main holds every
+    // The recovery `core/constants/invite-caps.ts` names beside the bound: main holds every
     // reference until an act releases it, and re-opening the pending feed
     // re-delivers them. Without the request the ninth invitation is gone for the
     // life of the window — nobody dropped it on purpose and nobody can get it back.

@@ -3,7 +3,8 @@
 // `Spec-023 §Console Test Tiers` names this tier "generated tokens and schema
 // artifacts byte-identical to their sources". The console has no COMMITTED
 // stylesheet to byte-diff — `generate-css.ts` builds the sheet at runtime and
-// `install.ts` writes it into the document head before first paint, deliberately,
+// `frame/bindings/token-installation.ts` writes it into the document head before
+// first paint, deliberately,
 // so that the palette has exactly one record and no regeneration command can be
 // forgotten. That removes the drift this tier was written to catch and replaces it
 // with two others, which is what this file holds:

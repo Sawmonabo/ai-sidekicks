@@ -28,8 +28,8 @@ import {
   fixtureBridgeWithGrowth,
   growthAnswering,
   unscriptedScenario,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
-import { withDaemonCall } from "../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
+import { withDaemonCall } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { registryListReply } from "../attach/account-axis/account-registry.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { SessionStore } from "../../store/index.js";

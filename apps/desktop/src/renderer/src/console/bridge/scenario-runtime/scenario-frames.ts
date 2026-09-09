@@ -88,7 +88,7 @@ export interface ScenarioActivityFrame {
  * reconnect banner nobody had ever seen render.
  *
  * `report` is `ShellReport` verbatim — the console's own vocabulary, declared once in
- * `store/shell-state.ts` and narrowed by nobody twice. A scenario that names no
+ * `store/shell/shell-state.ts` and narrowed by nobody twice. A scenario that names no
  * frames has not been asked, and the growth port refuses rather than serving a
  * synthesised "connected", which is the one answer a fixture must never invent.
  */

@@ -2,7 +2,7 @@
  *
  * A second sheet beside `channels.css` rather than a longer one, because the two draw
  * disjoint things — a directory of rows a person reads, and a form a person fills in —
- * and one file past the size rule is one file doing two jobs. The split is safe by
+ * which is the seam the structure rules split on. The split is safe by
  * CONSTRUCTION rather than by inspection: every selector here is in the
  * `.meridian-create-channel__*` namespace and every selector there is not, and no rule
  * in either file names a class from the other, so no element is matched by both sheets

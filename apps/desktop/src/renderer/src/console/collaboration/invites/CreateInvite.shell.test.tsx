@@ -13,7 +13,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { growthRefusing } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { growthRefusing } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { connectedShell, stopShell } from "../../store/shell-condition.test-support.js";
 import { CreateInvite } from "./CreateInvite.js";
 import {

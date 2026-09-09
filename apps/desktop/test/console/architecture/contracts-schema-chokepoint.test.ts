@@ -28,16 +28,17 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   consoleSourceModules,
+  DESKTOP_PACKAGE_ROOT,
   readConsoleSourceModule,
+  RENDERER_SOURCE_ROOT,
+  toPosixSeparators,
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
 import {
   createDesktopLinter,
-  DESKTOP_PACKAGE_ROOT,
   ESLINT_CASE_BUDGET_MS,
   rendererProbePath,
   ruleMessagesAt,
-  RENDERER_SOURCE_ROOT,
 } from "../eslint-harness.js";
 import { readModuleSyntax, type CensusModule } from "./barrel-syntax.js";
 
@@ -120,7 +121,7 @@ describe("contracts-schema chokepoint — a schema value stops at the bridge", (
 
   it("leaves the non-schema VALUES the console reads today alone", async () => {
     // Both are live imports outside `bridge/` on this branch — the event-category
-    // census in `frame/run-lifecycle-projector.ts`, and the Tier-1 bridge factory the
+    // census in `frame/run-projection/run-lifecycle-projector.ts`, and the Tier-1 bridge factory the
     // frame's own suites construct. A ban that swept these up would be wrong in the
     // direction that gets a ban turned off.
     const messages = await restrictedImportMessages(
@@ -150,7 +151,7 @@ describe("contracts-schema chokepoint — a schema value stops at the bridge", (
 function consoleCensusModules(): readonly CensusModule[] {
   return consoleSourceModules({ roots: [RENDERER_SOURCE_ROOT], tests: true }).map(
     (module: ConsoleSourceModule) => ({
-      path: relative(DESKTOP_PACKAGE_ROOT, module.absolutePath).split("\\").join("/"),
+      path: toPosixSeparators(relative(DESKTOP_PACKAGE_ROOT, module.absolutePath)),
       source: readConsoleSourceModule(module),
       isTest: /\.test(-support)?\.tsx?$/u.test(module.absolutePath),
     }),

@@ -1,6 +1,6 @@
 // The map joins commands to bindings, and the recorder reads one keystroke as one
 // act. Every verdict about a binding SET is the keybinding service's own and is
-// driven where that service is asked (`palette/keybinding-audit.test.ts`).
+// driven where that service is asked (`palette/keybindings/keybinding-audit.test.ts`).
 
 import { describe, expect, it } from "vitest";
 

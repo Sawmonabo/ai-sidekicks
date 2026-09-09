@@ -42,7 +42,7 @@ import {
   ConsoleRoot,
   installMeridianTokens,
 } from "../../../src/renderer/src/console/frame/index.js";
-import { routeForDestination } from "../../../src/renderer/src/console/frame/rail-navigation.js";
+import { routeForDestination } from "../../../src/renderer/src/console/frame/composition/rail-navigation.js";
 import { RAIL_DESTINATIONS, formatRoute } from "../../../src/renderer/src/console/routing/index.js";
 // The family door, imported for its side effect: `apps/desktop/AGENTS.md` puts a
 // family's stylesheet behind its own barrel, and the case below is about what that

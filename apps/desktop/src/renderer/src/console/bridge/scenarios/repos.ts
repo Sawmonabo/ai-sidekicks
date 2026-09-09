@@ -46,7 +46,7 @@
 // its stamps are derived from; `repos-replies.ts` holds the answers a call gets. What
 // is left here is WHICH BEAT FOLLOWS WHICH AND WHY, plus the scenario record that
 // carries them — the split `workflow-fixture-data.ts` set the precedent for, taken
-// each time this file passed the size the structure rules set.
+// each time another of those concepts became its own.
 
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 

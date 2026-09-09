@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { type RunId } from "@ai-sidekicks/contracts";
 
-import { bridgeAnswering } from "../../../bridge/fixture/fixture-bridge.test-support.js";
+import { bridgeAnswering } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { SidekicksBridgeProvider, type ConsoleBridge } from "../../../bridge/index.js";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import {

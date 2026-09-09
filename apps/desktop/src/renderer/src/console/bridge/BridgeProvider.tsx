@@ -10,7 +10,7 @@
 //
 // The context holds a `ConsoleBridge` and nothing else. No component reads
 // `window.sidekicks`, and no component subscribes to a bridge event directly — the
-// store's apply chokepoint is the only subscriber (`store/session-store.ts`), and
+// store's apply chokepoint is the only subscriber (`store/session/session-store.ts`), and
 // this provider is where the two are joined.
 //
 // WHICH scenario the fixture plays is decided one level up, at boot, and arrives
@@ -119,9 +119,9 @@ class ResolvedConsoleBridge {
    * take a fresh one rather than a corpse.
    *
    * The two window-lifetime resources one layer down answer the same pair, but in
-   * two places rather than one: `frame/session-lifecycle.ts` and
-   * `frame/ui-state-lifecycle.ts` compare the bridge DURING the render that first
-   * sees a new one — `store/subject-scoped-holder.ts` is what holds that comparison —
+   * two places rather than one: `frame/session/session-lifecycle.ts` and
+   * `frame/bindings/ui-state-lifecycle.ts` compare the bridge DURING the render that first
+   * sees a new one — `store/subject-scoped/subject-scoped-holder.ts` is what holds that comparison —
    * and keep only the disposed arm in an effect, because a resource that tore itself
    * down did so in a cleanup the preceding render could not see. This one cannot
    * split the same way: it is deciding what the bridge IS, so there is no resolved

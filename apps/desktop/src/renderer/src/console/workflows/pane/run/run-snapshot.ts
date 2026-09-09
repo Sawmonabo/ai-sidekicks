@@ -54,7 +54,7 @@ type SettledRunSnapshot =
  * What the run pane knows about its run at one moment.
  *
  * Four states and no others, and the two unsettled ones come from the shared shape in
- * `store/subject-read-start.ts` rather than being spelled a third time here — so this
+ * `store/read/subject-read-start.ts` rather than being spelled a third time here — so this
  * hook, the runs directory and the definitions directory cannot drift about which
  * frame is allowed to claim nobody asked, or about which frame is allowed to hold the
  * previous bridge's answer.

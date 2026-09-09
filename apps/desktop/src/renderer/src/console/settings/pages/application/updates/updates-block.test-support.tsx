@@ -14,12 +14,12 @@ import type { SidekicksBridge, UpdateState, Unsubscribe } from "@ai-sidekicks/co
 import { ManualClock } from "../../../../core/index.js";
 import type { SessionStore } from "../../../../store/index.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "../../../../primitives/index.js";
-import { politeText } from "../../../../primitives/live-region.test-support.js";
+import { politeText } from "../../../../primitives/announce/live-region.test-support.js";
 import {
   fixtureBridgeWithGrowth,
   growthRefusing,
   unscriptedScenario,
-} from "../../../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { UpdatesBlock } from "./UpdatesBlock.js";
 import type { ConsoleBridge, GrowthPort } from "../../../../bridge/index.js";
 import type { ConsoleScenario } from "../../../../bridge/scenario-runtime/scenario.js";

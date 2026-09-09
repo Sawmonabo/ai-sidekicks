@@ -21,7 +21,7 @@
 //     value. Which section is open lives in the ROUTE, so a deep link and a rail
 //     click are the same act and the back button works.
 //
-// The pane's own resolution happens during render, for `frame/RouteSurface.tsx`'s
+// The pane's own resolution happens during render, for `frame/composition/RouteSurface.tsx`'s
 // reason: the registry is composed at module scope, so a page is there to be looked
 // up on the first pass, and resolving in an effect would mean the first paint has
 // already said the page is missing.
@@ -85,7 +85,7 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
 
   const openSection = useCallback(
     (section: SettingsSectionId): void => {
-      // WARMED BEFORE THE ROUTE COMMITS, which is `frame/rail-navigation.ts`'s rule one
+      // WARMED BEFORE THE ROUTE COMMITS, which is `frame/composition/rail-navigation.ts`'s rule one
       // level down: this is the moment the intent is legible and the act has not
       // happened. It sits in the SHARED callback rather than beside either control,
       // because the rail's row, a search hit, and a page that navigates to a sibling

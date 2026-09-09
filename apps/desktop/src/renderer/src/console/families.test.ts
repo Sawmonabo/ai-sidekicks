@@ -48,11 +48,11 @@ import {
 // The pane probe by its own specifier, for the reason below it: a door cannot
 // publish a fixture helper, because the barrel census fails a door line no
 // production module reads.
-import { registerFreePaneKindProbe } from "./seats/pane-probe.test-support.js";
+import { registerFreePaneKindProbe } from "./seats/pane/pane-probe.test-support.js";
 // The slot tuple by its own specifier: the seats door does not publish it, because
 // this suite is its only reader and a door line no production module reaches is one
 // the barrel census fails.
-import { CONSOLE_SURFACE_SLOTS } from "./seats/surface-registry.js";
+import { CONSOLE_SURFACE_SLOTS } from "./seats/surface/surface-registry.js";
 
 declare global {
   interface ImportMeta {
@@ -271,7 +271,7 @@ describe("console families — the pane board a composition writes into", () => 
     // there is no kind a landed board leaves unclaimed to spell. The kind is
     // derived from what this composition left free instead, and where it left
     // nothing free the composition's own registrations ARE the probe — the arm
-    // `seats/pane-probe.test-support.test.ts` proves. Either way this file names no
+    // `seats/pane/pane-probe.test-support.test.ts` proves. Either way this file names no
     // family, no kind, and no seat, so every branch carries it unchanged.
     const boards = ownedRegistries();
 

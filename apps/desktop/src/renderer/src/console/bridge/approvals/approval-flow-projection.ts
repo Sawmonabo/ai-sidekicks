@@ -1,7 +1,7 @@
 // The `approval` partition's projector: approval-flow events folded into approval
 // entities.
 //
-// WHY IT EXISTS. `store/entities.ts` has declared an `approval` partition since it
+// WHY IT EXISTS. `store/entities/entities.ts` has declared an `approval` partition since it
 // was written and no family projected into it, so `session.subscribe` carried every
 // `approval.*` beat into the timeline and none of them reached the partition a pane
 // reads. The members that live on the EVENT and on no read went nowhere at all —
@@ -11,7 +11,7 @@
 // console with no fold here cannot tell a provider's mid-run permission ask from a
 // request some caller made directly, and renders both as the same card.
 //
-// WHY IT LIVES BESIDE THE PANE. `frame/run-lifecycle-projector.ts` states the two
+// WHY IT LIVES BESIDE THE PANE. `frame/run-projection/run-lifecycle-projector.ts` states the two
 // constraints that decide a projector's home: it reads WIRE member names, which
 // `store/` deliberately does not, and it is REGISTERED by a composition, which puts
 // it at or below the composing family. Both are satisfied here — the approvals

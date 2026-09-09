@@ -11,14 +11,13 @@
 import { render } from "@testing-library/react";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { fixtureSessionSnapshot } from "../../bridge/fixture/fixture-session-snapshot.js";
+import { fixtureSessionSnapshot } from "../../bridge/fixture/collaboration/session-snapshot.js";
 import { growthUnavailable } from "../../bridge/growth-port/growth-refusals.js";
 import { TERMINAL_SCENARIO } from "../../bridge/scenarios/terminal.js";
 import { terminalScenarioEventId } from "../../bridge/scenarios/terminal-beats.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../core/index.js";
-import { DraftStore, UiStateStore } from "../../persistence/index.js";
 import type { PaneContextOf } from "../../seats/index.js";
-import { FrameStore, SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
+import { paneContext } from "../../seats/pane/pane-context.test-support.js";
+import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { TerminalPane } from "./TerminalPane.js";
 
 export const SESSION_ID: string = TERMINAL_SCENARIO.sessionId;
@@ -200,36 +199,24 @@ export function paneRegionOf(container: HTMLElement): HTMLElement {
   return region;
 }
 
-/** The pane a suite mounts under when which pane it is is not the subject. */
-const DEFAULT_TEST_PANE_ID = "pane-terminal";
-
 /**
- * The context the deck hands this pane, built once for every suite that mounts it.
+ * The context the deck hands this pane, over the shared builder.
  *
  * Exported because two suites outside this module mount the pane themselves rather
  * than through `renderPane` — the output subscription's rebind cases, which need the
  * `rerender` this function does not hand back, and the browser tier's box measurement,
- * which mounts the pane inside a sized slot — and a per-suite copy would be a second
- * answer to which members the `terminal` arm carries.
+ * which mounts the pane inside a sized slot.
+ *
+ * The address arm carries no `entity` member: `terminal` is session-scoped, so the
+ * union's arm has none and the seat refuses one at this call site. The pane id is the
+ * seat's own derivation — `pane-terminal` — because no case here is about which pane
+ * this is.
  */
 export function terminalPaneContext(
   sessionStore: SessionStore | undefined,
   consoleBridge: ConsoleBridge = paneBridge(),
 ): PaneContextOf<"terminal"> {
-  return {
-    // No `entity` member at all: the `terminal` address is session-scoped, so the
-    // kind's arm of the union carries none and an `undefined` one would be a
-    // reference this pane is documented never to be a view of.
-    kind: "terminal",
-    paneId: DEFAULT_TEST_PANE_ID,
-    bridge: consoleBridge,
-    frameStore: new FrameStore(),
-    sessionStore,
-    uiStateStore: UiStateStore.opening(),
-    draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
-    linkedSourcePaneId: undefined,
-    focusHue: undefined,
-  };
+  return paneContext({ kind: "terminal" }, { bridge: consoleBridge, sessionStore });
 }
 
 export function renderPane(

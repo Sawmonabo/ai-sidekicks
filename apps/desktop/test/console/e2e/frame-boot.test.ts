@@ -54,7 +54,7 @@ import {
   UI_STATE_STORE_NAME,
 } from "../../../src/renderer/src/console/persistence/indexeddb-adapter.js";
 import { FIRST_RUN_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/first-run.js";
-import { PANE_HARNESS_LABEL } from "../../../src/renderer/src/console/frame/PaneHarnessFrame.js";
+import { PANE_HARNESS_LABEL } from "../../../src/renderer/src/console/frame/pane-harness/PaneHarnessFrame.js";
 import { withLaunchedConsole } from "../electron-harness.js";
 import { closePalette, openPalette } from "../palette-interaction.js";
 import { fixtureBundleExists } from "../fixture-bundle.js";

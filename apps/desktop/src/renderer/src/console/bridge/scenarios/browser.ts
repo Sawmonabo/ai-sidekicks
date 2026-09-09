@@ -52,6 +52,17 @@
 // ingest, and `ScenarioReply` always resolves. They are reachable only through the
 // growth port's refusal today, which is what the ingest trio returns.
 
+import {
+  MembershipIdSchema,
+  ParticipantIdSchema,
+  RunIdSchema,
+  SessionIdSchema,
+  type MembershipId,
+  type ParticipantId,
+  type RunId,
+  type SessionId,
+} from "@ai-sidekicks/contracts";
+
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 export const BROWSER_SCENARIO_ID = "browser";
@@ -81,12 +92,24 @@ export const BROWSER_PRODUCED_ARTIFACTS_CALL = "growth:browserProducedArtifacts"
 // It is the member the hydrated-event read is keyed by, so it is written rather
 // than omitted, and its tail is the beat's own log position, which is what a v7
 // id minted one beat after another differs in anyway.
-const SESSION_ID = "019b7b20-0280-75e5-8510-ada11a5a4444";
+//
+// MINTED THROUGH THE REGISTERED SCHEMAS RATHER THAN `as`-CAST, where a brand
+// exists. A scenario constant is where a fixture chooses the bytes, and a cast
+// asserts a brand without checking it — so a malformed id surfaced at the first
+// `.strict()` reply that carried it and named the reply rather than the value.
+// The artifact ids below carry no registered brand and stay readable strings.
+const SESSION_ID: SessionId = SessionIdSchema.parse("019b7b20-0280-75e5-8510-ada11a5a4444");
 
-const HUMAN_PARTICIPANT_ID = "019b7b20-0280-79a4-8110-cca0117a0120";
-const HUMAN_MEMBERSHIP_ID = "019b7b20-0280-7e3b-8110-cca0117a0121";
-const AGENT_PARTICIPANT_ID = "019b7b20-0280-7a6e-8100-d1a4c1150022";
-const RUN_ID = "019b7b20-0280-740e-8110-d1a4c1150044";
+const HUMAN_PARTICIPANT_ID: ParticipantId = ParticipantIdSchema.parse(
+  "019b7b20-0280-79a4-8110-cca0117a0120",
+);
+const HUMAN_MEMBERSHIP_ID: MembershipId = MembershipIdSchema.parse(
+  "019b7b20-0280-7e3b-8110-cca0117a0121",
+);
+const AGENT_PARTICIPANT_ID: ParticipantId = ParticipantIdSchema.parse(
+  "019b7b20-0280-7a6e-8100-d1a4c1150022",
+);
+const RUN_ID: RunId = RunIdSchema.parse("019b7b20-0280-740e-8110-d1a4c1150044");
 
 /**
  * The first capture, and the one a retake supersedes.

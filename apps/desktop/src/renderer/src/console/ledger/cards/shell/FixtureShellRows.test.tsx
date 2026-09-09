@@ -25,7 +25,7 @@ import {
   type TimelineRowSlotProps,
 } from "../../../seats/index.js";
 // Deeply: the teardown is reached by tests alone, so it is not a door line.
-import { unregisterTimelineRowRenderer } from "../../../seats/single-slot/timeline-row-slot.js";
+import { unregisterTimelineRowRenderer } from "../../../seats/slots/timeline-row-slot.js";
 import {
   FIXTURE_SHELL_OWNER,
   FixtureShellRow,

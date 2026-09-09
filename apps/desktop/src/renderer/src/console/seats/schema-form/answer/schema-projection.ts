@@ -51,7 +51,7 @@ import type {
   SchemaScalarDraft,
 } from "./schema-draft.js";
 import { leafDraftAt, listEntriesOf, unreadableTextOf } from "./schema-draft.js";
-import { NOTHING_ANSWERED, type SchemaFormAnswer } from "./schema-answer-paths.js";
+import { NOTHING_ANSWERED, type SchemaFormAnswer } from "./schema-answer-shape.js";
 import type { SchemaValidationIssue, SchemaValidationReport } from "../../../bridge/index.js";
 
 /** What one control is handed to display: its value, and any text it could not read. */

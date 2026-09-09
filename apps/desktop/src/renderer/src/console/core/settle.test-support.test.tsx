@@ -16,7 +16,7 @@ import { useEffect, useState } from "react";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { REFRESH_DEBOUNCE_MS } from "./constants.js";
+import { REFRESH_DEBOUNCE_MS } from "./constants/refresh-caps.js";
 import { PAST_REFRESH_DEBOUNCE_MS, settle } from "./settle.test-support.js";
 
 /** How many microtask links the deep-chain case puts between mount and arrival. */

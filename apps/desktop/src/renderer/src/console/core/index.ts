@@ -13,104 +13,195 @@ export { ManualClock, RealClock, type ConsoleClock, type ScheduledHandle } from 
 // The clock seam's third implementation: one identity over a clock the window
 // replaces underneath a live mount.
 export { ForwardingConsoleClock } from "./forwarding-clock.js";
+// The console's named bounds. All of them.
+//
+// `Spec-023 §Console Design (Meridian)` §The four bars, "Light on the machine":
+// "Every cap, window, and timeout is a named constant with a one-line rationale".
+// `apps/desktop/AGENTS.md` says where: "One value, one home: budgets and their unit
+// factors in `budgets.json`, caps in `console/core/constants/` with a rationale
+// each."
+//
+// ONE HOME MEANS ONE HOME, AND A DIRECTORY IS A HOME. The home used to say a view
+// family adds its own module beside its subtree, and four families took that licence
+// — `agents/constants.ts`, `collaboration/constants.ts`, `sessions/bounds.ts`,
+// `settings/constants.ts` — so a cap audit's answer depended on which of five places
+// it looked in, and a bound was spelled `constants` in three of them and `bounds` in
+// the fourth. Every bound lives in `core/constants/` now, and
+// `test/console/architecture/cap-single-home.test.ts` fails the build if a second home
+// appears.
+//
+// ONE MODULE PER CONCERN, named for who spends it, appended within a module. The home
+// was one 1 051-line file whose own banner comments already drew these seams; a file
+// that long is doing two jobs by the package's own rule, and the seams were the split.
+// The rationale travels with the value: a bound moved here without the paragraph that
+// says why it is that number is a number, and a number is what this home exists to
+// prevent. `core/` is the bottom of the family DAG, so every family may import from it
+// and no family crosses another to reach a bound.
+//
+// THE DIRECTORY CARRIES NO INNER DOOR. No module inside `core/constants/` reads
+// another, so a sub-module door would publish names only this door could reach — and
+// this door re-exports from the module that DECLARES each bound, which is the rule a
+// family door follows everywhere else in the console.
+//
+// WITH ONE SHAPE THE GATE DECIDES, and it decides against a family keeping its own.
+// `test/console/architecture/cap-constant-home.test.ts` reads DECLARATIONS, names
+// `core/constants/` the one place a bound may be declared in, and fails a view family
+// that declares one of its own. So a family's bound TABLE — a record keyed by the
+// names it declares in one tuple, which is what `browser/bounds/browser-bounds.ts` is
+// — stays beside its readers, while a plain `export const SOMETHING_CAP = …` lands in
+// this home whichever family spends it. The rationale travels with the value: each
+// module below carries the paragraph its bound was written with.
+//
+// A MEASUREMENT IS NOT A BOUND, and that is the line the gates draw. A row height,
+// an overscan count, a rounding factor, and an encoding's byte width are sizes and
+// factors rather than ceilings — nothing is checked against them — so they stay with
+// the code that computes with them, and `console/repos/diff-pane/diff-bounds.ts` is
+// the case that says so out loud. `cap-constant-home.test.ts` beside `cap-single-home`
+// matches the name segments that make an identifier a ceiling; what comes here is what
+// a value is tested against.
+//
+// A number that appears inline anywhere under `console/` and is not a layout
+// literal is a review rejection: the rationale is the point, not the constant.
+//
+// Four of the home's bounds are deliberately absent below, each with its readers
+// inside `core/` or in a suite that reaches the declaring module: the encoder stride,
+// the restore list's visible-row cap, the terminal budget's measurement width, and the
+// tripwire report cap. A door line no production importer reaches is a dead export the
+// barrel census fails. The cast bar's chip cap has left that list — the bar is built
+// and reads it through this door.
+export { RESOLVED_PROSE_INLINE_CAP, TOOL_ALLOWLIST_NAMED_CAP } from "./constants/agents-caps.js";
+export { BROAD_ALLOW_LIST_THRESHOLD } from "./constants/approvals-caps.js";
+export { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "./constants/artifact-caps.js";
 export {
-  ANSI_SPAN_RENDER_CAP,
-  APPLY_COALESCE_MS,
-  ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP,
-  ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
   ATTACHMENT_BYTE_CAP_DEFAULT,
   ATTACHMENT_CHUNK_BYTE_CAP,
-  AWAITING_RUN_IDS_NAMED_CAP,
-  BOUNDED_ENUMERATION_MAX_ROWS,
-  BROAD_ALLOW_LIST_THRESHOLD,
-  COMPOSING_IDLE_STOP_MS,
+  ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
+  INGEST_STALL_DISCLOSURE_MS,
+  INGEST_STREAM_LIFETIME_CEILING_MS,
+} from "./constants/attachment-caps.js";
+export {
   CAPTURED_OBJECT_ROW_CAP,
-  CAST_BAR_CHIP_CAP,
-  CHAPTER_BODY_RETAINED_ROW_CAP,
-  CHAPTER_VISIBLE_ROW_CAP,
-  CODE_HIGHLIGHT_SOURCE_BYTE_CAP,
-  CODE_TOKEN_CACHE_BYTE_CAP,
-  CODE_WORKER_THRESHOLD_BYTES,
+  PARTITION_FOLD_THRESHOLD,
+  POSITION_SIBLING_OBSERVER_CAP,
+  RELAYED_TOOL_CALL_ROW_CAP,
+} from "./constants/browser-caps.js";
+export {
+  COMPOSING_IDLE_STOP_MS,
   COMPOSING_NAMED_CAP,
   COMPOSING_PUBLISH_INTERVAL_MS,
   COMPOSING_RECEIVED_STALE_MS,
-  DECK_RESTORED_PANE_CAP,
+  SETTLED_INVITE_VISIBLE_CAP,
+} from "./constants/collaboration-caps.js";
+export {
   DIFF_FILE_LIST_SCROLL_THRESHOLD,
   DIFF_INTRALINE_CACHE_ENTRY_CAP,
   DIFF_INTRALINE_LINE_CHARACTER_CAP,
   DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
   DIFF_PATCH_CHARACTER_CAP,
-  FIND_MATCH_CAP,
-  FOOTNOTE_DEFINITION_CAP,
-  HIDDEN_INVITE_CAP,
-  IDENTIFIER_MAX_LENGTH,
-  INGEST_STALL_DISCLOSURE_MS,
-  INGEST_STREAM_LIFETIME_CEILING_MS,
   INLINE_DIFF_CARD_HEIGHT_CAP_PX,
-  INTERRUPTED_RUN_IDS_NAMED_CAP,
-  INTERVENTION_OUTCOME_CAP,
+} from "./constants/diff-caps.js";
+export { SCENARIO_PENDING_REPLY_CAP, SCENARIO_TICK_MS } from "./constants/fixture-caps.js";
+export {
+  PENDING_INVITE_DEFERRED_PLACE_MAX,
+  PENDING_INVITE_QUEUE_MAX,
+  PENDING_INVITE_RETAINED_REFUSAL_MAX,
+} from "./constants/invite-caps.js";
+export {
+  ANSI_SPAN_RENDER_CAP,
+  CODE_HIGHLIGHT_SOURCE_BYTE_CAP,
+  CODE_TOKEN_CACHE_BYTE_CAP,
+  CODE_WORKER_THRESHOLD_BYTES,
+  FOOTNOTE_DEFINITION_CAP,
+  MARKDOWN_BLOCK_CACHE_BYTE_CAP,
+  TOOL_SUMMARY_MAX_CHARACTERS,
+} from "./constants/ledger-card-caps.js";
+export {
   LEDGER_EARLIER_PAGE_ROWS,
   LEDGER_MAX_ELEMENT_HEIGHT_PX,
   LEDGER_PARKED_LEASE_CAP,
   LEDGER_WINDOW_ROW_CAP,
-  LIVE_ANNOUNCEMENT_HOLD_MS,
-  LIVE_ANNOUNCEMENT_QUEUE_CAP,
-  LOAD_PROGRESS_MAX,
-  LOAD_PROGRESS_MIN,
-  MARKDOWN_BLOCK_CACHE_BYTE_CAP,
-  MAXIMUM_LIVE_DRAFT_COUNT,
-  MAX_REPAIRABLE_SEQUENCE_GAP,
-  MOUNT_INVENTORY_READ_CAP,
-  PALETTE_RECENTS_CAP,
-  PALETTE_RESULT_CAP,
-  PARTITION_FOLD_THRESHOLD,
-  PENDING_INVITE_DEFERRED_PLACE_MAX,
-  PENDING_INVITE_QUEUE_MAX,
-  PENDING_INVITE_RETAINED_REFUSAL_MAX,
-  PERSISTENCE_QUOTA_PRESSURE_RATIO,
-  PERSISTENCE_RECORD_BYTE_CAP,
-  PERSISTENCE_SESSION_PARTITION_CAP,
-  PHASE_GRAPH_MAX_ZOOM,
-  PHASE_GRAPH_MIN_ZOOM,
-  POSITION_SIBLING_OBSERVER_CAP,
-  PRE_INITIALISATION_BUFFER_CAP,
-  PROJECTED_RUN_CAP,
-  PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP,
-  QUEUE_ROWS_RENDERED_CAP,
-  RAIL_FISHEYE_MAX_SCALE,
-  RAIL_MAX_TICKS_PER_PIXEL,
-  REFRESH_DEBOUNCE_MS,
-  REFRESH_MAX_WAIT_MS,
-  RELAYED_TOOL_CALL_ROW_CAP,
-  RESOLVED_PROSE_INLINE_CAP,
-  RESTORE_PATH_ROW_HEIGHT_PX,
-  RESTORE_PATH_VIRTUALIZATION_THRESHOLD,
-  RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX,
   REVEAL_CHECKPOINT_TAIL_CAP,
   REVEAL_FRAME_CHARACTER_BUDGET,
   REVEAL_LITERAL_BACKTRACK_CAP,
+} from "./constants/ledger-frame-caps.js";
+export {
+  CHAPTER_BODY_RETAINED_ROW_CAP,
+  CHAPTER_VISIBLE_ROW_CAP,
+  FIND_MATCH_CAP,
+  RAIL_FISHEYE_MAX_SCALE,
+  RAIL_MAX_TICKS_PER_PIXEL,
+} from "./constants/ledger-structure-caps.js";
+export {
+  LIVE_ANNOUNCEMENT_HOLD_MS,
+  LIVE_ANNOUNCEMENT_QUEUE_CAP,
+} from "./constants/live-announcement-caps.js";
+export {
+  BOUNDED_ENUMERATION_MAX_ROWS,
+  PALETTE_RECENTS_CAP,
+  PALETTE_RESULT_CAP,
+  WHEN_CLAUSE_MAX_DEPTH,
+  WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS,
+} from "./constants/palette-caps.js";
+export {
+  IDENTIFIER_MAX_LENGTH,
+  MAXIMUM_LIVE_DRAFT_COUNT,
+  PERSISTENCE_QUOTA_PRESSURE_RATIO,
+  PERSISTENCE_RECORD_BYTE_CAP,
+  PERSISTENCE_SESSION_PARTITION_CAP,
+} from "./constants/persistence-caps.js";
+export {
+  PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP,
+  UTILIZATION_BAR_FULL_SCALE,
+} from "./constants/provider-quota-caps.js";
+export {
+  APPLY_COALESCE_MS,
+  REFRESH_DEBOUNCE_MS,
+  REFRESH_MAX_WAIT_MS,
+} from "./constants/refresh-caps.js";
+export {
+  RESTORE_PATH_ROW_HEIGHT_PX,
+  RESTORE_PATH_VIRTUALIZATION_THRESHOLD,
+  RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX,
+} from "./constants/restore-caps.js";
+export {
+  AWAITING_RUN_IDS_NAMED_CAP,
+  INTERVENTION_OUTCOME_CAP,
+  PROJECTED_RUN_CAP,
+  QUEUE_ROWS_RENDERED_CAP,
   RUN_STATUS_ROW_CAP,
-  SCENARIO_PENDING_REPLY_CAP,
-  SCENARIO_TICK_MS,
   SEATED_KNOWN_RUN_CAP,
-  ATTENTION_NOTIFIED_ITEM_CAP,
-  SESSION_BACK_TIER_VISIBLE_CAP,
-  SESSION_GOAL_MAX_LENGTH,
-  SESSION_GOAL_MIN_LENGTH,
-  SETTLED_INVITE_VISIBLE_CAP,
-  SIDEBAR_MAXIMUM_WIDTH_PERCENT,
   STUCK_RUN_ESCALATION_MS,
   STUCK_RUN_NOTICE_MS,
+} from "./constants/runs-caps.js";
+export { SESSION_GOAL_MAX_LENGTH, SESSION_GOAL_MIN_LENGTH } from "./constants/session-goal-caps.js";
+export {
+  MAX_REPAIRABLE_SEQUENCE_GAP,
+  PRE_INITIALISATION_BUFFER_CAP,
+} from "./constants/session-store-caps.js";
+export {
+  ATTENTION_NOTIFIED_ITEM_CAP,
+  HIDDEN_INVITE_CAP,
+  SESSION_BACK_TIER_VISIBLE_CAP,
+} from "./constants/sessions-caps.js";
+export { MOUNT_INVENTORY_READ_CAP } from "./constants/settings-caps.js";
+export { INTERRUPTED_RUN_IDS_NAMED_CAP } from "./constants/shell-caps.js";
+export {
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
   TERMINAL_LEASE_LEDGER_CAP,
   TERMINAL_WEBGL_POOL_CAP,
-  TOOL_ALLOWLIST_NAMED_CAP,
-  TOOL_SUMMARY_MAX_CHARACTERS,
-  UTILIZATION_BAR_FULL_SCALE,
-  WHEN_CLAUSE_MAX_DEPTH,
-  WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS,
+} from "./constants/terminal-caps.js";
+export {
+  PHASE_GRAPH_MAX_ZOOM,
+  PHASE_GRAPH_MIN_ZOOM,
   WORKFLOW_CANCEL_REASON_BYTE_CAP,
-} from "./constants.js";
+} from "./constants/workflows-caps.js";
+export {
+  CAST_BAR_CHIP_CAP,
+  DECK_RESTORED_PANE_CAP,
+  LOAD_PROGRESS_MAX,
+  LOAD_PROGRESS_MIN,
+  SIDEBAR_MAXIMUM_WIDTH_PERCENT,
+} from "./constants/workspace-caps.js";
 export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
 // The two fixture-global names whose installers live ABOVE this family and so
 // reach them through this door. The tripwire registry's name is not re-exported
@@ -156,11 +247,16 @@ export {
 // What one session's ledger viewport is showing, and the registry that carries it.
 // Declared at the floor for `TransportReconnectObservable`'s reason with the two ends
 // swapped: the producer is a VIEW family (the top of the DAG) and the consumer is
-// `frame/session-event-binder.ts` (below every view family), so neither can import the
-// other and the floor is the only home both can reach. The registry CLASS does not
-// leave — the singleton beside it is what both sides take, exactly as `reportTripwire`
-// is what a family takes rather than `TripwireRegistry`.
+// `frame/session/session-event-binder.ts` (below every view family), so neither can
+// import the other and the floor is the only home both can reach. The registry CLASS
+// does not leave — the singleton beside it is what both sides take, exactly as
+// `reportTripwire` is what a family takes rather than `TripwireRegistry`.
 export { consoleLedgerWindows, type LedgerWindowReading } from "./ledger-window-diagnostics.js";
+
+// The one keyed-record rebuild. At the floor because its readers are `settings/` and
+// `collaboration/`, two VIEW families, and a view family never imports another — so the
+// floor is the only home either could have taken it from.
+export { withoutKey } from "./keyed-record.js";
 // The registry classes leave through this door; the two symbols only their own
 // suites read do not. `DuplicateRegistrationError` is what `KeyedRegistry` throws
 // and `consoleTripwires` is the singleton `reportTripwire` writes to, so a family

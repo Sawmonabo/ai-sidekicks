@@ -16,7 +16,7 @@ import {
 } from "../../bridge/index.js";
 import { DerivedFigure, formatCount, InlineRefusal } from "../../primitives/index.js";
 import {
-  bannerClassRefusalAmong,
+  preferredBannerClassRefusalAmong,
   useRefusalBannerEscalation,
   useSessionPartition,
   type SessionStore,
@@ -123,7 +123,7 @@ export function RunsPaneBody(props: {
   // control has superseded escalates nothing.
   const controlRefusal = useMemo(
     () =>
-      bannerClassRefusalAmong(
+      preferredBannerClassRefusalAmong(
         [...new Set(surface.records.map((record) => record.runId))].map(
           (runId) => readRunControlSettlement(surface, runId).refusal,
         ),

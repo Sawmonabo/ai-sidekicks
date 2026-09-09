@@ -23,7 +23,7 @@ import type { RunId } from "@ai-sidekicks/contracts";
 import {
   bridgeAnswering,
   type BridgeUnderTest,
-} from "../../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { settle } from "../../../core/settle.test-support.js";
 import { bridgeFailingUntilCleared, callsTo, inBridge } from "./shell-hook-bridges.test-support.js";
 import { useReasoningSurfaceRead } from "./shell-row-reads.js";

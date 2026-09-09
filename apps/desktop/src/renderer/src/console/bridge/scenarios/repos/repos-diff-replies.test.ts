@@ -19,7 +19,7 @@ import { describe, expect, it } from "vitest";
 
 // The direct specifiers `repos.test.ts` takes: a suite inside `bridge/` reaching its
 // own barrel would close a cycle through every plane that barrel composes.
-import { createFixtureBridge } from "../../fixture/fixture-bridge.js";
+import { createFixtureBridge } from "../../fixture/call-plane/bridge.js";
 import type { GrowthDiffArtifactCreateRequest } from "../../growth-values/gitflow.js";
 import { REPOS_SCENARIO } from "../repos.js";
 import {

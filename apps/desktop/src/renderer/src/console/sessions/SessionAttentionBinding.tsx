@@ -64,7 +64,7 @@
 // down. The lifetime that fixed the rail's count is the lifetime that broke the list,
 // and the remedy is not to move the read back: `seats/session-directory.ts` now
 // re-reads on the window's own focus trigger and on a settled act's explicit ask,
-// which are the two moments `store/read-triggers.ts` already names for a node-scoped
+// which are the two moments `store/read/read-triggers.ts` already names for a node-scoped
 // reading. Nothing here arms a timer, and nothing here asks on a render.
 
 import { createContext, useContext, useMemo } from "react";

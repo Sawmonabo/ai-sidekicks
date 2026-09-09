@@ -7,7 +7,7 @@
 // and a second copy would be a second answer to what the shell does.
 
 import type { ConsoleBridge } from "./console-bridge.js";
-import { createFixtureBridge } from "./fixture/fixture-bridge.js";
+import { createFixtureBridge } from "./fixture/call-plane/bridge.js";
 import { FIRST_RUN_SCENARIO } from "./scenarios/first-run.js";
 
 /** One bridge whose shell is the case's to drive, and the two acts it offers. */

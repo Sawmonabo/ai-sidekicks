@@ -47,7 +47,7 @@
 // whatever diagnostic sinks are subscribed. It never silently passes: the record
 // exists in both arms.
 
-import { TRIPWIRE_REPORT_CAP } from "./constants.js";
+import { TRIPWIRE_REPORT_CAP } from "./constants/tripwire-caps.js";
 import { Emitter, type Unsubscribe } from "./emitter.js";
 import { TRIPWIRE_FIXTURE_GLOBAL } from "./fixture-globals.js";
 

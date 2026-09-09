@@ -1,7 +1,7 @@
 // The frame's own commands, and the palette wiring that carries them.
 //
 // The registry and the `when` vocabulary are the palette's, reached through its door;
-// `palette/command-surface.ts` holds the frame's own shapes and the chords it binds:
+// `palette/commands/command-surface.ts` holds the frame's own shapes and the chords it binds:
 // every input those take is the palette's or below it, and a settings page renders
 // them, so they sit where both readers can reach them.
 // This module is what the frame contributes THROUGH that registry,
@@ -21,7 +21,7 @@
 //
 // The chords this window installs are `FRAME_KEY_BINDINGS` with a person's overrides
 // composed onto them, read through the one accessor
-// (`palette/keybinding-override-store.ts`). Registration, the binding set, and the listener
+// (`palette/keybindings/keybinding-override-store.ts`). Registration, the binding set, and the listener
 // then move on three different clocks — the commands change when this window's store
 // or bridge acts do, the set changes when somebody rebinds, and the listener comes
 // and goes while a chord is being recorded — so they are three effects rather than
@@ -56,9 +56,9 @@ import {
 import type { UiStateStore } from "../persistence/index.js";
 import type { FrameStore } from "../store/index.js";
 import type { SchemePreference } from "../tokens/index.js";
-import { RAIL_ENTRY_TEMPLATES } from "./IconRail.js";
+import { RAIL_ENTRY_TEMPLATES } from "./composition/IconRail.js";
 import { requestComposerFocus, type ConsoleSurfaceRegistry } from "../seats/index.js";
-import { routeForDestination, warmDestination } from "./rail-navigation.js";
+import { routeForDestination, warmDestination } from "./composition/rail-navigation.js";
 
 /** What the frame's own commands are built against: this window's store and acts. */
 export interface FrameCommandSurfaceInput {

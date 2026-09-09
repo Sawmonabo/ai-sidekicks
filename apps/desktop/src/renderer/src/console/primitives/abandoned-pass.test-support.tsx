@@ -6,7 +6,7 @@
 // committed render supplied. So a case has to be able to assert while the tree is in
 // exactly that state.
 //
-// WHY THIS IS NOT `store/subject-scoped-drivers.test-support.ts`'s `driveAbandonedPass`.
+// WHY THIS IS NOT `store/subject-scoped/subject-scoped-drivers.test-support.ts`'s `driveAbandonedPass`.
 // That driver answers a different question and ends in a different place: it renders a
 // third pass back at the committed subject before it returns, because the holder claims
 // it serves are about what the RECOVERED tree reads. A ref written in a render body is

@@ -29,8 +29,8 @@
 // about the phase. The marker rides a `hidden` element, so what the wait costs the
 // layout is nothing, and the screenshot tier refuses to photograph a tree carrying one.
 
-import { LoadedLazyBody } from "../lazy-body.js";
-import { reservedBodyRegion } from "../pending-pane-body.js";
+import { LoadedLazyBody } from "../lazy-body/lazy-body.js";
+import { reservedBodyRegion } from "../pane/pending-pane-body.js";
 import type { SchemaFormAnswerProps } from "./containers/SchemaFormAnswer.js";
 import type { SchemaFormPreviewProps } from "./containers/SchemaFormPreview.js";
 

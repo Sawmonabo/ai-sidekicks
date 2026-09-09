@@ -15,8 +15,8 @@
 //     OUT. The rows went pressable against a value the console was in the middle of
 //     replacing, which is exactly the composition hazard the lock exists to stop.
 //
-// SO EVERY READ GOES THROUGH `store/scheduling.ts` AND EVERY REPLY THROUGH
-// `store/generation-latch.ts`. The scheduler is the console's one refresh chokepoint
+// SO EVERY READ GOES THROUGH `store/read/refresh-scheduler.ts` AND EVERY REPLY THROUGH
+// `store/read/generation-latch.ts`. The scheduler is the console's one refresh chokepoint
 // — trailing debounce with an absolute deadline, and serialized, so the three window
 // triggers cost one call however they bunch. The latch is what the scheduler cannot
 // give: a write's re-read does NOT go through the scheduler, because the writer needs
