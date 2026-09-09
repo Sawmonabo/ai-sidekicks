@@ -27,6 +27,11 @@ import type { CDPSession } from "@playwright/test";
 
 import type { ConsoleApplication } from "../electron-harness.js";
 import { SETTLE_ROUNDS } from "../heap-sampling.js";
+import {
+  captureHeapSnapshot,
+  retainedByConstructor,
+  type RetainedConstructorReading,
+} from "./heap-snapshot-analysis.js";
 
 /**
  * What the precision probe weighs, and the length of the string that weighs it.
@@ -430,7 +435,8 @@ async function readSettledHeapBytes(consoleApplication: ConsoleApplication): Pro
  * second instance reads as NEGATIVE — minus 5.8 MB per instance, against a real
  * per-instance cost of about 4 MB. The sampling discipline is kept and a collection
  * is put in front of it, which is exactly what `test/console/heap-sampling.ts` does
- * for the two tiers that measure in process.
+ * for the in-process readers of it — five modules at this revision, every one of them
+ * in THIS tier rather than spread across two.
  *
  * WHY CDP AND NOT `--js-flags=--expose-gc`. The flag would have to be passed at
  * launch, and the launcher is shared with every other file in this tier and with
@@ -486,6 +492,36 @@ export class RendererHeapProbe {
   public async readSettledBytes(): Promise<number> {
     await this.collectGarbage();
     return readSettledHeapBytes(this.#consoleApplication);
+  }
+
+  /**
+   * Collect, then write a heap snapshot of this window to `snapshotPath`.
+   *
+   * On the reader that already owns the session rather than as a free function taking
+   * one, so a snapshot is taken over the same DevTools session as every reading in
+   * this tier — a second session would collect on its own schedule and photograph a
+   * heap the row beside it never saw.
+   *
+   * Collects first, for `readSettledBytes`' reason: an uncollected snapshot attributes
+   * unreachable objects to whatever last referenced them, which is the reading a leak
+   * investigation is trying to rule out.
+   */
+  public async captureSnapshotTo(snapshotPath: string): Promise<void> {
+    await this.#cdpSession.send("HeapProfiler.collectGarbage");
+    await captureHeapSnapshot(this.#cdpSession, snapshotPath);
+  }
+
+  /**
+   * What the named constructors retained in a snapshot this probe wrote.
+   *
+   * A method rather than a bare import at the case, so the capture and the reading are
+   * reached through one door and a case cannot analyse a snapshot no probe here took.
+   */
+  public async readRetainedByConstructor(
+    snapshotPath: string,
+    constructorNames: readonly string[],
+  ): Promise<readonly RetainedConstructorReading[]> {
+    return retainedByConstructor(snapshotPath, constructorNames);
   }
 
   public async detach(): Promise<void> {

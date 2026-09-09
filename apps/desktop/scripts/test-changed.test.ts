@@ -269,7 +269,7 @@ describe("test:changed runs the project that owns each forwarded file", () => {
   const TEST_FILE_COUNT = /Test Files\s+1 passed/;
 
   /** A real file owned by a tier this command deliberately does not run. */
-  const ELECTRON_TIER_FILE = "test/console/e2e/frame-boot.test.ts";
+  const ELECTRON_TIER_FILE = "test/console/e2e/console-came-up-blank.test.ts";
 
   /**
    * The usage line of vitest's own help, counted rather than merely found.

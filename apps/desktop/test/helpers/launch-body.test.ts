@@ -4,7 +4,7 @@
 // and between them ran the caller's own body with no allowance at all. The
 // end-to-end tier's timeout was a 60 000 ms literal; a launch is entitled to
 // 45 000 ms of it and cleanup reserves 10 000 ms more, so a body declaring three
-// 10 000 ms polls — which `e2e/frame-boot.test.ts`'s scheme-persistence case does
+// 10 000 ms polls — which `e2e/colour-scheme-lost-on-reload.test.ts` does
 // — could be killed by vitest mid-poll. Everything a reader needs then goes at
 // once: the poll's own message, the cleanup, and the Electron the cleanup would
 // have closed.

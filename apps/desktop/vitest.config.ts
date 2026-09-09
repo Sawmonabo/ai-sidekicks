@@ -167,8 +167,13 @@ export default defineConfig({
           // environment, which is this project's.
           // `test/helpers/**` joins them for the same reason: those suites drive
           // the cross-process scaffolding — the managed Electron child, the
-          // process-tree readers, the bounded cleanup, the launch deadline — which
-          // is Node code with no DOM and no build behind it.
+          // process-tree readers, the bounded cleanup, the launch deadline — and
+          // the artifact readers driven with doubles, the heap-snapshot writer and
+          // the release fuse wire, which read a packaged artifact or a synthetic
+          // temp root of their own. All of it is Node code with no DOM, and none of
+          // it needs a renderer bundle behind it — which is the property this
+          // project's include list keys on. Read the directory rather than this
+          // sentence for the roster.
           include: [
             "src/main/**/*.test.ts",
             "src/preload/**/*.test.ts",

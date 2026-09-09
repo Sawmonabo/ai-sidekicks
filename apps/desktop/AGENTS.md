@@ -126,6 +126,7 @@ Neither rule below has a mechanical gate: one reads colour values out of stylesh
 - A new Vitest project lands with all five of `vitest.config.ts`, a `test:<project>` script, a Turbo task carrying `inputs`, a line in the aggregate `test` script, and a line in `.github/workflows/ci.yml`'s desktop step — all five or none, a deliberate omission recording its reason beside the registration. `exclude` replaces Vitest's default rather than extending it; spread the default in.
 - The aggregate `test` script and the CI desktop step run the tiers in the same order, which is load-bearing: `build`, `build:smoke`, and `build:fixtures` all write `out/**`.
 - A new `tsconfig*.json` reaches `typecheck` in the same commit, and no two configs write to one `outDir`. A `tsconfig` no script and no `references` entry reaches is deleted.
+- The growth slate has two homes that move together: `Plan-023 §Console growth slate` and `console/bridge/growth-port/growth-slate.ts`. A PR that adds, removes, or re-statuses a row flips both in the same diff — a review obligation, since the claim spans a document this package's tools do not read.
 
 ## Budgets
 

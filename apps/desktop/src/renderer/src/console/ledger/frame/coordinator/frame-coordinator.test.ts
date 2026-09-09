@@ -1,6 +1,8 @@
-import { describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vitest";
 
 import { ManualClock } from "../../../core/index.js";
+import { PERF_METER_BOUNDS } from "../../../core/perf-meters/perf-meter-bounds.js";
+import { devPerfMeters } from "../../../core/perf-meters/perf-meters.js";
 import {
   LEDGER_FRAME_PHASES,
   LedgerFrameCoordinator,
@@ -13,6 +15,95 @@ const constructCoordinator = (): { clock: ManualClock; coordinator: LedgerFrameC
 };
 
 describe("LedgerFrameCoordinator", () => {
+  beforeEach(() => {
+    devPerfMeters?.reset();
+  });
+
+  test("records the cost of every frame it drains, and nothing for a frame it does not", () => {
+    const { clock, coordinator } = constructCoordinator();
+    expect(devPerfMeters, "this project is not compiling the fixture define").not.toBe(null);
+
+    // Nothing scheduled: the clock's frame runs no drain, so there is nothing to
+    // meter and a series that existed here would be measuring the scheduler.
+    clock.runFrame();
+    expect(devPerfMeters?.readings()).toStrictEqual([]);
+
+    coordinator.scheduleScrollWrite(coordinator.claimTaskKey("scroll"), () => {});
+    clock.runFrame();
+
+    const reading = devPerfMeters?.readings().find((entry) => entry.kind === "frame-time") ?? null;
+    expect(reading, "a drained frame recorded no frame-time sample").not.toBeNull();
+    expect(reading?.recordedCount).toBe(1);
+    expect(Number(reading?.latest)).toBeGreaterThanOrEqual(0);
+  });
+
+  test("keys its frame time by coordinator, so two feeds are two series", () => {
+    // There is one coordinator per FEED, not per window (`coordinator-binding.ts`), so
+    // two feeds open side by side are two coordinators. Under a shared module constant
+    // both feeds' frames landed in one series, and the p95 an author reads was an
+    // average over a feed blowing the budget and a feed sitting idle — with no second
+    // series anywhere to notice it by.
+    const clock = new ManualClock();
+    const firstFeed = new LedgerFrameCoordinator({ clock });
+    const secondFeed = new LedgerFrameCoordinator({ clock });
+
+    firstFeed.scheduleScrollWrite(firstFeed.claimTaskKey("scroll"), () => {});
+    secondFeed.scheduleScrollWrite(secondFeed.claimTaskKey("scroll"), () => {});
+    clock.runFrame();
+
+    const frameTimes =
+      devPerfMeters?.readings().filter((entry) => entry.kind === "frame-time") ?? [];
+    expect(frameTimes).toHaveLength(2);
+    expect(new Set(frameTimes.map((entry) => entry.seriesKey)).size).toBe(2);
+    expect(firstFeed.coordinatorId).not.toBe(secondFeed.coordinatorId);
+  });
+
+  test("a mount-and-unmount cycle costs no lasting series, however many times it runs", () => {
+    // The identity that makes two open feeds two series is minted from an ordinal that
+    // never resets, so it names a MOUNT and not a live feed. Without a retirement the
+    // key set grows with every feed this renderer has ever opened: past the registry's
+    // series bound every further feed is refused, and the p95 an author reads is the
+    // p95 of feeds that closed while the feed on screen contributes nothing to it.
+    //
+    // The count is the endurance workload's own: `console-workload.ts` alternates the
+    // settings route and the session workspace, the workspace mounts the ledger, and
+    // `steady-state.test.ts` drives 200 churn cycles twice.
+    const mountCycleCount = 400;
+    expect(
+      mountCycleCount,
+      "this case is vacuous unless it mounts past the registry's series bound",
+    ).toBeGreaterThan(PERF_METER_BOUNDS.seriesCount);
+
+    for (let cycle = 0; cycle < mountCycleCount; cycle += 1) {
+      const clock = new ManualClock();
+      const coordinator = new LedgerFrameCoordinator({ clock });
+      coordinator.scheduleScrollWrite(coordinator.claimTaskKey("scroll"), () => {});
+      clock.runFrame();
+      coordinator.dispose();
+    }
+
+    expect(devPerfMeters?.refusedSeriesCount).toBe(0);
+    expect(devPerfMeters?.seriesCount).toBe(0);
+  });
+
+  test("holds one live series per live coordinator, and drops it on dispose", () => {
+    // The other half of the bound: retiring must not retire a SIBLING's series, which
+    // a coordinator keying by anything the two share would do.
+    const clock = new ManualClock();
+    const firstFeed = new LedgerFrameCoordinator({ clock });
+    const secondFeed = new LedgerFrameCoordinator({ clock });
+    firstFeed.scheduleScrollWrite(firstFeed.claimTaskKey("scroll"), () => {});
+    secondFeed.scheduleScrollWrite(secondFeed.claimTaskKey("scroll"), () => {});
+    clock.runFrame();
+    expect(devPerfMeters?.seriesCount).toBe(2);
+
+    firstFeed.dispose();
+
+    expect(devPerfMeters?.seriesCount).toBe(1);
+    expect(devPerfMeters?.reading("frame-time", firstFeed.coordinatorId)).toBeNull();
+    expect(devPerfMeters?.reading("frame-time", secondFeed.coordinatorId)).not.toBeNull();
+  });
+
   test("runs scroll writes before reveal and rail work, whatever order they were submitted in", () => {
     const { clock, coordinator } = constructCoordinator();
     const order: string[] = [];

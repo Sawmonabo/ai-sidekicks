@@ -77,6 +77,17 @@ export interface SidekicksBridgeProviderProps {
   readonly bridge?: ConsoleBridge;
   /** Which scenario the fixture plays. Ignored when fixtures are compiled out. */
   readonly scenarioId?: string;
+  /**
+   * A clock identity minted OUTSIDE the tree, rebound onto the resolved bridge's clock.
+   *
+   * `useConsoleClock` below serves everything that reads time from inside the tree,
+   * and it cannot serve a consumer armed before any of it renders. The composition
+   * root arms the tripwire route at module scope, so its clock has to be an identity
+   * that exists before a bridge does and reads the window's time once one is
+   * resolved — which is what `ForwardingConsoleClock` is. Passed rather than reached
+   * for, on the boards' rule: a test or an auxiliary window composes its own.
+   */
+  readonly clockToRebind?: ForwardingConsoleClock;
 }
 
 /**
@@ -194,10 +205,24 @@ function installScenarioControl(
  * neither a memo nor a plain re-creation is correct for a resource with a lifetime.
  */
 export function SidekicksBridgeProvider(props: SidekicksBridgeProviderProps): React.JSX.Element {
-  const { children, bridge, scenarioId } = props;
+  const { children, bridge, scenarioId, clockToRebind } = props;
   const [resolved, setResolved] = useState<ResolvedConsoleBridge>(
     () => new ResolvedConsoleBridge(bridge, scenarioId),
   );
+
+  // The one clock the window reads, handed to the identity a caller armed before this
+  // tree existed. From the LAYOUT phase for `useConsoleClock`'s own reason: every
+  // layout effect for a commit runs before any passive effect for it, so a consumer
+  // reading time from an effect reads the clock this commit resolved. An unavailable
+  // resolution has no clock to hand over and leaves the identity on whatever it was
+  // constructed with, which is the honest reading for a window that has no bridge.
+  useLayoutEffect(() => {
+    const resolution = resolved.resolution;
+    if (clockToRebind === undefined || resolution.status !== "ready") {
+      return;
+    }
+    clockToRebind.holdClock(consoleClockFor(resolution.bridge));
+  }, [clockToRebind, resolved]);
 
   // One effect, because replacement and installation are one decision made in one
   // order: the previous resolution's teardown has already run by the time this
