@@ -348,6 +348,14 @@
   align-self: flex-start;
 }
 
+/* The disabled state is stated here rather than with the two act submits it used to
+   share a rule with in `acts/session-acts.css`: this sheet declares the control's box
+   and its ring, and a class split across two sheets is decided by load order. */
+.meridian-sessions__start:disabled {
+  color: var(--meridian-text-muted);
+  cursor: not-allowed;
+}
+
 /* What a start press mounted. Separated from the list by a rule, because it is a
    receipt for an act rather than another region of the page. */
 .meridian-sessions__started {

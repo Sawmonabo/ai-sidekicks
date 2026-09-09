@@ -39,8 +39,29 @@
 
 /* ------------------------------------------------------------------ button */
 
+/*
+ * THE FIVE DOORS BELOW ARE THIS BUTTON'S PUBLIC API. A bar that composes it into one
+ * centred row sets them on the bar's own class; every other caller leaves them unset
+ * and takes the stacked card shape, which is what `revert` restores — the value the
+ * cascade would have reached with no author declaration at all. They exist because the
+ * chrome bar used to declare `.meridian-browser-action` in its own sheet, and a class
+ * two sheets declare at equal specificity is resolved by whichever sheet the session
+ * loaded first.
+ *
+ * All five are doors and none is stated unconditionally, even the two — `align-items`
+ * and `gap` — that are inert on a box no `display` made a flex container. An inert
+ * declaration is still a declaration: it would apply the moment some later caller gave
+ * one of these buttons a `display` of its own, and it would carry a bar's arrangement
+ * into a surface that never asked for one. Measured: with these five behind doors the
+ * computed style of every `.meridian-browser-action` on the pane is identical to what
+ * the descendant selector produced.
+ */
 .meridian-browser-action {
-  align-self: flex-start;
+  align-self: var(--meridian-browser-action-align-self, flex-start);
+  display: var(--meridian-browser-action-display, revert);
+  align-items: var(--meridian-browser-action-align-items, revert);
+  gap: var(--meridian-browser-action-gap, revert);
+  white-space: var(--meridian-browser-action-white-space, revert);
   padding: var(--meridian-space-1) var(--meridian-space-3);
   border: 1px solid var(--meridian-edge-strong);
   border-radius: var(--meridian-radius-md);

@@ -46,9 +46,12 @@
   overflow-wrap: anywhere;
 }
 
-.meridian-attention-preferences .meridian-settings-row__label {
-  font-family: var(--meridian-font-mono);
+/* Every label on this page is an attention key the daemon sent, so it wears the
+   provenance face — asked for through `settings/shared/preference-toggle-row.css`'s
+   own doors rather than by declaring that sheet's class here. */
+.meridian-attention-preferences {
+  --meridian-settings-row-label-font: var(--meridian-font-mono);
   /* Mono runs optically larger at the same px; a hair under one em keeps the label
      and the sentence under it on the same visual weight, as the figure rule does. */
-  font-size: 0.93em;
+  --meridian-settings-row-label-size: 0.93em;
 }

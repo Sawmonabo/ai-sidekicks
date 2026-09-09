@@ -157,6 +157,14 @@
   border-color: var(--meridian-edge-strong);
 }
 
+/* The revoke control's own red, beside the chrome it wears rather than in
+   `members/members.css`: the chrome is eight declarations and would have to be copied
+   to move the other way, and one class has one owning sheet either way. */
+.meridian-members__revoke {
+  color: var(--meridian-red-text);
+  border-color: var(--meridian-red-mark);
+}
+
 .meridian-members__manage:disabled,
 .meridian-members__revoke:disabled,
 .meridian-invites__row-action:disabled,
@@ -170,15 +178,10 @@
   cursor: default;
 }
 
-/* Focus is visible on every control here, with one rule rather than one per
- * class, so a control added later cannot arrive without it. */
-.meridian-members :focus-visible,
-.meridian-invites :focus-visible,
-.meridian-invite-confirmation :focus-visible,
-.meridian-members__menu :focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
+/* Focus is visible on every control this family ships, stated once per REGION in the
+ * sheet that declares that region — `members/members.css` and `invites/invites.css`.
+ * A region's ring written here would be a second sheet declaring a class those files
+ * own, and which of the two a session sees last would decide it. */
 
 /* An invitation waiting on this window. A notice rather than a dialog that opens
  * itself: the arrival is on somebody else's schedule, and taking the screen from

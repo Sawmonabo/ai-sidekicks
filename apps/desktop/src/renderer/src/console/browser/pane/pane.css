@@ -86,6 +86,14 @@
   gap: var(--meridian-space-2);
   padding: var(--meridian-space-2);
   border-block-end: 1px solid var(--meridian-edge);
+  /* The bar is one centred row, so the shared action button takes its inline
+     arrangement here, through the doors `../controls.css` declares. The button's own
+     class is never declared outside the sheet that owns it. */
+  --meridian-browser-action-align-self: center;
+  --meridian-browser-action-display: inline-flex;
+  --meridian-browser-action-align-items: center;
+  --meridian-browser-action-gap: var(--meridian-space-1);
+  --meridian-browser-action-white-space: nowrap;
 }
 
 .meridian-browser-chrome__address {

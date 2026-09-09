@@ -122,17 +122,10 @@
 }
 
 /*
- * The resolved root. Truncated at the MEASURE and never in the string — the element
- * keeps the whole value in its title and the copy control carries it out, so two
- * roots that differ only in their tail are always distinguishable.
+ * The resolved root is truncated at the MEASURE and never in the string. That is the
+ * figure primitive's own `--truncate` modifier, asked for by `MountCard.tsx` where it
+ * renders the figure — this family declares no rule for a class `primitives/` owns.
  */
-.meridian-mount-card__head > .meridian-figure--wire {
-  flex: 1 1 auto;
-  min-inline-size: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .meridian-mount-card__copy {
   flex: 0 0 auto;

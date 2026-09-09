@@ -36,14 +36,39 @@
  * `user-select: text` is stated rather than inherited because a digest a person
  * cannot select is a digest they have to retype, and console chrome elsewhere is
  * routinely made unselectable.
+ *
+ * THE TWO DOORS BELOW ARE THIS FIGURE'S PUBLIC API, and they exist so that a surface
+ * composing a wire figure never reaches back in and redeclares this class: a class
+ * two sheets declare at equal specificity is resolved by which sheet the session
+ * loaded first, so the same figure reads differently depending on which pane opened.
+ * A container that wants the figure quieter or smaller inside it sets these on ITS
+ * OWN class and the value inherits down. Proximity decides when two containers
+ * nest, which is an answer, where source order was a coin toss.
  */
 .meridian-figure--wire {
   font-family: var(--meridian-font-mono);
+  color: var(--meridian-figure-wire-color, inherit);
   /* Mono faces run optically larger than the sans face at the same px; a hair under
      one em keeps a figure and its label on the same visual weight. */
-  font-size: 0.93em;
+  font-size: var(--meridian-figure-wire-size, 0.93em);
   user-select: text;
   -webkit-user-select: text;
+}
+
+/*
+ * Truncated at the MEASURE and never in the string: the element keeps the whole value
+ * in its `title` and the copy control beside it carries the value out, so two figures
+ * that differ only in their tail stay distinguishable. The flex sizing rides the
+ * modifier because truncation inside a row is only reachable from a flex child that
+ * is allowed to shrink; on a figure that is not a flex item both declarations are
+ * inert, so the modifier costs the other callers nothing.
+ */
+.meridian-figure--truncate {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /*
