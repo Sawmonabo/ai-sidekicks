@@ -53,9 +53,10 @@ export { ScenarioEngine } from "./scenario-engine.js";
 // no sibling of `incident/` inside this directory reads it and the family door has to
 // re-export from the declaring module regardless. `scenarios/` holds the instances and
 // takes exactly these: the recorded shape its frames are written in, and the composer
-// that turns a recording into a scenario. The RECORDER and the PLAYER stay off this door
-// on the rule above — a door publishes what a sibling takes, and their only readers are
-// inside `incident/` and its own suites.
+// that turns a recording into a scenario. The PLAYER stays off this door on the rule
+// above — a door publishes what a sibling takes, and every reader of it takes it by its
+// declaring specifier: `incident/`'s own composer and suites, and one `scenarios/`
+// suite.
 export type { IncidentRecording, IncidentWireDelta } from "./incident/incident-recording.js";
 
 export { composeIncidentScenario } from "./incident/incident-replay.js";

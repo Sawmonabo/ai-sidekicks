@@ -139,9 +139,9 @@ describe("failure matrix — a growth-slate row lands and the port still claims 
   });
 
   it("pins a frame of every scenario it serves, and pins none of a scenario it dropped", () => {
-    // The manifest's THIRD list, held to the same both-directions rule as the other
-    // two. Read off the manifest rather than off the registry module, so what a
-    // surface would be handed is what is walked.
+    // The frozen-tick register, held to the same both-directions rule as the scenario
+    // and growth ledgers beside it. Read off the manifest rather than off the registry
+    // module, so what a surface would be handed is what is walked.
     const manifest = consoleScenarioManifest();
 
     expect(findFrozenTickRegistryDefects(manifest.scenarios, manifest.frozenTicks)).toStrictEqual(

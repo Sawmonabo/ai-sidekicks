@@ -288,12 +288,15 @@
     },
     // --- Scripts invoked by name (`scripts/**`) --------------------------------
     //
-    // The three tools `package.json` declares as scripts. Each gets a task with
-    // `inputs` for the same reason every tier above does: run by name from a
-    // terminal, from CI, or from a `turbo run` that names it, with one declared
-    // input set rather than three implicit ones. All three are `cache: false` —
-    // they report on a tree or a build that is present now, and a cached pass
-    // would report on one that is not.
+    // The two budget gates `package.json` declares as scripts — `budget:bundle` and
+    // `budget:heap`. Each gets a task with `inputs` for the same reason every tier
+    // above does: run by name from a terminal, from CI, or from a `turbo run` that
+    // names it, with one declared input set rather than two implicit ones. Both are
+    // `cache: false` — they report on a tree or a build that is present now, and a
+    // cached pass would report on one that is not. The `test` aggregate below is in
+    // this file rather than in this group: it is a chain of `turbo run` invocations
+    // and not a `scripts/**` executable, and its own block says why its order is
+    // load-bearing.
 
     "budget:bundle": {
       // Measures a BUILD, so it carries the same load-bearing edge the
@@ -311,9 +314,12 @@
       "cache": false
     },
     "budget:heap": {
-      // No build edge: the row is declared `n/a` until its subject exists (see the
-      // registry's reason field), so the gate's own source and the registry are the
-      // whole input set.
+      // No build edge, because this harness takes no reading at all. The
+      // `renderer-heap-at-rest` row is `enforced` and its `measuredBy` names the
+      // endurance tier, which launches the built console; `measure-heap.mts` reads
+      // the registry, reports where the reading lives, and refuses if the registry
+      // ever names it as the measurer. So the gate's own source and the registry are
+      // the whole input set, and `out/**` would be an input nothing here opens.
       "inputs": ["scripts/budget/**", "test/console/budget/budgets.json", "package.json"],
       "outputs": [],
       "cache": false
