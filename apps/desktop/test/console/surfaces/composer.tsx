@@ -58,6 +58,7 @@ import {
 import { settleScheduledRead } from "../../../src/renderer/src/console/bridge/readings/scheduled-read.test-support.js";
 import type { ConsoleScenario } from "../../../src/renderer/src/console/bridge/scenario-runtime/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../src/renderer/src/console/core/index.js";
+import { crossMacrotaskBoundary } from "../../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
 import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
 import {
   FrameStore,
@@ -317,13 +318,12 @@ async function dropFilesOnComposer(region: HTMLElement, files: readonly File[]):
   await act(async () => {
     region.dispatchEvent(drop);
   });
-  // The trio is three round trips through the fixture's own spool, and each leg
-  // settles on a microtask the dispatch above does not reach. Flushed rather than
-  // waited on a clock: nothing in the ingest path is scheduled.
+  // The trio is three round trips through the fixture's own spool, each settling on
+  // a microtask the dispatch above does not reach. A settle is a boundary, never a
+  // count: one macrotask boundary drains every queued microtask, however many legs
+  // the spool takes, where a counted flush would silently fall short on a fourth.
   await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await crossMacrotaskBoundary();
   });
 }
 
