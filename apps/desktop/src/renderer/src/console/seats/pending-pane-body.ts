@@ -18,6 +18,15 @@
 // sides of one seam: `PendingPaneBody.tsx` stamps the attribute and `pendingPaneBodiesIn`
 // finds it, and a second spelling of the string in a test would drift the first time the
 // attribute was renamed and the gate would go green over a fallback.
+//
+// AND SO DOES THE BARE PRODUCER. A loader-backed body that is not a PANE and not a ROUTE
+// — a card inside an overlay a person opened, a walkthrough behind a command — has no
+// chrome of its own to reserve, so its fallback is the marker and nothing else. Three
+// callers wanted that and the first of them wrote it privately; `reservedBodyRegion`
+// below is the one construction, beside the attribute it stamps, so a fourth caller
+// cannot spell the element differently from the sweep that looks for it.
+
+import { createElement } from "react";
 
 /**
  * The attribute a pending pane body stamps on its own chrome.
@@ -57,4 +66,19 @@ export function pendingPaneKindsIn(root: Element): readonly string[] {
   return pendingPaneBodiesIn(root).map(
     (element) => element.getAttribute(PENDING_PANE_BODY_ATTRIBUTE) ?? "unknown",
   );
+}
+
+/**
+ * The reserved region a loader-backed body with no chrome of its own draws.
+ *
+ * `hidden` rather than an empty visible box, on `PendingSurfaceBody`'s reasoning:
+ * `display: none` contributes no box, so what the wait costs the layout is nothing and
+ * the surface around it is drawn exactly as it will be drawn once the chunk lands.
+ *
+ * The marker's VALUE is the body's own name, which is what makes a refused capture
+ * actionable — `pendingPaneKindsIn` prints it, and "sign-in-card" names the thing that
+ * had not arrived where a count would start a second debugging session.
+ */
+export function reservedBodyRegion(bodyName: string): React.ReactNode {
+  return createElement("span", { hidden: true, [PENDING_PANE_BODY_ATTRIBUTE]: bodyName });
 }

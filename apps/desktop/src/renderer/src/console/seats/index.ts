@@ -229,10 +229,15 @@ export { LazyBodyIdleWarm, idleWarmScheduler, type IdleWarmScheduler } from "./l
 // `pendingPaneBodiesIn` still have none and still take the leaf directly, for the reason
 // above: their only consumer outside this directory is that helper.
 //
+// `reservedBodyRegion` is on the same line for the same reason and one more: the bodies
+// that take it are a view family's own overlay cards, so the attribute and the element
+// that carries it leave this directory together rather than as a string a family then
+// spells into an element of its own.
+//
 // `LazyBodyBoard` and `LazyBodyModule` stay absent — named only by the boards and the
 // walk in this directory — and a family declaring a loader beside its registration writes
 // `body: () => import("./x-body.js")` inline, which names no type at all.
-export { PENDING_PANE_BODY_ATTRIBUTE } from "./pending-pane-body.js";
+export { PENDING_PANE_BODY_ATTRIBUTE, reservedBodyRegion } from "./pending-pane-body.js";
 export { LoadedLazyBody, type LazyBodyLoader } from "./lazy-body.js";
 
 export {

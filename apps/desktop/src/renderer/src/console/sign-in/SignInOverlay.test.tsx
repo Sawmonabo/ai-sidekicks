@@ -34,6 +34,7 @@ import { backgroundOf } from "../frame/AppFrame.test-support.js";
 import { SESSIONS_HASH, mountConsole } from "../frame/ConsoleRoot.test-support.js";
 import { consoleCommands } from "../palette/index.js";
 import { FrameStore } from "../store/index.js";
+import { signInCardMount } from "./sign-in-card-mount.js";
 import { SignInOverlay } from "./SignInOverlay.js";
 import type { ConsoleSurfaceContext } from "../seats/index.js";
 
@@ -64,6 +65,14 @@ async function settle(): Promise<void> {
 async function openTheCard(): Promise<void> {
   await act(async () => {
     consoleCommands.invoke(SIGN_IN_COMMAND_ID, {});
+    await crossMacrotaskBoundary();
+  });
+  // The card arrives on its own chunk, so the render that follows the command draws the
+  // reserved region. Resolved through the MOUNT the overlay itself renders — one home
+  // for the wait rather than a per-spec race — and then one more boundary for React to
+  // commit the settled body.
+  await act(async () => {
+    await signInCardMount.load();
     await crossMacrotaskBoundary();
   });
 }

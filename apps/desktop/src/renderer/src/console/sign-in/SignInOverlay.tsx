@@ -37,6 +37,16 @@
 // and took its input. One migration answers both, which is why the popup is not
 // mounted here any more.
 //
+// AND THE CARD ITSELF ARRIVES ON ITS OWN CHUNK. What is on this module — the command,
+// the open state, the modal lifetime, and the flow — is what nobody can wait for; the
+// card, the device-grant card, and the copy table are drawn only after somebody has
+// opened this dialog, which is the question `apps/desktop/AGENTS.md` §Module shape makes
+// a registration answer. `sign-in-card-mount.ts` is the loader and
+// `sign-in-card-body.ts` is the split point. The FLOW deliberately stays here rather
+// than moving with the card: it lives outside `Dialog.Portal`, which unmounts its
+// children on close, so a ceremony's state survives a dismissal exactly as it did
+// before.
+//
 // THE FLOW IS SUPERSEDED ON UNMOUNT AND ON A BRIDGE SWAP, and it is held through the
 // console's one subject-scoped holder to get that. An OS dialog belongs to main and
 // outlives this component; the settlement that arrives afterwards has to publish
@@ -57,7 +67,7 @@ import {
   type SubjectScopedDisposal,
 } from "../store/index.js";
 import { SignInCeremony } from "./ceremony-adapter.js";
-import { SignInCard } from "./SignInCard.js";
+import { signInCardMount } from "./sign-in-card-mount.js";
 import { SignInFlow } from "./sign-in-flow.js";
 
 /** The command id this family owns. Namespaced by family, per the command rules. */
@@ -146,16 +156,20 @@ export function SignInOverlay(props: SignInOverlayProps): React.JSX.Element {
         className="meridian-sign-in__popup"
         label={SIGN_IN_DIALOG_LABEL}
       >
-        <SignInCard
-          state={state}
-          isBusy={flow.isBusy}
-          onSignIn={() => {
+        {/* The card arrives on its own chunk — `sign-in-card-body.ts` states why — and
+            the mount renders the reserved region until it lands. Everything the card
+            needs is composed here, because the FLOW is the overlay's: it outlives a
+            close where the card does not. */}
+        {signInCardMount.render({
+          state,
+          isBusy: flow.isBusy,
+          onSignIn: () => {
             void flow.signIn();
-          }}
-          onRegisterAnother={() => {
+          },
+          onRegisterAnother: () => {
             void flow.register();
-          }}
-          onOpenBrowser={() => {
+          },
+          onOpenBrowser: () => {
             if (state.kind !== "handing-off") {
               return;
             }
@@ -172,11 +186,11 @@ export function SignInOverlay(props: SignInOverlayProps): React.JSX.Element {
               // ceremony's own settlement is what the card renders next.
             });
             void flow.awaitDeviceGrant();
-          }}
-          onDismissRefusal={() => {
+          },
+          onDismissRefusal: () => {
             flow.dismissRefusal();
-          }}
-        />
+          },
+        })}
       </OverlayDialogPopup>
     </Dialog.Root>
   );
