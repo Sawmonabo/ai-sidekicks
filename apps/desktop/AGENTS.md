@@ -12,21 +12,22 @@ Each runs under `pnpm --filter @ai-sidekicks/desktop`.
 | --- | --- | --- |
 | `structure:dead-code` | `knip.json` | files, exports, types, and dependencies no entry point reaches |
 | `structure:layering` | `.dependency-cruiser.mjs` | cycles, orphans, process-boundary breaks, upward edges against the console DAG |
-| `lint` | `eslint.config.mjs` | the renderer import bans and the nine rules below |
+| `lint` | `eslint.config.mjs` | the import bans, the console's wire-instant and exported-collection bans, and the eight rules below |
 
 `structure` runs both legs locally; CI runs them as two Turbo tasks with `--continue`, so one red leg never hides the other's findings.
 
-The ESLint rules that carry this file's structural claims:
+The ESLint rules that carry this file's structural claims. Each states its own scope: a rule is only as strong as the file set it matches, and a lifted selector is stated here rather than discovered in the config.
 
-1. `window.sidekicks` is reached only from `console/bridge/BridgeProvider.tsx`.
-2. No `setInterval`.
-3. No `export default` outside the package-root tool configs.
-4. No module-level `let`.
-5. `spawn` from `node:child_process` only in `test/helpers/electron-child.ts`.
-6. `toMatchScreenshot` only in `test/console/screenshot/settled-capture.ts`.
-7. A `.css` import only from the owning directory's `index.ts` or a lazily-loaded chunk root.
-8. A `.tsx` that exports a component exports nothing else, through `eslint-plugin-react-refresh`'s `only-export-components`.
-9. No directory `import.meta.glob` under `src/`.
+1. The preload bridge is read off the global only in `console/bridge/live-bridge.ts`; every surface above takes it from `BridgeProvider`'s context, which calls `readInstalledBridge` there. All three spellings — `window.sidekicks`, `globalThis.sidekicks`, and the cast form `(window as { sidekicks?: … }).sidekicks` — are banned across `console/**` and `shell/**`, and lifted for those trees' test files, which install a fixture bridge on the global as the substitution seam. Four legacy Tier-1 modules outside both trees read the bridge directly by design and are outside the rule's scope: `session-members/participant-roster.tsx`, `session-members/invite-accept-view.tsx`, `session-bootstrap/SessionBootstrap.tsx`, and `runtime-node-attach/attach-request.ts`.
+2. No `setInterval` anywhere in renderer source, in either spelling — the bare global and `window` / `globalThis`-qualified.
+3. No `export default` outside the package-root tool configs, which their tools load by default export. Off for `**/*.d.ts`, where the `export default` inside an ambient `declare module` is how a default-exporting virtual module is typed.
+4. No module-level `let` in shipped renderer source. Lifted for `*.test.{ts,tsx}` and `*.test-support.{ts,tsx}`: a `let` reassigned in `beforeEach` is the standard Vitest shape and holds no state anything else can reach.
+5. `spawn` from `node:child_process` only in `test/helpers/electron-child.ts` — the static import, the dynamic `import()`, and the `require` form alike, across `test/**`, `src/main/**`, and `scripts/**`. `spawnSync` is untouched: it settles before the statement after it and leaves no child to own.
+6. `toMatchScreenshot` only in `test/console/screenshot/settled-capture.ts` and in `test/console/screenshot/frame.test.tsx`, the one probe that asserts the matcher REJECTS and cannot be written without naming it.
+7. A relative `.css` import only from the owning directory's `index.ts` or a lazily-loaded chunk root (`*-body.{ts,tsx}`). Relative specifiers only — a vendor sheet reached by package specifier has no owning directory here to enter through and is outside the rule.
+8. No directory `import.meta.glob` under `src/`: the literal carries a `*`, so a raw read of one named module is untouched.
+
+What lint does not carry: one component per `.tsx` (§Module shape) is a review rule. No ESLint rule states it — `react-refresh/only-export-components` checks a different property, that a module exporting a component exports only components, which is a Fast Refresh constraint and not a count.
 
 The dead-code gate's one exemption is per SYMBOL: an export tagged `@consumedBy T-023p-1C-<n>` is excluded, and a symbol no task will name is deleted rather than tagged. Tag the specifier knip reports, and delete the tag in the PR that imports the symbol.
 
@@ -44,6 +45,8 @@ The dead-code gate's one exemption is per SYMBOL: an export tagged `@consumedBy 
 
 There is one shared layer: `src/renderer/src/shared/` is not created; a renderer-wide helper lives in the lowest console family that needs it.
 
+No console directory holds more than 42 modules a reader has to hold at once — hand-written, excluding co-located tests and the directory's own door. A directory at the ceiling states in its header why it is one reading; the remedy is a seam, never a larger number.
+
 ## Import boundaries
 
 - Renderer source never imports Electron, Node builtins, the daemon or control-plane packages, or any path under `main/` or `preload/`. Add a new ban in `eslint.config.mjs`, never anywhere else.
@@ -55,7 +58,7 @@ There is one shared layer: `src/renderer/src/shared/` is not created; a renderer
   - A VIEW family is any console directory that is neither a layer family above nor a composition site (`COMPOSITION_ROOT_FILES` in `.dependency-cruiser.families.mjs`, plus the files directly under `panes/`).
   - View families are SIBLINGS: one never imports another, and `panes/` is flat — a pane body lives in `<family>/pane/`. Hoist a shared contract into `seats/`, or into the lowest layer family that needs it.
 - The console reaches `src/shared/` through the layer family that owns the concern, `core/` today, and never from a view family.
-- The console imports no plan-owned renderer subtree whose owner mounts into it (`timeline/`, `usage-meters/`, `run-controls/`, `provider-accounts/`, `sidekick-definitions/`, `mcp-governance/`); those reach the frame by calling `registerConsoleSurface`. A later mounted page joins the list in `.dependency-cruiser.mjs`.
+- The console imports no plan-owned renderer subtree whose owner mounts into it (`timeline/`, `usage-meters/`, `run-controls/`, `provider-accounts/`, `sidekick-definitions/`, `mcp-governance/`); those reach the frame by calling `registerConsoleSurface`, which is the one mount door — a second door for the same surface is rejected. A later mounted page joins the list in `.dependency-cruiser.mjs`.
 - The console never re-authors or moves a body another plan owns.
 
 ## Shared code
@@ -70,6 +73,10 @@ There is one shared layer: `src/renderer/src/shared/` is not created; a renderer
 - **Persistence:** every durable write goes through `console/persistence/` and its closed value-class enumeration, and one byte-measurement function serves every cap. Drafts never reach it.
 - **Cost:** every cost figure comes from the committed-spend read; the renderer sums nothing.
 - **Refresh:** every refresh goes through `console/store/read/refresh-scheduler.ts`.
+- **Readings:** a READING is one class that publishes what a surface reads off it _and_ holds the daemon connection. That same class carries the refresh scheduler and the two `ReadTriggerTarget` members a trigger set wires — `triggeringEventKinds` and `requestRead` — so a reading is always one somebody can ask again. A class that publishes only what an act settled holds neither and is not a reading.
+- **Daemon calls:** a surface reaches the daemon through `callDaemon` (`console/bridge/daemon/daemon-reply.ts`), which parses the reply against the method's registered schema and answers `served` or `refused`; a surface never parses a wire value itself. A suite that answers one method spreads a real bridge through `console/bridge/fixture/call-plane/`'s `withDaemonCall` / `withDaemonSubscribe`, and that namespace spread is written nowhere else — a suite composing its own is a second door.
+- **Markup:** `console/ledger/cards/markdown/nodes/MathBlock.tsx` is the console's one `dangerouslySetInnerHTML` site, because KaTeX's whole interface is a markup string. Everything else the console renders arrives as data; a second occurrence anywhere under `console/` is rejected.
+- **Scroll:** `console/ledger/frame/scroll/scroll-chokepoint.ts` is the only module that writes a scroll offset, and every write names its caller so two in one frame can be arbitrated. No `scrollTop` write outside it, and no `scrollIntoView` at all — a glide through the chokepoint replaces it.
 
 ## Module shape
 
@@ -115,6 +122,7 @@ There is one shared layer: `src/renderer/src/shared/` is not created; a renderer
 
 - A budget marked `enforced` is reachable from the aggregate `test` script _and_ from a CI job, and its `measuredBy` names a harness holding the subject it bounds. Unwired, its status is `n/a` naming the wiring task, never `enforced` and unrun.
 - Every console PR runs every tier whose subject is in-tree; an absent subject is reported `n/a`, never skipped silently.
+- Every bounded wait inside a launching tier's body draws on that tier's body allowance through `boundedMs`, so the first wait that cannot fit fails with its own sentence rather than under Vitest's clock. A wait carrying its own literal is rejected.
 
 ## Pre-PR self-audit
 
