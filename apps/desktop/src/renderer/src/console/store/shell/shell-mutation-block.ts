@@ -65,22 +65,33 @@ import type { ShellState } from "./shell-state.js";
  * stays live through an outage.
  */
 export const MUTATING_DAEMON_METHODS = [
+  "run.queueCreate",
+  "run.queueCancel",
+  "run.pause",
+  "run.resume",
+  "run.intervene",
+  "driver.interruptRun",
+  "driver.compactContext",
+  "driver.respondToRequest",
+  "repo.attach",
+  "repo.workspaceBind",
+  "repo.executionModeSelect",
+  "repo.executionRootPrepare",
+  "repo.ephemeralClonePrepare",
+  "repo.ephemeralCloneDispose",
+  "repo.worktreeRetire",
   "session.create",
   "session.join",
   "membership.update",
   "invite.create",
   "invite.revoke",
-  "driver.interruptRun",
-  "driver.applyIntervention",
-  "driver.respondToRequest",
-  "driver.compactContext",
   "providerAccount.probe",
 ] as const;
 
 /** One mutating method name. Derived from the tuple above. */
 export type MutatingDaemonMethod = (typeof MUTATING_DAEMON_METHODS)[number];
 
-/** Whether a method string is one of the ten. Total over every string. */
+/** Whether a method string is on the roster above. Total over every string. */
 export function isMutatingDaemonMethod(method: string): method is MutatingDaemonMethod {
   return (MUTATING_DAEMON_METHODS as readonly string[]).includes(method);
 }
@@ -205,7 +216,21 @@ export function currentShellBlock(
   frameStore: FrameStore,
   method: string,
 ): ShellMutationBlock | undefined {
-  return shellBlockForMethod(frameStore.getState().shellState, method);
+  return isMutatingDaemonMethod(method) ? currentShellMutationBlock(frameStore) : undefined;
+}
+
+/**
+ * The window's block RIGHT NOW, with no method rule applied.
+ *
+ * THE HALF THE CALL DOOR NEEDS, and it is split out rather than inlined there because
+ * `getState().shellState` spelled anywhere else would be the second reading of which
+ * cell carries the shell condition — the copy this module's own header warns about.
+ * The door asks a different question from a control: it has already decided that the
+ * method it was handed puts a record, from the registry's own classification table,
+ * and what is left to ask is whether the supervisor is serving.
+ */
+export function currentShellMutationBlock(frameStore: FrameStore): ShellMutationBlock | undefined {
+  return shellMutationBlock(frameStore.getState().shellState);
 }
 
 /**

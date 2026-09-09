@@ -15,6 +15,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { refuse } from "../../core/index.js";
 import { consoleCommands } from "../../palette/index.js";
+import { type FrameStore } from "../../store/index.js";
+import { quietShell } from "../../store/shell-condition.test-support.js";
 import { NoRuns } from "./NoRuns.js";
 import { RUN_START_COMMAND_ID, useRunControlCommands } from "./controls/run-control-commands.js";
 import { recordingRunControlSurface } from "./controls/run-control-commands.test-support.js";
@@ -46,10 +48,13 @@ function reading(overrides: Partial<RunStartOfferReading> = {}): RunStartOfferRe
 function RunStartHost(props: {
   readonly reading: RunStartOfferReading;
   readonly onRequestComposerFocus: () => void;
+  readonly frameStore: FrameStore;
 }): React.JSX.Element {
   useRunControlCommands({
     runs: [],
     driverCapabilities: undefined,
+    // Silence, which closes nothing: these cases are about the empty state's offer.
+    frameStore: props.frameStore,
     surface: IDLE_SURFACE,
     onRequestSteer: () => undefined,
     onRequestRewind: () => undefined,
@@ -80,7 +85,9 @@ describe("the button and the palette row are offered together", () => {
     ["a stream that never opened", reading({ openRefusal: STREAM_REFUSED }), false],
     ["a pane that seated a row", reading({ seatedRunCount: 1 }), false],
   ])("offers both on %s", (_case, offered, isOffered) => {
-    render(<RunStartHost reading={offered} onRequestComposerFocus={vi.fn()} />);
+    render(
+      <RunStartHost frameStore={quietShell()} reading={offered} onRequestComposerFocus={vi.fn()} />,
+    );
 
     const button = screen.queryByRole("button", { name: "Write a message" });
     expect(button === null).toBe(!isOffered);
@@ -88,7 +95,13 @@ describe("the button and the palette row are offered together", () => {
   });
 
   it("carries the button's own words into the palette rather than a second name", () => {
-    render(<RunStartHost reading={reading()} onRequestComposerFocus={vi.fn()} />);
+    render(
+      <RunStartHost
+        frameStore={quietShell()}
+        reading={reading()}
+        onRequestComposerFocus={vi.fn()}
+      />,
+    );
 
     expect(consoleCommands.get(RUN_START_COMMAND_ID)?.title).toBe(
       screen.getByRole("button", { name: "Write a message" }).textContent,
@@ -97,7 +110,13 @@ describe("the button and the palette row are offered together", () => {
 
   it("performs the same act the button performs", () => {
     const onRequestComposerFocus = vi.fn();
-    render(<RunStartHost reading={reading()} onRequestComposerFocus={onRequestComposerFocus} />);
+    render(
+      <RunStartHost
+        frameStore={quietShell()}
+        reading={reading()}
+        onRequestComposerFocus={onRequestComposerFocus}
+      />,
+    );
 
     consoleCommands.get(RUN_START_COMMAND_ID)?.run();
 
@@ -111,6 +130,7 @@ describe("the button and the palette row are offered together", () => {
     const onRequestComposerFocus = vi.fn();
     render(
       <RunStartHost
+        frameStore={quietShell()}
         reading={reading({ seatedRunCount: 1 })}
         onRequestComposerFocus={onRequestComposerFocus}
       />,

@@ -44,7 +44,7 @@ describe("the window a capture opens", () => {
   it("grows to a surface taller than the window, keeping the width", () => {
     // The width is carried rather than taken from `required`: a capture never widens
     // its window, and a surface narrower than the page must not shrink it either —
-    // the console would relayout and the reference would pin a different surface.
+    // the console would relayout and the capture would pin a different surface.
     expect(
       captureWindowStep(
         CONSOLE_WINDOW,
@@ -206,8 +206,8 @@ describe("the window a capture opens", () => {
     }).toThrowError(/1441px across a 1440px window/u);
   });
 
-  it("names the reference in every refusal", () => {
-    // A tier that pins dozens of references reports a failure with no other way to
+  it("names the capture in every refusal", () => {
+    // A tier that pins dozens of captures reports a failure with no other way to
     // say which one was being taken.
     expect(() => {
       captureWindowStep(
@@ -223,7 +223,7 @@ describe("the window a capture opens", () => {
 describe("how long a capture of that window is given to settle", () => {
   it("gives a viewport-sized capture the tier's own wait", () => {
     // The unchanged case, and the reason this is a multiplier rather than a raise:
-    // every reference that fits in the window is still compared under exactly the
+    // every capture that fits in the window is still compared under exactly the
     // five seconds it has always had, so nothing about a capture that was never slow
     // is being made more patient.
     expect(stabilityWaitMsFor(1)).toBe(STABILITY_WAIT_PER_VIEWPORT_MS);

@@ -12,9 +12,11 @@
 // {@link useFrameStore} — one selector written per surface is one more chance to
 // build a value in a render body.
 
+import { useMemo } from "react";
 import { useStore } from "zustand";
 
 import type { FrameStore, FrameStoreState } from "./frame-store.js";
+import { shellBlockForMethod, type ShellMutationBlock } from "./shell-mutation-block.js";
 import type { ShellState } from "./shell-state.js";
 
 /**
@@ -47,6 +49,35 @@ export function useRailAttentionCount(store: FrameStore): number | undefined {
 
 function readRailAttentionCount(state: FrameStoreState): number | undefined {
   return state.railAttentionCount;
+}
+
+/**
+ * What closes one method's control right now, subscribed, or `undefined` while
+ * nothing closes it.
+ *
+ * THE ONE HOOK EVERY DISPATCHING SURFACE READS, hoisted here rather than written per
+ * family. The three lines it replaces — subscribe to the shell state, derive the
+ * block for this method, hold its identity — were about to appear in the run
+ * controls, the repo mount acts, and the composer, and a family writing them itself
+ * is a family free to subscribe to the whole frame state or to derive in a render
+ * body.
+ *
+ * MEMOISED, BECAUSE `shellMutationBlock` MINTS. It composes a fresh object per call
+ * and one of its sentences carries the reconnect attempt number, so an unmemoised
+ * derivation would hand a control a new object on every publish and re-render it on
+ * every heartbeat. The subscribed `shellState` is a stored reference that moves only
+ * when the report actually moved, so the memo holds exactly as long as the fact does.
+ *
+ * THE RENDERED HALF ONLY. A surface that dispatches also reads `currentShellBlock`
+ * inside its handler and again after any await, because a block landing between the
+ * render and the press leaves a render-captured one fail-open.
+ */
+export function useShellBlockFor(
+  store: FrameStore,
+  method: string,
+): ShellMutationBlock | undefined {
+  const shellState = useShellState(store);
+  return useMemo(() => shellBlockForMethod(shellState, method), [shellState, method]);
 }
 
 /** Select from the frame store. */

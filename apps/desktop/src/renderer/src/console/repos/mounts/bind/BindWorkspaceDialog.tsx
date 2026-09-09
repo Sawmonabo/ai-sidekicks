@@ -28,7 +28,12 @@ import {
   RefusalRecovery,
   WireFigure,
 } from "../../../primitives/index.js";
-import type { SessionStore } from "../../../store/index.js";
+import {
+  useShellBlockFor,
+  type FrameStore,
+  type SessionStore,
+  type MutatingDaemonMethod,
+} from "../../../store/index.js";
 import { mountRefusalRecovery } from "../mount-refusal-copy.js";
 import { executionModeRows } from "../mode-row.js";
 import { BindModePicker } from "./BindModePicker.js";
@@ -38,6 +43,13 @@ import { EMPTY_BIND_FORM, resolveBindForm, type BindFormState } from "./bind-mod
 /** The radio group's name. One dialog is open at a time, so one constant serves it. */
 const MODE_GROUP_NAME = "meridian-bind-mode";
 
+// The record method this control dispatches, TYPED against the roster rather than
+// spelled inline. `useShellBlockFor` takes a `string` — it has to, since it answers
+// `undefined` for every read method — so a misspelled literal is not a compile error
+// but a control that stays live through an outage and says nothing. `satisfies` is
+// what turns that into a build failure.
+const WORKSPACE_BIND_METHOD = "repo.workspaceBind" satisfies MutatingDaemonMethod;
+
 export interface BindWorkspaceDialogProps {
   readonly bridge: ConsoleBridge;
   /** The mount a new workspace binds on. */
@@ -46,6 +58,13 @@ export interface BindWorkspaceDialogProps {
   readonly canonicalRoot: string;
   /** The session whose reconnect edge and repo frames re-ask the pre-bind question. */
   readonly sessionStore: SessionStore;
+  /**
+   * The window's own shell condition, read here for the ONE method this dialog sends.
+   *
+   * The FRAME's store and not the session's: a supervisor going down is a fact about
+   * this window's runtime, and every window watching the same session reads its own.
+   */
+  readonly frameStore: FrameStore;
   /** Ask the section to read again, so the bound workspace appears on this card. */
   readonly onBound: () => void;
 }
@@ -57,6 +76,9 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
     props.sessionStore,
   );
   const [form, setForm] = useState<BindFormState>(EMPTY_BIND_FORM);
+  // WHETHER THIS WINDOW MAY SEND THE BIND AT ALL, on `AttachRepositoryDialog`'s terms:
+  // the rendered half, read off the one seam, with the door deciding again at the press.
+  const shellBlock = useShellBlockFor(props.frameStore, WORKSPACE_BIND_METHOD);
   // WHAT THIS MOUNT ADMITS IS AN INPUT TO BOTH HALVES OF THIS DIALOG. The daemon's own
   // default arrives through the same reading that opens the control, so a dialog
   // reopened on this mount gets it again; and a refresh that withdraws the held mode
@@ -153,13 +175,23 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
           <button
             type="button"
             className="meridian-bind__confirm"
+            // Two facts, two attributes — `AttachRepositoryDialog`'s header states the
+            // split: an unfinished form is not a control to be taken to, an unreachable
+            // supervisor is.
             disabled={verdict.status !== "sendable" || reading.act.status === "sending"}
+            aria-disabled={shellBlock !== undefined}
             onClick={submit}
           >
             Bind
           </button>
         </div>
-        {verdict.status === "incomplete" ? (
+        {shellBlock !== undefined ? (
+          // The shell's sentence replaces the form's while both are true, for the reason
+          // the attach dialog states: the missing field is not the thing to act on.
+          <p className="meridian-bind__held" role="status">
+            {shellBlock.detail}
+          </p>
+        ) : verdict.status === "incomplete" ? (
           <p className="meridian-bind__blocked" role="status">
             {verdict.because}
           </p>

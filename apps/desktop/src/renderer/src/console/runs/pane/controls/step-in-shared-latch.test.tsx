@@ -21,6 +21,7 @@ import {
   withDaemonCall,
   type RecordedDaemonCall,
 } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
+import { quietShell } from "../../../store/shell-condition.test-support.js";
 import { capabilityReadout } from "./driver-capability-readout.test-support.js";
 import { dispatchRunControlCommand } from "./run-control-commands.js";
 import { runProjection } from "./run-control-commands.test-support.js";
@@ -44,6 +45,8 @@ function pressThePaletteRow(surface: RunControlSurface): void {
     {
       runs: [runProjection(TARGET_RUN_ID)],
       driverCapabilities: CAPABLE,
+      // Silence: this claim is about one latch over two entry points, not the shell.
+      frameStore: quietShell(),
       surface,
       onRequestSteer: () => undefined,
       onRequestRewind: () => undefined,

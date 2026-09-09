@@ -34,10 +34,10 @@
 // already said, so its own settlement is refused, and there is nothing left to clear
 // the value. So the reset is the first thing the new subscription does.
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useLayoutEffect } from "react";
 
 import { settleGrowthRead, useConsoleBridge } from "../../bridge/index.js";
-import type { GrowthPort } from "../../bridge/index.js";
+import type { ConsoleBridge, GrowthPort } from "../../bridge/index.js";
 import {
   UNREPORTED_SHELL_STATE,
   useGenerationLatch,
@@ -76,6 +76,7 @@ export function useShellStateBinding(
   sessionStoreRegistry: SessionStoreRegistry,
 ): void {
   const bridge = useConsoleBridge();
+  useShellConditionGateBinding(frameStore, bridge);
   useShellReportSubscription(frameStore, bridge.growth);
 
   // Folded through the store family's own hook, which compares the folded cause
@@ -84,6 +85,33 @@ export function useShellStateBinding(
   useEffect(() => {
     frameStore.publishSessionRecovery(sessionRecovery);
   }, [frameStore, sessionRecovery]);
+}
+
+/**
+ * Hand the window's store to the bridge's gate, so the CALL DOOR can read the
+ * condition this module fills.
+ *
+ * THE THIRD READER OF ONE VALUE, and the reason it is wired here rather than at the
+ * door. `bridge/daemon/daemon-reply.ts` refuses a record dispatch while the
+ * supervisor is not serving, and it is handed only a `ConsoleBridge` — the frame
+ * store is born in the frame composition with the bridge already a prop, so the
+ * binding has to come from the side that owns both. This hook owns both, and it is
+ * already the module that fills the value.
+ *
+ * A LAYOUT EFFECT AND NOT AN EFFECT, because a dispatch can be put from a mount
+ * effect in the same commit: a passive effect ordered after those would leave the
+ * first window's opening calls reading an unbound gate. The release names the store
+ * it bound, so a remount that binds the successor before the predecessor's cleanup
+ * runs does not clear the live binding.
+ */
+function useShellConditionGateBinding(frameStore: FrameStore, bridge: ConsoleBridge): void {
+  const { shellCondition } = bridge;
+  useLayoutEffect(() => {
+    shellCondition.bindFrameStore(frameStore);
+    return () => {
+      shellCondition.releaseFrameStore(frameStore);
+    };
+  }, [frameStore, shellCondition]);
 }
 
 /**

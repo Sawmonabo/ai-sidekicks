@@ -1,10 +1,9 @@
 // The screenshot tier for the agents family: the console pane, the two forms that move
 // a binding, and the page where saved definitions are kept.
 //
-// `frame.test.tsx`'s header owns the mechanism this file rides — the three
-// snapshot-update modes, why the pin is a RUNNER rather than a platform, and which
-// machine may mint a reference. `baseline-host.ts` holds the guard every suite takes and
-// the skip it issues, so nothing about either is restated here.
+// `settled-capture.ts` owns the mechanism this file rides: every capture is written
+// into the gitignored `__screenshots__/` and compared against nothing, so this file
+// gates on whether each surface can be captured at all.
 //
 // WHAT IS PINNED, AND WHY EACH OF IT IS A PICTURE RATHER THAN AN ASSERTION.
 //
@@ -35,24 +34,17 @@
 // pane and the page carry this family's whole palette — cards, chips, refusals, rules,
 // rows — and are worth pinning in both. The switch form and the dialog are drawn from the
 // same tokens on the same ground, so a second image of each would pin the token layer
-// twice and the composition no further, and every reference costs a comparison on every
+// twice and the composition no further, and every capture costs a photograph on every
 // run of the tier.
 //
-// PEER INVOCATION EARNS NO REFERENCE OF ITS OWN, deliberately. It is a session-scoped
+// PEER INVOCATION EARNS NO CAPTURE OF ITS OWN, deliberately. It is a session-scoped
 // grant with no second settled state to distinguish — it is inside the pane capture's
-// fourth column already, and a reference of its own would compare the same pixels under
-// a second name.
+// fourth column already, and a capture of its own would photograph the same pixels
+// under a second name.
 //
-// HOW MANY REFERENCES THERE ARE IS DERIVED AND NEVER WRITTEN DOWN — the cross product is
+// HOW MANY CAPTURES THERE ARE IS DERIVED AND NEVER WRITTEN DOWN — the cross product is
 // taken once, below, so the count the uniqueness case asserts is the same value the loop
 // runs rather than a second figure that goes stale when a surface joins the table.
-//
-// Every reference name here is UN-MINTED at the time this file lands. They are produced
-// by dispatching `.github/workflows/console-screenshot-baselines.yml` with
-// `mode: regenerate` on this branch; until that runs, this file compares only where the
-// references can be reproduced and skips with a stated reason everywhere else, which is
-// the honest state — a lane that wrote its own references would have committed images no
-// CI run reproduces.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -64,7 +56,6 @@ import {
   mountProviderSwitchSettlement,
   mountSidekickDefinitionsPage,
 } from "../surfaces/agents.js";
-import { skipOffBaselineHost, warnOnceOffBaselineHost } from "./baseline-host.js";
 import { captureSettled } from "./settled-capture.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
@@ -88,50 +79,50 @@ const LIGHT_ONLY: readonly ConsoleScheme[] = ["light"];
  * one more place for the scheme emulation or the skip guard to be forgotten.
  */
 const PINNED_SURFACES: readonly {
-  readonly referenceName: string;
+  readonly captureName: string;
   readonly schemes: readonly ConsoleScheme[];
   readonly mount: () => Promise<HTMLElement>;
 }[] = [
   {
-    referenceName: "agents-console-pane",
+    captureName: "agents-console-pane",
     schemes: CONSOLE_SCHEMES,
     mount: mountAgentConsolePane,
   },
   {
-    referenceName: "agents-sidekick-definitions",
+    captureName: "agents-sidekick-definitions",
     schemes: CONSOLE_SCHEMES,
     mount: mountSidekickDefinitionsPage,
   },
   {
-    referenceName: "agents-attach-dialog",
+    captureName: "agents-attach-dialog",
     schemes: LIGHT_ONLY,
     mount: mountAttachDialogOnDefinitionArm,
   },
   {
-    referenceName: "agents-provider-switch-pending",
+    captureName: "agents-provider-switch-pending",
     schemes: LIGHT_ONLY,
     mount: mountProviderSwitchPendingSupersession,
   },
   {
-    referenceName: "agents-switch-settlement",
+    captureName: "agents-switch-settlement",
     schemes: LIGHT_ONLY,
     mount: mountProviderSwitchSettlement,
   },
 ];
 
 /**
- * Every reference this file pins, one per surface per scheme it declared.
+ * Every capture this file writes, one per surface per scheme it declared.
  *
  * The cross product is taken ONCE and named, so the count the case below asserts is the
  * same value the loop runs and cannot be a second, hand-kept figure that drifts from it.
  */
-const PINNED_REFERENCES: readonly {
-  readonly referenceName: string;
+const PINNED_CAPTURES: readonly {
+  readonly captureName: string;
   readonly scheme: ConsoleScheme;
   readonly mount: () => Promise<HTMLElement>;
 }[] = PINNED_SURFACES.flatMap((surface) =>
   surface.schemes.map((scheme) => ({
-    referenceName: `${surface.referenceName}-${scheme}`,
+    captureName: `${surface.captureName}-${scheme}`,
     scheme,
     mount: surface.mount,
   })),
@@ -149,24 +140,22 @@ afterEach(async () => {
 });
 
 describe("screenshot — the agents family's surfaces", () => {
-  warnOnceOffBaselineHost();
-
   // This one runs everywhere, including off the pinned platform: it reads the table
-  // rather than the renderer. A duplicate reference name is silent on the machine that
+  // rather than the renderer. A duplicate capture name is silent on the machine that
   // mints — the second capture overwrites the first and both cases go green against one
   // image — so the uniqueness claim is asserted where it can be seen.
-  it("pins one distinctly-named reference per surface per declared scheme", () => {
-    expect(PINNED_REFERENCES).toHaveLength(
+  it("writes one distinctly-named capture per surface per declared scheme", () => {
+    expect(PINNED_CAPTURES).toHaveLength(
       PINNED_SURFACES.reduce((total, surface) => total + surface.schemes.length, 0),
     );
-    expect(new Set(PINNED_REFERENCES.map((reference) => reference.referenceName)).size).toBe(
-      PINNED_REFERENCES.length,
+    expect(new Set(PINNED_CAPTURES.map((capture) => capture.captureName)).size).toBe(
+      PINNED_CAPTURES.length,
     );
   });
 
   // This one runs everywhere too, and for the same reason: it reads what the subject
   // IS rather than how it looks, and a picture of a narrower state than the one the
-  // header claims is a green reference that answers a question nobody asked.
+  // header claims is a tidy picture that answers a question nobody asked.
   it("pins the settlement in the widest shape that line can render", async () => {
     const settlement = await mountProviderSwitchSettlement();
 
@@ -175,16 +164,15 @@ describe("screenshot — the agents family's surfaces", () => {
     }
   });
 
-  for (const reference of PINNED_REFERENCES) {
-    it(`renders ${reference.referenceName}`, async (context) => {
-      skipOffBaselineHost(context);
+  for (const capture of PINNED_CAPTURES) {
+    it(`renders ${capture.captureName}`, async () => {
       // Through the system preference rather than a stamped attribute: the token
       // sheet's dark layer is a `prefers-color-scheme` block, and driving it is what a
       // default install actually resolves.
-      await emulateSystemScheme(reference.scheme);
-      const element = await reference.mount();
+      await emulateSystemScheme(capture.scheme);
+      const element = await capture.mount();
 
-      await captureSettled(element, reference.referenceName);
+      await captureSettled(element, capture.captureName);
     });
   }
 });

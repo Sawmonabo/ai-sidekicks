@@ -18,6 +18,14 @@
 // `satisfies`, so a member the constraint stops admitting fails to compile; and the
 // partition case asks the authoritative tuple what that list is missing, so a member
 // the constraint starts admitting fails at run time. Neither half holds alone.
+//
+// THE PARTITION IS AN IDENTITY TODAY, WHICH IT DID NOT USED TO BE. It named two writes
+// the registry bound no schema for, and neither survives: `driver.applyIntervention` was
+// on the roster naming a method this console binds nowhere and cannot call, and it was
+// struck; `driver.respondToRequest` is bound. The registry's own suite now holds the
+// roster and its record set equal in BOTH directions, so the intersection's registry
+// half subtracts nothing — and the half of the constraint that still has teeth is the
+// type-level refusal below, which refuses a READ the registry does bind.
 
 import { describe, expect, it } from "vitest";
 
@@ -35,24 +43,28 @@ import type { CollaborationMutation, CollaborationMutationMethod } from "./mutat
  * partition case below.
  */
 const ADMITTED_METHODS = [
+  "run.queueCreate",
+  "run.queueCancel",
+  "run.pause",
+  "run.resume",
+  "run.intervene",
+  "driver.interruptRun",
+  "driver.compactContext",
+  "driver.respondToRequest",
+  "repo.attach",
+  "repo.workspaceBind",
+  "repo.executionModeSelect",
+  "repo.executionRootPrepare",
+  "repo.ephemeralClonePrepare",
+  "repo.ephemeralCloneDispose",
+  "repo.worktreeRetire",
   "session.create",
   "session.join",
   "membership.update",
   "invite.create",
   "invite.revoke",
-  "driver.interruptRun",
-  "driver.compactContext",
   "providerAccount.probe",
 ] as const satisfies readonly CollaborationMutationMethod[];
-
-/**
- * The mutating verbs the call door binds no schema for, today.
- *
- * They are writes — the store's tuple says so — and they are not collaboration
- * mutations, because the intersection's second half is the registry. Named rather than
- * subtracted silently so the partition below is a statement about both sets.
- */
-const UNBOUND_MUTATING_METHODS = ["driver.applyIntervention", "driver.respondToRequest"] as const;
 
 /** A session id and an invite id the wire's branded scalars accept. */
 const SESSION_ID = "019b7920-0000-7000-8000-000000000001";
@@ -64,18 +76,16 @@ describe("the collaboration mutation constraint", () => {
     // bind, is the authoritative tuple exactly. A verb added to that tuple fails here
     // until it is classified, which is the whole point of deriving rather than
     // declaring.
-    expect([...ADMITTED_METHODS, ...UNBOUND_MUTATING_METHODS].toSorted()).toStrictEqual(
-      [...MUTATING_DAEMON_METHODS].toSorted(),
-    );
+    expect([...ADMITTED_METHODS].toSorted()).toStrictEqual([...MUTATING_DAEMON_METHODS].toSorted());
   });
 
-  it("is a proper subset of the mutating tuple — the control", () => {
-    // Without this the partition above would hold for a constraint that admitted the
-    // whole tuple, which is the reading that lets an unbound verb through.
-    expect(UNBOUND_MUTATING_METHODS.length).toBeGreaterThan(0);
-    for (const method of UNBOUND_MUTATING_METHODS) {
-      expect([...ADMITTED_METHODS] as readonly string[]).not.toContain(method);
-    }
+  it("admits no read, which is what the identity above rests on — the control", () => {
+    // Without this the partition would hold just as well for a roster that had let a
+    // read in: the two lists would still be equal, and every read on it would become a
+    // collaboration mutation. The roster's own suite next door holds that line from the
+    // registry's side; this is the collaboration family asserting it depends on it.
+    expect(MUTATING_DAEMON_METHODS.length).toBeGreaterThan(0);
+    expect([...MUTATING_DAEMON_METHODS] as readonly string[]).not.toContain("session.read");
   });
 
   it("names the three verbs this family dispatches", () => {
@@ -133,11 +143,11 @@ describe("the constraint's type-level refusals", () => {
     expect(read).toBe("session.read");
   });
 
-  it("refuses a mutating verb the registry does not bind", () => {
+  it("refuses a verb neither half of the intersection holds", () => {
     // @ts-expect-error TS1360: Type '"driver.applyIntervention"' does not satisfy the
-    // expected type 'CollaborationMutationMethod'. The store calls it a write and the
-    // door binds no schema for it, so a dispatch naming it would compose an untyped
-    // payload.
+    // expected type 'CollaborationMutationMethod'. The door binds no schema for it and
+    // the store no longer calls it a write — it was on the roster naming a method this
+    // console cannot call, which is why a control disabled for it disabled nothing.
     const unbound = "driver.applyIntervention" satisfies CollaborationMutationMethod;
 
     expect(unbound).toBe("driver.applyIntervention");

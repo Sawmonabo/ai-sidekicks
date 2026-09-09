@@ -1,9 +1,8 @@
 // The screenshot tier: the composer family's surfaces, per scheme.
 //
-// `frame.test.tsx`'s header owns the mechanism this file rides — the three
-// snapshot-update modes, why the pin is a RUNNER rather than a platform, and which
-// machine may mint a reference. `baseline-host.ts` holds the guard both suites take
-// and the skip it issues, so nothing about it is restated here.
+// `settled-capture.ts` owns the mechanism this file rides: every capture is written
+// into the gitignored `__screenshots__/` and compared against nothing, so this file
+// gates on whether each surface can be captured at all.
 //
 // WHAT IS PINNED, AND WHY. The composer is one component whose whole design claim is
 // about ADDRESSING. `Spec-023 §Signature Feature Composition Sketches`' Session
@@ -28,12 +27,9 @@
 // rendered-never-reordered queue order that `bridge/queue/queue-feed.ts` states, and the
 // approvals pane's own.
 //
-// HOW MANY REFERENCES THERE ARE IS DERIVED AND NEVER WRITTEN DOWN — one per surface
+// HOW MANY CAPTURES THERE ARE IS DERIVED AND NEVER WRITTEN DOWN — one per surface
 // per scheme, off the table below. A number in this header is a claim no gate reads,
-// and it went stale the moment a surface joined the table. Every reference is minted
-// on the `macos-15` runner through `.github/workflows/console-screenshot-baselines.yml`.
-// A run anywhere else skips unless it asks — a developer Mac included, whose local
-// comparison is advisory in the small, measured way `frame.test.tsx` records.
+// and it went stale the moment a surface joined the table.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -47,29 +43,28 @@ import {
   mountRunsPane,
   type MountedFamilySurface,
 } from "../surfaces/composer.js";
-import { skipOffBaselineHost, warnOnceOffBaselineHost } from "./baseline-host.js";
 import { captureSettled } from "./settled-capture.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 
 /**
- * The surfaces this tier pins, each with the reference name it is committed under.
+ * The surfaces this tier captures, each with the name its image is written under.
  *
  * A table rather than one suite per surface: the cases differ only in which surface
  * is mounted, and a copy of the same six lines per surface is one more place for the
- * scheme emulation or the skip guard to be forgotten.
+ * scheme emulation to be forgotten.
  */
 const PINNED_SURFACES: readonly {
-  readonly referenceName: string;
+  readonly captureName: string;
   readonly mount: () => Promise<MountedFamilySurface>;
 }[] = [
-  { referenceName: "composer-channel-default", mount: mountComposerChannelDefault },
-  { referenceName: "composer-channel-addressed", mount: mountComposerChannelAddressed },
-  { referenceName: "composer-provider-bound-running", mount: mountComposerProviderBoundRunning },
-  { referenceName: "composer-provider-bound-waiting", mount: mountComposerProviderBoundWaiting },
-  { referenceName: "runs-pane-live", mount: mountRunsPane },
-  { referenceName: "approvals-pane-live", mount: mountApprovalsPane },
+  { captureName: "composer-channel-default", mount: mountComposerChannelDefault },
+  { captureName: "composer-channel-addressed", mount: mountComposerChannelAddressed },
+  { captureName: "composer-provider-bound-running", mount: mountComposerProviderBoundRunning },
+  { captureName: "composer-provider-bound-waiting", mount: mountComposerProviderBoundWaiting },
+  { captureName: "runs-pane-live", mount: mountRunsPane },
+  { captureName: "approvals-pane-live", mount: mountApprovalsPane },
 ];
 
 beforeEach(() => {
@@ -84,47 +79,44 @@ afterEach(async () => {
 });
 
 /**
- * Every reference this file pins, one per surface per scheme.
+ * Every capture this file writes, one per surface per scheme.
  *
  * The cross product is taken ONCE and named, so the count below is the same value
  * the loop runs and cannot be a second, hand-kept figure that drifts from it.
  */
-const PINNED_REFERENCES: readonly {
-  readonly referenceName: string;
+const PINNED_CAPTURES: readonly {
+  readonly captureName: string;
   readonly scheme: (typeof CONSOLE_SCHEMES)[number];
   readonly mount: () => Promise<MountedFamilySurface>;
 }[] = PINNED_SURFACES.flatMap((surface) =>
   CONSOLE_SCHEMES.map((scheme) => ({
-    referenceName: `${surface.referenceName}-${scheme}`,
+    captureName: `${surface.captureName}-${scheme}`,
     scheme,
     mount: surface.mount,
   })),
 );
 
 describe("screenshot — the composer, runs, and approvals surfaces", () => {
-  warnOnceOffBaselineHost();
-
   // This one runs everywhere, including off the pinned platform: it reads the table
-  // rather than the renderer. A duplicate reference name is silent on the machine
+  // rather than the renderer. A duplicate capture name is silent on the machine
   // that mints — the second capture overwrites the first and both cases go green
   // against one image — so the uniqueness claim is asserted where it can be seen.
-  it("pins one distinctly-named reference per surface per scheme", () => {
-    expect(PINNED_REFERENCES).toHaveLength(PINNED_SURFACES.length * CONSOLE_SCHEMES.length);
-    expect(new Set(PINNED_REFERENCES.map((reference) => reference.referenceName)).size).toBe(
-      PINNED_REFERENCES.length,
+  it("writes one distinctly-named capture per surface per scheme", () => {
+    expect(PINNED_CAPTURES).toHaveLength(PINNED_SURFACES.length * CONSOLE_SCHEMES.length);
+    expect(new Set(PINNED_CAPTURES.map((capture) => capture.captureName)).size).toBe(
+      PINNED_CAPTURES.length,
     );
   });
 
-  for (const reference of PINNED_REFERENCES) {
-    it(`renders ${reference.referenceName}`, async (context) => {
-      skipOffBaselineHost(context);
+  for (const capture of PINNED_CAPTURES) {
+    it(`renders ${capture.captureName}`, async () => {
       // Through the system preference rather than a stamped attribute: the token
       // sheet's dark layer is a `prefers-color-scheme` block, and driving it is
       // what a default install actually resolves.
-      await emulateSystemScheme(reference.scheme);
-      const mounted = await reference.mount();
+      await emulateSystemScheme(capture.scheme);
+      const mounted = await capture.mount();
 
-      await captureSettled(mounted.element, reference.referenceName);
+      await captureSettled(mounted.element, capture.captureName);
     });
   }
 });

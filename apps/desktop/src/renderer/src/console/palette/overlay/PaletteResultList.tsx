@@ -124,6 +124,12 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
                   key={result.command.id}
                   value={result.command.id}
                   className="console-palette__item"
+                  // `aria-disabled` and not `disabled`: the row stays listed, stays
+                  // reachable by arrow key, and stays readable, because its reason is
+                  // the thing a person came here to find out. The press below still
+                  // refuses it, so the closed state is enforced by the registry rather
+                  // than by the attribute.
+                  aria-disabled={result.command.unavailable !== undefined}
                   onClick={(event) => {
                     // A REFUSED ROW IS NEVER SELECTED, and `preventBaseUIHandler` is
                     // the library's own way to say so: merged handlers run ours first,
@@ -141,6 +147,11 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
                   <span className="console-palette__item-title">
                     {renderTitle(result.command.title, result.titleMatch?.matchedIndices)}
                   </span>
+                  {result.command.unavailable === undefined ? null : (
+                    <span className="console-palette__item-unavailable">
+                      {result.command.unavailable}
+                    </span>
+                  )}
                   {result.field === "title" ? null : (
                     <span className="console-palette__item-field">matched on {result.field}</span>
                   )}

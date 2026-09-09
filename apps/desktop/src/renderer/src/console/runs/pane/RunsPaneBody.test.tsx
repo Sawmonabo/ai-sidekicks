@@ -21,6 +21,7 @@ import type { DriverCapabilityReadout } from "../../bridge/index.js";
 import { RUN_ID, refusingBridge, renderPane, transition } from "./runs-pane.test-support.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { FrameStore } from "../../store/index.js";
+import { quietShell } from "../../store/shell-condition.test-support.js";
 
 describe("the row states the wire's own figures", () => {
   it("renders the nine-member state verbatim and never a gloss", async () => {
@@ -113,6 +114,10 @@ describe("controls are a fail-closed projection, never a local decision", () => 
     // set and its latch under the bridge, so a stub rebuilt on every render would be
     // a new transport on every render.
     const [bridge] = useState(refusingBridge);
+    // Held beside the bridge and for the same reason: the strip subscribes to whatever
+    // store it is handed, and these cases are about capability gating rather than about
+    // the shell, so the condition they run under is silence.
+    const [frameStore] = useState(quietShell);
     const surface = useRunControlSurface(bridge);
     const fold = new RunStateProjection();
     fold.accept(transition("queued", props.state, 2));
@@ -125,6 +130,7 @@ describe("controls are a fail-closed projection, never a local decision", () => 
         run={run}
         surface={surface}
         bridge={bridge}
+        frameStore={frameStore}
         driverCapabilities={props.driverCapabilities}
         onTakeTheFloor={() => undefined}
         onRequestRewind={() => undefined}

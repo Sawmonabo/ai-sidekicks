@@ -22,6 +22,7 @@ import {
 } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
 import { RootDisposalConfirmation } from "./RootDisposalConfirmation.js";
+import { quietShell } from "../../../store/shell-condition.test-support.js";
 
 /** A canonical UUID, so `repo.worktreeRetire` is a request the binding will send. */
 const WORKTREE_ID = "019b79ee-0280-740e-8110-d1a4c1150091";
@@ -47,6 +48,7 @@ function renderConfirmation(bridge: ConsoleBridge): ReturnType<typeof render> {
       bridge={bridge}
       kind="worktree"
       rootId={WORKTREE_ID}
+      frameStore={quietShell()}
       onSettled={() => undefined}
     />,
   );

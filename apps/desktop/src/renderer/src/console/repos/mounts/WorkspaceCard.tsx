@@ -44,7 +44,7 @@ import { ExecutionContextDisclosure } from "./ExecutionContextDisclosure.js";
 import { ExecutionModePicker } from "./ExecutionModePicker.js";
 import { workspaceControlPosture, type BindControlPosture } from "./mount-health.js";
 import { PrepareExecutionRoot } from "./roots/PrepareExecutionRoot.js";
-import type { SessionStore } from "../../store/index.js";
+import type { FrameStore, SessionStore } from "../../store/index.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
 
 /**
@@ -94,6 +94,13 @@ export interface WorkspaceCardProps {
    * held without this row composing a second wording for the same state.
    */
   readonly bindControls: BindControlPosture;
+  /**
+   * The window's own shell condition, handed down so each act can read the one method
+   * it sends. The FRAME's store and not the session's: a supervisor going down is a
+   * fact about this window's runtime, and every window watching the same session reads
+   * its own.
+   */
+  readonly frameStore: FrameStore;
   readonly onSelectExecutionMode: (executionMode: ExecutionMode) => void;
 }
 
@@ -155,6 +162,7 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
         refusalMode={props.refusalMode}
         pendingMode={props.pendingMode}
         posture={posture}
+        frameStore={props.frameStore}
         onSelect={props.onSelectExecutionMode}
       />
 
@@ -173,6 +181,7 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
         executionMode={workspace.executionMode}
         sessionStore={props.sessionStore}
         posture={posture}
+        frameStore={props.frameStore}
         onPrepared={props.onRequestRead}
       />
     </article>

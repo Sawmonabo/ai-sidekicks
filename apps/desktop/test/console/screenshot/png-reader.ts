@@ -1,30 +1,27 @@
-// The pixels of a PNG this tier wrote, read back inside the page that captured it.
+// The pixels of a capture this tier took, decoded inside the page that took it.
 //
-// WHY A TIER THAT COMPARES IMAGES NEEDS ONE. `toMatchScreenshot` answers one question —
-// does this capture equal the committed reference — and every claim it can make is
-// relative to an image somebody already approved. That is exactly the wrong instrument
-// for proving the CAPTURE MECHANISM works: the tall-capture defect produced references
-// that were stable, green against themselves, and blank below the window's edge. A
-// claim about what is in an image has to read the image.
+// WHY A CAPTURE AID NEEDS ONE. The tier compares nothing, so nothing it writes can
+// say whether the capture mechanism works. The tall-capture defect made that concrete:
+// every image the tier held was stable, self-consistent, and blank below the window's
+// edge, because a Playwright element screenshot is a clip in page coordinates and
+// nothing composites an iframe's overflow. A claim about what is in an image has to
+// read the image.
 //
 // AND WHY THIS IS NOT A DECODER. The tier runs in Chromium. `createImageBitmap` is that
 // browser's own PNG decoder, and a canvas is its own pixel buffer, so a hand-written
 // inflate-and-unfilter here would be a second implementation of something the runtime
 // already has — which `apps/desktop/AGENTS.md` §Shared code rejects in terms ("check the
 // `node:` standard library"; in a page the platform is the library). What is written
-// here is the two things the platform does NOT give: the bytes, which come back over
-// Vitest's own `readFile` command because the file is on the runner and the reader is in
-// a page, and the colour-management pins that keep a decode byte-exact.
+// here is the one thing the platform does not give: the colour-management pins that
+// keep a decode byte-exact.
 //
 // COLOUR CONVERSION IS TURNED OFF, ON PURPOSE. A 2D canvas will happily convert a
 // decoded image into its own colour space, and a capture read back through a conversion
 // is a capture nobody can assert an exact colour against. `colorSpaceConversion: "none"`
 // and `premultiplyAlpha: "none"` on the decode, and an explicit `srgb` context, are what
-// make `rowColours` report the bytes the file holds rather than a rendering of them.
+// make `rowColours` report the bytes the capture holds rather than a rendering of them.
 //
 // Not a test file — no `include` glob reaches it.
-
-import { server } from "vitest/browser";
 
 /** One decoded capture, addressable by row. */
 export class CapturedPng {
@@ -39,14 +36,13 @@ export class CapturedPng {
   }
 
   /**
-   * Read one PNG off the runner's filesystem and decode it here.
+   * Decode one PNG this page just captured.
    *
-   * The path is absolute and comes from whoever wrote the file — the matcher reports
-   * it — rather than being rebuilt from configuration, so a reader can never assert
-   * against a file some other run left behind under a path it guessed.
+   * The bytes come from the capture itself rather than from a file read back off a
+   * path, which is what lets a probe assert on exactly the image it took: a path
+   * rebuilt from configuration could name a file some earlier run left behind.
    */
-  public static async read(absolutePath: string): Promise<CapturedPng> {
-    const base64 = await server.commands.readFile(absolutePath, "base64");
+  public static async decode(base64: string): Promise<CapturedPng> {
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
     for (let index = 0; index < binary.length; index += 1) {
@@ -60,7 +56,7 @@ export class CapturedPng {
       const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
       const context = canvas.getContext("2d", { colorSpace: "srgb", willReadFrequently: true });
       if (context === null) {
-        throw new Error(`cannot decode ${absolutePath}: this page has no 2D canvas context`);
+        throw new Error("cannot decode the capture: this page has no 2D canvas context");
       }
       context.drawImage(bitmap, 0, 0);
       const image = context.getImageData(0, 0, bitmap.width, bitmap.height, { colorSpace: "srgb" });
@@ -70,12 +66,12 @@ export class CapturedPng {
     }
   }
 
-  /** The image's width in device pixels, which is its reference's width. */
+  /** The captured image's width in device pixels. */
   public get width(): number {
     return this.#width;
   }
 
-  /** The image's height in device pixels, which is its reference's height. */
+  /** The captured image's height in device pixels. */
   public get height(): number {
     return this.#height;
   }

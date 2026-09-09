@@ -86,3 +86,14 @@
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
 }
+
+/*
+ * What is holding the group, said as text because a disabled `fieldset` paints no
+ * reason of its own. Muted rather than amber, on `mount-acts.css`' held-versus-blocked
+ * split: this reports a condition rather than asking for something.
+ */
+.meridian-mode-picker__held {
+  margin: var(--meridian-space-1) 0 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}

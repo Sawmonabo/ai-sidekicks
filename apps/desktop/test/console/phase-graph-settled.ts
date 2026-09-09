@@ -30,9 +30,8 @@
 // line box inside every node sits at a fractional device-pixel offset. Two captures
 // taken on either side of the fit's commit rasterise those offsets to different
 // pixels: the glyph shapes are identical and individual text lines move by exactly
-// one pixel, which is the 582-pixel disagreement `ci.yml`'s screenshot job reported
-// against a reference minted on its own runner, from its own commit, by
-// `console-screenshot-baselines.yml`.
+// one pixel, which is the 582-pixel disagreement the screenshot tier reported, while
+// it still compared, against an image taken on its own runner from its own commit.
 //
 // SO THE WAIT IS ON A STATE, NEVER ON A CLOCK. A sleep long enough today is a sleep
 // too short on a loaded runner, and it would have to be paid on every subject. What

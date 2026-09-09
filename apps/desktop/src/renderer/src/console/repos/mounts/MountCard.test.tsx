@@ -26,6 +26,7 @@ import {
   workspaceRow,
   worktreeRecord,
 } from "./repo-mounts.test-support.js";
+import { quietShell } from "../../store/shell-condition.test-support.js";
 
 const WORKSPACE: RepoWorkspaceRow = workspaceRow();
 
@@ -62,6 +63,7 @@ function renderCard(
         nowMilliseconds={Date.UTC(2026, 0, 1, 9, 5, 2)}
         bridge={REFUSING_BRIDGE}
         sessionStore={new SessionStore({ sessionId: "session-repos" })}
+        frameStore={quietShell()}
         onCopyCanonicalRoot={() => undefined}
         onSelectExecutionMode={() => undefined}
         onRequestRead={() => undefined}

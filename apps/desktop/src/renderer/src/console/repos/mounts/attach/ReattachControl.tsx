@@ -34,7 +34,12 @@ import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { useCallback, useEffect, useRef } from "react";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import type { SessionStore } from "../../../store/index.js";
+import {
+  useShellBlockFor,
+  type FrameStore,
+  type SessionStore,
+  type MutatingDaemonMethod,
+} from "../../../store/index.js";
 import {
   InlineRefusal,
   Nothing,
@@ -46,6 +51,13 @@ import { useConfirmationLifecycle } from "../confirmation/index.js";
 import { mountRefusalRecovery } from "../mount-refusal-copy.js";
 import { useAttachController, type AttachActReading } from "./attach-controller.js";
 
+// The record method this control dispatches, TYPED against the roster rather than
+// spelled inline. `useShellBlockFor` takes a `string` — it has to, since it answers
+// `undefined` for every read method — so a misspelled literal is not a compile error
+// but a control that stays live through an outage and says nothing. `satisfies` is
+// what turns that into a build failure.
+const REPO_REATTACH_METHOD = "repo.attach" satisfies MutatingDaemonMethod;
+
 export interface ReattachControlProps {
   readonly bridge: ConsoleBridge;
   /** The session this mount belongs to, and the source of the roster read's triggers. */
@@ -54,6 +66,8 @@ export interface ReattachControlProps {
   readonly localPath: string;
   /** The node that owns this mount. The re-attach goes to the same machine. */
   readonly nodeId: string;
+  /** The window's own shell condition, read here for the one method this control sends. */
+  readonly frameStore: FrameStore;
   /** Ask the section to read again, so the minted mount appears beside this one. */
   readonly onAttached: () => void;
 }
@@ -61,6 +75,8 @@ export interface ReattachControlProps {
 export function ReattachControl(props: ReattachControlProps): React.JSX.Element {
   const { reading, attach, clearAct } = useAttachController(props.bridge, props.sessionStore);
   const { localPath, nodeId, onAttached } = props;
+  // The re-attach IS an attach — one `repo.attach` caller, so one method read.
+  const shellBlock = useShellBlockFor(props.frameStore, REPO_REATTACH_METHOD);
 
   const confirm = useCallback(() => {
     attach(localPath, nodeId);
@@ -88,7 +104,13 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
       <AlertDialog.Root onOpenChange={lifecycle.openChanged}>
         <AlertDialog.Trigger
           className="meridian-reattach__trigger"
+          // `disabled` while this control's own act is on the wire, `aria-disabled` while
+          // the supervisor is down. The second is not a stronger form of the first: an
+          // in-flight act settles on its own and there is nothing to read, while an
+          // unreachable supervisor is a condition a person has to be told about — so
+          // that arm keeps the trigger reachable and renders the sentence beside it.
           disabled={reading.act.status === "sending"}
+          aria-disabled={shellBlock !== undefined}
           aria-label={`Re-attach ${localPath}`}
         >
           Re-attach this path
@@ -129,6 +151,15 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
           </div>
         </OverlayAlertDialogPopup>
       </AlertDialog.Root>
+      {shellBlock === undefined ? null : (
+        // Said on the CARD and before the press, which is the half the door cannot do:
+        // confirming under a block still reaches `callDaemon` and still refuses with
+        // this same code, but by then a person has consented to a new mount that was
+        // never going to be minted.
+        <p className="meridian-reattach__closed" role="status">
+          {shellBlock.detail}
+        </p>
+      )}
       {renderSettlement(reading.act)}
     </div>
   );

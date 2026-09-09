@@ -6,9 +6,13 @@
 // surface owns. One harness rather than one per file: two suites drive this control
 // and a test file may not import another test file, so the mount lives here once.
 
+import { useState } from "react";
+
 import { useRunControlSurface, type RunControlSurface } from "./run-control-surface.js";
 import { StepIn } from "./StepIn.js";
 import { type ConsoleBridge } from "../../../bridge/index.js";
+import { type FrameStore } from "../../../store/index.js";
+import { quietShell } from "../../../store/shell-condition.test-support.js";
 import type { ScenarioReply } from "../../../bridge/scenario-runtime/scenario-reply.js";
 import type { ConsoleScenario } from "../../../bridge/scenario-runtime/scenario.js";
 
@@ -55,14 +59,21 @@ export function StepInHost(props: {
   readonly bridge: ConsoleBridge;
   readonly onTakeTheFloor: () => void;
   readonly surfaceSeen?: { current: RunControlSurface | undefined };
+  /** The shell condition the control is mounted under; silence, where a case has none. */
+  readonly frameStore?: FrameStore;
 }): React.JSX.Element {
   const surface = useRunControlSurface(props.bridge);
+  // Held for the host's whole life rather than minted per render: the control
+  // SUBSCRIBES to whatever store it is handed, and a fresh one each pass would
+  // resubscribe on every render instead of watching one window.
+  const [quiet] = useState(quietShell);
   if (props.surfaceSeen !== undefined) {
     props.surfaceSeen.current = surface;
   }
   return (
     <StepIn
       bridge={props.bridge}
+      frameStore={props.frameStore ?? quiet}
       surface={surface}
       targetRunId={TARGET_RUN_ID}
       expectedRunVersion={EXPECTED_RUN_VERSION}

@@ -10,7 +10,7 @@
 // there. The iframe is a fixed-size box in that page, so an element taller than the
 // iframe is laid out inside a scroll container and only the visible band is ever
 // composited: the clip returns that band, and then the page's background for every
-// row below it. Measured on the committed set — every reference taller than the
+// row below it. Measured on the committed set — every capture taller than the
 // 900 px window carried real content to row 899 and pure white to the bottom edge,
 // in the dark scheme as well as the light one, which is what makes it a capture
 // artefact rather than a surface that happens to end.
@@ -28,7 +28,7 @@
 // own padding, so each measures 64 px past whatever window it is in. Growing moves
 // both numbers together and photographs the same picture in a taller frame, so this
 // module names that outcome instead of chasing it — the capture is taken at the
-// window the tier configures, which is the size every other reference is minted at,
+// window the tier configures, which is the size every other capture is taken at,
 // and the overhang is that surface's own trailing padding rather than anything it
 // draws. Stated here because it is a property of THE SURFACE and not of the capture:
 // a destination that stops overflowing its scroll container stops taking this arm.
@@ -62,8 +62,8 @@
 // splitting them would leave the ceiling here and the budget it implies somewhere that
 // cannot see it. `STABILITY_WAIT_PER_VIEWPORT_MS` and `stabilityWaitMsFor` below.
 //
-// Not a test file — no `include` glob reaches it. Deliberately IMPORT-FREE, for
-// `baseline-platform.ts`'s reason: `vitest/screenshot-pins.ts` reads the ceiling
+// Not a test file — no `include` glob reaches it. Deliberately IMPORT-FREE:
+// `vitest/screenshot-pins.ts` reads the ceiling
 // below while Vitest RESOLVES ITS CONFIG, which happens in Node, and `vitest/browser`
 // throws outright when it is imported outside browser mode — so a binding folded in
 // here would take down every project in the package. That property is what makes this
@@ -161,7 +161,7 @@ export function stabilityWaitMsFor(heldViewportRatio: number): number {
  * padding — is exactly one window tall plus a constant, at every window. Growing
  * moves both numbers by the same amount and photographs the same picture in a taller
  * frame, so the honest answer is to stop and take it at the window the tier
- * configures, which is the size every other reference is minted at.
+ * configures, which is the size every other capture is taken at.
  *
  * `grow` CARRIES THE OVERHANG IT MEASURED rather than leaving the caller to subtract
  * the same two numbers over again. That figure is the input the next pass is judged
@@ -236,25 +236,25 @@ function nonClosingRunLength(overhangsPx: readonly number[]): number {
  * It throws rather than returning a wider window in the two cases where no window
  * would help. A surface wider than the page cannot be held at all — the page is
  * built at one width and a capture never changes it, because widening the window
- * would relayout the console at a width no reference was minted under. A surface
+ * would relayout the console at a width no capture is taken at. A surface
  * taller than the ceiling is refused for the reason the ceiling records, and the
  * ORDER against the third arm is the one choice here worth naming: a CONFIRMED
  * coupling is answered before the ceiling is consulted, because that surface is
  * photographed at the tier's own window and never needs a tall one, while a merely
- * SUSPECTED one is refused rather than assumed — assuming it is what mints an image
+ * SUSPECTED one is refused rather than assumed — assuming it is what writes an image
  * with an unpainted tail, and the ceiling's message is the honest thing to fail with.
  */
 export function captureWindowStep(
   applied: CaptureViewport,
   required: CaptureViewport,
   previousOverhangsPx: readonly number[],
-  referenceName: string,
+  captureName: string,
 ): CaptureWindowStep {
   if (required.width > applied.width) {
     throw new Error(
-      `Refusing to capture ${referenceName}: the surface extends ${String(required.width)}px ` +
+      `Refusing to capture ${captureName}: the surface extends ${String(required.width)}px ` +
         `across a ${String(applied.width)}px window, and a capture never widens one — a ` +
-        `console relaid out at another width is not the surface the references pin.`,
+        `console relaid out at another width is not the surface the captures pin.`,
     );
   }
   const overhangPx = required.height - applied.height;
@@ -266,7 +266,7 @@ export function captureWindowStep(
   }
   if (required.height > CAPTURE_WINDOW_HEIGHT_CEILING) {
     throw new Error(
-      `Refusing to capture ${referenceName}: the surface is ${String(required.height)}px tall ` +
+      `Refusing to capture ${captureName}: the surface is ${String(required.height)}px tall ` +
         `and this tier opens a window of at most ${String(CAPTURE_WINDOW_HEIGHT_CEILING)}px. ` +
         `A capture taller than that is not a surface a review can read; split it, or pin the ` +
         `part a person actually looks at.`,

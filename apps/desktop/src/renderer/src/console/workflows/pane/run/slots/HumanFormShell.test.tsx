@@ -47,7 +47,7 @@ import {
   bridgeThrowingSubmits,
   bridgeWatchingSubmits,
   fixtureWaitPhase,
-  loadSchemaFormBody,
+  resolveSchemaFormChunks,
   pressSubmit,
   renderSlot,
 } from "./HumanFormShell.test-support.js";
@@ -71,10 +71,11 @@ const RAW_ARM_SCHEMA = {
 /** A root asking for a single value, which no submission can carry. */
 const UNANSWERABLE_ROOT_SCHEMA = { type: "string" } as const;
 
-// The schema form arrives as its own chunk. Resolved once here so every case below
-// renders the loaded form rather than the reserved region its mount would otherwise
-// suspend on — the loader memoises the load, so this is the state a second form opens in.
-beforeAll(loadSchemaFormBody);
+// The schema form opens in two chunks: its own body, and the compiler the one act stays
+// closed until. Both are resolved once here, so every case below renders a loaded form
+// whose submit is armed rather than the reserved region its mount would otherwise suspend
+// on — each loader memoises, so this is the state a second form opens in.
+beforeAll(resolveSchemaFormChunks);
 
 describe("a waiting phase is answerable where the pane shows it", () => {
   it("renders the prompt the run read carried and the controls its schema draws", async () => {

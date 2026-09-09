@@ -125,6 +125,13 @@ async function settleInvocation(
           `${commandId} does not apply where this composer is, so it was not run.`,
         ),
       };
+    case "unavailable":
+      // The owner's own sentence, carried through rather than paraphrased. This zone
+      // knows a command was closed and never why; the family that closed it does.
+      return {
+        status: "refused",
+        refusal: clientCommandRefusal("command-unavailable-now", outcome.reason),
+      };
     case "ran":
       try {
         await outcome.completion;

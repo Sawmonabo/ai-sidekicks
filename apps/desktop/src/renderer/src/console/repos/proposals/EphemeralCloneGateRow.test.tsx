@@ -24,6 +24,7 @@ import {
 } from "./proposal-gate-model.js";
 import type { EphemeralCloneStatusRecord } from "../mounts/worktree-model.js";
 import { cloneRecord } from "../mounts/repo-mounts.test-support.js";
+import { quietShell } from "../../store/shell-condition.test-support.js";
 
 const NOW = Date.UTC(2026, 0, 1, 9, 30, 0);
 
@@ -61,6 +62,7 @@ function renderRow(
         subject={ephemeralCloneGateSubject(CLONE, workspaces)}
         bridge={SERVING_BRIDGE}
         sessionStore={new SessionStore({ sessionId: "session-repos" })}
+        frameStore={quietShell()}
         nowMilliseconds={NOW}
         onRequestRead={() => undefined}
       />

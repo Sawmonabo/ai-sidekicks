@@ -13,6 +13,11 @@
 //
 // `readable.ts` narrows a `zustand` store to the two methods a consumer needs, so
 // nothing outside this family holds a handle that can also WRITE.
+//
+// IT IS LONG AND IS NOT SPLIT, deliberately: the one relocation available — a
+// `shell/index.ts` this door re-exported through — `apps/desktop/AGENTS.md` forbids, a
+// family door re-exporting from the module that DECLARES a symbol and never through an
+// inner barrel. So the remedy is fewer published names, never the same names elsewhere.
 
 // The kind vocabulary leaves the family beside the reference it keys, because the
 // seat that decides which entity kinds a pane is a view of has to decide it for
@@ -137,23 +142,29 @@ export type {
 // rather than inside it: a block is derived from a state and a method name, and the
 // two halves have different readers — see `store/shell/shell-mutation-block.ts`'s own header.
 //
-// `currentShellBlock` ships beside `shellBlockForMethod` because a dispatching surface
-// needs both and they answer different questions: the rendered block draws the control,
+// `currentShellBlock` ships beside `useShellBlockFor` because a dispatching surface
+// needs both and they answer different questions: the subscribed block draws the control,
 // and the current one decides whether the call is put. Six surfaces take it — the
 // membership ledger, the sent-invite ledger, the invitation mint, the sessions
 // destination's act block, the onboarding step's re-check, and the ledger's answer to a
 // provider-raised ask — and a family that could not reach it through this door would spell
 // `getState().shellState` for itself, which is the second reading of which cell carries
 // the shell condition.
+//
+// `shellBlockForMethod` is deliberately HELD OFF this door: a raw derivation published
+// here is one a render body can call without memoising it, and the hook below is the
+// reading every surface takes instead.
 export {
   MUTATING_DAEMON_METHODS,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-5 — the run controls and the composer's send. */
+  // Both taken by the bidirectional pairing suite in `bridge/daemon/`, which holds this
+  // roster equal to the registry's own record set in each direction.
   isMutatingDaemonMethod,
-  shellBlockForMethod,
   // The same question asked where the call is PUT rather than where the control was
-  // drawn. A dispatching surface reads it in its handler, because a block that lands
-  // between the render and the press leaves a render-captured one fail-open.
+  // drawn: a block landing between the render and the press leaves a captured one
+  // fail-open. `currentShellMutationBlock` applies no method rule, for the one caller
+  // that has already classified from the registry's own `kind` column — the call door.
   currentShellBlock,
+  currentShellMutationBlock,
   shellBlocksAreEqual,
   shellMutationBlock,
 } from "./shell/shell-mutation-block.js";
@@ -164,7 +175,10 @@ export {
 // exist to keep from being spelled twice.
 export { isShellBlockRefusal, shellBlockRefusal } from "./shell/shell-mutation-block.js";
 export type { MutatingDaemonMethod, ShellMutationBlock } from "./shell/shell-mutation-block.js";
-export { useRailAttentionCount, useShellState } from "./shell/frame-hooks.js";
+// `useShellBlockFor` is the subscribed per-method reading every dispatching surface
+// draws its disabled state and its reason from — one hook rather than the same three
+// lines per family, each of them free to re-render a control on every heartbeat.
+export { useRailAttentionCount, useShellBlockFor, useShellState } from "./shell/frame-hooks.js";
 // Every open session's projection as one signal, and the one fold the frame takes
 // over it. Published because the two callers sit on opposite sides of the console
 // DAG — a view family and `frame/` — so the mechanism can only be shared from here.

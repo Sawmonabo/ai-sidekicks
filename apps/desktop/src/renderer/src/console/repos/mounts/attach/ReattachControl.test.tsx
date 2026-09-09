@@ -23,6 +23,7 @@ import {
 import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
 import { SessionStore } from "../../../store/index.js";
 import { ReattachControl } from "./ReattachControl.js";
+import { quietShell } from "../../../store/shell-condition.test-support.js";
 
 /** A canonical UUID, so `repo.attach` is a request the daemon binding will send. */
 const SESSION_ID = "019b79ee-0280-740e-8110-d1a4c1150091";
@@ -50,6 +51,7 @@ function renderControl(bridge: ConsoleBridge): ReturnType<typeof render> {
     <ReattachControl
       bridge={bridge}
       sessionStore={new SessionStore({ sessionId: SESSION_ID })}
+      frameStore={quietShell()}
       localPath={LOCAL_PATH}
       nodeId={NODE_ID}
       onAttached={() => undefined}

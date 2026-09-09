@@ -4,10 +4,10 @@
 // HOISTED BECAUSE TWO FILES PIN A WHOLE FRAME. `workspace.test.tsx` is about the
 // sidebar and states the hazard in its own header: the collapse a person makes is
 // DURABLE, so a case that arrived carrying another case's arrangement once put a
-// collapsed sidebar under the dark expanded reference. `ledger.test.tsx`'s flagship
+// collapsed sidebar under the dark expanded capture. `ledger.test.tsx`'s flagship
 // pair is not about the sidebar at all and is exposed to exactly the same thing —
 // the sidebar is in that frame, so a restored collapse moves the image the flagship
-// reference is named for. A per-file copy of the reading would be two answers to
+// capture is named for. A per-file copy of the reading would be two answers to
 // "which arm is this", and the copy in the file that is not about the sidebar is the
 // one that would rot.
 //
@@ -48,11 +48,11 @@ export function sidebarIsCollapsed(container: HTMLElement): boolean {
 }
 
 /**
- * Refuse a capture of a sidebar that is not in the state its reference was minted in.
+ * Refuse a capture of a sidebar that is not in the arm this capture is named for.
  *
  * A throw rather than the assert-then-return-early shape, on the tier's own doctrine:
  * a case that photographed the wrong arm and reported a pass is exactly what put a
- * collapsed sidebar under the dark expanded reference. The collapsed case in
+ * collapsed sidebar under the dark expanded capture. The collapsed case in
  * `workspace.test.tsx` needs no mirror of this before its click — the collapse control
  * exists only on the expanded arm, so a mount that arrived collapsed is refused by
  * that file's own `collapseSidebar` for having no control to press.
@@ -61,7 +61,7 @@ export function requireSidebarExpanded(container: HTMLElement): void {
   if (sidebarIsCollapsed(container)) {
     throw new Error(
       "the sidebar rendered its collapsed arm, so this capture would put a collapsed sidebar under " +
-        "a reference minted with the expanded one — an earlier case's arrangement was restored into " +
+        "a capture taken with the expanded one — an earlier case's arrangement was restored into " +
         "this mount",
     );
   }

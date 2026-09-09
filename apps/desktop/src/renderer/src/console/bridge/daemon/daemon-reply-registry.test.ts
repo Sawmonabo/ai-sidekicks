@@ -1,9 +1,18 @@
 // The method registry, held to the corpus's own rules.
 //
-// Three claims a compiler cannot make: that every method string is a name the wire
-// admits, that every binding really is a live schema rather than a placeholder, and
-// that the runtime lookup the fixture uses answers exactly for the methods the table
-// holds.
+// Four claims a compiler cannot make: that every method string is a name the wire
+// admits, that every binding really is a live schema rather than a placeholder, that
+// the runtime lookup the fixture uses answers exactly for the methods the table holds,
+// and that the RECORD set this table declares is the same set
+// `store/shell/shell-mutation-block.ts` disables controls from.
+//
+// THAT LAST ONE IS THE PAIRING, AND IT IS BIDIRECTIONAL. The store family sits BELOW
+// the bridge on the console DAG and may not import this module, so the roster is a
+// second literal — and two literals about one set drift. A roster member this table
+// does not call a record is a control disabled for a write that does not exist; a
+// record the roster omits is a write that stays live through an outage with its
+// control still offering itself. Both directions are checked, over the VALUES the two
+// modules export rather than over their source text.
 
 import { METHOD_NAME_FORMAT } from "@ai-sidekicks/contracts";
 
@@ -11,8 +20,10 @@ import {
   CONSOLE_DAEMON_METHODS,
   CONSOLE_DAEMON_METHOD_BINDINGS,
   daemonMethodBindingFor,
+  isRecordDaemonMethod,
 } from "./daemon-reply-registry.js";
 import { GROWTH_OPERATIONS } from "../growth-operations/index.js";
+import { MUTATING_DAEMON_METHODS, isMutatingDaemonMethod } from "../../store/index.js";
 
 describe("the console daemon-method registry", () => {
   it("has a set to check at all", () => {
@@ -104,5 +115,37 @@ describe("the console daemon-method registry", () => {
     }
     expect(daemonMethodBindingFor("gitflow.branchContextRead")).toBeUndefined();
     expect(daemonMethodBindingFor("toString")).toBeUndefined();
+  });
+});
+
+describe("the roster IS this registry's record set", () => {
+  it("names every record this table binds", () => {
+    const unrostered = CONSOLE_DAEMON_METHODS.filter(
+      (method) => isRecordDaemonMethod(method) && !isMutatingDaemonMethod(method),
+    );
+
+    expect(unrostered).toStrictEqual([]);
+  });
+
+  it("names nothing this table does not bind as a record", () => {
+    const unregistered = MUTATING_DAEMON_METHODS.filter((method) => !isRecordDaemonMethod(method));
+
+    expect(unregistered).toStrictEqual([]);
+  });
+
+  it("leaves every read off the roster", () => {
+    const reads = CONSOLE_DAEMON_METHODS.filter((method) => !isRecordDaemonMethod(method));
+
+    expect(reads.filter((method) => isMutatingDaemonMethod(method))).toStrictEqual([]);
+    // Both halves are non-empty, so neither assertion above is vacuously true.
+    expect(reads.length).toBeGreaterThan(0);
+    expect(CONSOLE_DAEMON_METHODS.length - reads.length).toBeGreaterThan(0);
+  });
+
+  it("answers false for a method this table does not bind", () => {
+    // A name that reaches no wire through this console has no write for the supervisor
+    // block to close, so the door lets the registry refuse it instead.
+    expect(isRecordDaemonMethod("session.read")).toBe(false);
+    expect(isRecordDaemonMethod("")).toBe(false);
   });
 });
