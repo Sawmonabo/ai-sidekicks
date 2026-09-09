@@ -59,10 +59,29 @@ export interface SectionBindings {
    *
    * Opening a pane is the deck's act, so most section cases have nothing to say
    * here; a case about a card's own way into a pane hands one in rather than
-   * rebuilding the context around it.
+   * rebuilding the context around it — and this member is how a suite says so OUT
+   * LOUD, exactly as `pane-context.test-support.ts`'s `uiStateStore` is. The default
+   * below is what a case that stays silent gets, and it refuses.
    */
   readonly openPane?: ConsolePaneOpener | undefined;
 }
+
+/**
+ * The default opener, which REFUSES rather than absorbing the call.
+ *
+ * The discipline the pane seat beside this one states and defends: a default that
+ * answers quietly is a default a surface can grow a dependency on, and the growth is
+ * invisible. A silent no-op here meant a section that reached the deck passed in every
+ * suite that had not thought about it — and would keep passing after the deck's act
+ * became the thing the section was for. A section that opens a pane through a context
+ * nobody handed an opener now FAILS, at the call, naming the address it tried to open;
+ * a case that is about that reach hands one in.
+ */
+const refusingPaneOpener: ConsolePaneOpener = (address) => {
+  throw new Error(
+    `a section opened the ${address.kind} pane through a context that was handed no opener`,
+  );
+};
 
 /** The context a section body is mounted with. */
 export function sectionContext(bindings: SectionBindings): SidebarSectionContext {
@@ -71,6 +90,6 @@ export function sectionContext(bindings: SectionBindings): SidebarSectionContext
     bridge: bindings.bridge,
     sessionStore: bindings.sessionStore,
     frameStore: bindings.frameStore ?? new FrameStore(),
-    openPane: bindings.openPane ?? (() => undefined),
+    openPane: bindings.openPane ?? refusingPaneOpener,
   };
 }
