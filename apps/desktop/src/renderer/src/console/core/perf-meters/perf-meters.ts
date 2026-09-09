@@ -1,10 +1,19 @@
 // The dev-tier perf meters.
 //
-// `Spec-023 §Console Design (Meridian)` names four readings an author needs while
-// the console is running and no shipped build should pay for: frame time per lane,
-// reveal drain per frame, apply latency, and store sizes. They are the four the
-// budgets are stated over, so a meter that reported anything else would be a figure
-// nobody could act on.
+// Four readings an author needs while the console is running and no shipped build
+// should pay for: frame time per lane, reveal drain per frame, apply latency, and
+// store sizes.
+//
+// EXACTLY ONE OF THE FOUR IS A FIGURE A BUDGET IS STATED OVER, and saying so is the
+// point of this paragraph. `Spec-023 §Budgets` is an eight-row table, and the one row
+// naming a reading this module takes is "Frame time, four lanes streaming | p95 ≤
+// 16.7 ms on the reference machine". Reveal drain, apply latency, and store size are
+// stated over no budget row in that table and carry no row in `budgets.json` either:
+// they are what THIS module proposes, because the frame budget is the only one of the
+// four whose regressions the others make legible — an overrunning drain, a stalled
+// apply, and a store that grew are each a way of spending the p95 that budget bounds,
+// and none of them is visible in the p95 itself. Naming the split is what lets a later
+// lane re-derive the budget set from `budgets.json` and find it agrees.
 //
 // COMPILED OUT OF RELEASE BY THE FIXTURE DEFINE, not gated at runtime. Every
 // recording entry point below is a `if (__SIDEKICKS_CONSOLE_FIXTURES__)` body, which

@@ -48,6 +48,16 @@
 // package's own stylesheet rule rather than a build flag, and the sweep below is what
 // keeps the sheet from drifting back onto an ungated root.
 //
+// THE FOURTH SUBJECT: THE DEV-TIER PERF METERS (2026-09-09). Back to the door, and this
+// time the door is a set of string literals. `core/perf-meters/perf-meters.ts` makes
+// "COMPILED OUT OF RELEASE BY THE FIXTURE DEFINE" its central design claim — every
+// recording entry point is an `if (__SIDEKICKS_CONSOLE_FIXTURES__)` body and the kind
+// tuple has no production reader — and nothing checked it. The claim is checkable HERE
+// and would have been vacuous as a source-text tripwire: the module is reached from the
+// production entry through `core/index.ts`, so a literal it declares is genuinely in the
+// graph, and its absence from `out/renderer` is evidence of the fold rather than evidence
+// of nothing.
+//
 // THE MARKERS ARE READ FROM THE CORPUS, never written here, so a scenario a later
 // family adds is swept the day it lands and no roster in this file goes stale. They are
 // read from the corpus's SOURCE rather than imported from it, because this project's lib
@@ -69,6 +79,7 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import { FIXTURE_GLOBAL_NAMES } from "../../../src/renderer/src/console/core/fixture-globals.js";
+import { PERF_METER_KINDS } from "../../../src/renderer/src/console/core/perf-meters/perf-meters.js";
 import { readBuiltTextOrFailLoudly, type BuiltFile } from "./built-renderer-tree.js";
 import {
   CONSOLE_DIRECTORY,
@@ -267,6 +278,45 @@ function ownerSlotShellClassRoots(): readonly string[] {
 
 const OWNER_SLOT_SHELL_CLASS_ROOTS: readonly string[] = ownerSlotShellClassRoots();
 
+/** Where the perf meters live, as the one subtree this sweep's filter subtracts. */
+const PERF_METER_DIRECTORY_PREFIX = "core/perf-meters/";
+
+/**
+ * The perf-meter kinds a release renderer must not carry, derived rather than named.
+ *
+ * SWEPT FOR THE KINDS NO OTHER CONSOLE MODULE WRITES, and that filter is the whole
+ * design. `"reveal-drain"` is also a `ledger/frame/viewport/cycle/window-cap.ts` reason
+ * code and a `viewport-prune-cycle.ts` case label — real product strings a clean release
+ * build carries for their own reasons — so sweeping the tuple whole would fail on a
+ * correct bundle and be silenced rather than believed, which is exactly what the
+ * scenario-label subject above already paid for once. The filter reads the tree rather
+ * than naming the exceptions, so a kind that gains a second declaration leaves the sweep
+ * on the day it does, and a fifth kind joins it on the day IT does.
+ *
+ * The tuple itself is IMPORTED rather than parsed, unlike the scenario corpus: it is a
+ * leaf whose only import is its own bounds table, so it reaches neither the DOM nor a
+ * workspace package, and this tier's block in `vitest/console-projects.ts` names that
+ * exact property as the reason it substitutes the define — a renderer constant a rename
+ * should break at compile time.
+ */
+function releaseAbsentMeterKinds(): readonly string[] {
+  const declaredElsewhere = new Set<string>();
+  for (const module of consoleSourceModules()) {
+    if (toPosixSeparators(module.relativePath).startsWith(PERF_METER_DIRECTORY_PREFIX)) {
+      continue;
+    }
+    const text = readConsoleSourceModule(module);
+    for (const kind of PERF_METER_KINDS) {
+      if (text.includes(kind)) {
+        declaredElsewhere.add(kind);
+      }
+    }
+  }
+  return PERF_METER_KINDS.filter((kind) => !declaredElsewhere.has(kind));
+}
+
+const RELEASE_ABSENT_METER_KINDS: readonly string[] = releaseAbsentMeterKinds();
+
 /**
  * Which built files carry a marker.
  *
@@ -345,6 +395,27 @@ describe("release bundle — the fixture surface is absent, not merely unreachab
         "being imported from a module the `__SIDEKICKS_CONSOLE_FIXTURES__` fold does not " +
         "remove. Both halves are needed: the door owns the sheet, and " +
         "`electron.vite.config.ts` declares the door's directory side-effect-free.",
+    ).toStrictEqual([]);
+  });
+
+  it("positive control: the meter sweep has kinds left to look for", () => {
+    // The derivation subtracts every kind another console module also writes, so a
+    // filter that widened by one module would empty the set and make the case below
+    // vacuous without failing it. This is the assertion that catches that, and it is
+    // the one that fires the day a family names a meter kind in its own vocabulary.
+    expect(RELEASE_ABSENT_METER_KINDS.length).toBeGreaterThan(0);
+  });
+
+  it.each(RELEASE_ABSENT_METER_KINDS)("does not ship the perf-meter kind %s", (kind) => {
+    const carriers = carriersOf(kind, builtFiles);
+    expect(
+      carriers,
+      `"${kind}" reached the built tree, so a release renderer is carrying the dev-tier ` +
+        "perf meters. Either `out/renderer` currently holds a fixtures build — " +
+        "`pnpm build:fixtures` and `pnpm build` write the same directory — or a recording " +
+        "call site has left its `__SIDEKICKS_CONSOLE_FIXTURES__` guard, or `PERF_METER_KINDS` " +
+        "gained a production reader that keeps the tuple in the graph. The guard is the " +
+        "mechanism the module's own header claims; this is the outcome.",
     ).toStrictEqual([]);
   });
 
