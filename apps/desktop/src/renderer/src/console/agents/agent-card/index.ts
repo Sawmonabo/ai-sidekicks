@@ -15,9 +15,16 @@
 // this door for something the card does not own.
 //
 // WHAT IS PUBLISHED IS WHAT THE SIBLING TAKES, and nothing for symmetry. The column
-// mounts the card and reads nothing else here: the seven parts are the card's own
-// composition, and the grant projection is read by the card itself. A door line for
-// either would be an export no module outside this directory names, which the barrel
-// census fails.
+// mounts the card and states the tool-grant ceiling above the roster, and reads
+// nothing else here: the card's parts are its own composition, and the grant
+// projection is read by the card itself. A door line for any of them would be an
+// export no module outside this directory names, which the barrel census fails.
+//
+// WHY THE CEILING IS PUBLISHED FROM HERE AND RENDERED A LEVEL UP. It is the node-wide
+// half of the tool-governance rule the three modules in this directory hold — the
+// projection, the line, and the echo's row — so it belongs beside them; but it is true
+// of every agent in the roster rather than of any one of them, so the column renders
+// it once above the cards rather than the card rendering it per agent.
 
 export { AgentCard } from "./AgentCard.js";
+export { ToolGrantCeiling } from "./ToolGrantCeiling.js";
