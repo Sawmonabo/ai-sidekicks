@@ -53,6 +53,7 @@ import {
   readRunId,
   type ConsoleBridge,
 } from "../../../bridge/index.js";
+import { type MutatingDaemonMethod } from "../../../store/index.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const RUN_CONTROL_REFUSAL_ORIGIN = "run-controls";
@@ -80,6 +81,39 @@ export const RUN_CONTROLS = [
 
 /** One control. Derived from the tuple, never restated. */
 export type RunControl = (typeof RUN_CONTROLS)[number];
+
+/**
+ * The three daemon methods the six controls reach.
+ *
+ * An intersection with the store's own roster of methods an outage closes, rather than
+ * a bare union, so that a method LEAVING that roster fails here at compile time instead
+ * of quietly leaving a run control open through an outage that closes the call behind
+ * it.
+ */
+export type RunControlMethod = MutatingDaemonMethod &
+  ("run.pause" | "run.resume" | "run.intervene");
+
+/**
+ * The method each control reaches, total over the six.
+ *
+ * DECLARED BESIDE THE DISPATCH THAT SENDS IT, because the row above needs the same
+ * fact and must not answer it a second time: whether a control is closed while the
+ * supervisor is not serving is a question about the METHOD, and a table written up in
+ * `RunControls.tsx` would be free to say `run.interrupt` — which no registry binds —
+ * long after this file had stopped agreeing with it.
+ *
+ * Four of the six collapse onto `run.intervene`: the registered
+ * `InterventionRequestPayload` is one method with four arms, and the arm the caller
+ * pressed is not part of the method string.
+ */
+export const RUN_CONTROL_METHODS: Readonly<Record<RunControl, RunControlMethod>> = {
+  pause: "run.pause",
+  resume: "run.resume",
+  steer: "run.intervene",
+  interrupt: "run.intervene",
+  cancel: "run.intervene",
+  rollback: "run.intervene",
+};
 
 /** What one settled dispatch says. */
 export type RunControlOutcome =
@@ -209,7 +243,7 @@ export class RunControlDispatcher {
 
   /** Pause and resume: one shape, one acknowledgment, one comparand threaded back. */
   async #dispatchControlVerb(
-    control: RunControl,
+    control: "pause" | "resume",
     method: "run.pause" | "run.resume",
     target: RunControlTarget,
   ): Promise<RunControlOutcome> {

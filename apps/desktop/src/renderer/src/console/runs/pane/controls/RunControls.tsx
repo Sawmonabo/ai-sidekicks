@@ -35,7 +35,16 @@ import { useCallback, useMemo, useState } from "react";
 import type { ConsoleBridge, DriverCapabilityReadout } from "../../../bridge/index.js";
 import { Glyph, RemediedRefusal } from "../../../primitives/index.js";
 import { GLYPH_SIZE_ROW } from "../../../tokens/index.js";
-import { type RunControl } from "./run-control-dispatch.js";
+import {
+  useShellBlockFor,
+  type FrameStore,
+  type ShellMutationBlock,
+} from "../../../store/index.js";
+import {
+  RUN_CONTROL_METHODS,
+  type RunControl,
+  type RunControlMethod,
+} from "./run-control-dispatch.js";
 import { offeredRunControls } from "./run-control-gating.js";
 import { readRunControlSettlement } from "./run-control-reading.js";
 import { inFlightKeyFor, type RunControlSurface } from "./run-control-surface.js";
@@ -48,6 +57,14 @@ export interface RunControlsProps {
   readonly surface: RunControlSurface;
   /** Handed to `StepIn`, which holds the token of its own dispatch under it. */
   readonly bridge: ConsoleBridge;
+  /**
+   * The window's own shell condition, which decides whether these controls may be
+   * pressed at all.
+   *
+   * The FRAME's store and not the session's: a supervisor going down is a fact about
+   * this window's runtime, and every window watching the same session reads its own.
+   */
+  readonly frameStore: FrameStore;
   /**
    * The capability read, retained per driver. This row resolves it for ITS OWN run:
    * a session with two drivers must not let either one's declaration decide the
@@ -66,6 +83,25 @@ export function RunControls(props: RunControlsProps): React.JSX.Element {
   const { run, surface, driverCapabilities } = props;
   const [isOverflowOpen, setOverflowOpen] = useState(false);
   const comparand = surface.dispatcher.comparandFor(run.runId, run.runVersion);
+
+  // WHETHER THIS WINDOW MAY SEND THESE CALLS AT ALL, subscribed off the one seam every
+  // dispatching surface in the console asks. THREE reads and not one, because that seam
+  // answers about a METHOD rather than about the window: the six controls reach three
+  // methods, and a roster that later closed the intervention verb while leaving pause
+  // open would move two of these three — which a single read could not express.
+  //
+  // THE RENDERED HALF ONLY. These draw the controls and ride them as their disabled
+  // reason. Whether a press is admitted is settled again at `callDaemon`, which refuses
+  // a record method at the door, so a block landing between this render and the press is
+  // caught there rather than here, where the reading is as old as the last commit.
+  const pauseBlock = useShellBlockFor(props.frameStore, RUN_CONTROL_METHODS.pause);
+  const resumeBlock = useShellBlockFor(props.frameStore, RUN_CONTROL_METHODS.resume);
+  const interveneBlock = useShellBlockFor(props.frameStore, RUN_CONTROL_METHODS.interrupt);
+  const shellBlockByMethod: Readonly<Record<RunControlMethod, ShellMutationBlock | undefined>> = {
+    "run.pause": pauseBlock,
+    "run.resume": resumeBlock,
+    "run.intervene": interveneBlock,
+  };
 
   const onResume = useCallback(() => {
     surface.dispatch(run.runId, "resume", (dispatcher) =>
@@ -123,12 +159,14 @@ export function RunControls(props: RunControlsProps): React.JSX.Element {
           <ControlButton
             control="resume"
             isBusy={surface.inFlightKeys.has(inFlightKeyFor(run.runId, "resume"))}
+            disabledReason={disabledReasonFor("resume", shellBlockByMethod)}
             onPress={onResume}
           />
         ) : null}
         {offered.primary.includes("pause") ? (
           <StepIn
             bridge={props.bridge}
+            frameStore={props.frameStore}
             surface={surface}
             targetRunId={run.runId}
             expectedRunVersion={comparand}
@@ -144,6 +182,7 @@ export function RunControls(props: RunControlsProps): React.JSX.Element {
           <ControlButton
             control="interrupt"
             isBusy={surface.inFlightKeys.has(inFlightKeyFor(run.runId, "interrupt"))}
+            disabledReason={disabledReasonFor("interrupt", shellBlockByMethod)}
             onPress={onInterrupt}
           />
         ) : null}
@@ -172,6 +211,7 @@ export function RunControls(props: RunControlsProps): React.JSX.Element {
               key={control}
               control={control}
               isBusy={surface.inFlightKeys.has(inFlightKeyFor(run.runId, control))}
+              disabledReason={disabledReasonFor(control, shellBlockByMethod)}
               onPress={onOverflowPress[control]}
             />
           ))}
@@ -180,6 +220,26 @@ export function RunControls(props: RunControlsProps): React.JSX.Element {
       {refusal === undefined ? null : <RemediedRefusal refusal={refusal} />}
     </div>
   );
+}
+
+/**
+ * The sentence that closed a control, or `undefined` where nothing closed it.
+ *
+ * The one place the strip turns a shell block into a control's reason, so the two
+ * halves — the primary buttons and the overflow group — cannot come to say different
+ * things about one outage. The reason is the block's own `detail` verbatim: the banner
+ * above the frame is already saying it, and a control paraphrasing it would be a second
+ * account of one condition.
+ *
+ * Steer and rollback are closed here even though pressing either only opens a composer:
+ * what that composer confirms is `run.intervene`, so offering the compose under a block
+ * invites a person to write a message the console cannot send.
+ */
+function disabledReasonFor(
+  control: RunControl,
+  blockByMethod: Readonly<Record<RunControlMethod, ShellMutationBlock | undefined>>,
+): string | undefined {
+  return blockByMethod[RUN_CONTROL_METHODS[control]]?.detail;
 }
 
 /** What a gone run offers, which is nothing on either half of the strip. */

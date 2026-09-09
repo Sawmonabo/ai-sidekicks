@@ -5,70 +5,24 @@
 // and a reading test cannot tell the difference between a withdrawn control and a
 // control that was never offered.
 
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 
 import { refuse } from "../../../core/index.js";
-import { type ConsoleBridge, type DriverCapabilityReadout } from "../../../bridge/index.js";
-import { type RunProjection } from "../run-state-projection.js";
-import { RunControls } from "./RunControls.js";
-import { capabilityReadout } from "./driver-capability-readout.test-support.js";
-import { type RunControlRecord, type RunControlSurface } from "./run-control-surface.js";
-
-const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
-
-const RUNNING: RunProjection = {
-  runId: RUN_ID,
-  runVersion: 7,
-  state: "running",
-  trigger: undefined,
-  intendedClose: false,
-  failureCategory: undefined,
-  providerFailureDetail: undefined,
-  rewoundToPosition: undefined,
-  executionPosture: undefined,
-  firstSeenAtIso: "2026-09-02T09:00:00.000Z",
-  updatedAtIso: "2026-09-02T09:00:00.000Z",
-  statusRows: [],
-};
-
-const CAPABLE: DriverCapabilityReadout = capabilityReadout(
-  [["claude", ["steer", "rollback"]]],
-  [[RUN_ID, "claude"]],
-);
+import { RUN_ID, renderControls as renderStrip } from "./run-controls.test-support.js";
+import { type RunControlRecord } from "./run-control-surface.js";
 
 function refusedWith(code: string): RunControlRecord {
   return {
     recordId: "one",
     runId: RUN_ID,
     control: "pause",
-    outcome: { kind: "refused", control: "pause", refusal: refuse("run-control", code, "…") },
-  };
-}
-
-function surfaceHolding(records: readonly RunControlRecord[]): RunControlSurface {
-  return {
-    dispatcher: {
-      comparandFor: (_runId: string, streamReading: number) => streamReading,
-    } as RunControlSurface["dispatcher"],
-    records,
-    inFlightKeys: new Set<string>(),
-    dispatch: () => ({ admitted: true, dispatchToken: "token" }),
+    outcome: { kind: "refused", control: "pause", refusal: refuse("run-control", code, "\u2026") },
   };
 }
 
 function renderControls(records: readonly RunControlRecord[]): void {
-  render(
-    <RunControls
-      run={RUNNING}
-      surface={surfaceHolding(records)}
-      bridge={{} as ConsoleBridge}
-      driverCapabilities={CAPABLE}
-      onTakeTheFloor={vi.fn()}
-      onRequestRewind={vi.fn()}
-      onRequestSteer={vi.fn()}
-    />,
-  );
+  renderStrip({ records });
 }
 
 describe("a run the daemon answered does not exist", () => {

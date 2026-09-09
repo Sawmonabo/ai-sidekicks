@@ -214,6 +214,7 @@ export function RunsPaneBody(props: {
                   posture={settledRunPosture(knownRuns[seated.runId], seated.projection)}
                   surface={surface}
                   bridge={context.bridge}
+                  frameStore={context.frameStore}
                   driverCapabilities={driverCapabilities}
                   onRequestRewind={onRequestRewind}
                   onRequestSteer={onRequestSteer}
