@@ -234,6 +234,13 @@ export abstract class ScheduledReading<TSnapshot> implements ReadTriggerTarget {
    * refused the reason inside {@link requestRead}, no read was asked for, and the
    * `#hasStarted` flag then refused every later `start()` — a page opened without a
    * session id read nothing at all, for the life of the mount.
+   *
+   * That ordering is held today by this module's own unit tests and by NO shipping
+   * subclass — `CostReceiptRead` is the only production reading on this base, and being
+   * wired by read triggers rather than by a mount that opens it, it never calls this at
+   * all — so the guard stays as the contract the readings still to move here are moved
+   * onto, and no reader should cite this arm as load-bearing until one of them opens
+   * itself.
    */
   public start(): void {
     if (this.#hasStarted || !this.#admitsRead()) {

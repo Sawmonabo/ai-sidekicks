@@ -48,21 +48,26 @@ function escalationIdentityOf(refusal: ConsoleRefusal): string {
 }
 
 // ONE SELECTION, AND ITS ORDER MEANS PREFERENCE AND NEVER TIME. This module used to
-// carry two, separated by a claim about the callers that was false of both: that a
-// caller whose members are APPENDED hands them over newest-last, so the last banner-
-// class member is the newest thing the daemon said. Neither caller appends in that
-// sense. The approvals reader spreads two `Map.values()` keyed by approval id and rule
-// id — a map preserves FIRST-insertion position, so a re-read that replaced an entry's
-// refusal leaves it exactly where it was, and the two maps concatenate resolve
-// refusals ahead of revoke ones whatever order the daemon answered in. The run-control
-// surface maps over its run ids in record order and reads each run's own newest
-// settlement, so its list is ordered by run and not by time.
+// carry two, separated by a claim about the callers that was false of every one of
+// them: that a caller whose members are APPENDED hands them over newest-last, so the
+// last banner-class member is the newest thing the daemon said. No caller appends in
+// that sense. The approvals pane hands its three concurrent reads over as a literal,
+// in the order it wants them preferred. The approvals reader spreads two `Map.values()`
+// keyed by approval id and rule id, and those positions do not even hold still: its
+// `resolve` drops a record's key at dispatch and `#settleResolve` re-inserts it, so a
+// record refused a second time moves to the END of its map rather than staying where
+// it was. The run-control surface maps over its run ids in record order and reads each
+// run's own newest settlement, so its list is ordered by run and not by time.
 //
 // Nothing in this console stamps a refusal with a time, so no collection of them
 // carries recency at all, and a selection that inferred it would be reading a position
-// as a fact about the wire. What is true of every caller is the sentence below: a
-// session that is gone is ONE fact however many reads noticed it, so the caller lists
-// its candidates in the order it wants them preferred and hands over exactly one.
+// as a fact about the wire. What one walk rests on instead is the IDENTITY the frame
+// dedups on — `useRefusalBannerEscalation` remembers `escalationIdentityOf`, the
+// origin, the code, and the daemon's sentence — so candidates naming ONE condition
+// raise one banner in whatever order they sit, and where they name different ones the
+// caller has already put first the one it wants. A session that is gone is ONE fact
+// however many reads noticed it, so the caller lists its candidates in the order it
+// wants them preferred and hands over exactly one.
 
 /**
  * The banner-class refusal a caller PREFERS, or nothing where it listed none.

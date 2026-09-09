@@ -49,9 +49,10 @@ export interface SectionBindings {
    * about ordinary rendering gets the shell out of its way, and a case about a write
    * closed by an outage hands in a store it has driven to that condition.
    *
-   * `| undefined` spelled out beside the `?` for `pane-context.test-support.ts`'s
-   * reason: under `exactOptionalPropertyTypes` a caller forwarding its own optional
-   * member passes the property PRESENT and undefined, which the bare `?` rejects.
+   * `| undefined` spelled out beside the `?` for
+   * `seats/pane/pane-context.test-support.ts`'s reason: under
+   * `exactOptionalPropertyTypes` a caller forwarding its own optional member passes the
+   * property PRESENT and undefined, which the bare `?` rejects.
    */
   readonly frameStore?: FrameStore | undefined;
   /**
@@ -60,8 +61,8 @@ export interface SectionBindings {
    * Opening a pane is the deck's act, so most section cases have nothing to say
    * here; a case about a card's own way into a pane hands one in rather than
    * rebuilding the context around it — and this member is how a suite says so OUT
-   * LOUD, exactly as `pane-context.test-support.ts`'s `uiStateStore` is. The default
-   * below is what a case that stays silent gets, and it refuses.
+   * LOUD, exactly as `seats/pane/pane-context.test-support.ts`'s `uiStateStore` is.
+   * The default below is what a case that stays silent gets, and it refuses.
    */
   readonly openPane?: ConsolePaneOpener | undefined;
 }
