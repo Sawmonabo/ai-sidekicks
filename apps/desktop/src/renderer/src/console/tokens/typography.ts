@@ -1,5 +1,5 @@
-// The console's type system — the faces, the size scale, and the OpenType
-// features every line is set with.
+// The console's type system — the faces the console asks for, the line height, and
+// the size scale every line is set on.
 //
 // Split out of `palette.ts` rather than authored beside it, and the seam is the
 // question each file answers. `palette.ts` answers "what colour is this?" — a
@@ -19,6 +19,27 @@
 // `Spec-023 §Console Design (Meridian)` rule 4 governs everything here: UI text in
 // a humanist grotesque, every wire-true figure in mono, and the two set on one
 // shared scale so a figure and its label sit on the same baseline.
+//
+// WHERE THE OPENTYPE FEATURES ARE NOT, AND WHY. Rule 4 asks for a slashed zero and
+// tabular figures, and this file declares neither.
+//
+//   The SLASHED ZERO belongs to the mono FACE and is declared as a descriptor
+//   inside its two `@font-face` rules in `frame/bindings/typeface.ts`. It was on
+//   `body` here first, and that was the wrong home twice over: rule 4 makes mono
+//   the signature that a number came from the wire, and `font-feature-settings`
+//   INHERITS, so a root declaration slashed the zero in every participant name,
+//   repo path, and branch name in the console — and then, because CSS Fonts 4
+//   gives that property precedence over the features `font-variant-*` computes,
+//   left no descendant able to scope the feature back.
+//
+//   TABULAR FIGURES need no feature at all in these faces. Read out of the shipped
+//   `woff2` files on 2026-09-09: neither family carries `tnum` in `GSUB` or `GPOS`,
+//   and neither carries `pnum` either, which is the reading that settles it — there
+//   are no proportional figures to switch away FROM, and every digit in both
+//   families measures 600/1000 em. The digits are tabular by construction, so
+//   `"tnum" 1` would be a feature declared against a face that offers none. The two
+//   sheets that set `font-variant-numeric: tabular-nums` state it for the platform
+//   FALLBACK faces, which do offer both sets.
 
 /**
  * The line height every body line box occupies, as a multiple of its own size.
@@ -29,33 +50,6 @@
  * matching what the sheet paints if the two were written separately.
  */
 export const BODY_LINE_HEIGHT = 1.5;
-
-/**
- * The OpenType features every line of the console is set with.
- *
- * `Spec-023 §Console Design (Meridian)` §Type and figures asks for the slashed
- * zero and tabular figures, and both are the reason a wire figure is legible: an
- * unslashed zero beside a capital O in a SHA is a reading error, and proportional
- * digits make two stacked costs fail to line up on their decimal point.
- *
- * Declared once and applied on `body` rather than on the mono token, because
- * `font-feature-settings` INHERITS — one declaration reaches every descendant,
- * including the mono spans, and a per-surface copy would be a second home for a
- * decision that has one. On a face without these features the declaration is
- * inert, which is what makes it safe to state at the root.
- *
- * WHICH OF THE TWO EACH FACE ACTUALLY SERVES, MEASURED RATHER THAN ASSUMED. Read
- * out of the shipped `woff2` files on 2026-09-09: both variable builds carry
- * `zero` in their `GSUB` feature list, so the slashed zero is a real substitution
- * on both. Neither carries `tnum` — in `GSUB` or in `GPOS` — and neither carries
- * `pnum` either, which is the reading that settles it: these faces offer no
- * proportional figures to switch away FROM, so their digits are tabular by
- * construction and `"tnum" 1` is the inert case above rather than a missing one.
- * The declaration stays: it is what the rule asks for, it costs nothing here, and
- * it is what keeps the figures tabular under any fallback face that does offer
- * both sets.
- */
-export const TYPEFACE_FEATURE_SETTINGS = '"zero" 1, "tnum" 1';
 
 /**
  * Type scale, in rem. Rule 4 sets UI text in a humanist grotesque and every

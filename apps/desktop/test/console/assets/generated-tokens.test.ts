@@ -251,6 +251,18 @@ describe("assets — the generated token sheet", () => {
     );
   });
 
+  it("declares no font feature anywhere in the sheet", () => {
+    // `font-feature-settings` INHERITS, so a declaration on `body` reaches every
+    // descendant — which put the slashed zero rule 4 reserves as the mark of a wire
+    // figure onto every participant name, repo path, and branch name in the console.
+    // The features ride the mono `@font-face` descriptors in
+    // `frame/bindings/typeface.ts` instead, where they are scoped to the face by
+    // construction rather than by a selector this sheet could never narrow again:
+    // CSS Fonts 4 gives the property precedence over the features `font-variant-*`
+    // computes, so once it is on the root no descendant can scope the feature at all.
+    expect(generateMeridianCss()).not.toContain("font-feature-settings");
+  });
+
   it("catches a planted difference, so the comparison is not vacuous", () => {
     const generated = generateMeridianCss();
     const tampered = generated.replace("oklch(", "oklcH(");

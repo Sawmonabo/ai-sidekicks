@@ -45,12 +45,7 @@ import {
   SPACE_SCALE_REM,
   TOKEN_ALIASES,
 } from "./palette.js";
-import {
-  BODY_LINE_HEIGHT,
-  FONT_STACKS,
-  TYPEFACE_FEATURE_SETTINGS,
-  TYPE_SCALE_REM,
-} from "./typography.js";
+import { BODY_LINE_HEIGHT, FONT_STACKS, TYPE_SCALE_REM } from "./typography.js";
 import type { ConsoleScheme } from "./tokens.js";
 import {
   PARTICIPANT_HUES,
@@ -158,7 +153,7 @@ export function generateMeridianCss(): string {
     " *",
     " * Sources of truth: `console/tokens/palette.ts` for the colour ramps and the",
     " * spacing, radius, and motion scales, and `console/tokens/typography.ts` for the",
-    " * type scale, the line height, the font stacks, and the feature settings.",
+    " * type scale, the line height, and the font stacks.",
     " *",
     " * The design language's colour, type, and spacing rules live in those two files'",
     " * comments; this file carries only their values.",
@@ -222,10 +217,11 @@ export function generateMeridianCss(): string {
     "  font-family: var(--meridian-font-sans);",
     "  font-size: var(--meridian-text-md);",
     `  line-height: ${BODY_LINE_HEIGHT};`,
-    // Rule 4's slashed zero and tabular figures. Stated once, on the root, and
-    // inherited by every descendant including the mono spans that carry the wire
-    // figures these features exist for.
-    `  font-feature-settings: ${TYPEFACE_FEATURE_SETTINGS};`,
+    // No `font-feature-settings` here, deliberately. Rule 4's slashed zero is the
+    // MONO signature, and this property inherits — declaring it on the root put the
+    // slash on every participant name, repo path, and branch in the console, and
+    // then prevented any descendant from scoping the feature back. It rides the mono
+    // `@font-face` descriptors in `frame/bindings/typeface.ts` instead.
     "  -webkit-font-smoothing: antialiased;",
     "}",
     "",

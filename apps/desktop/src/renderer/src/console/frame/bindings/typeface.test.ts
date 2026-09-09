@@ -136,6 +136,48 @@ describe("the generated @font-face block", () => {
     expect(css).toContain("font-stretch: 85% 100%;");
   });
 
+  // `Spec-023 §Console Design (Meridian)` rule 4 makes the slashed zero the MONO
+  // signature — "mono is the signature that a number came from the wire" — so it is
+  // a property of the mono FACE and reaches nothing else. Declared as a descriptor
+  // it is scoped by construction: `font-feature-settings` INHERITS as a property, so
+  // the same features on `body` put a slashed zero on every participant name, repo
+  // path, and branch in the console, which is the design's mark for a wire figure
+  // spent on prose. Asserted per block rather than by count, because a descriptor in
+  // the right count and the wrong block is exactly the sans-carries-it failure.
+  it("puts the slashed zero on the mono face, and on no sans one", () => {
+    const blocks = css.split("@font-face").filter((block) => block.includes("src:"));
+    for (const face of TYPEFACE_FACES) {
+      const blockOfFace = blocks.find((block) => block.includes(`url("${face.url}")`));
+      expect(blockOfFace, `no block declares ${face.url}`).toBeDefined();
+      if (face.featureSettings === null) {
+        expect(
+          blockOfFace,
+          `${face.family} ${face.style} sets features it declares none of`,
+        ).not.toContain("font-feature-settings");
+        continue;
+      }
+      expect(blockOfFace).toContain(`font-feature-settings: ${face.featureSettings};`);
+    }
+    // And the roster itself carries the scoping, so a later face cannot pick up the
+    // signature by copying a neighbouring entry: exactly the mono family declares it.
+    const familiesCarryingFeatures = new Set(
+      TYPEFACE_FACES.filter((face) => face.featureSettings !== null).map((face) => face.family),
+    );
+    expect([...familiesCarryingFeatures]).toStrictEqual(["IBM Plex Mono"]);
+    expect(css.match(/font-feature-settings: /g) ?? []).toHaveLength(
+      TYPEFACE_FACES.filter((face) => face.featureSettings !== null).length,
+    );
+  });
+
+  // `tnum` is deliberately absent. Read out of the shipped files on 2026-09-09,
+  // neither family's `GSUB` or `GPOS` carries `tnum` OR `pnum`, and every digit in
+  // both measures 600/1000 em — so there are no proportional figures to switch away
+  // from, and a `"tnum" 1` here would be a feature declared against a face that
+  // offers none.
+  it("claims only the feature the faces actually carry", () => {
+    expect(css).not.toContain("tnum");
+  });
+
   it("never falls back to a host-installed face", () => {
     // `local()` would hand rendering to whichever Plex the machine has, which is
     // the one thing self-hosting exists to prevent.

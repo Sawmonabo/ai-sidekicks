@@ -21,7 +21,7 @@
 // mount rather than committing one — so the faces install through the same seam
 // the tokens do rather than through a second mechanism.
 //
-// FIVE DECISIONS ARE ENCODED BELOW, each a choice against a plausible alternative.
+// SEVEN DECISIONS ARE ENCODED BELOW, each a choice against a plausible alternative.
 //
 //   1. **One VARIABLE file per family and style, and the Latin-1 split of each.**
 //      The four files below are 68 988 B and 80 188 B for the sans, 32 576 B and
@@ -40,9 +40,17 @@
 //
 //   2. **Both styles, because a synthesized oblique is not the face.** Eleven
 //      rules across six stylesheets set `font-style: italic`, and both families
-//      are reached — the ANSI and diff surfaces in mono, the markdown and chrome
-//      surfaces in sans. A family that declared only its upright face would not
-//      lose those runs: the browser would SLANT the upright outlines and paint a
+//      are reached — but which family a rule reaches was read out of the CASCADE
+//      rather than off the rule, because most of these rules set no family of
+//      their own. MONO italic is reached twice: the ANSI body
+//      (`ledger/cards/cards.css` — `.meridian-ansi--italic` under a
+//      `.meridian-ansi__body` that sets the mono token) and one browser-chrome
+//      context (`browser/pane/chrome/chrome.css`, the `--unnamed` rule, which
+//      inherits mono from `.meridian-browser-tabs__context` above it). Everything
+//      else is SANS: all three diff italics set the sans family explicitly and say
+//      so, and the markdown, cast-bar, pane-chrome, and remaining chrome rules
+//      resolve to the body's sans stack. A family that declared only its upright
+//      face would not lose those runs: the browser would SLANT the outlines and paint a
 //      faux italic, a shear of the wrong drawing rather than the italic the
 //      foundry cut — whose own letterforms and spacing would then never reach the
 //      page. Rule 4 names the faces, and a transform of a face is not one. The
@@ -77,6 +85,42 @@
 //      from the file, so a guessed range is a face the console asked for and
 //      silently did not get; the mono faces therefore carry no `font-stretch`
 //      descriptor, because the files carry no axis to bound.
+//
+//   6. **The slashed zero rides the MONO FACE, not the tree.** Rule 4 makes mono
+//      the signature that a number came from the wire, so the `zero` feature is a
+//      property of IBM Plex Mono and reaches nothing a mono rule does not select.
+//      It was declared on `body` first, and that could not hold the scoping:
+//      `font-feature-settings` INHERITS, so one root declaration put a slashed zero
+//      on every participant name, repo path, and branch name in the console —
+//      spending the design's own mark for a wire figure on prose — and CSS Fonts 4
+//      gives the property precedence over the features `font-variant-*` computes,
+//      so once it was on the root no descendant could narrow the feature again. As
+//      an `@font-face` DESCRIPTOR it is scoped by construction instead: it sets the
+//      initial features of that face, so it applies wherever the face is selected
+//      and nowhere else. Chromium honours the descriptor from 140 (`@font-face` /
+//      `font-feature-settings` on MDN's compatibility table, the `FontFace`
+//      interface's `featureSettings` surface); Electron 44 runs Chromium 152, read
+//      off the pinned binary on 2026-09-09. `tnum` is deliberately NOT declared —
+//      see `tokens/typography.ts` for the measurement that settles it.
+//
+//   7. **The Pi split is not shipped, so five glyphs the console draws fall to the
+//      host face.** The console declares Latin-1 only, and the arrows
+//      `primitives/chord/chord-format.ts` renders on every keybinding row and
+//      palette entry — `U+2190`-`U+2193` and `U+21A9` — sit in the foundry's **Pi**
+//      split, which both packages publish and this module does not declare. So a
+//      chord row paints its arrows from whatever the host supplies, beside Plex
+//      text. That is the same class of thing decision 2 refuses for italics, and it
+//      is admitted here for a reason that decision does not have: the smallest Pi
+//      files are 22 488 B (mono Roman) and 23 900 B (sans Roman), and one of them
+//      alone takes the four faces from 220 440 B to 242 928 B against a 232 000 B
+//      ceiling. The trade is stated rather than discovered from a screenshot, and it
+//      RE-ARMS on one condition: a wider `renderer-initial-fonts` row makes the Pi
+//      splits declarable, and this bullet is what says which files to add. The
+//      remaining keycap glyphs — `U+2318` `U+2325` `U+2303` `U+21E7` `U+232B`
+//      `U+2326` `U+238B` `U+21E5` — were never reachable this way: every split's
+//      `unicode-range` in both packages was read on 2026-09-09 and none of them
+//      covers a single one of those codepoints, so they fall through under any
+//      ceiling.
 //
 // TWO FACTS ABOUT THIS SET, RECORDED BECAUSE THEY ARE EASY TO ASSUME WRONGLY.
 //
@@ -171,6 +215,20 @@ const MONO_LATIN1_UNICODE_RANGE = [
 /** The `font-style` a face is selected for; the two the foundry cuts and no third. */
 type TypefaceStyle = "normal" | "italic";
 
+/**
+ * The features the mono faces are declared with: the slashed zero, and nothing
+ * else.
+ *
+ * `zero` is a real substitution here — both variable builds carry it in `GSUB`,
+ * read out of the shipped files on 2026-09-09 — and it belongs to mono alone,
+ * because `Spec-023 §Console Design (Meridian)` rule 4 makes mono the signature
+ * that a number came from the wire. `tnum` is deliberately absent: neither family
+ * carries `tnum` OR `pnum` in `GSUB` or `GPOS`, and every digit in both measures
+ * 600/1000 em, so there are no proportional figures to switch away from and the
+ * setting would be a feature declared against a face that offers none.
+ */
+const MONO_FEATURE_SETTINGS = '"zero" 1';
+
 /** One self-hosted face: a family, a style, the axes its file carries, and those bytes. */
 interface TypefaceFace {
   /** The family name the `FONT_STACKS` entry in `tokens/typography.ts` names first. */
@@ -183,6 +241,14 @@ interface TypefaceFace {
   readonly stretchRange: string | null;
   /** The codepoints this split contains, as the publisher describes them. */
   readonly unicodeRange: string;
+  /**
+   * The face's own initial OpenType features, or `null` where it declares none.
+   *
+   * A DESCRIPTOR rather than a property, so the feature is scoped to the face by
+   * construction — see decision 6 in the header for why the root could not hold
+   * the scoping and what Chromium version honours this.
+   */
+  readonly featureSettings: string | null;
   /** The emitted asset URL, resolved by the bundler from the package path. */
   readonly url: string;
 }
@@ -200,6 +266,7 @@ export const TYPEFACE_FACES: readonly TypefaceFace[] = [
     weightRange: "100 700",
     stretchRange: "85% 100%",
     unicodeRange: SANS_LATIN1_UNICODE_RANGE,
+    featureSettings: null,
     url: sansRomanLatin1Url,
   },
   {
@@ -208,6 +275,7 @@ export const TYPEFACE_FACES: readonly TypefaceFace[] = [
     weightRange: "100 700",
     stretchRange: "85% 100%",
     unicodeRange: SANS_LATIN1_UNICODE_RANGE,
+    featureSettings: null,
     url: sansItalicLatin1Url,
   },
   {
@@ -216,6 +284,7 @@ export const TYPEFACE_FACES: readonly TypefaceFace[] = [
     weightRange: "100 700",
     stretchRange: null,
     unicodeRange: MONO_LATIN1_UNICODE_RANGE,
+    featureSettings: MONO_FEATURE_SETTINGS,
     url: monoRomanLatin1Url,
   },
   {
@@ -224,6 +293,7 @@ export const TYPEFACE_FACES: readonly TypefaceFace[] = [
     weightRange: "100 700",
     stretchRange: null,
     unicodeRange: MONO_LATIN1_UNICODE_RANGE,
+    featureSettings: MONO_FEATURE_SETTINGS,
     url: monoItalicLatin1Url,
   },
 ];
@@ -242,6 +312,9 @@ export function generateTypefaceCss(): string {
       `  font-style: ${face.style};`,
       `  font-weight: ${face.weightRange};`,
       ...(face.stretchRange === null ? [] : [`  font-stretch: ${face.stretchRange};`]),
+      ...(face.featureSettings === null
+        ? []
+        : [`  font-feature-settings: ${face.featureSettings};`]),
       "  font-display: block;",
       `  src: url("${face.url}") format("woff2");`,
       `  unicode-range: ${face.unicodeRange};`,

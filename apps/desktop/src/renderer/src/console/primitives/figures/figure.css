@@ -16,8 +16,16 @@
  * the signature that a figure came from the wire.
  */
 
+/*
+ * `tabular-nums` only, and no `slashed-zero`. The slash is a property of the MONO
+ * FACE, declared as a descriptor inside its own `@font-face` rules in
+ * `frame/bindings/typeface.ts`, so it arrives with the face on `--wire` below and
+ * deliberately does not reach `--derived`, which is not the wire's number. What is
+ * left here is for the platform fallback faces, whose digits are not tabular by
+ * construction the way both Plex families' are.
+ */
 .meridian-figure {
-  font-variant-numeric: tabular-nums slashed-zero;
+  font-variant-numeric: tabular-nums;
 }
 
 /*
