@@ -523,14 +523,19 @@ export { WIRE_UNREGISTERED_REFUSAL_CODE } from "./growth-port/growth-outcome.js"
 // surface, and in `readings/` because what it is about is the READING rather than any
 // one wire. It leaves through this door and through no inner one, and the rule for
 // that is stated once — in `readings/read-settlement.ts`'s own header, where a reader
-// meets the module: no `bridge/` sibling reads this pair, so an inner barrel would
+// meets the module: no `bridge/` sibling reads these, so an inner barrel would
 // publish a name nothing inside the family takes, which is the dead export
-// `structure:dead-code` reports.
+// `structure:dead-code` reports. `settleGrowthCall` is that same seam entered through
+// a THUNK, for the dispatches that must give a key back whichever way a port fails.
 // `READ_SETTLEMENT_REFUSAL_ORIGIN` deliberately stays off this door for the same
 // rule from the other side: its only readers are the suites that assert who a
 // synthesized refusal names, and a door line no production reader uses is a dead
 // export rather than a convenience.
-export { settleGrowthRead, useSettledGrowthRead } from "./readings/read-settlement.js";
+export {
+  settleGrowthCall,
+  settleGrowthRead,
+  useSettledGrowthRead,
+} from "./readings/read-settlement.js";
 export type { SettledReadRefusal } from "./readings/read-settlement.js";
 
 // The workflow plane's read shapes, for the family that renders them. Declared on
@@ -593,6 +598,36 @@ export {
   parseWorkflowDefinitionFile,
   serializeWorkflowDefinitionFile,
 } from "./wire-shapes/workflow-definition-file-codec.js";
+
+// The other validator this family holds, and the reason it is here rather than beside
+// the form it serves: a schema the wire delivered, compiled once into something a
+// locally composed draft can be checked against. Every family above this one is barred
+// from importing a schema library at all, which is a claim about the LAYER — a validator
+// sits below every surface, so no surface can hold a second reading of one.
+//
+// `SchemaValidationIssue` IS published, and it was not while every caller only READ a
+// report. The schema form now composes findings of its own — a drawn row the projection
+// dropped, which the answer has no way to express and the schema therefore never sees —
+// and folds them into the report the surface renders, so it constructs issues rather than
+// mapping them and needs the shape. One production importer, one door line.
+//
+// The member-path trio DOES leave, because the surfaces that read a report address their
+// controls by those same paths: `SchemaMemberPath` is the one representation a descriptor
+// and an issue both carry, `isSameMemberPath` is how a control finds the findings that are
+// about it, and `encodeMemberPointer` is the single string spelling anything keyed on a
+// path may take. All three sit beside the producer, because a second reading of a path is
+// exactly how two spellings of one member come apart.
+export {
+  compileSchemaValidator,
+  encodeMemberPointer,
+  isSameMemberPath,
+} from "./wire-shapes/json-schema-check.js";
+export type {
+  SchemaMemberPath,
+  SchemaValidationIssue,
+  SchemaValidationReport,
+  SchemaValidator,
+} from "./wire-shapes/json-schema-check.js";
 
 // The boot-time scenario decision. Exported through this door because the
 // renderer root reads it — it is the one console fact that arrives on the

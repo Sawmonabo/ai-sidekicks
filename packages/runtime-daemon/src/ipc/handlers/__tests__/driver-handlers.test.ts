@@ -63,6 +63,11 @@ import {
   DriverUnavailableError,
   ProviderRegistry,
 } from "../../../provider/provider-registry.js";
+import {
+  CodexInterventionDispatcher,
+  type CodexSteerAcknowledgement,
+  type CodexSteerRunRequest,
+} from "../../../provider/drivers/codex/intervention.js";
 
 import {
   registerDriverApplyIntervention,
@@ -758,6 +763,112 @@ describe("driver.applyIntervention", () => {
         NO_TRANSPORT,
       ),
     ).rejects.toBeInstanceOf(RegistryDispatchError);
+  });
+
+  // --------------------------------------------------------------------------
+  // The interim attachment refusal
+  // --------------------------------------------------------------------------
+  //
+  // The REAL `CodexInterventionDispatcher` sits behind the handler in these
+  // three, rather than a `vi.fn` answering `applied`. That is the whole point:
+  // the defect is that the dispatcher builds `steerRun` from `runId` /
+  // `content` / `expectedTurnId` / the idempotency key and never reads
+  // `payload.attachments`, so a double would have proved only that the double
+  // was not called. With the real module wired, `steerRun` NOT being called is
+  // the assertion that the attachments were never dropped on the floor — and
+  // deleting the guard turns the first case red twice over (the dispatch
+  // resolves `{ status: 'applied' }` and `steerRun` records a call).
+
+  /** A real Codex dispatcher whose only fake is the provider runtime port. */
+  function codexDriverWithSpiedSteer(): {
+    driver: ProviderDriver;
+    steerRun: ReturnType<typeof vi.fn>;
+  } {
+    const steerRun = vi.fn(
+      async (request: CodexSteerRunRequest): Promise<CodexSteerAcknowledgement> => {
+        const targetedTurnId = request.expectedTurnId ?? "turn-live";
+        return { targetedTurnId, acknowledgedTurnId: targetedTurnId };
+      },
+    );
+    const flags = Object.fromEntries(DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, true])) as Record<
+      DriverCapabilityFlag,
+      boolean
+    >;
+    const dispatcher = new CodexInterventionDispatcher({
+      runtime: {
+        steerRun,
+        interruptRun: async (): Promise<void> => {},
+        textNeutralizationDecisionForTurn: (): { readonly refused: boolean } => ({
+          refused: false,
+        }),
+      },
+      readCapabilities: () => ({ flags, contractVersion: "1.0.0" }),
+    });
+    return {
+      driver: driverDouble({
+        applyIntervention: (params) => dispatcher.applyIntervention(params),
+      }),
+      steerRun,
+    };
+  }
+
+  const ARTIFACT_ID = "018f3a4c-7b21-7e55-9c04-2b6d9f1e77a0";
+
+  it("REFUSES a steer carrying attachment references, before any driver method runs", async () => {
+    const registry = new MethodRegistryImpl();
+    const { driver, steerRun } = codexDriverWithSpiedSteer();
+    registerDriverApplyIntervention(
+      registry,
+      dispatchDeps({ codex: driver }, () => "codex"),
+    );
+
+    const thrown = await dispatchExpectingRejection(registry, "driver.applyIntervention", {
+      ...steer,
+      payload: { content: "use the other branch", attachments: [ARTIFACT_ID] },
+    });
+
+    // Asserted through the real mapper, not off the thrown object: the property
+    // under test is the code the CLIENT reads.
+    expect(mapJsonRpcError(thrown, 1).error.code).toBe(JsonRpcErrorCode.InvalidRequest);
+    const wireError = wireErrorData(thrown);
+    expect(wireError.type).toBe("driver.capability_unsupported");
+    expect(wireError.fields).toMatchObject({
+      driverId: "codex",
+      operation: "applyIntervention",
+    });
+    expect(steerRun).not.toHaveBeenCalled();
+  });
+
+  it("dispatches a steer whose attachment list is EMPTY", async () => {
+    const registry = new MethodRegistryImpl();
+    const { driver, steerRun } = codexDriverWithSpiedSteer();
+    registerDriverApplyIntervention(
+      registry,
+      dispatchDeps({ codex: driver }, () => "codex"),
+    );
+
+    await expect(
+      registry.dispatch(
+        "driver.applyIntervention",
+        { ...steer, payload: { content: "use the other branch", attachments: [] } },
+        NO_TRANSPORT,
+      ),
+    ).resolves.toStrictEqual({ status: "applied" });
+    expect(steerRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("dispatches a steer that omits the attachment member entirely", async () => {
+    const registry = new MethodRegistryImpl();
+    const { driver, steerRun } = codexDriverWithSpiedSteer();
+    registerDriverApplyIntervention(
+      registry,
+      dispatchDeps({ codex: driver }, () => "codex"),
+    );
+
+    await expect(
+      registry.dispatch("driver.applyIntervention", steer, NO_TRANSPORT),
+    ).resolves.toStrictEqual({ status: "applied" });
+    expect(steerRun).toHaveBeenCalledTimes(1);
   });
 });
 

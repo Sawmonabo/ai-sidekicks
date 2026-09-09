@@ -92,7 +92,7 @@ import {
   type WorkspaceState,
 } from "../repo.js";
 
-// Real RFC 9562 UUIDs (mix of v4 and v7). z.uuid() validates the version
+// Real RFC 9562 UUIDs (mix of v4 and v7). `RFC_9562_TEXT_FORM` validates the version
 // nibble + variant bits in canonical positions; mismatch is rejected at the
 // branded-id schema layer.
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
@@ -209,9 +209,10 @@ describe("RepoMountIdSchema / WorkspaceIdSchema (branded UUID scalars)", () => {
     expect(schema.safeParse(REPO_MOUNT_ID).success).toBe(true);
     expect(schema.safeParse("not-a-uuid").success).toBe(false);
     expect(schema.safeParse("").success).toBe(false);
-    // A UUID-shaped string with a zero version nibble. `z.string().uuid()`
-    // validates the version + variant nibbles, so this is not merely a
-    // length-and-hyphens check.
+    // A UUID-shaped string with a zero version nibble. The branded factory's
+    // `RFC_9562_TEXT_FORM` validates the version + variant nibbles, so this is
+    // not merely a length-and-hyphens check — and the 2026-09-08 case widening
+    // did not touch either nibble.
     expect(schema.safeParse("0190f8a0-7e2d-0c4a-9b1c-1b7c5b3e8f10").success).toBe(false);
   });
 });
@@ -401,7 +402,7 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Spec-006 §Repo, Workspace, and W
       }).success,
     ).toBe(true);
     // Unbranded does NOT mean unvalidated — the runtime accept-set is the
-    // same `z.string().uuid()` the branded ids compose.
+    // same RFC 9562 text form the branded ids compose.
     expect(
       RepoWorkspaceLifecyclePayloadSchema.safeParse({
         sessionId: SESSION_ID,
@@ -409,6 +410,22 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Spec-006 §Repo, Workspace, and W
         state: "ready",
       }).success,
     ).toBe(false);
+    // ...and IDENTICAL, not merely similar. This member composes the very
+    // predicate `brandedUuidIdSchema` composes (`uuidTextFormSchema`, the
+    // unbranded export beside it), so a value's parse result cannot move when
+    // Plan-010 narrows this to `WorktreeId`. The case-variant sentinel is the
+    // discriminating input: `z.string().uuid()` — what this member composed
+    // before the two exports were unified — refuses it while every branded id
+    // accepts it, so this pair fails on the divergence and on nothing else.
+    const upperCaseSentinel = "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF";
+    expect(contracts.SessionIdSchema.safeParse(upperCaseSentinel).success).toBe(true);
+    expect(
+      RepoWorkspaceLifecyclePayloadSchema.safeParse({
+        sessionId: SESSION_ID,
+        worktreeId: upperCaseSentinel,
+        state: "ready",
+      }).success,
+    ).toBe(true);
   });
 
   it("rejects extraneous keys (.strict() guard)", () => {

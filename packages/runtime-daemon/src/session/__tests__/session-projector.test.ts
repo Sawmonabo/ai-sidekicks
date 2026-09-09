@@ -59,7 +59,7 @@ describe("session-projector — D1 (bootstrap projection)", () => {
 
     // The main channel id is the shared deterministic `deriveMainChannelId`
     // (`@ai-sidekicks/contracts`, RFC 9562 §5.8 UUIDv8). The contracts
-    // `ChannelIdSchema = z.uuid().brand<"ChannelId">()` validates this shape
+    // `ChannelIdSchema` (the RFC 9562 predicate + `.brand<"ChannelId">()`) validates this shape
     // at PR #5's mapping seam, so a non-UUID id would be rejected there.
     expect(snapshot.channels).toHaveLength(1);
     const expectedMainChannelId: string = deriveMainChannelId(SESSION_ID);

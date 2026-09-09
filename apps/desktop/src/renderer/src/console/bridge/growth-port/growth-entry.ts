@@ -335,4 +335,5 @@ export type GrowthPrerequisiteId =
   | "nodeSelfDeclarationCarrier"
   | "providerSessionImportSpec"
   | "mountHealthIdentityProjection"
-  | "workflowParentContentHashMember";
+  | "workflowParentContentHashMember"
+  | "workflowHumanFormContentMembers";

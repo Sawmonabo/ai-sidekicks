@@ -69,8 +69,8 @@ export const MAIN_CHANNEL_NAME = "main";
  *   5. Format as canonical 8-4-4-4-12 lowercase hex.
  *
  * The result satisfies the `ChannelId` brand (session.ts:63-65 —
- * `ChannelIdSchema` via `brandedUuidIdSchema`, whose validator is
- * `internal/branded.ts:25` `z.string().uuid()`); that validator accepts any
+ * `ChannelIdSchema` via `brandedUuidIdSchema`, whose validator is that
+ * factory's own `RFC_9562_TEXT_FORM` predicate); that validator accepts any
  * RFC 9562 UUID including v8 (rationale: session.ts:8-11). The
  * return is a cast: the unit tests in `__tests__/channel-id.test.ts` prove the
  * output is a valid lowercase canonical v8 UUID (the `as ChannelId` cast in
@@ -85,8 +85,10 @@ export const MAIN_CHANNEL_NAME = "main";
  * `canonicalizeUuid` helper (uuid-canonical.ts): the hex case is lowercased.
  * RFC 9562 §4 makes UUID hex
  * case-INSENSITIVE while the canonical text representation is lowercase, and
- * `SessionIdSchema` (`z.string().uuid()`, internal/branded.ts:24) therefore
- * ACCEPTS an uppercase or mixed-case UUID. Hashing the raw string would then
+ * `SessionIdSchema` (the `brandedUuidIdSchema` factory's own
+ * `RFC_9562_TEXT_FORM` predicate, internal/branded.ts) therefore
+ * ACCEPTS an uppercase or mixed-case UUID — on every alternative of that
+ * accept set, sentinels included. Hashing the raw string would then
  * derive a DIFFERENT channel id for the same logical session — breaking the
  * byte-identical cross-surface invariant this shared helper exists to guarantee
  * (daemon projector vs control-plane `ChannelList`). Lowercasing first makes the

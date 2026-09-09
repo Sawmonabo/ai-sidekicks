@@ -66,7 +66,7 @@ import {
 } from "../runtime-node.js";
 
 // Fixtures must be VALID per the imported upstream schemas:
-//   • sessionId / participantId pass through `z.uuid()` (brandedUuidIdSchema)
+//   • sessionId / participantId pass through `RFC_9562_TEXT_FORM` (brandedUuidIdSchema)
 //   • clientVersion must satisfy EventEnvelopeVersionSchema (event.ts) — a
 //     "MAJOR.MINOR" semver string; "1.0" is the canonical accepted form
 //   • nodeId is any non-empty string ≤ NODE_ID_MAX_LEN (daemon-assigned opaque)

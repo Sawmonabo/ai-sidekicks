@@ -59,7 +59,11 @@
 // counter (see `halt` and `clear`): on the reentrant path it is the counter, not
 // the lock's ordering, that makes the halt stick.
 
-import { DAEMON_SCOPE_SENTINEL_SESSION_ID, type SessionId } from "@ai-sidekicks/contracts";
+import {
+  DAEMON_SCOPE_SENTINEL_SESSION_ID,
+  canonicalizeUuid,
+  type SessionId,
+} from "@ai-sidekicks/contracts";
 
 import { withSessionAppendLock } from "./session-append-lock.js";
 
@@ -165,8 +169,8 @@ export class IngestHaltRegistry implements IngestHaltSource {
    * `Set.has` against single-threaded JS is already atomic with respect to the
    * `add`/`delete` the write paths perform.
    */
-  isHalted(sessionId: SessionId): boolean {
-    return this.#haltedSessionIds.has(sessionId);
+  isHalted(requestedSessionId: SessionId): boolean {
+    return this.#haltedSessionIds.has(canonicalizeUuid(requestedSessionId));
   }
 
   /**
@@ -243,7 +247,16 @@ export class IngestHaltRegistry implements IngestHaltSource {
    * the same critical section appends run in: an append either sees the halt or
    * completes before it, never straddles it.
    */
-  async halt(sessionId: SessionId): Promise<void> {
+  async halt(requestedSessionId: SessionId): Promise<void> {
+    // CANONICALIZE FIRST — before the sentinel guard, the membership check, and
+    // the lock. The halted set and both counters are Map-key boundaries in
+    // `uuid-canonical.ts`'s sense: UUID hex is case-insensitive (RFC 9562 §4)
+    // and the branded schema admits either case unchanged, so a halt issued
+    // under one spelling must be observed by an append arriving under another,
+    // and the sentinel guard below compares the CANONICAL form so an uppercase
+    // spelling of the Max UUID cannot slip past a strict-equality check.
+    const sessionId: SessionId = canonicalizeUuid(requestedSessionId);
+
     // Sentinel refusal BEFORE anything else — before the membership check and
     // before any lock acquisition. Fail LOUD rather than silently no-op: a
     // caller trying to halt the node-scope chain has a logic error (the sentinel
@@ -345,7 +358,10 @@ export class IngestHaltRegistry implements IngestHaltSource {
    * consumer of this registry exists yet, T4.2's key-reuse observer being the
    * first.
    */
-  async clear(sessionId: SessionId): Promise<void> {
+  async clear(requestedSessionId: SessionId): Promise<void> {
+    // Canonicalize first, for the same reasons `halt` does.
+    const sessionId: SessionId = canonicalizeUuid(requestedSessionId);
+
     // Same fail-loud sentinel refusal as `halt`, and for the same reason: the
     // sentinel is never in the set, so a `clear` on it could only be a no-op
     // that misleads its caller. Before any lock acquisition — and before the
@@ -415,6 +431,10 @@ export class IngestHaltRegistry implements IngestHaltSource {
 
 /**
  * Refuse the node-scope sentinel on a halt-registry WRITE path.
+ *
+ * Takes the CANONICAL id (both callers canonicalize before calling), so the
+ * strict-equality comparison against the lowercase sentinel literal is sound
+ * for every spelling the branded schema admits.
  *
  * A plain `Error`, NOT a `DaemonDomainError`: this is an internal programming
  * error on a daemon-internal seam, not a refusal any remote caller can provoke

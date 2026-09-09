@@ -36,6 +36,7 @@ import { join, posix } from "node:path";
 
 import {
   CONSOLE_DIRECTORY,
+  CONSOLE_SOURCE_ROOTS,
   consoleSourceModules,
   consoleStylesheets,
   toPosixSeparators,
@@ -447,3 +448,43 @@ export const CONSOLE_STYLESHEET_TREE: StylesheetTree = {
   stylesheetPaths: consoleRelativePaths(consoleStylesheets({ roots: [CONSOLE_DIRECTORY] })),
   read: readConsoleFile,
 };
+
+/**
+ * The console AND the shell that composes its seats, as one tree.
+ *
+ * A SECOND ROOT SET RATHER THAN A SECOND MODULE, which is the whole reason it is minted
+ * here beside {@link CONSOLE_STYLESHEET_TREE}: the walk, the resolver, and the reach
+ * index are the same ones, and a gate that built its own tree would own a private idea
+ * of what counts as a module the day the shared walk grew a rule.
+ *
+ * KEYED BY DISPLAY PATH, so a console module is `console/…` and a shell one is `shell/…`.
+ * The console-only tree strips its own prefix — every claim written against it names a
+ * path relative to the console — and a mixed tree cannot: a relative specifier crossing
+ * from the shell into the console (`../../../console/workflows/index.js`) resolves to a
+ * path that has to carry the `console/` segment, or `resolveStylesheet` answers a name
+ * this tree holds nothing at and every cross-root edge reads as unresolvable.
+ *
+ * WHY A CLAIM WOULD WANT IT. The shell's composer is on the initial renderer graph and
+ * mounts console seats, so "what does this surface reach statically" is a question whose
+ * answer starts outside the console and ends inside it. Asked of the console-only tree,
+ * the walk stops at the root of a subtree it does not hold and reports the empty set —
+ * which reads as a clean boundary and is the absence of a measurement.
+ */
+export const RENDERER_STYLESHEET_TREE: StylesheetTree = (() => {
+  const modules = consoleSourceModules({ roots: CONSOLE_SOURCE_ROOTS });
+  const stylesheets = consoleStylesheets({ roots: CONSOLE_SOURCE_ROOTS });
+  const absolutePathByTreePath = new Map(
+    [...modules, ...stylesheets].map((module) => [module.displayPath, module.absolutePath]),
+  );
+  return {
+    modulePaths: modules.map((module) => module.displayPath).sort(),
+    stylesheetPaths: stylesheets.map((module) => module.displayPath).sort(),
+    read: (treeRelativePath) => {
+      const absolutePath = absolutePathByTreePath.get(treeRelativePath);
+      if (absolutePath === undefined) {
+        throw new Error(`the renderer tree holds no ${treeRelativePath}`);
+      }
+      return readFileSync(absolutePath, "utf8");
+    },
+  };
+})();

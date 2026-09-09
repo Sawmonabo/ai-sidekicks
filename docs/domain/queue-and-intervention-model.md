@@ -111,10 +111,12 @@ The following field inventory maps each intervention payload to the canonical so
 | `expectedRunVersion` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.expectedRunVersion` |
 | `clientIdempotencyKey` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.clientIdempotencyKey` |
 | `content` | yes | `InterventionRequestPayload` | `SteerPayload.content` |
-| `attachments` | no | `InterventionRequestPayload` (optional) | `SteerPayload.attachments` (optional) |
+| `attachments` | no | `InterventionRequestPayload` (optional, `ArtifactId[]`) | `SteerPayload.attachments` (optional, `ArtifactId[]`) |
 | `expectedTurnId` | no | `InterventionRequestPayload` (optional) | `SteerPayload.expectedTurnId` (optional) |
 
 At-rest routing (2026-08-18 amendment): `content` is participant-authored directive text, so it rests on the durable intervention row inside the participant-keyed PII envelope (`interventions.pii_payload`) rather than in the plaintext `payload` column — the same at-rest split `replacementSend` takes, for the same reason ([Spec-004 §Required Behavior](../specs/004-queue-steer-pause-resume.md#required-behavior)). This changes neither the wire shape above nor what the driver receives: the split happens daemon-side at persist, and the driver leg is handed the decrypted text as before. `attachments` are references, not bodies, and are unaffected.
+
+Element type (2026-09-08, CP-014-7 discharge): both `attachments` columns above are `ArtifactId[]` — ids into [Spec-014](../specs/014-artifacts-files-and-attachments.md)'s manifest space — where each was `unknown[]` from campaign B3 until this date. The two are one carrier seen from its two ends, so the ordering rule, the cause-bearing unresolved-marker rule, and both count bounds are stated once, on `SteerPayload` in [api-payload-contracts.md §Plan-005 — Provider Driver Contract (Internal Interface)](../architecture/contracts/api-payload-contracts.md#plan-005--provider-driver-contract-internal-interface), and cited from the intervention arm rather than restated. This table's consistency claim is therefore stronger than it was: the two sources agree on the element type and not merely on the field's presence and optionality.
 
 **`interrupt` payload:**
 

@@ -40,9 +40,16 @@
 // NOTHING HERE MUTATES THE RUN. There is no optimistic state: what the pane shows is
 // the read it holds plus what the daemon actually answered. A served act does re-ARM
 // that read, which is a different thing — see `servedActCount`.
+//
+// AND THAT ROUND IS THE RUN'S RATHER THAN THESE TWO CONTROLS'. Answering a phase parked
+// on a person moves the run exactly as cancelling it does, and the surface that does it
+// is a body mounted in a seat with no dispatcher in reach — so the count is published
+// here and its advance is offered through `served-run-act.ts`, which states why the seam
+// is a context. One counter reached from two surfaces, and not a second number the pane
+// would have to sum.
 
 import {
-  settleGrowthRead,
+  settleGrowthCall,
   type GrowthPort,
   type GrowthUnavailable,
   type SettledReadRefusal,
@@ -65,6 +72,7 @@ import {
   type WorkflowRunCancelReply,
   type WorkflowRunResumeReply,
 } from "./run-controls.js";
+import type { RecordServedRunAct } from "./served-run-act.js";
 
 /** What one control's press settles to, once the port has answered. */
 interface ServedActReading {
@@ -100,6 +108,10 @@ interface RunControlDispatchState {
    * reply reported ever written into the snapshot — the daemon is asked again rather
    * than believed twice, so the phases on screen are always one answer and not a
    * splice of two.
+   *
+   * ACTS ON THIS RUN, AND NOT ONLY THIS DISPATCHER'S TWO. A served human-form
+   * submission is one of them and reaches this count through
+   * {@link WorkflowRunControls.recordServedAct}.
    */
   readonly servedActCount: number;
 }
@@ -127,6 +139,19 @@ export interface WorkflowRunControls {
   readonly resume: WorkflowResumeDispatch;
   /** The run read's round. Advances by one per served act; see the state above. */
   readonly servedActCount: number;
+  /**
+   * Advance that round for a served act this dispatcher did not put.
+   *
+   * The pane's parked phases are answered through the human-form slot, which is a body
+   * mounted in a seat and reaches no dispatcher — and a submission the daemon recorded
+   * moved the run exactly as a served cancel did. So the advance is offered rather than
+   * a second count being kept next door: `served-run-act.ts` is the seam the pane hands
+   * this across, and states why it is a context rather than a member on the mount.
+   *
+   * Does nothing on a pane naming no run, which is the arm both controls above take —
+   * such a pane has put no read, so there is no answer for an act to make stale.
+   */
+  readonly recordServedAct: RecordServedRunAct;
 }
 
 /** Both controls idle and nothing served yet — what a newly addressed run starts at. */
@@ -205,17 +230,44 @@ export function useRunControlDispatch(
       outcome: value.outcomes.resume,
     },
     servedActCount: value.servedActCount,
+    recordServedAct: () => {
+      if (runtime === undefined) {
+        return;
+      }
+      advanceServedActRound(runtime);
+    },
   };
+}
+
+/**
+ * Advance the re-arm round by one, leaving both controls' outcomes as they stand.
+ *
+ * The FUNCTION form of publish for {@link publishOutcome}'s own reason — one held record
+ * carries both — and the outcomes are carried through untouched because an act performed
+ * on another surface settles neither control here. The publish is the one this render
+ * captured, so an act recorded after the pane was retargeted writes nowhere rather than
+ * re-reading the run the person moved to.
+ */
+function advanceServedActRound(runtime: RunControlRuntime): void {
+  runtime.publish((previous) => ({
+    ...previous,
+    servedActCount: previous.servedActCount + 1,
+  }));
 }
 
 /**
  * Claim this act's key, put the call, and settle whatever comes back.
  *
- * `settleGrowthRead` and not a bare `await`, because a growth call can also REJECT: a
+ * `settleGrowthCall` and not a bare `await`, because a growth call can also REJECT: a
  * scenario that scripts a daemon refusal throws it verbatim and the live seam will
  * throw the same shape once the wire lands. A fulfilment handler alone would leave
  * the control reading `dispatching` for the life of the pane over an answer that had
  * already arrived — the one shape a dispatched act must never take.
+ *
+ * And the CALL rather than its promise, which covers the other way a port can fail: one
+ * that throws before it returns throws out of the argument expression, so the `finally`
+ * below still gives the key back but nothing publishes and the control reads
+ * `dispatching` for exactly as long. The seam takes both endings to one refusal.
  */
 async function dispatchAct<TValue>(
   runtime: RunControlRuntime,
@@ -233,7 +285,7 @@ async function dispatchAct<TValue>(
   }
   publishOutcome(runtime, action, { kind: "dispatching" });
   try {
-    const outcome = outcomeOf(await settleGrowthRead(call()), describe);
+    const outcome = outcomeOf(await settleGrowthCall(call), describe);
     claim.settle(() => {
       publishOutcome(runtime, action, outcome);
     });

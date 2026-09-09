@@ -1,0 +1,323 @@
+/*
+ * The schema-derived form: its fields, its groups, its lists, and the raw editor a
+ * schema outside the drawn set opens as.
+ *
+ * Owned by the seats family, whose door is the one module that imports it: this
+ * directory carries no door of its own — no seat beside it takes anything from here —
+ * so the nearest door above these rules is `seats/index.ts`, and that is where they
+ * enter. The consequence is stated rather than left to be discovered: the seats door is
+ * on the initial import graph, so unlike the surfaces that mount a form — every one of
+ * which still sits behind an `import()` — these rules land with the first paint. Measured
+ * at 763 bytes gzipped after minification, which is what the seat costs a session that
+ * never opens a form. Meridian tokens only.
+ */
+
+.meridian-schema-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+}
+
+.meridian-schema-form__entry {
+  display: block;
+}
+
+/* ------------------------------------------------------------------- one field */
+
+.meridian-schema-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-schema-field__label {
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  color: var(--meridian-text);
+}
+
+/*
+ * The required mark is a reading of the schema and not a warning, so it is set as quiet
+ * prose beside the name rather than in the refusal hue: nothing is wrong with a field
+ * that has not been answered yet.
+ */
+.meridian-schema-field__required {
+  font-weight: 400;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-schema-field__input,
+.meridian-schema-field__textarea,
+.meridian-schema-field__select {
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+}
+
+/*
+ * A figure the wire carries — a number, an artifact id — wears the provenance signature
+ * that every other wire value on a console surface wears.
+ */
+.meridian-schema-field__input--figure {
+  font-family: var(--meridian-font-mono);
+}
+
+/*
+ * An enum member is the string the engine stores, so the options are mono for the same
+ * reason. The `select` itself carries it, because a browser draws its own option list.
+ */
+.meridian-schema-field__select {
+  font-family: var(--meridian-font-mono);
+}
+
+.meridian-schema-field__textarea {
+  resize: vertical;
+}
+
+.meridian-schema-field__checkbox {
+  align-self: flex-start;
+}
+
+.meridian-schema-field__description {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * The schema's own findings. Red because something IS wrong with the answer, unlike the
+ * required mark above, and set as a list because a schema that said two things said both.
+ */
+.meridian-schema-field__issues {
+  margin: 0;
+  padding-inline-start: var(--meridian-space-4);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-red-text);
+}
+
+/* --------------------------------------------------------- groups and lists */
+
+.meridian-schema-group,
+.meridian-schema-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-schema-group__legend,
+.meridian-schema-list__legend {
+  padding: 0 var(--meridian-space-1);
+  font-size: var(--meridian-text-xs);
+  font-weight: 600;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-schema-group__entry {
+  display: block;
+}
+
+/*
+ * The activation control sits ON the legend, beside the name it is about, so a reader
+ * moving down the form meets the container and the question of whether to answer it in one
+ * place. Inline-start margin rather than a flex legend: a `legend` box is laid out by the
+ * fieldset and a display change on it is the one thing that moves the border notch.
+ *
+ * ONE CLASS FOR BOTH CONTAINERS, because one component draws it: a group's legend and a
+ * collection's legend ask the same question, and a second class would be this sheet
+ * describing one control twice.
+ */
+.meridian-schema-activation {
+  margin-inline-start: var(--meridian-space-2);
+}
+
+.meridian-schema-list__items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-schema-list__item {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * One entry: its control, and the schema's findings about that entry beneath it. A column
+ * inside the row so the control that removes the entry stays beside the entry rather than
+ * dropping under its message, and `min-inline-size: 0` so a long finding wraps inside the
+ * column instead of widening the row past the fieldset.
+ */
+.meridian-schema-list__entry {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-inline-size: 0;
+}
+
+/*
+ * The two controls that change how many entries a list holds, and the one that says
+ * whether an optional container is being answered at all.
+ *
+ * The seat's own treatment rather than the workflows family's `.meridian-workflow__action`,
+ * which these buttons wore while the stack lived in that family. A seat drawing against a
+ * view family's sheet is styled by a file it cannot see and that arrives on that family's
+ * chunk: the rules would have been absent for every other surface that mounts a form. The
+ * declarations are the same ones, deliberately — this is where they are OWNED, not a
+ * second look — and this console mints no shared button block, so each block that needs
+ * one states it, as `.meridian-refusal__action` and `.meridian-nothing__action` do.
+ */
+
+.meridian-schema-activation,
+.meridian-schema-list__action {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-accent-text);
+  cursor: pointer;
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-schema-activation:focus-visible,
+.meridian-schema-list__action:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------- the raw editor */
+
+.meridian-schema-raw {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * Why this schema is answered as text. It is a statement about the schema and not a
+ * failure of the form, so it reads as prose on the surface's own ground.
+ */
+.meridian-schema-raw__reason {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+/* The submitted value itself, so it wears the wire's own face. */
+.meridian-schema-raw__editor {
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  padding: var(--meridian-space-2);
+  resize: vertical;
+  white-space: pre;
+}
+
+.meridian-schema-raw__syntax {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-red-text);
+}
+
+/*
+ * The schema could not be checked against. Amber and not red: the answer is not wrong,
+ * the check is missing, and saying so in the refusal hue would read as a rejection.
+ */
+.meridian-schema-raw__uncheckable {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-amber-text);
+}
+
+/* ---------------------------------------------------------------- the preview */
+
+.meridian-schema-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+.meridian-schema-preview__caption {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-schema-preview__prompt {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+/* ----------------------------------------------------------------- the answer */
+
+.meridian-schema-answer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-schema-answer__prompt {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+/*
+ * The act and whatever came back of it, on one row: rule 9 keeps the control beside
+ * its refusal rather than replacing it, so the settlement wraps under the button on a
+ * narrow pane instead of pushing it off the surface.
+ */
+.meridian-schema-answer__act {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-schema-answer__submit {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+}
+
+/*
+ * What the daemon answered the last press. Declared here beside the act it settles,
+ * rendered by the run pane's submit channel BENEATH the form rather than inside it:
+ * the settlement is the seat's reading of the daemon's reply and not part of the answer,
+ * so a body supplied by another plan gets it drawn without owning a line of it.
+ */
+.meridian-schema-answer__settlement {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}

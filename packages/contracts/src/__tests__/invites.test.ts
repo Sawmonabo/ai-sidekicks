@@ -28,7 +28,7 @@ import {
   type InviteId,
 } from "../invites.js";
 
-// Real RFC 9562 UUIDs (one v4, one v7) — z.uuid() validates the version
+// Real RFC 9562 UUIDs (one v4, one v7) — `RFC_9562_TEXT_FORM` validates the version
 // nibble + variant bits in the canonical positions.
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const INVITER_PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001";

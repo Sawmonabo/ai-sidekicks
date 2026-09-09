@@ -410,7 +410,7 @@ export class SessionDirectoryService {
         // stores them in canonical lowercase form and returns them as
         // lowercase strings (the `uuid` type's text-output convention).
         // A caller passing `ParticipantId` with uppercase hex digits —
-        // valid per the brand's `z.uuid()` parser, which accepts both
+        // valid per the brand's RFC 9562 parser, which accepts both
         // cases — would fail strict string equality against the
         // lowercase row value, falsely tripping the owner-mismatch
         // throw on a same-owner re-create. Normalizing both sides to

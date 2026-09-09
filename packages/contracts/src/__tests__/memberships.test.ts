@@ -41,7 +41,7 @@ import {
   type NonOwnerMembershipRole,
 } from "../memberships.js";
 
-// Real RFC 9562 UUIDs (one v4, one v7). z.uuid() validates version nibble +
+// Real RFC 9562 UUIDs (one v4, one v7). `RFC_9562_TEXT_FORM` validates version nibble +
 // variant bits in canonical positions; mismatch is rejected at the
 // MembershipIdSchema layer before the variant body ever sees it.
 const MEMBERSHIP_ID = "770e8400-e29b-41d4-a716-446655440002";

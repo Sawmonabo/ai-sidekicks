@@ -1141,17 +1141,23 @@ describe("EventEnvelopeSchema — canonical carrier (T1.3)", () => {
     // as `initiatingSessionId` — never in the row's own `sessionId`.
     // Choosing the sentinel is a producer obligation; what makes it FREE at
     // this layer is that the `sessionId` UUID check already admits the Max
-    // UUID IN ITS CANONICAL LOWERCASE FORM, so no sentinel branch and no
-    // widened field type are needed. The case qualifier is load-bearing:
-    // Zod's unversioned uuid regex reaches the Max UUID only through a
-    // lowercase string-literal alternative carrying no `i` flag, and the
-    // general alternative demands a `[1-8]` version nibble that `f` fails —
-    // so `FFFFFFFF-…` is REJECTED even though RFC 9562 §4 makes UUID text
-    // case-insensitive. The producer obligation for Plan-028 is therefore
-    // "emit the sentinel lowercase," not merely "emit the sentinel." No
-    // uppercase-rejection assertion is pinned here on purpose: that would
-    // freeze a Zod regex quirk, and a future Zod case-handling fix would
-    // turn the pin red for a fix rather than a regression.
+    // UUID, so no sentinel branch and no widened field type are needed.
+    // The case qualifier this comment used to carry is GONE as of 2026-09-08
+    // and the history is worth keeping, because it was a real producer
+    // obligation rather than a footnote: while `brandedUuidIdSchema`
+    // delegated to Zod's unversioned uuid regex, that pattern reached the Max
+    // UUID only through a lowercase string-literal alternative carrying no
+    // `i` flag, and its general alternative demands a `[1-8]` version nibble
+    // that `f` fails — so `FFFFFFFF-…` was REJECTED even though RFC 9562 §4
+    // makes UUID text case-insensitive, and Plan-028's producer obligation
+    // was "emit the sentinel LOWERCASE," not merely "emit the sentinel."
+    // `internal/branded.ts` now validates against its own
+    // `RFC_9562_TEXT_FORM` predicate carrying `i`, so every spelling of the
+    // sentinel parses and the obligation is only the canonical-form
+    // convention. The acceptance is pinned in `session-id.test.ts` at the
+    // FACTORY, which is where the predicate lives; no uppercase-rejection
+    // assertion was ever pinned here, deliberately — it would have frozen a
+    // Zod regex quirk and turned red for the very fix that has now landed.
     // The sentinel is the PRODUCTION constant, not a local respelling: a test
     // that carries its own literal passes even if the shipped constant drifts
     // to a different (or uppercase) value, which is exactly the regression

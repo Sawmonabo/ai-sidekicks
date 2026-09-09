@@ -22,12 +22,14 @@
 
 import { render } from "@testing-library/react";
 import { useEffect, useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GrowthPort } from "../../../../bridge/index.js";
 import { WORKFLOW_HUMAN_FORM_SLOT, WORKFLOW_RUN_DETAIL_SLOT } from "../../../owner-slots.js";
 import { WORKFLOWS_PARKED_RUN } from "../../../../bridge/scenarios/workflow-fixture-runs.js";
-import { HumanFormSlot, type HumanFormMount } from "./HumanFormSlot.js";
+import { HumanFormSlot } from "./HumanFormSlot.js";
+import { loadSchemaFormBody, renderSwitchableSlot } from "./HumanFormShell.test-support.js";
+import type { HumanFormMount, HumanFormPhase } from "./human-form-mount.js";
 import { RunDetailSlot, type RunDetailMount } from "./RunDetailSlot.js";
 
 /**
@@ -40,7 +42,7 @@ import { RunDetailSlot, type RunDetailMount } from "./RunDetailSlot.js";
  */
 type WorkflowHumanFormSubmitRequest = Parameters<GrowthPort["workflowHumanFormSubmit"]>[0];
 
-const OPEN_PHASE: HumanFormMount = {
+const OPEN_PHASE: HumanFormPhase = {
   workflowRunId: "019b7a10-0280-7b33-8100-4011115a0002",
   phaseRunId: "phase-run-01",
   phaseId: "review",
@@ -54,6 +56,11 @@ const UNFILLED_SLOTS: readonly (readonly [string, React.JSX.Element])[] = [
   ["run detail", <RunDetailSlot key="run-detail" workflowRunId="wfr-01" />],
   ["human form", <HumanFormSlot key="human-form" phase={undefined} />],
 ];
+
+// The schema form arrives as its own chunk. Resolved once here so every case below
+// renders the loaded form rather than the reserved region its mount would otherwise
+// suspend on — the loader memoises the load, so this is the state a second form opens in.
+beforeAll(loadSchemaFormBody);
 
 describe("an unfilled slot is reserved, not stubbed", () => {
   it.each(UNFILLED_SLOTS)("%s stands in its own mount with an empty absence", (_name, element) => {
@@ -121,10 +128,16 @@ describe("a filled slot receives exactly what the mount promised", () => {
     expect(body.mock.calls[0]?.[0].snapshot).toBe(WORKFLOWS_PARKED_RUN);
   });
 
-  it("hands the human form the open phase, revision included", () => {
+  it("hands the human form the open phase, revision included, and the seat's submit", () => {
+    // The resolved phase VERBATIM, plus the one member the pane cannot resolve: the
+    // bound submit the seat keeps. `toStrictEqual` is what makes that exact — a body
+    // handed a member this slot did not promise is as much a defect as a missing one.
     const body = vi.fn((_mount: HumanFormMount) => <p>form body</p>);
-    render(<HumanFormSlot phase={OPEN_PHASE} body={body} />);
-    expect(body.mock.calls[0]?.[0]).toStrictEqual(OPEN_PHASE);
+    renderSwitchableSlot({ phase: OPEN_PHASE, body });
+    expect(body.mock.calls[0]?.[0]).toStrictEqual({
+      ...OPEN_PHASE,
+      submit: expect.any(Function),
+    });
   });
 
   it("calls no human-form body while no phase is open", () => {
@@ -132,7 +145,7 @@ describe("a filled slot receives exactly what the mount promised", () => {
     // appearance and unsubmittable in fact, so the body is not called at all rather
     // than called with a placeholder.
     const body = vi.fn(() => <p>form body</p>);
-    const { container } = render(<HumanFormSlot phase={undefined} body={body} />);
+    const { container } = renderSwitchableSlot({ phase: undefined, body });
     expect(body).not.toHaveBeenCalled();
     expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
   });
@@ -146,7 +159,7 @@ describe("a filled slot receives exactly what the mount promised", () => {
 });
 
 describe("a body that uses hooks keeps its own hook boundary", () => {
-  const SECOND_PHASE: HumanFormMount = {
+  const SECOND_PHASE: HumanFormPhase = {
     workflowRunId: OPEN_PHASE.workflowRunId,
     phaseRunId: "phase-run-02",
     phaseId: "sign-off",
@@ -162,7 +175,7 @@ describe("a body that uses hooks keeps its own hook boundary", () => {
    * workflow-engine body opens a subscription there.
    */
   function statefulFormBody(recordTeardown: () => void) {
-    return function StatefulFormBody(mount: HumanFormMount): React.JSX.Element {
+    return function StatefulFormBody(mount: HumanFormPhase): React.JSX.Element {
       const [composedAgainstPhaseId] = useState(mount.phaseId);
       useEffect(() => recordTeardown, []);
       return <p>{composedAgainstPhaseId}</p>;
@@ -172,17 +185,17 @@ describe("a body that uses hooks keeps its own hook boundary", () => {
   it("tears the body down when the phase closes and reopens it on the next one", () => {
     const recordTeardown = vi.fn();
     const body = statefulFormBody(recordTeardown);
-    const { rerender, container } = render(<HumanFormSlot phase={undefined} body={body} />);
-    rerender(<HumanFormSlot phase={OPEN_PHASE} body={body} />);
-    expect(container.textContent).toContain(OPEN_PHASE.phaseId);
+    const slot = renderSwitchableSlot({ phase: undefined, body });
+    slot.switchTo(OPEN_PHASE);
+    expect(slot.container.textContent).toContain(OPEN_PHASE.phaseId);
 
-    rerender(<HumanFormSlot phase={undefined} body={body} />);
-    expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
+    slot.switchTo(undefined);
+    expect(slot.container.querySelector(".meridian-nothing--empty")).not.toBeNull();
     expect(recordTeardown).toHaveBeenCalledTimes(1);
 
-    rerender(<HumanFormSlot phase={SECOND_PHASE} body={body} />);
-    expect(container.textContent).toContain(SECOND_PHASE.phaseId);
-    expect(container.textContent).not.toContain(OPEN_PHASE.phaseId);
+    slot.switchTo(SECOND_PHASE);
+    expect(slot.container.textContent).toContain(SECOND_PHASE.phaseId);
+    expect(slot.container.textContent).not.toContain(OPEN_PHASE.phaseId);
   });
 
   /**
@@ -194,9 +207,9 @@ describe("a body that uses hooks keeps its own hook boundary", () => {
    * render that calls no hook as a mount, so a wrapper with no hooks hides the
    * violation until it grows one — precisely the state these wrappers were in.
    */
-  function directCallHumanFormSlot(body: (mount: HumanFormMount) => React.JSX.Element) {
+  function directCallHumanFormSlot(body: (mount: HumanFormPhase) => React.JSX.Element) {
     return function DirectCallHumanFormSlot(props: {
-      readonly phase: HumanFormMount | undefined;
+      readonly phase: HumanFormPhase | undefined;
     }): React.JSX.Element {
       const openForm = props.phase === undefined ? null : body(props.phase);
       const [slotLabel] = useState("human form");
@@ -244,7 +257,7 @@ describe("the human-form mount composes the registered submit on its own", () =>
    * what the submit is addressed by.
    */
   function submitRequestFor(
-    mount: HumanFormMount,
+    mount: HumanFormPhase,
     fields: Readonly<Record<string, unknown>>,
   ): WorkflowHumanFormSubmitRequest {
     return {
@@ -261,7 +274,7 @@ describe("the human-form mount composes the registered submit on its own", () =>
       composed.push(submitRequestFor(mount, { approved: true }));
       return <p>form body</p>;
     };
-    render(<HumanFormSlot phase={OPEN_PHASE} body={body} />);
+    renderSwitchableSlot({ phase: OPEN_PHASE, body });
 
     expect(composed).toStrictEqual([
       {
@@ -280,7 +293,7 @@ describe("the human-form mount composes the registered submit on its own", () =>
     // members it was given and asserts them back. This is the shape the mount HAD:
     // reading the run off it is a type error, so the directive below is what fails
     // the build the day the member is dropped again.
-    const mountWithoutTheRun: Omit<HumanFormMount, "workflowRunId"> = {
+    const mountWithoutTheRun: Omit<HumanFormPhase, "workflowRunId"> = {
       phaseRunId: OPEN_PHASE.phaseRunId,
       phaseId: OPEN_PHASE.phaseId,
       formRevision: OPEN_PHASE.formRevision,
