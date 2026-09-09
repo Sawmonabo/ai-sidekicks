@@ -54,7 +54,13 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
-import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
+import {
+  Emitter,
+  refuse,
+  withoutKey,
+  type ConsoleRefusal,
+  type Unsubscribe,
+} from "../core/index.js";
 import { GenerationLatch, type MutatingDaemonMethod } from "../store/index.js";
 import {
   type ConsoleDaemonMethod,
@@ -375,22 +381,6 @@ export function useWireMutation<TRequest, TResponse>(
   );
   const read = useCallback(() => coordinator.snapshot(), [coordinator]);
   return useSyncExternalStore(subscribe, read, read);
-}
-
-function withoutKey(
-  refusalByKey: Readonly<Record<string, ConsoleRefusal>>,
-  key: string,
-): Readonly<Record<string, ConsoleRefusal>> {
-  if (!Object.hasOwn(refusalByKey, key)) {
-    return refusalByKey;
-  }
-  const remaining: Record<string, ConsoleRefusal> = {};
-  for (const [heldKey, refusal] of Object.entries(refusalByKey)) {
-    if (heldKey !== key) {
-      remaining[heldKey] = refusal;
-    }
-  }
-  return remaining;
 }
 
 /**

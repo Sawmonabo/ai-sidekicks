@@ -209,6 +209,10 @@ export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   type MalformedInstant,
 } from "./instant.js";
+// The one keyed-record rebuild. At the floor because its readers are `settings/` and
+// `collaboration/`, two VIEW families, and a view family never imports another — so the
+// floor is the only home either could have taken it from.
+export { withoutKey } from "./keyed-record.js";
 // The registry classes leave through this door; the two symbols only their own
 // suites read do not. `DuplicateRegistrationError` is what `KeyedRegistry` throws
 // and `consoleTripwires` is the singleton `reportTripwire` writes to, so a family
