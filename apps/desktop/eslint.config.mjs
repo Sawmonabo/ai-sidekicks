@@ -181,17 +181,25 @@ const RENDERER_RESTRICTED_PATTERNS = [
 /**
  * Reading the preload bridge off the window.
  *
- * `console/bridge/BridgeProvider.tsx` is the one console module that may, and everything
- * above it takes the bridge from that provider's context. A second reader is a second
- * idea of when the bridge exists, what it does before it does, and which fixture stands
- * in for it under test — `globalThis` included, because the two spellings reach the same
- * property and a ban on one is a ban one identifier away from useless.
+ * `console/bridge/live-bridge.ts` is the one console module that may — `BridgeProvider`
+ * calls its `readInstalledBridge` and hands the result down as context, so the provider
+ * is where the bridge is DISTRIBUTED and the live bridge is where it is READ. A second
+ * reader is a second idea of when the bridge exists, what it does before it does, and
+ * which fixture stands in for it under test.
+ *
+ * Three arms, because one spelling of the read is one identifier away from useless:
+ * `window.sidekicks`, `globalThis.sidekicks`, and the cast form a typed reach needs —
+ * `(window as { sidekicks?: SidekicksBridge }).sidekicks`, whose object is a
+ * `TSAsExpression` rather than an identifier, so the first two arms walk straight past
+ * it. The cast arm keys on the cast alone rather than on what it wraps: a nested
+ * `as unknown as` is a second `TSAsExpression`, and any `(x as T).sidekicks` at all is
+ * a bridge reach whatever `x` is.
  */
 const BRIDGE_GLOBAL_READ = {
   selector:
-    ':matches(MemberExpression[object.name="window"][property.name="sidekicks"], MemberExpression[object.name="globalThis"][property.name="sidekicks"])',
+    ':matches(MemberExpression[object.name="window"][property.name="sidekicks"], MemberExpression[object.name="globalThis"][property.name="sidekicks"], MemberExpression[object.type="TSAsExpression"][property.name="sidekicks"])',
   message:
-    "`apps/desktop/AGENTS.md` §Import boundaries: console code reaches the bridge only through `console/bridge/BridgeProvider.tsx`, and every surface above it takes the bridge from that provider's context. A second reader is a second idea of when the bridge exists and what stands in for it under test.",
+    "`apps/desktop/AGENTS.md` §Import boundaries: console code reaches the bridge only through `console/bridge/live-bridge.ts`, and every surface above it takes the bridge from `BridgeProvider`'s context. A second reader is a second idea of when the bridge exists and what stands in for it under test.",
 };
 
 /**
@@ -625,7 +633,13 @@ export default [
       ...rendererFiles("shell/**", RENDERER_TEST_FILES),
     ],
     rules: {
-      "no-restricted-syntax": ["error", ...withoutSelectors(CONSOLE_SYNTAX_BANS, MODULE_LEVEL_LET)],
+      // The bridge-global ban comes off here and only here among the bans: a console
+      // test INSTALLS a fixture bridge on the global, and that installation is the
+      // substitution seam the ban exists to protect rather than a second reader of it.
+      "no-restricted-syntax": [
+        "error",
+        ...withoutSelectors(CONSOLE_SYNTAX_BANS, MODULE_LEVEL_LET, BRIDGE_GLOBAL_READ),
+      ],
     },
   },
   {
@@ -638,16 +652,17 @@ export default [
         ...withoutSelectors(
           CONSOLE_SYNTAX_BANS,
           MODULE_LEVEL_LET,
+          BRIDGE_GLOBAL_READ,
           ...CONSOLE_TIME_READING_SELECTORS,
         ),
       ],
     },
   },
   {
-    // The one console module that may read the bridge off the window. It is what every
-    // surface above it takes the bridge FROM, so the ban has to be lifted exactly here
-    // and nowhere else.
-    files: ["src/renderer/src/console/bridge/BridgeProvider.tsx"],
+    // The one console module that may read the bridge off the window. `BridgeProvider`
+    // calls into it and hands the result down as context, so every surface above takes
+    // the bridge FROM here and the ban is lifted exactly here and nowhere else.
+    files: ["src/renderer/src/console/bridge/live-bridge.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
