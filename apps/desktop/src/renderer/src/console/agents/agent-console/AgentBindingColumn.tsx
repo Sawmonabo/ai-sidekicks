@@ -40,7 +40,7 @@
 
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 
-import { AgentCard } from "../AgentCard.js";
+import { AgentCard, ToolGrantCeiling } from "../agent-card/index.js";
 import { AgentRosterEmpty } from "../AgentRosterEmpty.js";
 import { type ProviderAxis } from "../agent-wire.js";
 import { AttachSidekick } from "../attach/AttachSidekick.js";
@@ -322,6 +322,12 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
       {rosterState.kind === "loaded" && shownAgents.length === 0 ? (
         <AgentRosterEmpty onAttach={() => setAttachOpen(true)} />
       ) : null}
+
+      {/* ONCE FOR THE ROSTER, NEVER PER CARD. The ceiling an allowlist cannot raise
+          is a fact about this NODE, so it is stated where the roster is rather than
+          repeated under every agent — and it is stated only where there is at least
+          one agent to state it about, since an empty roster has no grant it qualifies. */}
+      {shownAgents.length === 0 ? null : <ToolGrantCeiling />}
 
       {shownAgents.map((agent) => (
         <AgentCard
