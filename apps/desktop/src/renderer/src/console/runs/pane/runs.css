@@ -6,7 +6,27 @@
 
    Every value here is a Meridian token. There is no colour literal, no font stack,
    and no spacing number in this file: rule 3 puts the palette in one place, and a
-   pane that hard-coded one would be a second palette nobody could re-theme. */
+   pane that hard-coded one would be a second palette nobody could re-theme.
+
+   EVERY CLASS HERE IS PREFIXED `meridian-runs`, the block this file declares and the
+   pane actually renders. Seventeen of them used to be spelled `meridian-run-row__*`,
+   which is `workflows/runs/run-list.css`'s block: that sheet declares
+   `.meridian-run-row` and `RunListItem.tsx` renders it, while `RunRow.tsx` renders
+   inside a `LedgerRow` and never inside one — so those were elements of a block that
+   does not exist in this subtree. Only one of the seventeen had actually collided
+   across sheets, but a borrowed prefix is how the next one arrives, and a class two
+   sheets declare at equal specificity is decided by whichever the session loaded first.
+
+   TWO OF THE SEVENTEEN COULD NOT TAKE THE FLAT NAME. `meridian-runs__section` and
+   `__section-title` were already this file's, for the pane's own top-level sections, so
+   spelling the row's detail sections the same way merged two rules rather than moving
+   one: the row's `gap: var(--meridian-space-1)` won over the pane's
+   `var(--meridian-space-2)` by source order, 4 px off a section gap and 8 px off the
+   pane, which is what the geometry probe read before the pair was split back out. They
+   are `__detail-section` and `__detail-section-title`, named for the `__detail`
+   container `RunRow.tsx` renders them inside. That is the hazard in a prefix rename:
+   the collision it removes between two sheets is not the collision it can create
+   inside one. */
 
 .meridian-runs {
   display: flex;
@@ -104,27 +124,26 @@
 
 /* --- One run --------------------------------------------------------------- */
 
-.meridian-run-row__reading {
+.meridian-runs__reading {
   display: flex;
   flex-wrap: wrap;
   gap: var(--meridian-space-2);
   align-items: center;
 }
 
-.meridian-run-row__trigger,
-.meridian-run-row__clean-close,
-.meridian-run-row__blocked,
-.meridian-run-row__no-history {
+.meridian-runs__trigger,
+.meridian-runs__clean-close,
+.meridian-runs__blocked,
+.meridian-runs__no-history {
   margin: var(--meridian-space-1) 0 0;
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);
 }
 
 /* The failed run's category and its provider detail, as a strip of figures at the
-   row's own density. Prefixed for this pane's block and not for `meridian-run-row`:
-   that block is `workflows/runs/run-list.css`'s, `RunRow.tsx` renders inside a
-   `LedgerRow` and never inside one, and the two sheets paint different things — a
-   strip of figures here, a red prose paragraph there. */
+   row's own density. This is the one of the fifteen that COLLIDED: the workflows sheet
+   spells its own failure line the same way and paints a red prose paragraph instead, so
+   which of the two a session saw last decided how a failed run read in both families. */
 .meridian-runs__failure {
   display: flex;
   flex-wrap: wrap;
@@ -138,13 +157,13 @@
   color: var(--meridian-text-muted);
 }
 
-.meridian-run-row__ask {
+.meridian-runs__ask {
   margin-top: var(--meridian-space-2);
 }
 
 /* The detail toggle is quiet chrome: a text button that carries no border until it
    is reached, so the row reads as a line rather than as a form. */
-.meridian-run-row__detail-toggle {
+.meridian-runs__detail-toggle {
   align-self: flex-start;
   margin-top: var(--meridian-space-2);
   padding: 0;
@@ -156,16 +175,16 @@
   cursor: pointer;
 }
 
-.meridian-run-row__detail-toggle:hover {
+.meridian-runs__detail-toggle:hover {
   color: var(--meridian-text);
 }
 
-.meridian-run-row__detail-toggle:focus-visible {
+.meridian-runs__detail-toggle:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }
 
-.meridian-run-row__detail {
+.meridian-runs__detail {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-3);
@@ -174,21 +193,21 @@
   border-top: 1px solid var(--meridian-edge);
 }
 
-.meridian-run-row__section {
+.meridian-runs__detail-section {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
   min-width: 0;
 }
 
-.meridian-run-row__section-title {
+.meridian-runs__detail-section-title {
   margin: 0;
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);
   font-weight: 500;
 }
 
-.meridian-run-row__history {
+.meridian-runs__history {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
@@ -197,7 +216,7 @@
   list-style: none;
 }
 
-.meridian-run-row__history-row {
+.meridian-runs__history-row {
   display: flex;
   flex-wrap: wrap;
   gap: var(--meridian-space-2);
@@ -205,15 +224,15 @@
   font-size: var(--meridian-text-xs);
 }
 
-.meridian-run-row__history-mark {
+.meridian-runs__history-mark {
   display: inline-flex;
   gap: var(--meridian-space-1);
   align-items: center;
   color: var(--meridian-text-muted);
 }
 
-.meridian-run-row__history-states,
-.meridian-run-row__history-position {
+.meridian-runs__history-states,
+.meridian-runs__history-position {
   display: inline-flex;
   gap: var(--meridian-space-1);
   align-items: center;

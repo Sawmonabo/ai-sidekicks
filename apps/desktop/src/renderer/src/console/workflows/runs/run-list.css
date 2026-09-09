@@ -4,9 +4,9 @@
  * Owned by `RunList.tsx`, and reached from `workflows/index.ts` — the family DOOR, on a
  * reason of its own rather than the one the two sheets beside it there share. It declares
  * `.meridian-run-row__failure`, and it is now the ONLY sheet that does: `runs/pane/runs.css`
- * declared the same name for a different shape until that pane's line was prefixed for its
- * own block, so which of the two the browser saw last no longer decides how a failed run's
- * line reads. This sheet still rides the initial document, but on a bundle measurement
+ * declared the same name for a different shape until every class that pane draws was
+ * prefixed for its own block, so which of the two the browser saw last no longer decides
+ * how a failed run's line reads. This sheet still rides the initial document, but on a bundle measurement
  * rather than on that cascade hazard. The park badges a row stacks are next
  * door in `park-badge.css`, which is at that door too — the channel's pinned card draws
  * one on the first paint — so a row and a card say the same thing about the same park

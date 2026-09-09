@@ -25,19 +25,19 @@
 // `workflows/runs/run-list.css` also declares — two families, two different components,
 // one class name — so while both sheets were on the document the later one decided how
 // the WORKFLOWS run list drew a failed run's line, and which was later was a property of
-// the import graph rather than of either sheet. THE COLLISION IS SETTLED: this pane's
-// line is `.meridian-runs__failure`, prefixed for `.meridian-runs`, the block this
-// sheet's own file declares. Deferring these sheets onto the chunk root can no longer
-// change a surface another family owns, so what remains is an ordinary bundle
-// measurement rather than a cascade one.
+// the import graph rather than of either sheet. THE COLLISION IS SETTLED, and so is the
+// borrowed prefix behind it: all fifteen `meridian-run-row__*` names this pane spelled
+// are `meridian-runs__*` now, prefixed for `.meridian-runs`, the block this sheet's own
+// file declares. Deferring these sheets onto the chunk root can no longer change a
+// surface another family owns, so what remains is an ordinary bundle measurement rather
+// than a cascade one.
 //
-// The `.meridian-run-controls` half of that coupling is GONE: the workflows run pane's
-// block carries its family's prefix now, so this sheet's `flex-direction: column` styles
-// this family's controls and nothing else. What is left is the run-row pair, and it is
-// enough to hold the sheets here — the fix is the same fix, a rename with the committed
-// references regenerated on the baseline host, and it belongs to a change that does that
-// rather than to one that moves bundle boundaries. `apps/desktop/AGENTS.md` §Module
-// shape is the rule that keeps a NEW one from landing unnoticed.
+// The `.meridian-run-controls` half of that coupling went the same way earlier: the
+// workflows run pane's block carries its family's prefix, so this sheet's
+// `flex-direction: column` styles this family's controls and nothing else. NOTHING is
+// left of the coupling, so what holds these sheets here is the bundle measurement alone.
+// `apps/desktop/AGENTS.md` §Module shape is the rule that keeps a NEW one from landing
+// unnoticed.
 
 import { type ConsolePaneRegistry } from "../seats/index.js";
 

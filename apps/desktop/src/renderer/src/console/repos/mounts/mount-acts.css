@@ -98,8 +98,12 @@
  *
  * The attach trigger was qualified by `.meridian-repo-section >`, which is a class
  * `mounts.css` owns. It is unqualified now, which rings a trigger drawn outside a
- * repo section too: `Spec-023 §Console Design (Meridian)` rule 3 holds every
- * interactive shape to a visible focus state, so the qualifier was withholding one.
+ * repo section too — a keyboard-reachable control with no ring is what the
+ * `console-accessibility` tier reads as a WCAG 2.2 SC 2.4.7 failure, so the qualifier
+ * was withholding one. `Spec-023 §Console Design (Meridian)` rule 3 governs the ring's
+ * CONTRAST once it exists (≥ 3:1 against adjacent colours) and says nothing about
+ * whether one is drawn; it is the wrong citation for a widening and the right one for
+ * the treatment.
  */
 .meridian-repo-attach__dialog :focus-visible,
 .meridian-bind__dialog :focus-visible,

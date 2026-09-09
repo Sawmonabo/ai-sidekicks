@@ -126,7 +126,7 @@ export function RunRow(props: RunRowProps): React.JSX.Element {
         />
       }
     >
-      <div className="meridian-run-row__reading">
+      <div className="meridian-runs__reading">
         <Chip tone={RUN_STATE_TONES[run.state]} label={run.state} mono />
         <Chip tone="neutral" label={`v${String(run.runVersion)}`} mono />
         {elapsedMs === undefined ? null : <DerivedFigure text={formatDuration(elapsedMs)} />}
@@ -146,12 +146,12 @@ export function RunRow(props: RunRowProps): React.JSX.Element {
         presentation="row"
       />
       {run.trigger === undefined ? null : (
-        <p className="meridian-run-row__trigger">
+        <p className="meridian-runs__trigger">
           This run stopped because {RUN_TRIGGER_PHRASES[run.trigger]}.
         </p>
       )}
       {run.intendedClose ? (
-        <p className="meridian-run-row__clean-close">{RUN_CLEAN_CLOSE_SENTENCE}</p>
+        <p className="meridian-runs__clean-close">{RUN_CLEAN_CLOSE_SENTENCE}</p>
       ) : null}
       {run.failureCategory === undefined ? null : (
         <p className="meridian-runs__failure">
@@ -167,14 +167,14 @@ export function RunRow(props: RunRowProps): React.JSX.Element {
         <InputAskSlot contract={INPUT_ASK_SLOT_CONTRACT} body={undefined} runId={run.runId} />
       ) : null}
       {isBlockedRunState(run.state) ? (
-        <p className="meridian-run-row__blocked">
+        <p className="meridian-runs__blocked">
           This run is blocked on someone. It is not paused: nothing here resumes it, and it moves
           when the thing it is waiting on resolves.
         </p>
       ) : null}
       <button
         type="button"
-        className="meridian-run-row__detail-toggle"
+        className="meridian-runs__detail-toggle"
         aria-expanded={isDetailOpen}
         aria-controls={detailId}
         onClick={() => {
@@ -183,19 +183,19 @@ export function RunRow(props: RunRowProps): React.JSX.Element {
       >
         {isDetailOpen ? "Hide detail" : "Show detail"}
       </button>
-      <div className="meridian-run-row__detail" id={detailId} hidden={!isDetailOpen}>
+      <div className="meridian-runs__detail" id={detailId} hidden={!isDetailOpen}>
         <section
-          className="meridian-run-row__section"
+          className="meridian-runs__detail-section"
           aria-label={`Status history for run ${run.runId}`}
         >
-          <h4 className="meridian-run-row__section-title">Status history</h4>
+          <h4 className="meridian-runs__detail-section-title">Status history</h4>
           <StatusHistory rows={run.statusRows} />
         </section>
         <section
-          className="meridian-run-row__section"
+          className="meridian-runs__detail-section"
           aria-label={`Intervention history for run ${run.runId}`}
         >
-          <h4 className="meridian-run-row__section-title">Interventions</h4>
+          <h4 className="meridian-runs__detail-section-title">Interventions</h4>
           <InterventionHistory
             records={props.surface.records}
             runId={run.runId}

@@ -10,8 +10,8 @@
 // the measurement that said why: `runs.css` declared `.meridian-run-row__failure`, which
 // `workflows/runs/run-list.css` also declares, so while both sheets were on the document
 // the later one decided how the WORKFLOWS run list drew a failed run. That collision is
-// settled — this pane's line is `.meridian-runs__failure` — so deferring the sheets can
-// no longer reach another family's surface. They stay on the door until a change that
+// settled — every class this pane draws is `meridian-runs__*` now — so deferring the
+// sheets can no longer reach another family's surface. They stay on the door until a change that
 // measures the deferral moves them.
 //
 // Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader resolves.

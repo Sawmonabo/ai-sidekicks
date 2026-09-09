@@ -55,8 +55,8 @@
 // `runs/run-list.css` stayed because its position in the cascade was not this family's to
 // decide: it declares `.meridian-run-row__failure` and `runs/pane/runs.css` declared the
 // same name for a different shape, so which of the two the browser saw LAST decided how a
-// failed run's line read in both families. THAT COLLISION IS SETTLED — the runs pane's
-// line is `.meridian-runs__failure` now, prefixed for the block its own sheet declares —
+// failed run's line read in both families. THAT COLLISION IS SETTLED — every class that
+// pane draws is `meridian-runs__*` now, prefixed for the block its own sheet declares —
 // and this sheet's placement is no longer holding it. It stays on the initial document
 // only until a change that measures the deferral takes it off, which is a bundle question
 // rather than a cascade one and belongs to whoever moves it.
