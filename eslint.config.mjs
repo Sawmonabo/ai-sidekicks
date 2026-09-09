@@ -74,10 +74,17 @@ export default tseslint.config(
   // Plan-008 §I-008-3 enforcement #2 — the tRPC session router + SSE
   // subscription factories must NEVER reach a database driver directly. They
   // route 100% through `SessionDirectoryService` (the wrapper Plan-001 owns).
-  // This rule catches the violation at lint time; the AST-walker test in
-  // packages/control-plane/src/sessions/__tests__/router-no-sql.test.ts
-  // re-asserts the same invariant at test time so CI catches it even if
-  // lint is bypassed.
+  // These rules are the whole enforcement. `no-restricted-imports` covers the
+  // static `import` / `export … from` forms; it does NOT see a dynamic
+  // `import("pg")` (measured 2026-09-09 against ESLint 10.2.1 by planting all
+  // three forms — only the two static ones were reported), so the
+  // `ImportExpression` selector beside it closes the lazy-import escape hatch.
+  // `no-restricted-syntax` is safe to configure here because no other config
+  // object in this file sets that rule for `packages/control-plane/**` — flat
+  // config REPLACES a rule's options at the last matching object, so a second
+  // invocation for an overlapping scope would silently drop the first.
+  // `session-directory-service.ts` is deliberately outside the `files` glob —
+  // importing `pg` is that module's job.
   {
     files: [
       "packages/control-plane/src/sessions/session-router.ts",
@@ -103,6 +110,14 @@ export default tseslint.config(
                 "Plan-008 I-008-3 #2: session router + SSE factories must route through SessionDirectoryService — `pg/*` subpaths are forbidden here.",
             },
           ],
+        },
+      ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "ImportExpression[source.value=/^pg(\\/.*)?$/]",
+          message:
+            'Plan-008 I-008-3 #2: session router + SSE factories must route through SessionDirectoryService — a dynamic `import("pg")` is forbidden here just as the static form is.',
         },
       ],
     },
@@ -149,6 +164,51 @@ export default tseslint.config(
       ],
     },
   },
+  // Plan-001 T1.12 — `event-core.ts` is the ACYCLIC LEAF of the contracts
+  // module graph. `event.ts` imports it, so an import back into `./event.js`
+  // from the leaf re-closes the cycle that hoist removed; under Vite's SSR
+  // transform a module-scope read of the uninitialized binding surfaces as
+  // `undefined` rather than throwing, so the breakage is silent until a
+  // payload-schema union branch fails to construct.
+  //
+  // Carried on `no-restricted-syntax` and NOT on `no-restricted-imports`
+  // because the block above already configures `no-restricted-imports` for
+  // every contracts source file, and flat config REPLACES a rule's options at
+  // the last matching config object — a second `no-restricted-imports`
+  // invocation scoped to this one file would silently drop the `node:*`
+  // isomorphism ban for exactly it. No other config object sets
+  // `no-restricted-syntax` for `packages/contracts/**`, so this one is free of
+  // that hazard. All four edge-carrying forms are denied: the static import,
+  // the dynamic import expression, and both `export … from` re-export shapes
+  // (a re-export closes the cycle exactly as an import does).
+  {
+    files: ["packages/contracts/src/event-core.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: 'ImportDeclaration[source.value="./event.js"]',
+          message:
+            "Plan-001 T1.12: event-core.ts is the acyclic leaf of the contracts module graph — importing ./event.js from it re-closes the cycle that hoist exists to remove.",
+        },
+        {
+          selector: 'ImportExpression[source.value="./event.js"]',
+          message:
+            "Plan-001 T1.12: event-core.ts is the acyclic leaf of the contracts module graph — a dynamic import of ./event.js re-closes the cycle just as the static form does.",
+        },
+        {
+          selector: 'ExportNamedDeclaration[source.value="./event.js"]',
+          message:
+            "Plan-001 T1.12: event-core.ts is the acyclic leaf of the contracts module graph — re-exporting from ./event.js closes the cycle exactly as importing it does.",
+        },
+        {
+          selector: 'ExportAllDeclaration[source.value="./event.js"]',
+          message:
+            "Plan-001 T1.12: event-core.ts is the acyclic leaf of the contracts module graph — re-exporting from ./event.js closes the cycle exactly as importing it does.",
+        },
+      ],
+    },
+  },
   // `Plan-006 §T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback`
   // precondition enforcement (PR #272 Codex round 3) — the unsigned-placeholder
   // append opt-in is TEST-ONLY. The `UnsignedPlaceholderAppendToken` type is
@@ -177,6 +237,161 @@ export default tseslint.config(
             "MemberExpression[object.name='UnsignedPlaceholderAppendToken'][property.value='forTestsOnly']",
           message:
             "UnsignedPlaceholderAppendToken['forTestsOnly'] is TEST-ONLY (Plan-006 T3.1 precondition): production code must never enable SessionService.append's zero-filled placeholder writes. Durable writes belong to EventLogService.append.",
+        },
+      ],
+    },
+  },
+  // `crypto.randomUUID()` emits a v4 UUID — 122 random bits with no time
+  // ordering. `packages/contracts/src/session.ts` and `event.ts` both state
+  // that daemon-assigned ids are RFC 9562 UUID **v7**, and the wire schemas
+  // accept any version on purpose (control-plane rows are Postgres
+  // `gen_random_uuid()` v4), so nothing downstream rejects a v4: a new id
+  // factory written the old way is wrong and silent. Every daemon persisted-row
+  // id and event id mints through `mintUuidV7` (`src/ids/uuid-v7.ts`).
+  //
+  // Carried on `no-restricted-properties` + `no-restricted-imports` rather than
+  // `no-restricted-syntax`, because the block above already configures
+  // `no-restricted-syntax` for this exact scope and flat config REPLACES a
+  // rule's options at the last matching config object — adding these selectors
+  // in a second `no-restricted-syntax` invocation would silently drop the
+  // unsigned-placeholder append guard. Neither of the two rules used here is
+  // configured for `packages/runtime-daemon/**` anywhere else in this file.
+  //
+  // `no-restricted-properties` with a bare `property` restricts `.randomUUID`
+  // on ANY object, so the global (`crypto.randomUUID()`), namespaced
+  // (`nodeCrypto.randomUUID()`) and `globalThis`-qualified forms are all
+  // denied; `no-restricted-imports` with `importNames` denies the named-import
+  // form (`import { randomUUID } from "node:crypto"`) while leaving that
+  // module's other exports — `createHash`, `randomBytes` — available.
+  {
+    files: ["packages/runtime-daemon/src/**/*.ts"],
+    ignores: ["packages/runtime-daemon/src/**/__tests__/**"],
+    rules: {
+      "no-restricted-properties": [
+        "error",
+        {
+          property: "randomUUID",
+          message:
+            "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and event ids must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts), which the contracts package's ID-format rule requires. An id that is genuinely an ephemeral token — no row and no event stores it — earns an entry in the exemption block beside this one, reviewed on the diff that adds it.",
+        },
+      ],
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "node:crypto",
+              importNames: ["randomUUID"],
+              message:
+                "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and event ids must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts). node:crypto's other exports are unrestricted.",
+            },
+            {
+              name: "crypto",
+              importNames: ["randomUUID"],
+              message:
+                "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and event ids must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts). Use the `node:` prefix for the other builtins.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  // The four daemon modules that mint an EPHEMERAL token — a correlation id, a
+  // subscription handle, a PTY handle, a scratch filename — where no row and no
+  // event stores the value and nothing sorts a set of them, so uniqueness is
+  // the whole requirement and v4 supplies it. Each is exempt as a FILE, which
+  // is the granularity a lint rule has: the rule cannot say "this call site but
+  // not the next one added beside it", so a second mint added inside one of
+  // these four files passes lint and is caught only in review. That residual is
+  // deliberate and is the reason the exemption set is kept to four files out of
+  // 123 rather than grown by convenience.
+  //
+  // Only the two rules from the block above are turned off; the
+  // unsigned-placeholder `no-restricted-syntax` guard is on a different rule
+  // and is unaffected.
+  {
+    files: [
+      // Scratch git-index filename, unlinked in the same call.
+      "packages/runtime-daemon/src/git/turn-snapshot-service.ts",
+      // In-memory subscription id, alive for one transport connection.
+      "packages/runtime-daemon/src/ipc/streaming-primitive.ts",
+      // In-flight correlation token for one outbound frame.
+      "packages/runtime-daemon/src/provider/drivers/outbound-frame.ts",
+      // Host-local PTY handle; the Rust sidecar backend mints `s-{n}` here.
+      "packages/runtime-daemon/src/pty/node-pty-host.ts",
+    ],
+    rules: {
+      "no-restricted-properties": "off",
+      "no-restricted-imports": "off",
+    },
+  },
+  // Plan-009 / Plan-010 — the two read-side projectors are PURE: no database,
+  // no temp directory, no clock. Every caller treats each as a side-effect-free
+  // fold over already-read rows, and every test in their suites drives them by
+  // handing over a row and a probe result directly. The realistic purity break
+  // is not a direct `node:fs` import but a sibling import (a service module,
+  // the database layer) that pulls I/O in behind it, so the rule is an
+  // ALLOW-LIST expressed as a negative-lookahead `regex` pattern rather than a
+  // denylist of builtins: `@ai-sidekicks/contracts` is the one permitted
+  // specifier, and it is itself held isomorphic by the contracts block above. A
+  // future legitimately-pure import widens this pattern in the same diff that
+  // adds it.
+  //
+  // This block REPLACES the daemon-wide `no-restricted-imports` options for
+  // these two files, which is correct here rather than merely tolerable: the
+  // allow-list already forbids `node:crypto` outright, so it is strictly
+  // stronger than the `randomUUID` import ban it displaces, and the
+  // `no-restricted-properties` half of that guard is on a different rule and
+  // still applies.
+  //
+  // NAMED RESIDUAL: `no-restricted-imports` does not see a dynamic
+  // `import("node:fs")` (measured 2026-09-09 against ESLint 10.2.1), and the
+  // `no-restricted-syntax` rule that could is already configured for this whole
+  // scope by the append guard above — a second invocation for these two files
+  // would silently drop that guard for them, and a copy of it kept in sync by
+  // hand is worse config than a stated gap. A lazy import into a pure fold is a
+  // review finding, not a lint one.
+  {
+    files: [
+      "packages/runtime-daemon/src/workspace/workspace-projector.ts",
+      "packages/runtime-daemon/src/git/worktree-projector.ts",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "^(?!@ai-sidekicks/contracts$).*$",
+              message:
+                "The read-side projectors are pure (Plan-009 / Plan-010): @ai-sidekicks/contracts is the only import they may carry, because any other specifier can reach I/O transitively. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  // I-010-20's daemon half, in its structural form: `worktree-projector.ts`
+  // reports the expiry fields its caller read and derives no expiry of its own,
+  // so clock math must be UNAVAILABLE to it rather than merely unwritten.
+  // `no-restricted-globals` resolves the identifier, so a locally-shadowed
+  // `Date` is not reported and a genuine global read is — which a text scan
+  // could not distinguish. Configured for no other daemon path in this file, so
+  // it displaces nothing.
+  {
+    files: ["packages/runtime-daemon/src/git/worktree-projector.ts"],
+    rules: {
+      "no-restricted-globals": [
+        "error",
+        {
+          name: "Date",
+          message:
+            "I-010-20: worktree-projector.ts reads no clock — it reports the expiry fields its caller handed it and derives no expiry of its own. Compute the instant in the caller and pass it in.",
+        },
+        {
+          name: "performance",
+          message:
+            "I-010-20: worktree-projector.ts reads no clock — it reports the expiry fields its caller handed it and derives no expiry of its own. Compute the instant in the caller and pass it in.",
         },
       ],
     },

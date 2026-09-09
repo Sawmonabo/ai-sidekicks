@@ -3,8 +3,11 @@
 // Exercises the three read-side projections the daemon's health and capability
 // surfaces answer from. No database, no temp directory, no clock: the module
 // under test performs no I/O, so every branch is driven by handing it a row and
-// a probe result directly — which is itself the property the purity block at
-// the bottom pins.
+// a probe result directly. That purity is enforced statically, by the
+// `no-restricted-imports` allow-list for
+// `packages/runtime-daemon/src/workspace/workspace-projector.ts` in
+// eslint.config.mjs: `@ai-sidekicks/contracts` is the only specifier the module
+// may import, so no sibling can pull I/O in behind it.
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
 //   * Mount health: both verdicts of the D-009-2 shape, the probe's own
@@ -56,8 +59,6 @@
 // root reads as `stale`; the persisted transition and the write gate ride the
 // workspace service), I-009-8 (every mode absent from `availableModes` carries
 // a reason).
-
-import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
@@ -560,68 +561,5 @@ describe("computeExecutionModeCapabilities — fail-closed dispatch and fresh ou
 
     expect(originalReason).toBeDefined();
     expect(second.restrictions?.["branch"]).toBe(originalReason);
-  });
-});
-
-// ----------------------------------------------------------------------------
-// Purity — the property every test above depends on
-// ----------------------------------------------------------------------------
-
-describe("workspace-projector — purity", () => {
-  // Matches one whole static import statement per match — the named/default
-  // `from` form, the type-only form, and the bare side-effect form
-  // (`import "node:fs";`, no `from` at all) — including the multi-line block
-  // shape. `[^;]*?` cannot run past the statement's own semicolon, so each
-  // match is exactly one import.
-  const IMPORT_SPECIFIER_PATTERN = /^import\b[^;]*?"([^"]+)";$/gm;
-
-  const projectorSource: string = readFileSync(
-    new URL("../workspace-projector.ts", import.meta.url),
-    "utf8",
-  );
-
-  function importedSpecifiersOf(source: string): string[] {
-    return [...source.matchAll(IMPORT_SPECIFIER_PATTERN)].map((match) => match[1] ?? "");
-  }
-
-  it("detects every static import form when one is present (negative control)", () => {
-    // Proves the extractor can FAIL. Without it, a broken pattern would report
-    // a clean module by matching nothing at all — and the bare side-effect
-    // form is the classic evasion a `from`-anchored pattern waves through.
-    const fixture = [
-      'import "node:fs";',
-      'import { openSync } from "node:fs";',
-      "",
-      "import {",
-      "  something,",
-      '} from "@ai-sidekicks/contracts";',
-      "",
-    ].join("\n");
-
-    expect(importedSpecifiersOf(fixture)).toEqual([
-      "node:fs",
-      "node:fs",
-      "@ai-sidekicks/contracts",
-    ]);
-  });
-
-  it("imports the contracts package and NOTHING else", () => {
-    // The EXACT list, not a `node:`-prefix screen: the realistic purity break
-    // is not a direct builtin import but a sibling import (a service module,
-    // the database layer) that pulls I/O in transitively — which a prefix
-    // filter waves through untouched. A future legitimately-pure import
-    // widens this literal in the same diff that adds it, the same deliberate
-    // friction as the module's own compile-time rosters. (An eslint
-    // `no-restricted-imports` override could pin this statically; the repo
-    // gates purity per-module here, where the property is load-bearing.)
-    expect(importedSpecifiersOf(projectorSource)).toEqual(["@ai-sidekicks/contracts"]);
-  });
-
-  it("contains no dynamic import() or require() escape hatch", () => {
-    // The static census above cannot see a lazy `await import(...)` or a
-    // CommonJS `require(...)`, either of which would reach I/O at call time
-    // while the import list stays clean.
-    expect(projectorSource).not.toMatch(/\bimport\s*\(/);
-    expect(projectorSource).not.toMatch(/\brequire\s*\(/);
   });
 });

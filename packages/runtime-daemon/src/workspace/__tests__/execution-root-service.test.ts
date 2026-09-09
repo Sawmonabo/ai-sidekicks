@@ -44,9 +44,9 @@
 // arm substitutes another), I-010-10 (the neutralizing `-c core.hooksPath` and
 // `-c core.fsmonitor=false` pairs lead the argv, and the directory the first
 // names is created first), I-010-11
-// (asserted twice: a source scan with its own negative control, AND a full
-// prepare with the primitives stubbed out leaving the `workspaces` row
-// byte-identical), I-010-12 (the gate precedes every writable prepare that finds
+// (a full prepare with the Plan-009 primitives stubbed out leaves the
+// `workspaces` row byte-identical, so a write from this module's own SQL would
+// be a direct observation), I-010-12 (the gate precedes every writable prepare that finds
 // the CP-010-2 bracket closed, and precedes every git call).
 //
 // Two areas here are about what happens when a step that CANNOT be refused fails
@@ -63,7 +63,7 @@
 // does not discriminate), an empty `runId` does not unlock the fallback, and a
 // first bind does not double-begin.
 
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -1838,57 +1838,9 @@ describe("compensation", () => {
 // I-010-11 — every workspace write rides the Plan-009 primitives
 // ============================================================================
 
-/**
- * Write statements against `workspaces`, in every spelling SQLite accepts.
- *
- * Deliberately NOT anchored to a template literal or to `database.prepare(`:
- * the claim is about the whole FILE, so a write smuggled into a helper, a
- * comment-adjacent string, or a second prepare site is caught the same way.
- */
-const WORKSPACES_WRITE_PATTERN =
-  /\b(?:UPDATE|DELETE\s+FROM|(?:INSERT|REPLACE)(?:\s+OR\s+\w+)?\s+INTO)\s+workspaces\b/i;
-
-const serviceSource: string = readFileSync(
-  new URL("../execution-root-service.ts", import.meta.url),
-  "utf8",
-);
-
 describe("I-010-11 — no raw workspaces write", () => {
-  it("contains no write statement against the workspaces table", () => {
-    expect(WORKSPACES_WRITE_PATTERN.test(serviceSource)).toBe(false);
-    // The file DOES read the table — without this the assertion above would also
-    // pass on a file that never mentions `workspaces` at all, which would make it
-    // a claim about the wrong module.
-    expect(serviceSource).toContain("FROM workspaces");
-  });
-
-  it("detects a workspaces write in every spelling when one is present (negative control)", () => {
-    const smuggled: readonly string[] = [
-      `UPDATE workspaces SET state = 'ready' WHERE id = @id`,
-      `update workspaces set fs_root = NULL`,
-      `INSERT INTO workspaces (id) VALUES (@id)`,
-      `INSERT OR REPLACE INTO workspaces (id) VALUES (@id)`,
-      `DELETE FROM workspaces WHERE id = @id`,
-    ];
-    for (const statement of smuggled) {
-      expect(WORKSPACES_WRITE_PATTERN.test(statement)).toBe(true);
-    }
-
-    // And it does NOT fire on the statements this module legitimately owns —
-    // without which the positive assertion above would be satisfied by a pattern
-    // that matches everything.
-    const permitted: readonly string[] = [
-      `UPDATE branch_contexts SET base_branch = @base_branch`,
-      `INSERT INTO branch_contexts (id) VALUES (@id)`,
-      `SELECT id FROM workspaces WHERE id = @workspace_id`,
-    ];
-    for (const statement of permitted) {
-      expect(WORKSPACES_WRITE_PATTERN.test(statement)).toBe(false);
-    }
-  });
-
   it("leaves the workspaces row byte-identical when the primitives are stubbed out", async () => {
-    // The structural half. With the primitives replaced by recording no-ops, any
+    // With the primitives replaced by recording no-ops, any
     // change to the row could only have come from this module's own SQL — so an
     // unchanged row is a direct observation, not a proxy for one.
     insertWorkspace({ executionMode: "worktree", state: "provisioning" });
