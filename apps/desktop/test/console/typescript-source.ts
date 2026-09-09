@@ -38,20 +38,6 @@
 import ts from "typescript";
 
 /**
- * One module as a source-text gate reads it: a name for a failure, and the text.
- *
- * The structural half of `ConsoleModuleText`, which satisfies it — declared HERE rather
- * than four times, once per gate, because it is the shape this module's own parse is
- * fed. A planted control is written as the two fields a reading actually consumes
- * instead of as a synthetic walk entry carrying two absolute paths that name nothing,
- * and `ConsoleSourceTree.reading.texts` is assignable to it unchanged.
- */
-export interface SourceModuleText {
-  readonly displayPath: string;
-  readonly source: string;
-}
-
-/**
  * Parse `sourceText` as TypeScript.
  *
  * `fileName` is a label rather than a path: nothing is read from disk here, and
@@ -75,48 +61,4 @@ export function forEachDescendant(node: ts.Node, visit: (descendant: ts.Node) =>
     visit(child);
     forEachDescendant(child, visit);
   });
-}
-
-/**
- * A string whose value is fixed at the node — quoted, or a template with no substitution.
- *
- * The reduction every source-text gate performs on the one argument it cares about: a
- * glob pattern, a declared site, a module specifier. Three gates wrote it, two taking
- * `ts.Node` and one `ts.Node | undefined`, which is the wider of the two and therefore
- * the one signature that serves them all — a caller holding a node passes it, and a
- * caller holding a member that may be absent does not write the guard again.
- *
- * `undefined` is the REFUSAL and not an absence: a pattern composed from a constant or
- * an interpolation is one the parse cannot reduce, and every caller reads that as the
- * fail-closed arm rather than skipping the node.
- */
-export function literalTextOf(node: ts.Node | undefined): string | undefined {
-  if (node === undefined) {
-    return undefined;
-  }
-  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-    return node.text;
-  }
-  return undefined;
-}
-
-/**
- * Every name one binding declares, destructuring patterns included.
- *
- * Written byte-for-byte twice — `cap-single-home.test.ts` and
- * `refusal-declaration-single-home.test.ts`, doc comment included — and both ask the
- * same question of the same node kind: which identifiers does this declaration bring
- * into scope. Accumulating INTO a caller's array rather than answering one is what the
- * recursion wants: a variable statement's declarations fold into one list.
- */
-export function boundNamesOf(name: ts.BindingName, into: string[]): void {
-  if (ts.isIdentifier(name)) {
-    into.push(name.text);
-    return;
-  }
-  for (const element of name.elements) {
-    if (ts.isBindingElement(element)) {
-      boundNamesOf(element.name, into);
-    }
-  }
 }
