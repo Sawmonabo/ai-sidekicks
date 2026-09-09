@@ -9448,6 +9448,108 @@ shipped:
       what caught the 8 px regression the flat rename introduced before a baseline saw it.
       `phase: 1`: `1C` is a supplement label and can never be a manifest phase key, so the task
       id carries the assertion.
+  - phase: 1
+    task: T-023p-1C-1
+    pr: 476
+    sha: 15d466d
+    merged_at: 2026-09-09
+    files:
+      - apps/desktop/src/renderer/src/console/bridge/console-bridge.ts
+      - apps/desktop/src/renderer/src/console/bridge/daemon/daemon-method-contract.ts
+      - apps/desktop/src/renderer/src/console/bridge/daemon/daemon-reply-registry.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/daemon/daemon-reply-registry.ts
+      - apps/desktop/src/renderer/src/console/bridge/daemon/daemon-reply.shell-block.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/daemon/daemon-reply.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/daemon/daemon-reply.ts
+      - apps/desktop/src/renderer/src/console/bridge/daemon/failing-member-paths.ts
+      - apps/desktop/src/renderer/src/console/bridge/daemon/shell-condition-gate.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture/call-plane/bridge.ts
+      - apps/desktop/src/renderer/src/console/bridge/live-bridge.ts
+      - apps/desktop/src/renderer/src/console/collaboration/invites/SentInvites.tsx
+      - apps/desktop/src/renderer/src/console/collaboration/invites/create-invite-act.ts
+      - apps/desktop/src/renderer/src/console/collaboration/members/Memberships.tsx
+      - apps/desktop/src/renderer/src/console/collaboration/mutation-coordinator.constraint.test.ts
+      - apps/desktop/src/renderer/src/console/collaboration/mutation-coordinator.ts
+      - apps/desktop/src/renderer/src/console/frame/shell-state/ShellChrome.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/shell-state/shell-sentences.ts
+      - apps/desktop/src/renderer/src/console/frame/shell-state/shell-status-binding.ts
+      - apps/desktop/src/renderer/src/console/ledger/cards/shell/shell-ask-answer.ts
+      - apps/desktop/src/renderer/src/console/palette/commands/command-registry.ts
+      - apps/desktop/src/renderer/src/console/palette/commands/contributions.ts
+      - apps/desktop/src/renderer/src/console/palette/overlay/PaletteOverlay.unavailable.test.tsx
+      - apps/desktop/src/renderer/src/console/palette/overlay/PaletteResultList.tsx
+      - apps/desktop/src/renderer/src/console/palette/overlay/palette-latch.ts
+      - apps/desktop/src/renderer/src/console/palette/palette.css
+      - apps/desktop/src/renderer/src/console/repos/mounts/EphemeralCloneList.tsx
+      - apps/desktop/src/renderer/src/console/repos/mounts/ExecutionModePicker.test.tsx
+      - apps/desktop/src/renderer/src/console/repos/mounts/ExecutionModePicker.tsx
+      - apps/desktop/src/renderer/src/console/repos/mounts/MountCard.test.tsx
+      - apps/desktop/src/renderer/src/console/repos/mounts/MountCard.tsx
+      - apps/desktop/src/renderer/src/console/repos/mounts/MountList.tsx
+      - apps/desktop/src/renderer/src/console/repos/mounts/RepoSection.tsx
+      - apps/desktop/src/renderer/src/console/repos/mounts/WorkspaceCard.test.tsx
+      - apps/desktop/src/renderer/src/console/repos/mounts/WorkspaceCard.tsx
+      - apps/desktop/src/renderer/src/console/repos/mounts/attach/AttachRepositoryDialog.test.tsx
+      - apps/desktop/src/renderer/src/console/repos/mounts/attach/AttachRepositoryDialog.tsx
+      - apps/desktop/src/renderer/src/console/repos/mounts/attach/ReattachControl.test.tsx
+      - apps/desktop/src/renderer/src/console/repos/mounts/attach/ReattachControl.tsx
+      - apps/desktop/src/renderer/src/console/repos/mounts/bind/BindWorkspaceDialog.test.tsx
+      - apps/desktop/src/renderer/src/console/repos/mounts/bind/BindWorkspaceDialog.tsx
+      - apps/desktop/src/renderer/src/console/repos/mounts/mode-picker.css
+      - apps/desktop/src/renderer/src/console/repos/mounts/mount-acts.css
+      - apps/desktop/src/renderer/src/console/repos/mounts/mount-health.ts
+      - apps/desktop/src/renderer/src/console/repos/mounts/repo-acts.shell.test.tsx
+      - apps/desktop/src/renderer/src/console/repos/mounts/roots/PrepareExecutionRoot.test.tsx
+      - apps/desktop/src/renderer/src/console/repos/mounts/roots/PrepareExecutionRoot.tsx
+      - apps/desktop/src/renderer/src/console/repos/mounts/roots/RootDisposalConfirmation.test.tsx
+      - apps/desktop/src/renderer/src/console/repos/mounts/roots/RootDisposalConfirmation.tsx
+      - apps/desktop/src/renderer/src/console/repos/proposals/EphemeralCloneGateRow.test.tsx
+      - apps/desktop/src/renderer/src/console/repos/proposals/EphemeralCloneGateRow.tsx
+      - apps/desktop/src/renderer/src/console/repos/proposals/WorktreeGateRow.test.tsx
+      - apps/desktop/src/renderer/src/console/repos/proposals/WorktreeGateRow.tsx
+      - apps/desktop/src/renderer/src/console/runs/pane/RunRow.tsx
+      - apps/desktop/src/renderer/src/console/runs/pane/RunsPaneBody.test.tsx
+      - apps/desktop/src/renderer/src/console/runs/pane/RunsPaneBody.tsx
+      - apps/desktop/src/renderer/src/console/runs/pane/controls/ControlButton.tsx
+      - apps/desktop/src/renderer/src/console/runs/pane/controls/RunControls.gone.test.tsx
+      - apps/desktop/src/renderer/src/console/runs/pane/controls/RunControls.shell.test.tsx
+      - apps/desktop/src/renderer/src/console/runs/pane/controls/RunControls.tsx
+      - apps/desktop/src/renderer/src/console/runs/pane/controls/StepIn.tsx
+      - apps/desktop/src/renderer/src/console/runs/pane/controls/run-control-commands.abandoned-pass.test.tsx
+      - apps/desktop/src/renderer/src/console/runs/pane/controls/run-control-commands.shell.test.tsx
+      - apps/desktop/src/renderer/src/console/runs/pane/controls/run-control-commands.test.ts
+      - apps/desktop/src/renderer/src/console/runs/pane/controls/run-control-commands.ts
+      - apps/desktop/src/renderer/src/console/runs/pane/controls/run-control-dispatch.ts
+      - apps/desktop/src/renderer/src/console/runs/pane/controls/run-controls.test-support.tsx
+      - apps/desktop/src/renderer/src/console/runs/pane/controls/step-in-shared-latch.test.tsx
+      - apps/desktop/src/renderer/src/console/runs/pane/controls/step-in.test-support.tsx
+      - apps/desktop/src/renderer/src/console/runs/pane/run-start-offer.test.tsx
+      - apps/desktop/src/renderer/src/console/runs/pane/runs.css
+      - apps/desktop/src/renderer/src/console/sessions/acts/session-act-block.test.ts
+      - apps/desktop/src/renderer/src/console/sessions/acts/session-act-block.ts
+      - apps/desktop/src/renderer/src/console/store/index.ts
+      - apps/desktop/src/renderer/src/console/store/shell-condition.test-support.ts
+      - apps/desktop/src/renderer/src/console/store/shell/frame-hooks.ts
+      - apps/desktop/src/renderer/src/console/store/shell/shell-mutation-block.test.ts
+      - apps/desktop/src/renderer/src/console/store/shell/shell-mutation-block.ts
+      - apps/desktop/src/renderer/src/shell/composer/commands/client-command-executor.ts
+      - apps/desktop/src/renderer/src/shell/composer/commands/client-command-recognizer.ts
+      - apps/desktop/test/console/browser/repos-mount-dialogs.test.tsx
+    verifies_invariant: []
+    spec_coverage: []
+    notes: |
+      T-023p-1C-1, the shell read-only block moved to the call door: `callDaemon` refuses a
+      mutating record against the frame store's current shell condition before the request
+      parse, carrying the block's own `shell-*` code verbatim rather than widening the reply
+      refusal codes, so a disabled control and a refused dispatch name one condition once. The
+      roster becomes the registry — ten hand-listed methods against the twenty-one the reply
+      registry binds, one of them (`driver.applyIntervention`) a method the registry does not
+      bind at all — held equal in both directions over exported runtime values, with the
+      read arm untouched across all seven reported shell conditions. Each negative control was
+      proven red first. The affordances themselves still invite the press: the block refuses
+      the dispatch and renders the refusal, and no `disabled` state ships here.
+      `phase: 1`: `1C` is a supplement label and can never be a manifest phase key, so the task
+      id carries the assertion.
 ```
 
 ### Notes
