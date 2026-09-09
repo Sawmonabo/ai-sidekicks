@@ -15,8 +15,9 @@
  * Six sheets enter at this root and two at `settings/browser-settings-page-body.ts`, which
  * is seven distinct files because `../controls.css` is named at both. The split is read off
  * the module graph rather than off the directory, and
- * `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` is what enforces it
- * in both directions.
+ * `no-restricted-syntax` in `apps/desktop/eslint.config.mjs` admits a relative `.css`
+ * import only from a barrel or a `*-body` chunk root; which root each sheet enters at is
+ * `apps/desktop/AGENTS.md` §Module shape's rule, read in review.
  *
  * It sits FLAT BESIDE THE MODULES IT DRESSES rather than in a `styles/` directory
  * of its own: one sheet per sub-module directory, named for that directory, so the

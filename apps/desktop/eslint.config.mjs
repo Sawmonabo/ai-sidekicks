@@ -66,7 +66,11 @@
 // rather than by copying them, so the replace-not-merge semantics above cost the
 // console nothing and a ban added to the renderer list reaches the console with it.
 // The one thing that block adds is `zod` — see its own comment.
-import { consoleSyntaxBans } from "./eslint.console-syntax-bans.mjs";
+import {
+  CONSOLE_TIME_READING_EXEMPT_FILES,
+  CONSOLE_TIME_READING_SELECTORS,
+  EXPORTED_COLLECTION_SELECTOR,
+} from "./eslint.console-syntax-bans.mjs";
 import root from "../../eslint.config.mjs";
 
 /**
@@ -211,6 +215,228 @@ const CONSOLE_RESTRICTED_PATTERNS = [
   },
 ];
 
+/**
+ * Reading the preload bridge off the window.
+ *
+ * `console/bridge/live-bridge.ts` is the one console module that may — `BridgeProvider`
+ * calls its `readInstalledBridge` and hands the result down as context, so the provider
+ * is where the bridge is DISTRIBUTED and the live bridge is where it is READ. A second
+ * reader is a second idea of when the bridge exists, what it does before it does, and
+ * which fixture stands in for it under test.
+ *
+ * Five arms, because one spelling of the read is one identifier away from useless:
+ * `window.sidekicks`, `globalThis.sidekicks`, and the cast form a typed reach needs —
+ * `(window as { sidekicks?: SidekicksBridge }).sidekicks`, whose object is a
+ * `TSAsExpression` rather than an identifier, so the first three arms walk straight past
+ * it. The cast arm keys on the cast alone rather than on what it wraps: a nested
+ * `as unknown as` is a second `TSAsExpression`, and any `(x as T).sidekicks` at all is
+ * a bridge reach whatever `x` is.
+ *
+ * The last two are the spellings the first three were measured to walk past. A COMPUTED
+ * key — `globalThis["sidekicks"]` — is the same read with the property written as a
+ * string, and it is keyed on the property alone rather than on the object, because a
+ * computed `.sidekicks` off anything at all is a bridge reach. A DESTRUCTURE —
+ * `const { sidekicks } = window;` — performs no member read at all: it names the global
+ * as an initialiser and takes the binding straight off it.
+ *
+ * ONE SPELLING IS NOT CLOSABLE BY A SELECTOR and is stated in `apps/desktop/AGENTS.md`
+ * beside the rule instead: an ALIAS — `const w = window; w.sidekicks` — needs the
+ * selector to know what `w` holds, which esquery cannot answer.
+ */
+const BRIDGE_GLOBAL_READ = {
+  selector:
+    ':matches(MemberExpression[object.name="window"][property.name="sidekicks"], MemberExpression[object.name="globalThis"][property.name="sidekicks"], MemberExpression[object.type="TSAsExpression"][property.name="sidekicks"], MemberExpression[computed=true][property.value="sidekicks"], VariableDeclarator[init.name=/^(?:window|globalThis)$/] > ObjectPattern > Property[key.name="sidekicks"])',
+  message:
+    "`apps/desktop/AGENTS.md` §Import boundaries: renderer code reaches the bridge only through `console/bridge/live-bridge.ts`, and every surface above it takes the bridge from `BridgeProvider`'s context. A second reader is a second idea of when the bridge exists and what stands in for it under test.",
+};
+
+/**
+ * `export default`, which this package uses for root tool configuration and nothing else.
+ *
+ * A default export has no name at the import site, so two importers can call one symbol
+ * two things and a rename reaches neither. The tools that load a config by default export
+ * — `*.config.{ts,mjs}` and `.dependency-cruiser.mjs` — live at the package root, which is
+ * outside every scope this rule is composed into.
+ *
+ * BOTH SPELLINGS. `export { x as default }` — and its `… from "./other.js"` re-export
+ * form — parses as an `ExportSpecifier` and not an `ExportDefaultDeclaration`, so the
+ * first arm walks past it while it publishes exactly the nameless symbol this ban is
+ * about. `export { default as Thing } from …` is untouched: that one IMPORTS a default
+ * and republishes it under a name, which is the remedy rather than the defect.
+ */
+const EXPORT_DEFAULT_DECLARATION = {
+  selector: ':matches(ExportDefaultDeclaration, ExportSpecifier[exported.name="default"])',
+  message:
+    "`apps/desktop/AGENTS.md` §Module shape: named exports only. `export default` is for tool configuration at the package root — `*.config.{ts,mjs}` and `.dependency-cruiser.mjs`, which their tools load by default export — and nowhere else: a default export has no name at the import site, so two importers can call one symbol two things and a rename reaches neither.",
+};
+
+/**
+ * A module-level `let`, which is a singleton every importer in the window shares.
+ *
+ * Scoped to the SHIPPED renderer surface. A suite's module-level `let` reassigned in
+ * `beforeEach` is the standard vitest shape and holds no shared runtime state, so the
+ * unions composed for `*.test.*` and `*.test-support.*` drop this selector rather than
+ * exempting a growing list of files.
+ *
+ * THE EXPORTED FORM TOO, which is the strongest spelling of the hazard rather than an
+ * edge of it: `export let` parses as `Program > ExportNamedDeclaration >
+ * VariableDeclaration`, so a bare child combinator walks straight past the one spelling
+ * where every importer also observes the live binding directly. A `let` nested inside a
+ * module-level block is left alone — it is not a realistic accident, and `no-var`
+ * already covers the module-level `var`.
+ */
+const MODULE_LEVEL_LET = {
+  selector: ':matches(Program, ExportNamedDeclaration) > VariableDeclaration[kind="let"]',
+  message:
+    "`apps/desktop/AGENTS.md` §State and views: stateful logic is an encapsulated class with private fields. A module-level `let` is a singleton every importer in the window shares and any of them can reassign — put it in a class, a hook, or a controller the caller constructs.",
+};
+
+/**
+ * Reaching `child_process` dynamically.
+ *
+ * The static forms are `no-restricted-imports`' half of the same claim; these two are the
+ * spellings that rule cannot see. `spawnSync` is deliberately untouched — it settles
+ * before the statement after it, so it leaves nothing behind for a test to own.
+ */
+const CHILD_PROCESS_DYNAMIC_REACH = [
+  {
+    selector: "ImportExpression[source.value=/child_process/]",
+    message:
+      "`apps/desktop/AGENTS.md` §Tests: `test/helpers/electron-child.ts` is the only module that reaches `spawn` from `node:child_process`, and it registers the kill on `onTestFinished` so a spawned child's lifetime belongs to the test rather than to a timer. Spawn through that door; `spawnSync` is untouched.",
+  },
+  {
+    selector: 'CallExpression[callee.name="require"][arguments.0.value=/child_process/]',
+    message:
+      "`apps/desktop/AGENTS.md` §Tests: `test/helpers/electron-child.ts` is the only module that reaches `spawn` from `node:child_process`, and it registers the kill on `onTestFinished` so a spawned child's lifetime belongs to the test rather than to a timer. Spawn through that door; `spawnSync` is untouched.",
+  },
+];
+
+/**
+ * Taking a screenshot anywhere but through the settled capture.
+ *
+ * A capture taken straight after a mount photographs the reserved region a loader-backed
+ * body has not filled yet — an image that is stable, green, and a picture of a pane that
+ * had not finished loading. `captureSettled` refuses a tree still carrying the pending
+ * marker, which is why every capture goes through it.
+ */
+const SCREENSHOT_MATCHER_REACH = {
+  // The computed arm is the same reach with the matcher named as a string —
+  // `expect(page)["toMatchScreenshot"]()` — which the property-name arm cannot see.
+  selector:
+    ':matches(MemberExpression[property.name="toMatchScreenshot"], MemberExpression[computed=true][property.value="toMatchScreenshot"])',
+  message:
+    "`apps/desktop/AGENTS.md` §Tests: a screenshot is taken through `test/console/screenshot/settled-capture.ts` and no other way. A capture taken straight after a mount photographs the region a loader-backed body has not filled yet — stable, green, and a picture of a pane that had not finished loading.",
+};
+
+/**
+ * A stylesheet entering through a component rather than through its directory's door.
+ *
+ * Relative specifiers only: the rule is about the sheets this tree owns, and a vendor
+ * sheet reached by package specifier has no owning directory here to enter through.
+ *
+ * A TRAILING QUERY IS STILL THE SHEET. `./x.css?inline` and `./x.css?raw` are bundler
+ * spellings of the same import, and an `$`-anchored `.css` match walks straight past
+ * them. And the DYNAMIC form carries the sheet exactly as the static one does — the
+ * chunk it lands on is the chunk the component is on — so both declarations are named.
+ */
+const RELATIVE_STYLESHEET_SPECIFIER = "^[.][.]?[/].*[.]css(?:[?].*)?$";
+
+const STYLESHEET_THROUGH_OWNER = {
+  selector: `:matches(ImportDeclaration[source.value=/${RELATIVE_STYLESHEET_SPECIFIER}/], ImportExpression[source.value=/${RELATIVE_STYLESHEET_SPECIFIER}/])`,
+  message:
+    "`apps/desktop/AGENTS.md` §Module shape: a stylesheet enters through the barrel of the directory that OWNS it — that directory's `index.ts`, or the root of the chunk a lazily-loaded body arrives on (`*-body.ts`) — and through no component. A component that pulls a sheet in puts that surface's rules on the initial document for every session that never opens it.",
+};
+
+/**
+ * A directory `import.meta.glob` under `src/`.
+ *
+ * The literal has to carry a `*`: a raw read of ONE named module is a different act from
+ * a walk that decides its own membership. A walk under `src/` is a second source of truth
+ * for what the tree holds, and it is silently wrong the moment a file moves.
+ *
+ * The array arm is the multi-pattern spelling the API also accepts —
+ * `import.meta.glob(["./views/*.ts"])` — where the literal is a grandchild of the call
+ * rather than its direct child, so the first arm walks past it.
+ */
+const DIRECTORY_SOURCE_GLOB = {
+  selector:
+    ':matches(CallExpression[callee.object.type="MetaProperty"][callee.property.name="glob"] > Literal[value=/[*]/], CallExpression[callee.object.type="MetaProperty"][callee.property.name="glob"] > ArrayExpression > Literal[value=/[*]/])',
+  message:
+    "A directory `import.meta.glob` under `src/` is a second source of truth for what the tree holds, and it decides its own membership — so it is silently wrong the moment a file moves and reports nothing. Name the modules, or let the bundler's own entry graph decide.",
+};
+
+/**
+ * The syntax bans every SHIPPED renderer file carries.
+ *
+ * Composed rather than repeated, for the reason the header states about
+ * `no-restricted-imports` and which is true of every rule: flat config replaces a rule's
+ * options at the LAST matching config object, so a file matched by two blocks carries
+ * only the later one's selectors. Each block below therefore states the whole union for
+ * the files it names, and a block that LIFTS one selector states the union minus that
+ * selector rather than turning the rule off.
+ */
+const RENDERER_SYNTAX_BANS = [
+  EXPORT_DEFAULT_DECLARATION,
+  DIRECTORY_SOURCE_GLOB,
+  MODULE_LEVEL_LET,
+  STYLESHEET_THROUGH_OWNER,
+  // Renderer-wide rather than console-scoped, because the hazard is the renderer's and
+  // not the console's: a surface that reads the bridge off the global with no existence
+  // check throws inside a render under a preload that failed to install. Four legacy
+  // modules outside `console/` do read it that way today; they are exempted BY NAME in
+  // their own block below, so the count is frozen and a fifth cannot land unnoticed.
+  BRIDGE_GLOBAL_READ,
+];
+
+/** The same, plus what only the console and the shell subtree it composes seats for carry. */
+const CONSOLE_SYNTAX_BANS = [
+  ...RENDERER_SYNTAX_BANS,
+  ...CONSOLE_TIME_READING_SELECTORS,
+  EXPORTED_COLLECTION_SELECTOR,
+];
+
+/** What every file under `test/` carries. */
+const TEST_SYNTAX_BANS = [
+  EXPORT_DEFAULT_DECLARATION,
+  SCREENSHOT_MATCHER_REACH,
+  ...CHILD_PROCESS_DYNAMIC_REACH,
+];
+
+/**
+ * The console tiers, which read the same wire stamps the console does.
+ *
+ * The exported-collection ban is here for the same reason it is in the console union: a
+ * tier module that publishes a `Set` publishes one object every suite in the project
+ * shares, and a suite that grows it changes what a later suite measures.
+ */
+const CONSOLE_TIER_SYNTAX_BANS = [
+  ...TEST_SYNTAX_BANS,
+  ...CONSOLE_TIME_READING_SELECTORS,
+  EXPORTED_COLLECTION_SELECTOR,
+];
+
+/**
+ * A union minus the selectors one file class is excused from, matched by IDENTITY.
+ *
+ * By identity rather than by selector text so a lifted entry cannot silently stop being
+ * lifted when its selector is reworded, and cannot silently lift a second entry that
+ * happens to read the same.
+ */
+function withoutSelectors(bans, ...liftedBans) {
+  return bans.filter((ban) => !liftedBans.includes(ban));
+}
+
+/** The stylesheet owners: a directory's own door, and the root of a lazily-loaded chunk. */
+const STYLESHEET_OWNER_FILES = ["**/index.ts", "**/*-body.{ts,tsx}"];
+
+/** Suites and their scaffolding, which are not shipped and hold no shared runtime state. */
+const RENDERER_TEST_FILES = ["**/*.test.{ts,tsx}", "**/*.test-support.{ts,tsx}"];
+
+/** `files` globs, rooted at a renderer subtree. */
+function rendererFiles(subtree, patterns) {
+  return patterns.map((pattern) => `src/renderer/src/${subtree}/${pattern}`);
+}
+
 export default [
   ...root,
   // `src/shared/**` is imported by BOTH processes (see
@@ -322,9 +548,9 @@ export default [
   // outnumber its findings is a ban somebody turns off. And `.safeParse(` needs no
   // banning once the import is banned: a schema can only ARRIVE by importing `zod`
   // (banned above), by importing this package (banned here), or through a console
-  // barrel that re-exported one — and no console barrel does, which
-  // `test/console/architecture/contracts-schema-chokepoint.test.ts` establishes
-  // with the TypeScript parser rather than by this comment saying so.
+  // barrel that re-exported one — and no console barrel does, which this ban is what
+  // keeps true: a barrel can only re-export a schema it imported, and both spellings
+  // of that import refuse here.
   //
   // WHY `console/bridge/**` IS EXEMPT RATHER THAN THE CHOKEPOINT FILE ALONE. The
   // registry composes contracts-exported schemas, the run-stream projector decodes
@@ -397,5 +623,272 @@ export default [
       ],
     },
   },
-  ...consoleSyntaxBans,
+  // --- Syntax bans, one union per file class -----------------------------------
+  //
+  // Every block below states the WHOLE union for the files it names, because flat
+  // config replaces a rule's options at the last matching object. The order is
+  // widest-first: a later block is either a narrower subtree that ADDS selectors, or a
+  // file class that LIFTS one and restates the rest.
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-syntax": ["error", EXPORT_DEFAULT_DECLARATION, DIRECTORY_SOURCE_GLOB],
+    },
+  },
+  {
+    // The main process spawns for real — the daemon supervisor and the PTY sidecar —
+    // and it does so through its own supervised lifetimes rather than through the test
+    // door, so what it carries is the dynamic-reach pair beside the import ban below.
+    files: ["src/main/**/*.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        EXPORT_DEFAULT_DECLARATION,
+        DIRECTORY_SOURCE_GLOB,
+        ...CHILD_PROCESS_DYNAMIC_REACH,
+      ],
+    },
+  },
+  {
+    files: ["src/renderer/src/**/*.{ts,tsx}"],
+    rules: { "no-restricted-syntax": ["error", ...RENDERER_SYNTAX_BANS] },
+  },
+  {
+    files: ["src/renderer/src/console/**/*.{ts,tsx}", "src/renderer/src/shell/**/*.{ts,tsx}"],
+    rules: { "no-restricted-syntax": ["error", ...CONSOLE_SYNTAX_BANS] },
+  },
+  {
+    // The stylesheet owners, renderer-wide: a directory's own door and the root of a
+    // lazily-loaded chunk are where a sheet is SUPPOSED to enter.
+    files: rendererFiles("**", STYLESHEET_OWNER_FILES),
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...withoutSelectors(RENDERER_SYNTAX_BANS, STYLESHEET_THROUGH_OWNER),
+      ],
+    },
+  },
+  {
+    files: [
+      ...rendererFiles("console/**", STYLESHEET_OWNER_FILES),
+      ...rendererFiles("shell/**", STYLESHEET_OWNER_FILES),
+    ],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...withoutSelectors(CONSOLE_SYNTAX_BANS, STYLESHEET_THROUGH_OWNER),
+      ],
+    },
+  },
+  {
+    // Suites and their scaffolding. A module-level `let` reassigned in `beforeEach` is
+    // the standard vitest shape and holds no state anything else can reach, so the ban
+    // on shared runtime singletons is lifted here and every other selector restated.
+    //
+    // The bridge-global ban comes off for the same reason the console tests' does: a
+    // renderer suite INSTALLS a fixture bridge on the global and deletes it again in
+    // `afterEach`, and that installation is the substitution seam the ban exists to
+    // protect rather than a second reader of it.
+    files: rendererFiles("**", RENDERER_TEST_FILES),
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...withoutSelectors(RENDERER_SYNTAX_BANS, MODULE_LEVEL_LET, BRIDGE_GLOBAL_READ),
+      ],
+    },
+  },
+  {
+    files: [
+      ...rendererFiles("console/**", RENDERER_TEST_FILES),
+      ...rendererFiles("shell/**", RENDERER_TEST_FILES),
+    ],
+    rules: {
+      // The bridge-global ban comes off here and only here among the bans: a console
+      // test INSTALLS a fixture bridge on the global, and that installation is the
+      // substitution seam the ban exists to protect rather than a second reader of it.
+      "no-restricted-syntax": [
+        "error",
+        ...withoutSelectors(CONSOLE_SYNTAX_BANS, MODULE_LEVEL_LET, BRIDGE_GLOBAL_READ),
+      ],
+    },
+  },
+  {
+    // The two time-ban negative controls, which have to CALL the banned API to
+    // demonstrate what it answers. Everything else the console carries stays on.
+    files: CONSOLE_TIME_READING_EXEMPT_FILES,
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...withoutSelectors(
+          CONSOLE_SYNTAX_BANS,
+          MODULE_LEVEL_LET,
+          BRIDGE_GLOBAL_READ,
+          ...CONSOLE_TIME_READING_SELECTORS,
+        ),
+      ],
+    },
+  },
+  {
+    // The one console module that may read the bridge off the window. `BridgeProvider`
+    // calls into it and hands the result down as context, so every surface above takes
+    // the bridge FROM here and the ban is lifted exactly here and nowhere else.
+    files: ["src/renderer/src/console/bridge/live-bridge.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...withoutSelectors(CONSOLE_SYNTAX_BANS, BRIDGE_GLOBAL_READ),
+      ],
+    },
+  },
+  {
+    // The four LEGACY renderer modules that read the bridge off the global directly,
+    // exempted by NAME rather than by leaving the rule scoped to two subtrees. The
+    // difference is the whole point: a named exemption freezes the count at four and
+    // makes a fifth reader a lint failure in the diff that adds it, where a subtree
+    // scope would admit one silently.
+    //
+    // Three of them read `window.sidekicks.daemon` with NO existence check at all,
+    // where `readInstalledBridge` (`console/bridge/live-bridge.ts`) answers `undefined`
+    // for both the absent and the misshapen global — so under a preload that failed to
+    // install they throw inside a render. The migration is to take the bridge from
+    // `BridgeProvider`'s context as every console surface does; it is a real layering
+    // change (the provider lives under `console/`) and belongs in its own diff, which
+    // is why the state is recorded here rather than papered over.
+    //
+    // Every other selector is restated: this block replaces the renderer union for
+    // these files, and dropping one would lift it for exactly the files least able to
+    // afford it.
+    files: [
+      "src/renderer/src/session-members/participant-roster.tsx",
+      "src/renderer/src/session-members/invite-accept-view.tsx",
+      "src/renderer/src/session-bootstrap/SessionBootstrap.tsx",
+      "src/renderer/src/runtime-node-attach/attach-request.ts",
+    ],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...withoutSelectors(RENDERER_SYNTAX_BANS, BRIDGE_GLOBAL_READ),
+      ],
+    },
+  },
+  {
+    files: ["test/**/*.{ts,tsx}"],
+    rules: { "no-restricted-syntax": ["error", ...TEST_SYNTAX_BANS] },
+  },
+  {
+    files: ["test/console/**/*.{ts,tsx}"],
+    rules: { "no-restricted-syntax": ["error", ...CONSOLE_TIER_SYNTAX_BANS] },
+  },
+  {
+    // The capture door itself, and the one probe that asserts the matcher REJECTS —
+    // which is a test of the matcher rather than a capture, and cannot be written
+    // without naming it.
+    files: ["test/console/screenshot/settled-capture.ts", "test/console/screenshot/frame.test.tsx"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...withoutSelectors(CONSOLE_TIER_SYNTAX_BANS, SCREENSHOT_MATCHER_REACH),
+      ],
+    },
+  },
+  {
+    // The spawn door. It registers the kill on `onTestFinished`, which runs on a pass,
+    // on a failure, and on vitest's own timeout kill alike.
+    files: ["test/helpers/electron-child.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...withoutSelectors(TEST_SYNTAX_BANS, ...CHILD_PROCESS_DYNAMIC_REACH),
+      ],
+    },
+  },
+  {
+    files: ["scripts/**/*.{ts,mts}"],
+    rules: {
+      "no-restricted-syntax": ["error", EXPORT_DEFAULT_DECLARATION, ...CHILD_PROCESS_DYNAMIC_REACH],
+    },
+  },
+  {
+    files: ["build/**/*.{ts,mts}"],
+    rules: { "no-restricted-syntax": ["error", EXPORT_DEFAULT_DECLARATION] },
+  },
+  {
+    // A declaration file carries no runtime code — no call, no assignment, no import of
+    // a stylesheet — so every selector above is unreachable in one, and the `export
+    // default` inside an ambient `declare module` is how a virtual module that DOES
+    // default-export is typed (`~icons/*` in `console-env.d.ts`).
+    files: ["**/*.d.ts"],
+    rules: { "no-restricted-syntax": "off" },
+  },
+  // --- The refresh cadence: no wall-clock polling in the renderer ----------------
+  //
+  // Every refresh goes through `console/store/read/refresh-scheduler.ts`, which the console's own
+  // read scheduling is built on. A `setInterval` beside it is a second cadence nothing
+  // cancels on unmount, nothing pauses when the window is hidden, and nothing bounds
+  // when the daemon stops answering. Both spellings, because `window.setInterval` and
+  // the bare global are the same timer reached two ways.
+  {
+    files: ["src/renderer/src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-globals": [
+        "error",
+        {
+          name: "setInterval",
+          message:
+            "`apps/desktop/AGENTS.md` §Chokepoints: every refresh goes through `console/store/read/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
+        },
+      ],
+      "no-restricted-properties": [
+        "error",
+        {
+          object: "window",
+          property: "setInterval",
+          message:
+            "`apps/desktop/AGENTS.md` §Chokepoints: every refresh goes through `console/store/read/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
+        },
+        {
+          object: "globalThis",
+          property: "setInterval",
+          message:
+            "`apps/desktop/AGENTS.md` §Chokepoints: every refresh goes through `console/store/read/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
+        },
+      ],
+    },
+  },
+  // --- The spawn door, as an import ban -----------------------------------------
+  //
+  // The static half of the claim `CHILD_PROCESS_DYNAMIC_REACH` makes about `import()`
+  // and `require`. Both specifier spellings, because `no-restricted-imports` treats
+  // `child_process` and `node:child_process` as distinct. `spawnSync` is deliberately
+  // absent: it settles before the statement after it, so it leaves no child for a test
+  // to own.
+  {
+    files: ["test/**/*.{ts,tsx}", "src/main/**/*.ts", "scripts/**/*.{ts,mts}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "node:child_process",
+              importNames: ["spawn"],
+              message:
+                "`apps/desktop/AGENTS.md` §Tests: `test/helpers/electron-child.ts` is the only module that reaches `spawn`, and it registers the kill on `onTestFinished` — which runs on a pass, on a failure, and on vitest's own timeout kill alike. A child a timer was going to kill is reparented to init when the worker is torn down first. `spawnSync` is untouched.",
+            },
+            {
+              name: "child_process",
+              importNames: ["spawn"],
+              message:
+                "`apps/desktop/AGENTS.md` §Tests: `test/helpers/electron-child.ts` is the only module that reaches `spawn`, and it registers the kill on `onTestFinished`. The prefix-less specifier resolves to the same builtin. `spawnSync` is untouched.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // The door itself.
+    files: ["test/helpers/electron-child.ts"],
+    rules: { "no-restricted-imports": "off" },
+  },
 ];

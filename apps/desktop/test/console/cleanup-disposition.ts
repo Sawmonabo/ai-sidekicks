@@ -5,7 +5,7 @@
 // which outcomes a caller must be shown, how they are worded, and what happens
 // when the test body failed too. The two were one module until the race grew the
 // profile removal and the second subject became its own, which is the split
-// `architecture/bounded-cleanup.test.ts` and `architecture/cleanup-disposition.test.ts`
+// `test/helpers/bounded-cleanup.test.ts` and `test/helpers/cleanup-disposition.test.ts`
 // had already made for the same reason.
 //
 // WHAT RAISES AND WHAT ONLY BREADCRUMBS

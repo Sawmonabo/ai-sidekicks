@@ -14,8 +14,7 @@
 // carry different diagnostics, so one function could not serve both without a
 // mode flag; what they genuinely share they take from one home — the bundle
 // entry paths and the package root below, and the spawn door itself, which is
-// the chokepoint this file's own suite (`electron-spawn-chokepoint.test.ts`)
-// holds every module under `test/` to.
+// the chokepoint `apps/desktop/eslint.config.mjs` holds every module under `test/` to.
 //
 // The harness asserts nothing, deliberately. A helper that could fail a test
 // would be a second place a probe failure can come from; the one test-framework

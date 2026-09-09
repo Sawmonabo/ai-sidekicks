@@ -28,9 +28,8 @@
 // session, attention, gitflow, and cost-receipt planes — five independent wire
 // surfaces behind one maintenance boundary, and one file every consumer of any of
 // them had to read. Each plane now has its own module beside this one, and this
-// barrel publishes exactly what the single module published: the export surface is
-// the same set of names, which `index.test.ts` asserts against a pinned census
-// rather than leaving to review.
+// barrel publishes exactly what the single module published, less the lines since
+// retired for want of a reader.
 //
 // A SUB-MODULE DOOR, NOT A SECOND FAMILY DOOR. `growth-values/` is a sub-module of
 // `bridge/`, not a family of its own: it sits inside the bridge's directory, it is

@@ -109,7 +109,7 @@ export const PANE_BOARD_SUBDIRECTORY = `${CONSOLE}/panes/[^/]+/`;
  * view-family isolation all still bite it. What it cannot be a subject of is the rule
  * that says "import the door instead", because two gates would then contradict each
  * other and leave the module class with no legal form at all:
- * `test/console/architecture/barrel-census.test.ts` fails a door line whose only
+ * `apps/desktop/AGENTS.md` §Module shape rejects a door line whose only
  * reader is a test, and the symbols a harness reaches for are exactly that class —
  * `createLiveBridge`, which the shipped console resolves inside the bridge family, and
  * the per-family scenario seats, which `bridge/index.ts`'s own header records as

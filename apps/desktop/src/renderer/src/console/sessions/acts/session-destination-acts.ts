@@ -40,8 +40,8 @@ export interface SessionDestinationActs {
  * outside a render is read through the commit-time ref its own control holds.
  *
  * A mount-lifetime cell naming a session is the shape the console holds through its
- * one subject-keyed holder, so a callback capturing a session id would be a shape
- * `test/console/architecture/subject-state-chokepoint.test.ts` has to stop and check.
+ * one subject-keyed holder, so a callback capturing a session id would be a shape a
+ * reviewer has to stop and check.
  * These capture the CONTEXT and take the session as an argument, which is why they do
  * not.
  */

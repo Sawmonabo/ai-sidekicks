@@ -50,8 +50,7 @@ const TERMINAL_HOST_SELECTOR = ".meridian-terminal-host";
  * through `bodyAllowance.boundedMs`, so what a step actually gets is the smaller of
  * this figure and what is left of the tier's registered body allowance. A step
  * bounded by a local constant alone outlives the allowance it was supposed to spend
- * and fails under vitest's generic kill instead of the harness's own sentence, which
- * is what `body-allowance-consumption.test.ts` fails a wait for.
+ * and fails under vitest's generic kill instead of the harness's own sentence.
  */
 const PANE_READINESS_TIMEOUT_MS = 60_000;
 

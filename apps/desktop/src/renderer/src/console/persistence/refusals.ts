@@ -62,15 +62,6 @@ export interface PersistenceRefusal extends ConsoleRefusal {
  * travels through it and arrives narrowed: the annotated return type below is
  * satisfied by the call itself, with no spread re-stating `code` to put back what
  * a `string` parameter would have widened away.
- *
- * This import was type-only for one release of this vocabulary, to keep a runtime
- * edge out of `core/index.js` — whose barrel pulls `core/tripwires.ts`, whose
- * module body reads the build-time fixture gate — because the architecture tier
- * imported the module that then held it and declared no such gate. Both halves of
- * that premise are now gone: that tier reads source TEXT and imports no console
- * module, and it declares the gate its sibling tiers already did. A duplicated
- * literal outliving the constraint that caused it is how two sources of truth
- * start.
  */
 export function refusePersistence(
   code: PersistenceRefusalCode,

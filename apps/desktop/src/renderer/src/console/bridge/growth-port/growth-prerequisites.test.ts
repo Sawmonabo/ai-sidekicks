@@ -38,8 +38,8 @@ function isRegisteredEventType(candidate: string): boolean {
 /**
  * The `event-type` rows that enumerate no type, with the reason each one cannot.
  *
- * A debt with a name on it, on `slate-row-consumers.test.ts`' own pattern: deleting an
- * entry to make the gate pass is the move this table exists to make visible.
+ * A debt with a name on it: deleting an entry to make the check pass is the move this
+ * table exists to make visible.
  */
 const EVENT_TYPE_ROWS_THAT_ENUMERATE_NOTHING: Readonly<
   Partial<Record<GrowthPrerequisiteId, string>>

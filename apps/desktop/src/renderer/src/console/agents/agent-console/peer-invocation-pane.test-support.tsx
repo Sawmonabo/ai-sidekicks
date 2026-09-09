@@ -42,8 +42,7 @@ export const SECOND_SESSION_ID = "session-second";
  * deliberately: this is a per-method reply script, not the bridge every surface
  * shares. A stand-in whose operation were named `call` on a holder named for the
  * daemon would be indistinguishable in source text from a surface reaching the real
- * call door — which is what
- * `test/console/architecture/daemon-reply-chokepoint.test.ts` scans for.
+ * call door — which is what a reviewer sweeping for one would flag.
  */
 export class PeerInvocationDaemon {
   readonly #heldReplies: ((reading: unknown) => void)[] = [];

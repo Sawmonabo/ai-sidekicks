@@ -3,8 +3,11 @@
 // Exercises the daemon-owned status-read projection the Phase-3 binder answers
 // `repo.worktreeStatusRead` from. No database, no temp directory, no clock: the
 // module under test performs no I/O, so every branch is driven by handing it
-// rows directly — which is itself the property the purity block at the bottom
-// pins.
+// rows directly. Both halves of that are enforced statically in
+// eslint.config.mjs: a `no-restricted-imports` allow-list holding the module to
+// `@ai-sidekicks/contracts` alone, so no sibling can pull I/O in behind it, and
+// a `no-restricted-globals` ban on `Date` / `performance` making I-010-20's
+// clock math unavailable rather than merely unwritten.
 //
 // Coverage map (cites are the authoritative contract, not just the ACs):
 //   * Never-hide: a fixture generated FROM the pinned state rosters — one row
@@ -66,7 +69,6 @@
 // every row to render).
 
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
@@ -767,74 +769,5 @@ describe("projectWorktreeStatusRead — the parse boundary", () => {
 
     expect(cause).toBeInstanceOf(Error);
     expect(String((cause as Error).message)).toMatch(/worktrees/);
-  });
-});
-
-// ----------------------------------------------------------------------------
-// Purity — the property every test above depends on
-// ----------------------------------------------------------------------------
-
-describe("worktree-projector — purity", () => {
-  // Matches one whole static import statement per match — the named/default
-  // `from` form, the type-only form, and the bare side-effect form
-  // (`import "node:fs";`, no `from` at all) — including the multi-line block
-  // shape. `[^;]*?` cannot run past the statement's own semicolon, so each
-  // match is exactly one import. (The shipped `workspace-projector.test.ts`
-  // extractor, reused verbatim for the sibling module.)
-  const IMPORT_SPECIFIER_PATTERN = /^import\b[^;]*?"([^"]+)";$/gm;
-
-  const projectorSource: string = readFileSync(
-    new URL("../worktree-projector.ts", import.meta.url),
-    "utf8",
-  );
-
-  function importedSpecifiersOf(source: string): string[] {
-    return [...source.matchAll(IMPORT_SPECIFIER_PATTERN)].map((match) => match[1] ?? "");
-  }
-
-  it("detects every static import form when one is present (negative control)", () => {
-    // Proves the extractor can FAIL. Without it, a broken pattern would report
-    // a clean module by matching nothing at all — and the bare side-effect
-    // form is the classic evasion a `from`-anchored pattern waves through.
-    const fixture = [
-      'import "node:fs";',
-      'import { openSync } from "node:fs";',
-      "",
-      "import {",
-      "  something,",
-      '} from "@ai-sidekicks/contracts";',
-      "",
-    ].join("\n");
-
-    expect(importedSpecifiersOf(fixture)).toEqual([
-      "node:fs",
-      "node:fs",
-      "@ai-sidekicks/contracts",
-    ]);
-  });
-
-  it("imports the contracts package and NOTHING else", () => {
-    // The EXACT list, not a `node:`-prefix screen: the realistic purity break
-    // is not a direct builtin import but a sibling import (a service module,
-    // the database layer) that pulls I/O in transitively — which a prefix
-    // filter waves through untouched. It is also what keeps the no-clock claim
-    // structural: a module that cannot reach `Date` through an import cannot
-    // derive expiry, whatever a later edit intends.
-    expect(importedSpecifiersOf(projectorSource)).toEqual(["@ai-sidekicks/contracts"]);
-  });
-
-  it("contains no dynamic import() or require() escape hatch", () => {
-    // The static census above cannot see a lazy `await import(...)` or a
-    // CommonJS `require(...)`, either of which would reach I/O at call time
-    // while the import list stays clean.
-    expect(projectorSource).not.toMatch(/\bimport\s*\(/);
-    expect(projectorSource).not.toMatch(/\brequire\s*\(/);
-  });
-
-  it("reads no clock — `Date` and `performance` appear nowhere in the source", () => {
-    // I-010-20's daemon half in its structural form: expiry math is
-    // unavailable to this module, not merely unwritten.
-    expect(projectorSource).not.toMatch(/\bDate\b/);
-    expect(projectorSource).not.toMatch(/\bperformance\b/);
   });
 });

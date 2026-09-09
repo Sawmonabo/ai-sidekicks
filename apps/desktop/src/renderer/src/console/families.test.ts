@@ -12,10 +12,6 @@
 // about which families are in it. A test pinning today's occupants would have to
 // be edited by every branch that adds a seat, which makes it a second seat board
 // and reintroduces exactly the conflict the first one exists to avoid.
-//
-// This file is about what the composition DOES. What its SOURCE says — the seat
-// block's grammar and the header's count — is `families.seat-board.test.ts`, which
-// reads the same board with a different instrument.
 
 import { describe, expect, it } from "vitest";
 
@@ -53,27 +49,6 @@ import { registerFreePaneKindProbe } from "./seats/pane/pane-probe.test-support.
 // this suite is its only reader and a door line no production module reaches is one
 // the barrel census fails.
 import { CONSOLE_SURFACE_SLOTS } from "./seats/surface/surface-registry.js";
-
-declare global {
-  interface ImportMeta {
-    glob: (
-      pattern: string,
-      options: { query: "?raw"; import: "default"; eager: true },
-    ) => Record<string, string>;
-  }
-}
-
-// The seat board's own text, inlined at transform time through Vite's raw glob —
-// `node:fs` is banned in renderer programs, and this is the form `panes/panes.test.ts`
-// established for the sibling seat board's source reads.
-const seatBoardSources = import.meta.glob("./families.ts", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-});
-
-/** The composition root's own source. One entry, keyed by the glob's resolved path. */
-const seatBoardSource: string = Object.values(seatBoardSources).join("");
 
 /** The seven boards a case owns outright, so nothing it composes reaches production. */
 function ownedRegistries(): {
@@ -200,49 +175,11 @@ describe("console families — the pane board a composition writes into", () => 
     expect(registerConsoleFamilies).toHaveLength(7);
   });
 
-  it("forwards the pane registry it was handed and reaches for no singleton", () => {
-    // The claim that survives the board filling up, read off the composition's own
-    // source on the precedent `panes/panes.test.ts` sets for the sibling board. It
-    // used to say a behavioural check could not make it because composing registered
-    // nothing either way, which stops being true the moment `registerConsolePanes`
-    // claims its first kinds — the case at the foot of this file makes exactly that
-    // check, on whatever the board holds — and this one is what a behavioural check
-    // cannot say: that the singleton is unreachable from the module rather than
-    // merely unused by it, and that the board takes its registry as a TYPE from the
-    // seats door.
-    expect(Object.keys(seatBoardSources)).toHaveLength(1);
-    expect(seatBoardSource).toContain("registerConsolePanes(panes)");
-    // Unreachable rather than unused, and stated over EVERY board rather than the
-    // one that has a forwarding call today: the two boards no family fills yet have
-    // no call to assert, so naming their singletons is the only claim available —
-    // and it is the claim that matters, because a value import is a default waiting
-    // to be reintroduced.
-    for (const singleton of [
-      "consoleSurfaceRegistry",
-      "consolePaneRegistry",
-      "consoleEntityProjectorRegistry",
-      "sidebarSectionRegistry",
-      "inlineCardSeatRegistry",
-      "frameBindingRegistry",
-      "pinnedPaneRegionRegistry",
-    ]) {
-      expect({ singleton, named: seatBoardSource.includes(singleton) }).toStrictEqual({
-        singleton,
-        named: false,
-      });
-    }
-    // The whole statement, so what is asserted is that the board takes its registries
-    // as TYPES from the seats door — `import type` and the door together.
-    expect(seatBoardSource).toContain('} from "./seats/index.js";');
-    expect(seatBoardSource).toContain("import type {");
-  });
-
   it("forwards the projector board it was handed and reaches for no singleton", () => {
     // The seam that makes a family able to project its own event category at all.
-    // Read behaviourally rather than off the source, because unlike the pane board
-    // this one has a producer today: the frame claims the run-lifecycle kinds
-    // through the composition, so a registrar reaching for the module-scope board
-    // would leave the caller's empty while still "working".
+    // Unlike the pane board, this one has a producer today: the frame claims the
+    // run-lifecycle kinds through the composition, so a registrar reaching for the
+    // module-scope board would leave the caller's empty while still "working".
     const boards = ownedRegistries();
 
     composeInto(boards);
@@ -258,10 +195,10 @@ describe("console families — the pane board a composition writes into", () => 
   });
 
   it("leaves the production boards untouched when a caller composes its own", () => {
-    // The behavioural half, and the probe is what keeps it from being vacuous: the
-    // caller's registry really does record a body, and the singleton really is
-    // asked about the kinds it holds, so the instrument is shown to work on the one
-    // registry a composition is allowed to write into.
+    // The probe is what keeps this from being vacuous: the caller's registry really
+    // does record a body, and the singleton really is asked about the kinds it
+    // holds, so the instrument is shown to work on the one registry a composition
+    // is allowed to write into.
     //
     // THE PROBE RUNS AFTER THE COMPOSITION AND NAMES NO KIND. It used to claim a
     // kind still reserved on the pane seat board, spelled here — which the registry

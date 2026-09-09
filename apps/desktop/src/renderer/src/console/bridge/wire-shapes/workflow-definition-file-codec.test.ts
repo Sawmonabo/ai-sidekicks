@@ -4,9 +4,10 @@
 // WHAT IS NOT CHECKED HERE, AND WHERE IT IS. That the form stays off the initial import
 // graph is a fact about the emitted bundle, and asserting it from inside the module
 // graph is not possible — a transformed dynamic import resolves in the same tick. The
-// guard for it is the initial-graph census in the bundle tier, which pins this family's
-// owner row: a static import of the form from the door puts those bytes back on the
-// graph and turns that pin red, naming the module.
+// only guard for it is the `renderer-initial-bundle` byte budget, which bounds the
+// graph's SIZE rather than its membership — a static import of the form from the door
+// puts those bytes back on the graph and is caught only if it moves the total past the
+// budget. That the door stays free of it is a reviewer's check.
 //
 // AND THE READING ITSELF IS NOT RE-CHECKED. Every refusal, every marker rule and the
 // round trip belong to `workflow-definition-file-form.test.ts`, which reads them off the

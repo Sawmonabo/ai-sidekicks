@@ -2,8 +2,9 @@
 // loader, the real components at the end of them, and two chunks rather than one.
 //
 // The BUNDLING half of this seam's claim — that each body lands in a lazy chunk rather
-// than in the initial document — is not assertable from here; it is the initial-graph
-// census's subject, read out of the build by the bundle tier. What is assertable here is
+// than in the initial document — is not assertable from here, and no gate asserts it: the
+// `renderer-initial-bundle` byte budget bounds the graph's SIZE and names no module.
+// What is assertable here is
 // the contract that makes the split safe to depend on: what a press gets is the
 // component itself rather than a stand-in, and each act reaches its own body.
 

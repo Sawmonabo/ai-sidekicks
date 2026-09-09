@@ -309,10 +309,10 @@ const NO_ROW_PATH_REFERENCE: FilePathRef | undefined = undefined;
  * family's control inside a body it does not own.
  *
  * An ARROW WITH A DECLARED RETURN TYPE rather than a named function expression, so
- * this module resolves as the one component it declares: the source walk
- * `one-component-per-module.test.ts` runs reads declarations, and a function
+ * this module resolves as the one component it declares: the one-component rule in
+ * `apps/desktop/AGENTS.md` §Module shape is read off declarations, and a function
  * EXPRESSION inside `memo(...)` is neither a declaration nor an arrow, so the module
- * scored as declaring none — clean against a rule that was never applied to it.
+ * would declare none — clean against a rule that was never applied to it.
  */
 const LedgerFeedRow = memo(
   (props: LedgerFeedRowProps): React.ReactNode => (

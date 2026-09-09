@@ -9,9 +9,8 @@
 // tier because an absence is as auditable as a chip, the screenshot tier because it
 // minted that frame as the committed reference. The reference was a picture of a state
 // the fixture does not describe — `APPROVALS_SCENARIO` stamps a posture on its own
-// `run.running` beat. `surfaces/projector-composition.ts` is the fix and
-// `architecture/surface-fold-chokepoint.test.ts` is what keeps it, but neither of those
-// says what a person then sees, and that is this file.
+// `run.running` beat. `surfaces/projector-composition.ts` is the fix and review is what
+// keeps it, but neither of those says what a person then sees, and that is this file.
 //
 // WHY THE CLAIM IS MADE HERE. The mounts are browser-mode modules —
 // `console-harness.tsx` imports `vitest/browser` for the CDP and user-event seams the

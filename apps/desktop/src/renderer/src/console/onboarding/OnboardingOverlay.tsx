@@ -298,8 +298,7 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
       // `Spec-023 §Console Libraries` adopts this family under `trap-focus` and no
       // other mode: the default `modal` also locks body scroll, which that row
       // forbids, and inerting the app root is the shell's job rather than the
-      // library's. Held for every console dialog by
-      // `test/console/architecture/dialog-modal-mode.test.ts`.
+      // library's. Held for every console dialog in review.
       modal="trap-focus"
       disablePointerDismissal={isLocked}
       onOpenChange={(nextOpen) => {

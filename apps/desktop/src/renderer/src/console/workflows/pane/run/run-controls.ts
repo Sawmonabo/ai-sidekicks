@@ -5,8 +5,9 @@
 // are CLOSED SETS — the actions, the refusal codes, the states a served reply may
 // answer with — and a closed set spelled inside a component is a set the next
 // surface re-spells. The fourth, the reason bound, is NOT here at all: a number with
-// a rationale has one home for the whole console, and `cap-constant-home.test.ts`
-// fails a view family that declares one of its own — so this module spends
+// a rationale has one home for the whole console, and `apps/desktop/AGENTS.md` §Config
+// single-sourcing rejects a view family that declares one of its own — so this module
+// spends
 // `WORKFLOW_CANCEL_REASON_BYTE_CAP` through the core family's door and declares
 // nothing about it.
 //

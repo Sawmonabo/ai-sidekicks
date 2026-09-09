@@ -1,8 +1,8 @@
 // One policy row: the control, its label, its consequence, and its honesty about
 // whether the position drawn is a reading.
 //
-// A module of its own because `test/console/architecture/one-component-per-module.test.ts`
-// holds every `.tsx` to one component: two components in one file are two things a
+// A module of its own because `apps/desktop/AGENTS.md` §Module shape holds every `.tsx`
+// to one component: two components in one file are two things a
 // reviewer has to separate by eye, and the second one is the one that quietly grows.
 // The switch TRAITS travel with it rather than staying beside the list, because the
 // row is their only reader — the list composes rows and decides nothing about what a

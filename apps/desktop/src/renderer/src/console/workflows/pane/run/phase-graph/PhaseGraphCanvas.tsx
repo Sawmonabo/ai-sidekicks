@@ -6,7 +6,7 @@
 // and fetched the first time a run's phases are drawn. BOTH STYLESHEETS ARE IMPORTED
 // FROM THAT DOOR AND NOT FROM HERE: `apps/desktop/AGENTS.md` admits a sheet through
 // the barrel of the family or of the lazily-loaded chunk that owns it and through no
-// component, and `test/console/architecture/stylesheet-edges.test.ts` holds every
+// component, and `no-restricted-syntax` in `apps/desktop/eslint.config.mjs` holds every
 // module in the console to it. The door's own header carries why the two sheets ride
 // this chunk rather than `workflows.css`, and why their order is load-bearing.
 //

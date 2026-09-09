@@ -14,14 +14,14 @@
 // every session whether or not the menu was ever opened. A `body: () => import(…)` shape
 // written while either of those edges survived would have deferred nothing: a module
 // reachable both statically and dynamically is assigned to the STATIC chunk, which is the
-// hazard `test/console/architecture/lazy-chunk-isolation.test.ts` was written against and
-// `composer-workflow-picker-boundary.test.ts` now pins for this directory.
+// hazard this file exists to remove, and the one a reviewer checks a `body:`
+// registration against.
 //
 // THE FAMILY'S MENU SHEET TRAVELS WITH IT, on the rule the three sibling roots follow:
 // the stylesheets a lazily loaded directory owns enter through that chunk's root and not
 // through the family door. `workflow-start-menu.css` dresses this body and nothing else,
-// and it declares no class name another family declares — the collision census in
-// `test/console/architecture/stylesheet-selector-owners.test.ts` is what says so — so
+// and it declares no class name another family declares — checked against the tree
+// rather than assumed — so
 // where it lands in the cascade is this directory's own decision to make.
 //
 // WHAT DOES NOT TRAVEL IS `workflows.css`. The three sibling roots each name the family's

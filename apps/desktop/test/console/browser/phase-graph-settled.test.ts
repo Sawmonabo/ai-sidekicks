@@ -16,9 +16,9 @@
 // green-washed the accessibility tier with the one test that would have named the
 // cause never running.
 //
-// The browser tier rather than the architecture tier, and that is forced rather than
-// preferred: `console-architecture` is a Node project with no DOM, no animation
-// frame, and no layout engine, and every claim below is measured on all three. The
+// The browser tier rather than a Node one, and that is forced rather than preferred:
+// a Node project has no DOM, no animation frame, and no layout engine, and every claim
+// below is measured on all three. The
 // browser tier is where "geometry a DOM shim cannot answer" already lives — the run
 // pane's own graph-box case is its neighbour — and it is on the aggregate.
 //

@@ -11,11 +11,10 @@
 // modules in this directory need it.
 //
 // The offset is held in a closure and reached through an accessor pair rather than a
-// plain field, for a reason worth stating: this module is inside the console tree the
-// architecture tier scans, and that scan reads text. A fixture assigning the offset
-// by name would be indistinguishable from a second scroll writer, and the honest
-// answer is not to exempt the file but to write the field once, where the surface's
-// own accessor already is.
+// plain field, for a reason worth stating: a fixture assigning the offset by name
+// would be indistinguishable from a second scroll writer to anyone sweeping the console
+// for one, and the honest answer is not to exempt the file but to write the field once,
+// where the surface's own accessor already is.
 
 import { type LedgerScrollSurface } from "./scroll-chokepoint.js";
 

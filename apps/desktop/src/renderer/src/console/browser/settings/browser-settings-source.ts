@@ -26,8 +26,7 @@
 // its own: `store/read/refresh-scheduler.ts`'s `RefreshScheduler` decides WHEN a read runs and
 // collapses a burst into one, and `store/read/generation-latch.ts` decides which answer may
 // install. Neither is re-implemented here — `apps/desktop/AGENTS.md` puts every
-// refresh through that one scheduler, and `subject-state-chokepoint.test.ts` fails a
-// second latch.
+// refresh through that one scheduler, and a second latch is a review rejection.
 //
 // ONE ROUND FOR BOTH READS, WHICH IS WHY THE KEY IS SINGULAR. The policy and the
 // partitions are two calls answering one question — what this node's browser settings

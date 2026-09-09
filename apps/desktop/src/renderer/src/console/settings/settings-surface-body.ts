@@ -109,8 +109,8 @@ function registerSettingsPages(registry: SettingsPageRegistry): void {
  * A `.ts` MODULE COMPOSING WITH `createElement`, like every other chunk root beside it.
  * This file is an entry point rather than a component — it names no component of its
  * own, it holds the family's page roster and its stylesheet edges — and
- * `architecture/one-component-per-module.test.ts` reads a `.tsx` extension as the claim
- * that a module DECLARES the component its filename names. One element in one return is
+ * `apps/desktop/AGENTS.md` §Module shape reads a `.tsx` extension as the claim that a
+ * module DECLARES the component its filename names. One element in one return is
  * not worth making that claim falsely.
  */
 export function Body(context: ConsoleSurfaceContext): React.ReactNode {

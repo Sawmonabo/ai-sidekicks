@@ -75,17 +75,16 @@
 // project claims a file is a question only the runner can answer — brace
 // expansion, whether `**` spans zero segments, how `exclude` composes with
 // `include` — so it is asked of the real `TestProject` instances through
-// `createVitest`, the same resolution `test/console/architecture/`'s three
-// glob questions take. A matcher written here could agree with the config and
+// `createVitest`. A matcher written here could agree with the config and
 // still disagree with the run, which is the class of defect this whole file is
 // about.
 //
-// That resolution is NOT the one in `test/console/vitest-projects.ts`, and
-// cannot be: `tsconfig.scripts.json` roots at `scripts/`, so a script importing
-// from `test/` is outside the program that typechecks it. What would be shared
-// is a four-line `createVitest` call rather than a rule — the RULE is
-// `project.matchesTestGlob`, which is vitest's own and is the only matcher
-// either side runs.
+// A resolution under `test/` could not be shared with this one anyway:
+// `tsconfig.scripts.json` roots at `scripts/`, so a script importing from
+// `test/` is outside the program that typechecks it. What would be shared is a
+// four-line `createVitest` call rather than a rule — the RULE is
+// `project.matchesTestGlob`, which is vitest's own and is the only matcher this
+// file runs.
 //
 // NO `import.meta` ANYWHERE, DELIBERATELY
 // ---------------------------------------
@@ -133,12 +132,7 @@ const MISUSE_EXIT_CODE = 2;
  * renamed in `vitest.config.ts` fails this script rather than quietly shrinking
  * what it verifies.
  */
-const CHANGED_TIER_PROJECTS: readonly string[] = [
-  "renderer",
-  "main-unit",
-  "console-unit",
-  "console-architecture",
-];
+const CHANGED_TIER_PROJECTS: readonly string[] = ["renderer", "main-unit", "console-unit"];
 
 /** Held here rather than in the script line, which is what the caller appends to. */
 const CHANGED_TIER_WORKERS = "2";

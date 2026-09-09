@@ -405,3 +405,45 @@ describe("scenario wire truth — the run kinds no narrowed stream projects", ()
     expect(defects[0]?.reason).not.toContain("no narrowed stream");
   });
 });
+
+describe("scenario wire truth — a run beat claiming it moved to the state it was in", () => {
+  /** The flagship's own `run.starting` beat, with the state it came FROM replaced. */
+  function scenarioWithStartingBeatPreviousState(
+    scenarioId: string,
+    previousState: string,
+  ): ConsoleScenario {
+    return scenarioWithFirstBeatOfKindReplaced(scenarioId, "run.starting", (beat) => ({
+      ...beat,
+      event: { ...beat.event, payload: { ...beat.event.payload, previousState } },
+    }));
+  }
+
+  it("reports a beat naming one state as both the state it left and the state it reached", () => {
+    // Every member here is individually registered — `run.starting` is a census row and
+    // `starting` is a member of the run-state vocabulary twice over — so neither the
+    // census leg nor the strict layer can see this one, and the strict layer registers
+    // no variant for the run-lifecycle kinds at all. The transition table is what rules
+    // it out: it has no row whose `From` and `To` are one state, so no daemon emits
+    // this, and a surface built against it learns to render a transition production
+    // never produces.
+    const defects = findScenarioWireTruthDefects([
+      scenarioWithStartingBeatPreviousState("reports-a-self-transition", "starting"),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.subject).toContain("run.starting");
+    expect(defects[0]?.reason).toContain("the state it was already in");
+  });
+
+  it("negative control: the same beat naming a real transition is clean", () => {
+    // Without it, a rule that reported every run beat would pass the case above — and
+    // every scenario's run script would be unbuildable. `queued` is the state the seat
+    // board's own beat comes from, so the revision is a no-op and what is measured is
+    // the state pair and nothing else about the beat.
+    expect(
+      findScenarioWireTruthDefects([
+        scenarioWithStartingBeatPreviousState("reports-a-real-transition", "queued"),
+      ]),
+    ).toStrictEqual([]);
+  });
+});

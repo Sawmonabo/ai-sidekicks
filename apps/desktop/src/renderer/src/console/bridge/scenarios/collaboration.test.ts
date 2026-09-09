@@ -1,8 +1,8 @@
 // What this scenario has to keep being, for the surfaces built on it.
 //
 // The wire-truth predicate already holds every beat to the census and the strict
-// layer, and the architecture tier runs it over every shipped scenario — so nothing
-// here re-checks that. What is checked is the DESIGN content that makes this
+// layer — so nothing here re-checks that. What is checked is the DESIGN content that
+// makes this
 // scenario worth having: four presence states, an archived channel, and one
 // invitation that is still pending. Each of those is a claim a surface was built
 // against, and each would go silently false under an edit that still parsed.

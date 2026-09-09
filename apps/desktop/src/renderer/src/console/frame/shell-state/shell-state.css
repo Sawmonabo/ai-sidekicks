@@ -33,8 +33,8 @@
  *
  * IT REACHES INTO THE CHIP FOR NOTHING, hover included. A frame selector ending in
  * `.meridian-chip` would DECLARE a primitives class from this family, which is the
- * cross-family collision `test/console/architecture/stylesheet-selector-owners.test.ts`
- * pins — and it would make the chip's own appearance depend on which sheet the bundler
+ * cross-family collision `apps/desktop/AGENTS.md` §Module shape
+ * forbids — and it would make the chip's own appearance depend on which sheet the bundler
  * emitted last. The cursor is the affordance; the primitive keeps its looks.
  *
  * The focus ring is stated here rather than borrowed from `shared.css`, whose one

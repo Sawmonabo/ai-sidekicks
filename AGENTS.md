@@ -100,3 +100,7 @@ Code execution is gated on the governing doc surface (specs, ADRs, plans, backlo
 This discipline binds plan-task shipment: the plan's first PR as above, and every PR that adds or completes manifest-tracked tasks. Post-completion enhancements to shipped code (changes within the approved spec envelope) and repo tooling/infra work take the lighter lanes defined in `CONTRIBUTING.md` §How Code Lands: Work Classification. A change that would alter a plan invariant or a spec Required Behavior / Acceptance Criteria row is not an enhancement — the spec or plan amends first.
 
 The full doc-first ordering for V1 lives in `docs/architecture/cross-plan-dependencies.md` (tier graph) and the per-plan Preconditions sections.
+
+### Structural Enforcement
+
+A structural rule — an import boundary, a chokepoint, a layout or naming convention, a one-home constraint — is enforced by standard-tool configuration (ESLint, `knip`, `dependency-cruiser`) or stated as prose in the governing `AGENTS.md`, and never by a test that reads source, configuration, or documentation text. Tests prove product behavior; a 45,000-line hand-rolled tier of source-reading tests was retired on 2026-09-09 for re-implementing ESLint without its caching, autofixes, or editor integration.

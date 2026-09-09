@@ -7,34 +7,21 @@
 // first paint, deliberately,
 // so that the palette has exactly one record and no regeneration command can be
 // forgotten. That removes the drift this tier was written to catch and replaces it
-// with two others, which is what this file holds:
+// with one this file holds: the generator is deterministic and complete — every
+// token in the resolved records reaches the sheet, every scheme-varying token
+// reaches all three cascade layers, and no token has its only definition inside a
+// media query. It is vacuity-guarded: a tampered copy has to be caught, or the
+// assertions below are measuring nothing.
 //
-//   1. The generator is deterministic and complete — every token in the resolved
-//      records reaches the sheet, every scheme-varying token reaches all three
-//      cascade layers, and no token has its only definition inside a media query.
-//   2. Every `var(--meridian-*)` any console stylesheet REFERENCES is defined
-//      somewhere the console controls. This is the drift that actually bites: a
-//      stylesheet naming a property nobody sets does not fail, it paints nothing —
-//      an invisible border, a transparent ground — and no unit test sees it.
-//
-//      "Somewhere the console controls" is deliberately wider than the generator.
-//      A property carrying PER-INSTANCE data cannot be a global token: the ledger
-//      row's attribution hue is a different value on every row, so `LedgerRow` sets
-//      `--meridian-row-hue` on the element itself and the stylesheet reads it. That
-//      is the correct shape, and a check that only knew about generated tokens
-//      would push it toward twelve hard-coded per-hue classes instead.
-//
-// Both are vacuity-guarded: a planted difference and a planted reference each have
-// to be caught, or the assertions above are measuring nothing.
+// A SECOND CLAIM USED TO LIVE HERE AND IS NOW A REVIEW RULE, stated in
+// `apps/desktop/AGENTS.md` §Module shape — that every `var(--meridian-*)` a console
+// stylesheet references is defined somewhere the console controls. It is a real
+// drift (a stylesheet naming a property nobody sets does not fail, it paints
+// nothing) and it was checked by READING every console `.css` source, which is the
+// one thing no tier does any more. No tool in this package lints CSS; `stylelint` is
+// the standard-tool home for the claim and is not adopted.
 
 import { describe, expect, it } from "vitest";
-
-import {
-  CONSOLE_DIRECTORY,
-  consoleSourceModules,
-  consoleStylesheets,
-  readConsoleSourceModule,
-} from "../console-source-modules.js";
 
 import { BOUNDED_ENUMERATION_MAX_ROWS } from "../../../src/renderer/src/console/core/index.js";
 import { ENUMERATION_ROW_HEIGHT_REM } from "../../../src/renderer/src/console/tokens/palette.js";
@@ -49,35 +36,10 @@ import {
 } from "../../../src/renderer/src/console/tokens/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 
-/**
- * The console alone, on the shared walk.
- *
- * SCOPED TO ONE ROOT rather than defaulted to both, because this tier's subject is
- * the Meridian palette and the shell composes seats out of it rather than defining
- * properties of its own: a claim about which properties the console defines should
- * not silently start reporting on the shell the day that subtree lands.
- */
-const CONSOLE_ROOT_ONLY = { roots: [CONSOLE_DIRECTORY] } as const;
-
 /** Custom-property NAMES a declaration block defines, e.g. `--meridian-text`. */
 function definedTokenVariables(css: string): Set<string> {
   const defined = new Set<string>();
   for (const match of css.matchAll(/^\s*(--meridian-[a-z0-9-]+)\s*:/gm)) {
-    const name = match[1];
-    if (name !== undefined) {
-      defined.add(name);
-    }
-  }
-  return defined;
-}
-
-/**
- * Custom-property names a component sets on an element itself, as they appear in
- * a typed inline-style object: `"--meridian-row-hue": someValue`.
- */
-function inlineTokenVariables(source: string): Set<string> {
-  const defined = new Set<string>();
-  for (const match of source.matchAll(/["'](--meridian-[a-z0-9-]+)["']\s*[:?]/g)) {
     const name = match[1];
     if (name !== undefined) {
       defined.add(name);
@@ -122,18 +84,6 @@ function emittedRemValue(css: string, tokenName: string): number | undefined {
 function emittedLineHeight(css: string): number | undefined {
   const matched = /line-height: ([\d.]+);/.exec(css);
   return matched?.[1] === undefined ? undefined : Number(matched[1]);
-}
-
-/** Custom-property names a stylesheet READS through `var()`. */
-function referencedTokenVariables(css: string): Set<string> {
-  const referenced = new Set<string>();
-  for (const match of css.matchAll(/var\(\s*(--meridian-[a-z0-9-]+)/g)) {
-    const name = match[1];
-    if (name !== undefined) {
-      referenced.add(name);
-    }
-  }
-  return referenced;
 }
 
 describe("assets — the generated token sheet", () => {
@@ -278,50 +228,5 @@ describe("assets — the generated token sheet", () => {
     const generated = generateMeridianCss();
     const tampered = generated.replace("oklch(", "oklcH(");
     expect(tampered).not.toBe(generated);
-  });
-});
-
-describe("assets — every stylesheet reads only properties the console defines", () => {
-  const definedByGenerator = definedTokenVariables(generateMeridianCss());
-  const stylesheets = consoleStylesheets(CONSOLE_ROOT_ONLY);
-  const sourceModules = consoleSourceModules(CONSOLE_ROOT_ONLY);
-
-  const defined = new Set(definedByGenerator);
-  for (const stylesheet of stylesheets) {
-    for (const name of definedTokenVariables(readConsoleSourceModule(stylesheet))) {
-      defined.add(name);
-    }
-  }
-  for (const module of sourceModules) {
-    for (const name of inlineTokenVariables(readConsoleSourceModule(module))) {
-      defined.add(name);
-    }
-  }
-
-  it("finds the console's stylesheets at all", () => {
-    // Without this, a resolution mistake would make every assertion below pass
-    // over an empty set.
-    expect(stylesheets.length).toBeGreaterThan(0);
-    expect(sourceModules.length).toBeGreaterThan(0);
-  });
-
-  it("resolves every referenced property", () => {
-    const undefinedReferences: string[] = [];
-    for (const stylesheet of stylesheets) {
-      for (const variableName of referencedTokenVariables(readConsoleSourceModule(stylesheet))) {
-        if (!defined.has(variableName)) {
-          undefinedReferences.push(`${stylesheet.displayPath} -> ${variableName}`);
-        }
-      }
-    }
-    // An unresolved property does not fail loudly in a browser: it paints nothing.
-    expect(undefinedReferences).toStrictEqual([]);
-  });
-
-  it("catches a planted unresolved reference", () => {
-    const planted = referencedTokenVariables("a { color: var(--meridian-not-a-token); }");
-    expect([...planted].filter((name) => !defined.has(name))).toStrictEqual([
-      "--meridian-not-a-token",
-    ]);
   });
 });
