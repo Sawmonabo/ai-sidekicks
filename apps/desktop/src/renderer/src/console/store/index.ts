@@ -72,13 +72,12 @@ export type { FrameBanner } from "./shell/frame-store.js";
 export { FrameStore } from "./shell/frame-store.js";
 // The handover a pane performs when its refusal stops being its own business: a
 // whole-workspace code reaches the frame's banner rather than a line inside one pane.
-// The two selectors beside it are for the surfaces whose refusals arrive as a
-// collection — one per resolved request, one per control settlement, one per
-// concurrent read — so no surface writes its own reading of which member rule 9 puts
-// across the frame. Which one a surface takes is what its ORDER means: appended, so
-// the last is newest; or listed in the order it wants them preferred.
+// The selector beside it is for the surfaces whose refusals arrive as a collection —
+// one per resolved request, one per control settlement, one per concurrent read — so
+// no surface writes its own reading of which member rule 9 puts across the frame. Its
+// order means PREFERENCE: nothing in this console stamps a refusal with a time, so a
+// position in a collection is never a claim about which one the daemon said last.
 export {
-  newestBannerClassRefusalAmong,
   preferredBannerClassRefusalAmong,
   useRefusalBannerEscalation,
 } from "./shell/refusal-escalation.js";

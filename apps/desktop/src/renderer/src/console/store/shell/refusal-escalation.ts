@@ -47,48 +47,32 @@ function escalationIdentityOf(refusal: ConsoleRefusal): string {
   return `${refusal.origin}\u0000${refusal.code}\u0000${refusal.detail}`;
 }
 
-// TWO SELECTIONS, TWO NAMES, ONE MODULE. Both walks below answer "which of these is
-// the one banner", and they differ in what a caller's ORDER means. That was written
-// as one name in two files — this module and the approvals pane's read fold — with
-// two rules and two arguments, both sound, and nothing saying which a call site got.
-// It is not a mode flag either: a caller's order means one thing or the other, and a
-// flag would put that decision at the call site while leaving the reason here.
-
-/**
- * The NEWEST banner-class refusal in a set, or nothing where the set holds none.
- *
- * FOR THE SURFACES WHOSE REFUSALS ARRIVE AS A COLLECTION rather than one at a time —
- * the approvals reader holds a refusal per resolved request and per revoked rule, and
- * the run-control surface holds one per settlement — so each of them would otherwise
- * write this walk itself, and two copies of "which of these is a banner" is two
- * places for rule 9's reading to drift.
- *
- * The LAST match rather than the first, because these callers APPEND: the last member
- * is the newest thing the daemon said and the older one is already superseded. A
- * caller whose members are concurrent rather than sequential wants
- * {@link preferredBannerClassRefusalAmong}, where position means preference.
- */
-export function newestBannerClassRefusalAmong(
-  refusals: Iterable<ConsoleRefusal | undefined>,
-): ConsoleRefusal | undefined {
-  let escalating: ConsoleRefusal | undefined = undefined;
-  for (const refusal of refusals) {
-    if (refusal !== undefined && isBannerClass(refusal)) {
-      escalating = refusal;
-    }
-  }
-  return escalating;
-}
+// ONE SELECTION, AND ITS ORDER MEANS PREFERENCE AND NEVER TIME. This module used to
+// carry two, separated by a claim about the callers that was false of both: that a
+// caller whose members are APPENDED hands them over newest-last, so the last banner-
+// class member is the newest thing the daemon said. Neither caller appends in that
+// sense. The approvals reader spreads two `Map.values()` keyed by approval id and rule
+// id — a map preserves FIRST-insertion position, so a re-read that replaced an entry's
+// refusal leaves it exactly where it was, and the two maps concatenate resolve
+// refusals ahead of revoke ones whatever order the daemon answered in. The run-control
+// surface maps over its run ids in record order and reads each run's own newest
+// settlement, so its list is ordered by run and not by time.
+//
+// Nothing in this console stamps a refusal with a time, so no collection of them
+// carries recency at all, and a selection that inferred it would be reading a position
+// as a fact about the wire. What is true of every caller is the sentence below: a
+// session that is gone is ONE fact however many reads noticed it, so the caller lists
+// its candidates in the order it wants them preferred and hands over exactly one.
 
 /**
  * The banner-class refusal a caller PREFERS, or nothing where it listed none.
  *
- * FOR THE SURFACES WHOSE CANDIDATES ARE CONCURRENT rather than appended. The approvals
- * pane puts three independent calls on the wire — the approval projection, the
- * standing-rule list, and the node's declared capabilities — and any of them can come
- * back `session.not_found`. Their order carries no time, so the last member is not the
- * newest thing anybody said and {@link newestBannerClassRefusalAmong}'s reason does
- * not reach them.
+ * FOR THE SURFACES WHOSE REFUSALS ARRIVE AS A COLLECTION rather than one at a time —
+ * the approvals reader holds a refusal per resolved request and per revoked rule and
+ * puts three independent calls on the wire besides, and the run-control surface holds
+ * one per run's newest settlement — so each of them would otherwise write this walk
+ * itself, and two copies of "which of these is a banner" is two places for rule 9's
+ * reading to drift.
  *
  * ONE SELECTION AND NOT ONE ESCALATION EACH. The frame keys a banner on the refusal's
  * ORIGIN and CODE together, so three independent handovers of one vanished session

@@ -77,8 +77,11 @@ import type { RuntimeNodeRosterEntry, SessionId } from "@ai-sidekicks/contracts"
 
 import type { ConsoleBridge, ConsoleBridgeSource } from "../../bridge/index.js";
 import { Nothing, SurfaceAbsence } from "../../primitives/index.js";
-import { nodeAttachDraftFor, nodeAttachReadsFor } from "../node-roster/index.js";
-import { nodeRosterReadsFor } from "../node-roster/index.js";
+import {
+  nodeAttachDraftFor,
+  nodeAttachReadsFor,
+  nodeRosterReadsFor,
+} from "../node-roster/index.js";
 import {
   AttachFlow,
   CapabilityDeclaration,

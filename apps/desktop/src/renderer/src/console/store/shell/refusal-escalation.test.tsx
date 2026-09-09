@@ -18,7 +18,6 @@ import { describe, expect, it } from "vitest";
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import { FrameStore } from "./frame-store.js";
 import {
-  newestBannerClassRefusalAmong,
   preferredBannerClassRefusalAmong,
   useRefusalBannerEscalation,
 } from "./refusal-escalation.js";
@@ -177,31 +176,17 @@ describe("how often it escalates", () => {
   });
 });
 
-describe("which refusals an appended set hands over", () => {
+describe("which refusal a collection hands over", () => {
+  // Every caller's candidates are CONCURRENT — the approvals reader's two maps, keyed
+  // by approval id and rule id and preserving first-insertion position, and the run
+  // surface's list of each run's own newest settlement — so their order is the order
+  // each wants them preferred and never a claim about which the daemon said last.
   it("answers with the banner-class member of a mixed set", () => {
-    expect(newestBannerClassRefusalAmong([undefined, PANE_REFUSAL, GONE_SESSION])).toStrictEqual(
+    expect(preferredBannerClassRefusalAmong([undefined, PANE_REFUSAL, GONE_SESSION])).toStrictEqual(
       GONE_SESSION,
     );
   });
 
-  it("answers with the LAST banner-class member, which is the newest one", () => {
-    // Callers hand their records in arrival order — the approvals reader's resolve
-    // map and the run-control surface's settlement list are both appended to — so a
-    // set holding two says the newer thing.
-    const newer = refuse("approvals", "session.not_found", "Gone since the last read.");
-    expect(newestBannerClassRefusalAmong([GONE_SESSION, newer])).toStrictEqual(newer);
-  });
-
-  it("answers with nothing where the set holds no banner-class refusal", () => {
-    expect(newestBannerClassRefusalAmong([undefined, PANE_REFUSAL])).toBeUndefined();
-  });
-});
-
-describe("which refusals a concurrent set hands over", () => {
-  // The approvals pane's three reads go out together, so their order is the order it
-  // wants them preferred rather than the order the daemon answered in. That is why
-  // this selector exists beside the one above rather than as a flag on it, and these
-  // cases are what state which rule each name carries.
   it("answers with the FIRST banner-class candidate, which is the preferred one", () => {
     const lessPreferred = refuse("growth-port", "session.not_found", "Gone at the port.");
     expect(
@@ -209,14 +194,17 @@ describe("which refusals a concurrent set hands over", () => {
     ).toStrictEqual(GONE_SESSION);
   });
 
-  it("differs from the newest rule on the very same set", () => {
-    // The two rules answer differently or one of them is unnecessary. One fact, one
-    // handover: the frame keys a banner on origin AND code, so two reads that noticed
-    // one loss under two origins would otherwise raise two banners saying one thing.
-    const lessPreferred = refuse("growth-port", "session.not_found", "Gone at the port.");
-    const concurrent = [GONE_SESSION, lessPreferred];
-    expect(preferredBannerClassRefusalAmong(concurrent)).toStrictEqual(GONE_SESSION);
-    expect(newestBannerClassRefusalAmong(concurrent)).toStrictEqual(lessPreferred);
+  it("hands over ONE refusal where several noticed the same loss", () => {
+    // One fact, one handover: the frame keys a banner on origin AND code, so two reads
+    // that noticed one vanished session under two origins would otherwise raise two
+    // banners saying one thing — a call that rejected wears the calling surface's own
+    // origin while one the port refused wears the port's.
+    const atThePort = refuse("growth-port", "session.not_found", "Gone at the port.");
+    expect(preferredBannerClassRefusalAmong([GONE_SESSION, atThePort])).toStrictEqual(GONE_SESSION);
+  });
+
+  it("answers with nothing where the set holds no banner-class refusal", () => {
+    expect(preferredBannerClassRefusalAmong([undefined, PANE_REFUSAL])).toBeUndefined();
   });
 
   it("negative control: an ordinary refusal stays the surface's own business", () => {

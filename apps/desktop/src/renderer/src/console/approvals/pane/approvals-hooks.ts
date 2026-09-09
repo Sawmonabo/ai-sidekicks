@@ -40,7 +40,7 @@ import {
 } from "../../bridge/index.js";
 import { useSessionScopedState } from "../../seats/index.js";
 import {
-  newestBannerClassRefusalAmong,
+  preferredBannerClassRefusalAmong,
   useGenerationLatch,
   useReadTriggers,
   useRefusalBannerEscalation,
@@ -117,7 +117,7 @@ export function useApprovalsReader(
   // would be the defect one composition away from returning.
   const mutationRefusal = useMemo(
     () =>
-      newestBannerClassRefusalAmong([
+      preferredBannerClassRefusalAmong([
         ...snapshot.resolveRefusalByApprovalId.values(),
         ...snapshot.revokeRefusalByRuleId.values(),
       ]),

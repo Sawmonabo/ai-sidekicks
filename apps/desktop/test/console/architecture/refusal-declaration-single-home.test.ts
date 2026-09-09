@@ -116,7 +116,7 @@ describe("console refusals — every refusal name is declared in one module", ()
     // Without this a wrong console directory, a broken walk, or a parse that returned
     // nothing would scan an empty tree and the assertion below would pass over it.
     expect(homes.length).toBeGreaterThan(100);
-    expect(homes.map((home) => home.name)).toContain("newestBannerClassRefusalAmong");
+    expect(homes.map((home) => home.name)).toContain("preferredBannerClassRefusalAmong");
     expect(homes.map((home) => home.name)).toContain("unreadableDeliveryRefusalComposerFor");
   });
 
@@ -190,7 +190,7 @@ describe("console refusals — every refusal name is declared in one module", ()
     // uselessness.
     const insideAFunction = [
       "export function usePaneRefusalHandover(): void {",
-      "  const bannerRefusal = newestBannerClassRefusalAmong(refusals);",
+      "  const bannerRefusal = preferredBannerClassRefusalAmong(refusals);",
       "  raise(bannerRefusal);",
       "}",
     ].join("\n");
