@@ -8,7 +8,7 @@ import { isContractTimelineRow } from "../../../bridge/daemon/timeline-row-contr
 import { type ConsoleSessionEvent } from "../../../store/index.js";
 // Deeply, and not through `structure/index.ts`: this is the only consumer outside
 // that directory and it is a test, so a door line for it would be a door widened for
-// testing — which is the finding `barrel-census.test.ts` reports.
+// testing — which is what `apps/desktop/AGENTS.md` §Module shape rejects.
 import { deriveSupersededBands } from "../../structure/seams/superseded-bands.js";
 import { projectFixtureShellRows } from "./fixture-shell-projection.js";
 

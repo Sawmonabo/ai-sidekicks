@@ -383,8 +383,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
       // Absence is a FAILURE, not a reason to skip. A fixture build that did not
       // expose the registry would make this test pass while checking nothing, and
       // a check that cannot fail is the one kind of test worth deleting. The
-      // property name is pinned to the renderer module that sets it by the
-      // architecture tier, so the two sides cannot drift into a vacuous pass.
+      // property name is imported from the renderer module that sets it, so the two
+      // sides cannot drift into a vacuous pass.
       expect(firings, `${TRIPWIRE_FIXTURE_GLOBAL} is not exposed by this build`).not.toBeNull();
       expect(firings).toStrictEqual([]);
     });

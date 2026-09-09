@@ -7,8 +7,7 @@
 // in any form. `shell-row-reads.ts` next door is a read on a line that ends, and it
 // names the round that ends it. The two therefore live apart: the split is what makes
 // each module's whole relationship with cancellation readable from its imports, and it
-// is what `test/console/architecture/read-cancellation-chokepoint.test.ts` holds every
-// dispatcher to.
+// is what a reviewer holds every dispatcher to.
 //
 // AND IT DIES WITH THE SHELL. This hook exists so the shell's ask rows are real
 // against the fixture scenarios before the timeline subtree's own rows land; the

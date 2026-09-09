@@ -161,8 +161,7 @@ function settledDirectoryState(settlement: SettledSessionDirectory): SessionDire
  * late read is not something it has an opinion about. What it counts is how many times
  * somebody said this node's list moved, which is a fact about the NODE rather than
  * about any round of any caller's. The name says that rather than borrowing the
- * vocabulary of the two chokepoints, which is what
- * `test/console/architecture/subject-state-chokepoint.test.ts` reads for.
+ * vocabulary of the two chokepoints, which is what a reviewer reads for.
  *
  * A class with private fields rather than a module-level `Map`, on the rule
  * `apps/desktop/AGENTS.md` §State and views states and the precedent

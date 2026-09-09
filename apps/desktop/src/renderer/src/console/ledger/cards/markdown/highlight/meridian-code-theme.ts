@@ -22,7 +22,7 @@
 // technique, and this is that technique with our own family vocabulary rather than its
 // variable names.
 //
-// THE FAMILIES ARE A CLOSED SET, and the architecture tier cross-checks that every
+// THE FAMILIES ARE A CLOSED SET, and review cross-checks that every
 // member has a declaration in that generated sheet. That is the cross-check above: a
 // family added here without a colour there renders as the sheet's fallback and reads as
 // plain text, which is a silent failure a type cannot catch.

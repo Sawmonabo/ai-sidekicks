@@ -1,10 +1,8 @@
 // One TypeScript parse, shared by every console test that asks about source text.
 //
-// Two tiers ask questions of the tree rather than of the application: the budget
-// tier asks which bindings a harness holds (`budget/module-bindings.ts`), and the
-// architecture tier asks which bounded waits a launched body declares
-// (`architecture/body-allowance-consumption.test.ts`). Both used to be answerable
-// with a regular expression, and one of them was answered that way — until a
+// The tiers that ask questions of the tree rather than of the application — which
+// bindings a harness holds, which bounded waits a launched body declares — used to be
+// answerable with a regular expression, and one of them was answered that way — until a
 // side-effect `import "./setup.js";` let the pattern run on into the comments
 // after it and report a symbol merely MENTIONED there as an imported binding,
 // which is the false green the gate above it exists to prevent.

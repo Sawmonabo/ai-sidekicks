@@ -1,7 +1,6 @@
 // The built renderer tree, read as text — the one walk over BUILD OUTPUT in this tier.
 //
-// A MODULE OF ITS OWN BECAUSE OF WHAT IT MUST NOT KNOW.
-// `architecture/source-walk-chokepoint.test.ts` holds that a module reaching renderer
+// A MODULE OF ITS OWN BECAUSE OF WHAT IT MUST NOT KNOW. A module reaching renderer
 // SOURCE may not walk a directory of its own: source has one admission — the shared walk
 // in `console-source-modules.ts` — and a second opinion about what counts as a console
 // module drifts from the first silently. Build output has no such walk and needs none:

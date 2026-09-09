@@ -11,7 +11,8 @@ import { type ConsoleBridge, type GrowthOutcome } from "../../../bridge/index.js
 // `GrowthUnavailable` reads from the module that DECLARES it: the bridge door
 // publishes the union a surface narrows (`GrowthOutcome`) and not the refusal arm on
 // its own, because no production module takes that arm by name — and a door line
-// whose only reader is a suite is the dead export `barrel-census.test.ts` reports.
+// whose only reader is a suite is the dead export `apps/desktop/AGENTS.md` §Module
+// shape rejects.
 import type { GrowthUnavailable } from "../../../bridge/growth-port/growth-outcome.js";
 import { createRefusingGrowthPort } from "../../../bridge/growth-port/growth-port.js";
 import { growthUnavailable } from "../../../bridge/growth-port/growth-refusals.js";

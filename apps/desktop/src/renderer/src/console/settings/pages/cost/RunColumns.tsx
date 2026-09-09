@@ -7,7 +7,7 @@
 //
 // `.tsx` because an accessor returns a node, and therefore PascalCase: the console's
 // `.tsx` modules are named for the one markup-rendering declaration they carry, which
-// `one-component-per-module.test.ts` checks by basename. The declaration here is a
+// `apps/desktop/AGENTS.md` §Module shape keys on the basename. The declaration here is a
 // table rather than a component, and the name says which table it is.
 
 import { WireFigure } from "../../../primitives/index.js";

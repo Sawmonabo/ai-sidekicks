@@ -4,7 +4,7 @@
 // `launch-body.ts` were: the property worth checking here is a property of an
 // ARRAY, and reaching it through the launcher would mean starting a real Electron
 // to assert on a string. Every switch the harness passes is decided here, and the
-// launcher spells none of its own — `launch-args.test.ts` fails a launcher that
+// launcher spells none of its own — `test/helpers/launch-args.test.ts` fails a launcher that
 // does, which is the shape that let the last defect through.
 //
 // WHY THE HARNESS SUPPLIES THE GRAPHICS STACK AND NOT THE CI JOB

@@ -75,8 +75,7 @@
 // project claims a file is a question only the runner can answer — brace
 // expansion, whether `**` spans zero segments, how `exclude` composes with
 // `include` — so it is asked of the real `TestProject` instances through
-// `createVitest`, the same resolution `test/console/architecture/`'s three
-// glob questions take. A matcher written here could agree with the config and
+// `createVitest`. A matcher written here could agree with the config and
 // still disagree with the run, which is the class of defect this whole file is
 // about.
 //

@@ -203,8 +203,7 @@ export function useSessionAttention(): SessionAttention {
  * Module-level rather than a lambda inside the memo above, on the rule the
  * destination's own copy states: a mount-lifetime cell naming a session is the shape
  * the console holds through its one subject-keyed holder, so a cell whose body writes
- * the word for a reason of its own is the shape a reader — and
- * `test/console/architecture/subject-state-chokepoint.test.ts` — has to stop and check.
+ * the word for a reason of its own is the shape a reader has to stop and check.
  */
 function sessionIdOf(row: SessionListRow): string {
   return row.sessionId;

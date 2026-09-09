@@ -27,8 +27,7 @@ export { ForwardingConsoleClock } from "./forwarding-clock.js";
 // `settings/constants.ts` — so a cap audit's answer depended on which of five places
 // it looked in, and a bound was spelled `constants` in three of them and `bounds` in
 // the fourth. Every bound lives in `core/constants/` now, and
-// `test/console/architecture/cap-single-home.test.ts` fails the build if a second home
-// appears.
+// `apps/desktop/AGENTS.md` §Config single-sourcing is what rejects a second home.
 //
 // ONE MODULE PER CONCERN, named for who spends it, appended within a module. The home
 // was one 1 051-line file whose own banner comments already drew these seams; a file
@@ -43,22 +42,20 @@ export { ForwardingConsoleClock } from "./forwarding-clock.js";
 // this door re-exports from the module that DECLARES each bound, which is the rule a
 // family door follows everywhere else in the console.
 //
-// WITH ONE SHAPE THE GATE DECIDES, and it decides against a family keeping its own.
-// `test/console/architecture/cap-constant-home.test.ts` reads DECLARATIONS, names
-// `core/constants/` the one place a bound may be declared in, and fails a view family
+// WITH ONE SHAPE THE RULE DECIDES, and it decides against a family keeping its own.
+// `apps/desktop/AGENTS.md` §Config single-sourcing is about DECLARATIONS, names
+// `core/constants/` the one place a bound may be declared in, and rejects a view family
 // that declares one of its own. So a family's bound TABLE — a record keyed by the
 // names it declares in one tuple, which is what `browser/bounds/browser-bounds.ts` is
 // — stays beside its readers, while a plain `export const SOMETHING_CAP = …` lands in
 // this home whichever family spends it. The rationale travels with the value: each
 // module below carries the paragraph its bound was written with.
 //
-// A MEASUREMENT IS NOT A BOUND, and that is the line the gates draw. A row height,
+// A MEASUREMENT IS NOT A BOUND, and that is the line the rule draws. A row height,
 // an overscan count, a rounding factor, and an encoding's byte width are sizes and
 // factors rather than ceilings — nothing is checked against them — so they stay with
 // the code that computes with them, and `console/repos/diff-pane/diff-bounds.ts` is
-// the case that says so out loud. `cap-constant-home.test.ts` beside `cap-single-home`
-// matches the name segments that make an identifier a ceiling; what comes here is what
-// a value is tested against.
+// the case that says so out loud. What comes here is what a value is tested against.
 //
 // A number that appears inline anywhere under `console/` and is not a layout
 // literal is a review rejection: the rationale is the point, not the constant.

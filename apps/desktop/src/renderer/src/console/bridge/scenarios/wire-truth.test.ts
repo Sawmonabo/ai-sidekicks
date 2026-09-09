@@ -1,20 +1,16 @@
 // The predicate's membership-role legs, and the one scenario property it cannot carry.
 //
-// WHY THIS FILE EXISTS BESIDE THE ARCHITECTURE TIER'S. That tier owns the property
-// this predicate is FOR — every scenario on the seat board is an event stream the
-// daemon could emit — and drives the shipped function with controls of its own. What
-// it does not have is a per-leg control for the roles a scenario declares, so these
-// are those: each drives the same imported predicate over a real scenario with one
-// deliberate defect, and never a local copy of the rule.
+// A PER-LEG CONTROL FOR THE ROLES A SCENARIO DECLARES. Each case drives the same
+// imported predicate over a real scenario with one deliberate defect, and never a local
+// copy of the rule.
 //
 // AND ONE PROPERTY THE PREDICATE DELIBERATELY DOES NOT CHECK. A scenario that names a
 // viewer and declares no role for them serves a successful identity read into a roster
 // that resolves nothing — the exact state the fixture was in for every scenario before
 // the base state carried memberships. It is not a wire-truth defect here because the
-// architecture tier's controls pin exact defect counts for scenarios that declare no
-// roles at all, and this leg would fire on two of them; it is asserted below over the
-// shipped seat board instead, and it moves into the predicate the day those controls
-// gain a role.
+// shipped scenarios that declare no roles at all would each fire it; it is asserted
+// below over the shipped seat board instead, and it moves into the predicate the day
+// those scenarios gain a role.
 //
 // THE OTHER AXES ARE BESIDE THIS FILE, ONE PER MODULE THEY COVER, on the
 // `fixture-growth-port.*.test.ts` precedent: `wire-truth.run-beats.test.ts` for the

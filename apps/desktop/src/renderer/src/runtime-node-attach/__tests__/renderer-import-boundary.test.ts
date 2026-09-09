@@ -264,8 +264,8 @@ describe("renderer import boundary", () => {
     // One file class in the shipped config IS matched by two
     // `no-restricted-imports` objects — console and shell source, which the
     // console block re-states the renderer ban for by SPREADING the two hoisted
-    // arrays, and whose spread `daemon-reply-chokepoint.test.ts` asserts is still
-    // there. No file is matched by two blocks that DISAGREE, though, so the
+    // arrays, and whose spread is what keeps both bans live for those files.
+    // No file is matched by two blocks that DISAGREE, though, so the
     // semantics stay unobservable from the config alone. This case makes them
     // observable by appending one STRICTLY NARROWER block through
     // `overrideConfig` (ESLint appends it to the end of the config array) and

@@ -133,8 +133,8 @@ describe("the sidekick editor's seat — what its contract may not do", () => {
     // The owner is read by SUBJECT rather than by length: these are runtime strings in
     // a shipped module and this repository keeps governance identifiers in comments, so
     // a length check would pass over the very phrasing the rule asks for. That the
-    // strings carry no identifier is swept for every seat in the tree at once by
-    // `test/console/architecture/owner-slot-contracts.test.ts`, and is not restated.
+    // strings carry no identifier is a tree-wide claim held in review, and is not
+    // restated.
     const { contract } = SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT;
     expect(contract.owningTask).toContain("sidekick-definitions and peer-invocation plan");
     expect(contract.mountObligation.length).toBeGreaterThan(0);

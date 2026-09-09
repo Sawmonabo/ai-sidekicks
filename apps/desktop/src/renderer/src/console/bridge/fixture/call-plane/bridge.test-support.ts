@@ -265,9 +265,9 @@ export function withCapturedStream(bridge: ConsoleBridge, streamName: string): S
  * Replace one bridge's `daemon.subscribe` with an arm this suite decides.
  *
  * {@link withDaemonCall}'s twin for the OTHER daemon seam, and here for the same
- * reason that one is: the namespace spread that composes it is a reach
- * `test/console/architecture/daemon-reply-chokepoint.test.ts` admits inside this
- * family and nowhere else, so a surface suite that wrote it itself would be a second
+ * reason that one is: the namespace spread that composes it is a reach admitted inside
+ * this family and nowhere else, so a surface suite that wrote it itself would be a
+ * second
  * door. Everything but the subscription stays the wrapped bridge's, so a case
  * proving a surface came back after a refused open really did drive a bridge.
  *

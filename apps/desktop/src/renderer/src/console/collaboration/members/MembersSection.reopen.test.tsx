@@ -41,8 +41,8 @@ const SUBSCRIPTIONS_PER_MOUNT = 2;
  *
  * The one namespace override goes through the bridge family's own
  * `withDaemonSubscribe`, because the daemon namespace is that family's to reach —
- * `test/console/architecture/daemon-reply-chokepoint.test.ts` says so, and a suite
- * that spread it here would be a second door. Everything else is the shipped
+ * `apps/desktop/AGENTS.md` says so, and a suite that spread it here would be a second
+ * door. Everything else is the shipped
  * fixture, so a pass here says the section reached a bridge rather than an object
  * shaped like one.
  */

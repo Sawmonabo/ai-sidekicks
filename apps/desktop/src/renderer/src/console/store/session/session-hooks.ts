@@ -4,8 +4,7 @@
 //
 //   • **No component subscribes to the bridge.** Components subscribe to a STORE,
 //     and exactly one thing subscribes to the bridge — the apply chokepoint. That is
-//     why there is no `useBridgeEvent` hook and why adding one would be caught by
-//     the architecture tier.
+//     why there is no `useBridgeEvent` hook and why adding one is a review rejection.
 //   • **No component constructs a store.** A store is opened by
 //     `SessionStoreRegistry` and RESOLVED here. `useOpenSessionStore` is the only
 //     way a component gets one, and it is a read: it never opens a session as a

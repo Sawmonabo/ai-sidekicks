@@ -17,7 +17,7 @@
 // per-method reply scripts, not the bridge every surface shares. A stand-in whose
 // operation were named `call` on a holder named for the daemon would be
 // indistinguishable in source text from a surface reaching the real call door — which
-// is what `test/console/architecture/daemon-reply-chokepoint.test.ts` scans for.
+// is what a reviewer sweeping for one would flag.
 
 import { act, fireEvent } from "@testing-library/react";
 import { expect } from "vitest";
@@ -127,8 +127,7 @@ export class HeldAttachDaemon {
  * per-method reply script, not the bridge every surface shares. A stand-in whose
  * operation were named `call` on a holder named for the daemon would be
  * indistinguishable in source text from a surface reaching the real call door —
- * which is what `test/console/architecture/daemon-reply-chokepoint.test.ts` scans
- * for, and it would flag this file.
+ * which is what a reviewer sweeping for one would flag, and it would flag this file.
  */
 export interface ScriptedDaemon {
   readonly answer: (method: string, params?: unknown) => Promise<unknown>;

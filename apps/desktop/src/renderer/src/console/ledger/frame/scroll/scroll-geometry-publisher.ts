@@ -14,8 +14,8 @@
 // never writes one — its caller reads `scrollTop`, `clientHeight` and `scrollHeight`
 // exactly once each and hands the three over, which is what keeps "the sample reads
 // three properties and no fourth" a claim about the module that does the reading, and
-// what keeps the one `scrollTop` write in the console in the one module the
-// architecture tier pins by path.
+// what keeps the one `scrollTop` write in the console in the one module
+// `apps/desktop/AGENTS.md` pins by path.
 //
 // AND IT TAKES A READING RATHER THAN A SURFACE for the same reason a cycle would
 // otherwise close: `LedgerScrollSurface` is the chokepoint's own declaration, and a

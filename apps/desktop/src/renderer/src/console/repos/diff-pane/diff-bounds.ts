@@ -5,8 +5,8 @@
 // card compute WITH. Nothing is checked against any of them, which is what keeps
 // them here: `console/core/constants/diff-caps.ts` is the one home for a CEILING, and the
 // diff surfaces' five ceilings sit there and are imported through `core/index.ts`.
-// `test/console/architecture/cap-constant-home.test.ts` draws that line and
-// enforces it.
+// `apps/desktop/AGENTS.md` §Config single-sourcing draws that line, and review holds
+// it.
 //
 // One home for the five below all the same, so a number cannot be re-derived
 // differently in the pane and in the card, and each rationale says what the number

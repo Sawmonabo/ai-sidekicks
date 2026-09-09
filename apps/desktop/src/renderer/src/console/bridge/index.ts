@@ -24,8 +24,8 @@
 // A planted dead type re-exported here raised nothing, where the same type re-exported
 // through `seats/index.ts` was reported at both its declaration and its specifier, so
 // a JSDoc tag here is an unused tag and `--treat-tag-hints-as-errors` fails the run on
-// it. `barrel-census.test.ts` is the gate that does report such a line, and it reads
-// either spelling, so the line comment satisfies the instrument that has the claim.
+// it. The barrel-door rule in `apps/desktop/AGENTS.md` §Module shape does cover such a
+// line and is read by a person either spelling, so the line comment satisfies it.
 //
 // Nor is the scripted pane view host — not its type, not its factory, not its
 // transport marker. `console-bridge.ts` names the type on the contract and reaches
@@ -33,7 +33,7 @@
 // `ConsoleBridge.paneViewHostScript` and names the type nowhere; and the modules
 // that assert on the marker take it from the module that declares it. A door line
 // for any of them would be a published name with no importer, which is the class
-// `test/console/architecture/barrel-census.test.ts` fails.
+// `apps/desktop/AGENTS.md` §Module shape rejects.
 //
 // Nor is `createLiveBridge`. Its one production reader is `BridgeProvider.tsx`
 // beside it, which imports the declaring module, and the harnesses that build a
@@ -295,7 +295,8 @@ export { settledGrowthCall } from "./growth-port/growth-port.js";
 // `GrowthPortRefusalCode` stays OFF this door beside it. The closed code union is
 // what the port's own refusal arms are written in, and nothing outside
 // `growth-port/growth-outcome.ts` names it at all, so a door line for it would
-// publish a specifier with no importer — the class `barrel-census.test.ts` fails.
+// publish a specifier with no importer — the class `apps/desktop/AGENTS.md` §Module
+// shape rejects.
 // `createRefusingGrowthPort` is withheld on the same rule from the other side: its
 // one production caller is `live-bridge.ts` inside this family, which takes it
 // through `growth-port/index.js`, the inner door its siblings already read.

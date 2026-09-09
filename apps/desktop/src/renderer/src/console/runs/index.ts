@@ -35,9 +35,8 @@
 // this family's controls and nothing else. What is left is the run-row pair, and it is
 // enough to hold the sheets here — the fix is the same fix, a rename with the committed
 // references regenerated on the baseline host, and it belongs to a change that does that
-// rather than to one that moves bundle boundaries.
-// `test/console/architecture/stylesheet-selector-owners.test.ts` holds the collision
-// census so a NEW one cannot land unnoticed.
+// rather than to one that moves bundle boundaries. `apps/desktop/AGENTS.md` §Module
+// shape is the rule that keeps a NEW one from landing unnoticed.
 
 import { type ConsolePaneRegistry } from "../seats/index.js";
 

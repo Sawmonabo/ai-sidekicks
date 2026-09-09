@@ -20,10 +20,9 @@
 // SO THE MOUNTS TAKE THE PRODUCTION COMPOSITION RATHER THAN A LIST. What is exported
 // is the snapshot `registerConsoleFamilies` produces, so a family that claims a new
 // event kind is folded by every capture and every audit on the day it lands, with no
-// surfaces file edited and none forgotten.
-// `test/console/architecture/surface-fold-chokepoint.test.ts` is what keeps it that
-// way: no module under this directory may reach a projector registrar directly, and
-// every store either mount opens names this constant.
+// surfaces file edited and none forgotten. Review is what keeps it that way: no module
+// under this directory may reach a projector registrar directly, and every store either
+// mount opens names this constant.
 //
 // COMPOSED INTO BOARDS THIS MODULE OWNS, which is what makes it safe to do at module
 // scope. `registerConsoleFamilies` writes only into the seven registries it is handed —

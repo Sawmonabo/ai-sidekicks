@@ -31,8 +31,8 @@
 // are two claimants and a remount is a fresh one.
 //
 // IT PUBLISHES AND DOES NOT DECIDE. Whether the dialog is `modal="trap-focus"` is the
-// caller's own JSX, and `test/console/architecture/dialog-modal-mode.test.ts` is what
-// holds every `Dialog.Root` under `console/` to it — a hook cannot state a prop for a
+// caller's own JSX, and review is what holds every `Dialog.Root` under `console/` to
+// it — a hook cannot state a prop for a
 // component it does not render, and a hook that returned one would be read as though
 // it had.
 //

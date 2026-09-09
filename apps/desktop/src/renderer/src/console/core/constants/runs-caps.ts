@@ -9,8 +9,8 @@
 // are, and a surface holding all of any of them would be the unbounded cache
 // `Spec-023 §Console Design (Meridian)` forbids in its budget rules. They were
 // declared in the runs family beside their readers, which `apps/desktop/AGENTS.md`
-// §Config single-sourcing and `cap-constant-home.test.ts` between them do not allow:
-// a bound declared in a view family is a ceiling nobody audits.
+// §Config single-sourcing does not allow: a bound declared in a view family is a
+// ceiling nobody audits.
 
 /**
  * Status rows retained per run.

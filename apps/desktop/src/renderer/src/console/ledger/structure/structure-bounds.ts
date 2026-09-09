@@ -1,6 +1,6 @@
 // The ledger structure's named figures that are not ceilings.
 //
-// THE CEILINGS ARE NOT HERE. `test/console/architecture/cap-constant-home.test.ts`
+// THE CEILINGS ARE NOT HERE. `apps/desktop/AGENTS.md` §Config single-sourcing
 // names `core/constants/` the one DIRECTORY a bound may be DECLARED in, so the chapter
 // cap, the rail's fisheye and painting maxima, and the find walk's cap are declared
 // there and read through the core door. What stays is the rail's geometry, its

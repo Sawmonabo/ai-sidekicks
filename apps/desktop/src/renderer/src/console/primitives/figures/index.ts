@@ -18,9 +18,8 @@
 // takes is a dead export the barrel census fails.
 //
 // AND THE SHEETS ENTER HERE, because a directory carrying a door owns its own rules —
-// `apps/desktop/AGENTS.md` keys that on the owner and not on depth, and
-// `test/console/architecture/stylesheet-edges.test.ts` reports the family door
-// reaching in as a misowned sheet. `accent-fill.css` left with `accent-fill.ts` for
+// `apps/desktop/AGENTS.md` keys that on the owner and not on depth, so the family door
+// reaching in is a misowned sheet. `accent-fill.css` left with `accent-fill.ts` for
 // the other half of the same rule: the class it declares has no reader on this door's
 // static graph, so the sheet belongs where its one reader is, at the family root.
 // The order is the one these five held on the family door.

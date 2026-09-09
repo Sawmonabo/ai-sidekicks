@@ -99,8 +99,8 @@
       // plant under `scripts/budget/` failed the run at rc 1. No setting here can see that
       // — the edge is real and the entry is one this plugin is right to claim — so the rule
       // lives where the pattern is written: `apps/desktop/AGENTS.md` §Tests forbids a
-      // directory glob in any module under `src/`, and
-      // `test/console/architecture/no-directory-source-globs.test.ts` enforces it.
+      // directory glob in any module under `src/`, and `no-restricted-syntax` in
+      // `apps/desktop/eslint.config.mjs` enforces it.
       "vitest": { "config": ["vitest.config.ts"] },
 
       // A same-file consumer counts as a consumer. Without this, every helper a module uses

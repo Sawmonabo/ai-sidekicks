@@ -1,11 +1,11 @@
-// The desktop source the architecture tier reads.
+// The desktop source the tiers that ask about source text read.
 //
-// Not a test file — no `include` glob reaches it; the architecture tier imports it,
-// the way the browser tiers import `console-harness.tsx`. It exists because three
-// source-text tripwires now walk the same two directories, and `apps/desktop`
-// AGENTS.md hoists a helper on its second use: three copies of a recursive read with
-// three slightly different ideas of what counts as source is how one tripwire comes
-// to scan `.d.ts` files and another does not, with nothing reporting the difference.
+// Not a test file — no `include` glob reaches it; its readers import it, the way the
+// browser tiers import `console-harness.tsx`. It exists because more than one reader
+// walks the same two directories, and `apps/desktop` AGENTS.md hoists a helper on its
+// second use: copies of a recursive read with slightly different ideas of what counts
+// as source is how one reader comes to scan `.d.ts` files and another does not, with
+// nothing reporting the difference.
 //
 // WHAT COUNTS AS SOURCE, decided once and in TWO PLACES that answer different
 // halves. A FILE — asked of the directory entry, not inferred from the name,
@@ -135,7 +135,7 @@ export function consoleSourceModules(scan: ConsoleSourceScan = {}): readonly Con
  * display path, a barrel's `…/index.ts` suffix, a chunk root's directory prefix, a
  * specifier resolved with `path.posix`. A gate holding both spellings at once is green
  * on this machine and red on Windows, which is a defect no host running the tier here
- * can observe: `lazy-chunk-isolation.test.ts` looked for the last `/` in a path that
+ * can observe: a chunk-isolation walk once looked for the last `/` in a path that
  * carried none, took the empty string as the chunk's directory, and quantified its claim
  * over the whole console instead of over one directory.
  *

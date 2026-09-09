@@ -7,9 +7,7 @@
 // console's boundary agreed with each other and with nothing the daemon sends.
 //
 // WHAT IS NOT HERE. The round trip — composed envelope back through the console's
-// own decode boundary — spans two families, so it lives in the architecture tier
-// (`test/console/architecture/scenario-wire-truth.test.ts`), where it runs over
-// every beat of every shipped scenario rather than over one written here.
+// own decode boundary — spans two families, so it is not asserted here.
 
 import { describe, expect, it } from "vitest";
 
