@@ -38,24 +38,37 @@
 // than of the host, on every platform, which is what a pin was ever for.
 //
 // THE COMMITTED REFERENCES PREDATE THAT, AND THE MONO PIN OUTLIVED ITS PREMISE.
-// Measured on 2026-09-09 over the 64 references then committed, all but two differ
-// from what the console now renders, in two groups and no others: 38 because sans
-// resolves to the self-hosted face rather than to the host's generic, and 24 more
-// because the slashed zero is now declared on `body`. (That reading was taken while
-// the console still shipped six static cuts; it now ships a variable upright and a
-// variable italic per family, which moves nothing about WHY the references drifted —
-// the same faces resolve and the same feature is declared — and adds two more
-// surfaces that can move: the weight 640 `palette/palette.css` asks for and now
-// really gets, and every italic run, which is the drawn italic rather than a
-// browser-slanted upright.) The two
-// that remain are a 1 px and a 3 px keycap-glyph difference — this host against the
-// runner, which is the residue this tier already expects. Re-minting the corpus on
-// the pinned runner
-// is therefore one pass, and retiring the monospace pin belongs to it: with the
-// face self-hosted, this constant now overrides a face that SHIPS rather than one
-// the host happened to supply, so a capture taken through it is a picture of Menlo
-// and the product is set in IBM Plex Mono. Both halves move together or the corpus
-// is re-minted twice.
+// Re-measured in compare mode at 034cfaf2a on 2026-09-09, against the 65 references
+// committed at that tip: EVERY ONE of the 65 differs. Thirty-two differ in size —
+// the captured element is between 1 and 20 px taller or shorter than its reference,
+// and never a pixel wider or narrower, because the self-hosted sans carries its own
+// advance widths and its own vertical metrics and the layout stacked on them is not
+// the same height. The other thirty-three differ at identical dimensions, from 755
+// changed pixels on `collaboration-roster-light` to 58 201 — about five percent of
+// the frame — on `flagship-frame-light`. Three properties of the shipped design
+// account for all of it, and each of them is a face resolving that did not resolve
+// when these were minted: the sans is the build's own variable face rather than
+// whichever generic the capture host fell through to; every italic run is the
+// foundry's drawn italic rather than a browser-slanted upright; and the weight 640
+// `palette/palette.css` asks for is a real instance on a continuous axis rather than
+// a static cut it used to snap to.
+//
+// WHAT IS NO LONGER A CAUSE IS THE SLASHED ZERO. An earlier reading of this corpus
+// attributed 24 of the differences to that feature being declared on `body`; it is
+// declared as a descriptor inside the mono `@font-face` rules now, and
+// `pinCaptureFaces` below overrides `--meridian-font-mono` on the root element, so a
+// capture never selects IBM Plex Mono and never reaches that descriptor at all.
+// Retiring it changed no outcome, because the sans reaches every surface in the
+// corpus and moves each of these references on its own. Nor is any difference here
+// the host residue this tier documents: the smallest is 755 pixels against the six
+// keycap-corner pixels that residue amounts to, so no reference is left that a run
+// on the pinned runner would have matched.
+//
+// Re-minting the corpus on the pinned runner is therefore one pass, and retiring the
+// monospace pin belongs to it: with the face self-hosted, this constant now overrides
+// a face that SHIPS rather than one the host happened to supply, so a capture taken
+// through it is a picture of Menlo and the product is set in IBM Plex Mono. Both
+// halves move together or the corpus is re-minted twice.
 
 /**
  * The stack every capture renders monospace text under.
