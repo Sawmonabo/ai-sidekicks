@@ -6,11 +6,9 @@
 // value alone, which is why the seed and the projection can both reach it without either
 // of them reaching the other.
 //
-// IT ONCE HELD THE PATH WALK TOO — read one member, write one, drop one, read a list —
-// and that half was never called by anything. The kit addresses its answer through the
-// PLAN it drew rather than by walking a path into the answer, so the walk was a second
-// way to reach a value the projection already reaches, and it went. The three names left
-// are the ones the kit reads.
+// The kit addresses its answer through the PLAN it drew rather than by walking a path into
+// the answer, so nothing here reads or writes a member by path: the three names below are
+// the ones the kit reads.
 
 /** The answer being composed: the object a submission would carry. */
 export type SchemaFormAnswer = Readonly<Record<string, unknown>>;
