@@ -29,41 +29,39 @@ import {
 import { WORKFLOWS_SCENARIO } from "../../../../bridge/scenarios/workflows.js";
 import { WORKFLOWS_PARKED_RUN } from "../../../../bridge/scenarios/workflow-fixture-runs.js";
 import type { WireErrorEnvelope } from "../../../../core/index.js";
-import { schemaFormAnswerMount } from "../../../../seats/index.js";
-// The seat's own wait for the schema compiler's chunk, by its own specifier: a fixture
-// helper has no door to leave through — `barrel-census` fails a door line no production
-// module reads — which is why `console-cross-family-deep-import` subtracts a
-// `.test-support` module on its source side. The alternative is a fourth copy of one await.
-import { resolveSchemaValidatorCompiler } from "../../../../seats/schema-form/containers/use-schema-form.test-support.js";
+// The seat's own wait for its two chunks, by its own specifier: a fixture helper has no
+// door to leave through — `barrel-census` fails a door line no production module reads —
+// which is why `console-cross-family-deep-import` subtracts a `.test-support` module on
+// its source side. The alternative is a fourth copy of one await.
+import { resolveSchemaFormChunks } from "../../../../seats/schema-form/containers/use-schema-form.test-support.js";
 import { settle } from "../../../../core/settle.test-support.js";
 import { humanFormPhaseFor } from "../human-form-selection.js";
 import { HumanFormSlot } from "./HumanFormSlot.js";
 import type { HumanFormBody, HumanFormPhase } from "./human-form-mount.js";
 
 /**
- * Resolve BOTH chunks a schema form opens in, before a case renders a wait.
+ * The seat's own wait for BOTH chunks a schema form opens in, re-exported for the suites.
  *
- * The form arrives as its own chunk, so a mount that begins cold suspends for the turn
- * its module lands in and every synchronous query against the controls runs against the
- * reserved region instead. Awaited once per suite rather than settled per case: the
- * seat's loader memoises the load, so this is the same promise every mount in the file
- * would have joined — and a suite that waits here reads exactly what a person who has
- * already opened one form sees.
+ * WHAT IT BUYS A SUITE HERE. The form arrives as its own chunk, so a mount that begins
+ * cold suspends for the turn its module lands in and every synchronous query against the
+ * controls runs against the reserved region instead — and the schema compiler is a
+ * SECOND chunk, which is the half a pane mount used to go without: `SchemaFormAnswer`
+ * disables the one act while the validator reads `compiling`, so a form whose body chunk
+ * has landed still offers a control nothing can press. A press there dispatches nothing
+ * at all, which cost this file a case that failed one run in three on a park-card count
+ * naming none of it, over a race measured at ~13-21 ms on this tree.
  *
- * AND THE COMPILER IS THE SECOND, WHICH IS THE HALF A PANE MOUNT USED TO GO WITHOUT.
- * `SchemaFormAnswer` disables the one act while `useSchemaForm`'s validator reads
- * `compiling`, so a form whose body chunk has landed still offers a control nothing can
- * press until the schema compiler's own chunk lands too — and a press on a disabled
- * button dispatches nothing at all. A suite that mounts the SLOT reached that second
- * wait through `renderSwitchableSlot` below; a suite that mounts the PANE reached it
- * through nothing and raced the import, which is a race measured at ~13-21 ms on this
- * tree and lost roughly one run in three. Both waits are this one call now, so a warm
- * covers whatever a suite mounts.
+ * Awaited once per suite rather than settled per case: both loaders memoise, so this is
+ * the same promise every mount in the file would have joined — and a suite that waits
+ * here reads exactly what a person who has already opened one form sees.
+ *
+ * DECLARED IN THE SEAT'S OWN TEST-SUPPORT and taken from there, because the tier mounts
+ * under `test/console/surfaces/` need the identical pair and `apps/desktop/AGENTS.md`
+ * §Shared code puts one implementation in the lowest module that owns the concern. Named
+ * here so the suites below keep reading their own scaffolding rather than each carrying a
+ * cross-family specifier for one warm.
  */
-export async function resolveSchemaFormChunks(): Promise<void> {
-  await schemaFormAnswerMount.load();
-  await resolveSchemaValidatorCompiler();
-}
+export { resolveSchemaFormChunks };
 
 /** The refusal a daemon raises on a submission composed against a stale revision. */
 export const STALE_REVISION_REFUSAL: WireErrorEnvelope = {

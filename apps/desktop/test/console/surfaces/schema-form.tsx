@@ -66,10 +66,11 @@ import { waitFor } from "@testing-library/react";
 
 import { renderSettled } from "../console-harness.js";
 import { schemaFormChunk } from "../../../src/renderer/src/console/seats/index.js";
-// The seat's own wait for the compiler chunk, taken from the module that owns it rather
-// than restated: `loadSchemaValidatorCompiler` has one home for this job, and the three
-// console-unit supports already take it from there.
-import { resolveSchemaValidatorCompiler } from "../../../src/renderer/src/console/seats/schema-form/containers/use-schema-form.test-support.js";
+// The seat's own wait for its two chunks, taken from the module that owns them rather
+// than restated: that wait has one home for this job, and the three console-unit supports
+// already take it from there. Re-exported below rather than merely used, so this file
+// stays the one import the tiers reach every seat reading through.
+import { resolveSchemaFormChunks } from "../../../src/renderer/src/console/seats/schema-form/containers/use-schema-form.test-support.js";
 
 /**
  * How long a verdict may take before the mount is refused rather than returned.
@@ -89,14 +90,17 @@ export const SCHEMA_FORM_VERDICT_DEADLINE_MS = 5_000;
  * seat's own `loadSchemaValidatorCompiler()` then settles in a microtask of the mount. A
  * mount that skipped this raced its wait against a COLD load — a Vite transform of the
  * compiler on a runner that had never served it — and lost on the busiest host the tier
- * runs on, under a message naming a compiler that was merely late. One home for the pair,
- * because the family mount that reaches the seat through a park and the seat's own mount
- * below both need exactly this and neither owns the chunks.
+ * runs on, under a message naming a compiler that was merely late.
+ *
+ * DECLARED WHERE THE SEAT IS, RE-EXPORTED HERE. Two lanes reached this pair from opposite
+ * ends in the same week — this tier's mounts, and the console-unit suites that press the
+ * form's one act — and briefly defined it twice. `apps/desktop/AGENTS.md` §Shared code
+ * settles which one survives: the lowest module that owns the concern, which is the
+ * hook's own test-support beside the compiler wait it already owns. It is re-exported
+ * rather than deep-imported by each caller so `workflows.tsx` still takes every seat
+ * reading it needs from this one module.
  */
-export async function resolveSchemaFormChunks(): Promise<void> {
-  await resolveSchemaValidatorCompiler();
-  await schemaFormChunk.load();
-}
+export { resolveSchemaFormChunks };
 
 /**
  * The class the seat puts on its own `<form>`, read here and set there.

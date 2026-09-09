@@ -36,6 +36,7 @@ import { act, render } from "@testing-library/react";
 import { answeredScalar, UNANSWERED_SCALAR } from "../answer/schema-draft.js";
 import { settle } from "../../../core/settle.test-support.js";
 import { useSchemaForm, type SchemaFormState } from "./use-schema-form.js";
+import { schemaFormAnswerMount } from "../schema-form-mounts.js";
 import { loadSchemaValidatorCompiler, type SchemaMemberPath } from "../../../bridge/index.js";
 
 /** One mounted form: its latest state, the schema it is showing, and its ending. */
@@ -92,6 +93,28 @@ export function mountFormUnsettled(inputSchema: unknown): MountedSchemaForm {
  */
 export async function resolveSchemaValidatorCompiler(): Promise<void> {
   await loadSchemaValidatorCompiler();
+}
+
+/**
+ * Resolve BOTH chunks the seat rides, so a form mounted after this opens armed.
+ *
+ * The compiler above is one of the two. The other is the kit itself, and a caller that
+ * resolved only the compiler mounted a form that suspended on its own body, while a
+ * caller that resolved only the kit mounted a form whose one act was still DISABLED —
+ * `SchemaFormAnswer` closes it while the validator reads `compiling`, so a press put
+ * there dispatches nothing and the case fails on whatever the press was supposed to move.
+ * Three mounts across two tiers hit one side or the other of that pair; this is their one
+ * answer, and it lives beside the compiler wait for the reason that wait lives here.
+ *
+ * THE ANSWER MOUNT AND NOT THE BARE CHUNK, because `LoadedLazyBody` holds a SECOND memo:
+ * the settled body it renders directly. Resolving `schemaFormChunk` alone leaves that
+ * memo empty, so a warmed mount still commits the reserved region for a frame — the one
+ * thing a warm exists to avoid. Its own load awaits `schemaFormChunk.load()`, so a caller
+ * that then reads the kit off that chunk gets a promise that is already settled.
+ */
+export async function resolveSchemaFormChunks(): Promise<void> {
+  await resolveSchemaValidatorCompiler();
+  await schemaFormAnswerMount.load();
 }
 
 /** Mount the hook, let its compiler land, and hand back a live handle on its state. */
