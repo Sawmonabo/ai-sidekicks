@@ -15,7 +15,7 @@
 //     reads only one attribute of;
 //   • a stored capture card, the object 12.6 says a capture "lands as", collapsed to
 //     name, kind, and size with the preview one click away;
-//   • the terminal pane on a DEGRADED lease, which is the frame `bridge/scenarios/
+//   • the terminal pane on a DEGRADED lease, which is the frame `bridge/scenario/
 //     terminal.ts` says a capture should hold — its own header: the script ends on
 //     the host going silent under a lease that had just been taken, which "carries
 //     everything the held frame carried plus the reading that took the keyboard

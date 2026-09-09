@@ -7,7 +7,7 @@
 
 import { vi } from "vitest";
 
-import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
+import { BROWSER_SCENARIO } from "../../bridge/scenario/browser.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import { type NavigationReading } from "./navigation-state.js";

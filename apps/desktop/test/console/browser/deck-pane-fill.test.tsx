@@ -41,7 +41,7 @@ import { terminalPaneContext } from "../../../src/renderer/src/console/terminal/
 import "../../../src/renderer/src/console/terminal/index.js";
 import "../../../src/renderer/src/console/workspace/index.js";
 import { createFixtureBridge } from "../../../src/renderer/src/console/bridge/index.js";
-import { TERMINAL_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/terminal.js";
+import { TERMINAL_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/terminal/terminal.js";
 
 /** The deck's own height. Every assertion below is against this one number. */
 const DECK_HEIGHT_PX = 600;

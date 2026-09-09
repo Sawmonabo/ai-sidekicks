@@ -36,7 +36,7 @@
 import { answerFromScriptedReply, answerScriptOnly } from "../growth/scripted-answer.js";
 import { mapGrowthServed, type GrowthOutcome, type GrowthPort } from "../../growth-port/index.js";
 import type { GrowthOperationSignatures } from "../../growth-signatures/index.js";
-import type { ScenarioEngine } from "../../scenario-runtime/scenario-engine.js";
+import type { ScenarioEngine } from "../../scenario/runtime/engine.js";
 
 /**
  * The six onboarding operations the fixture answers.

@@ -10,12 +10,12 @@
 import { createFixtureBridge } from "../call-plane/bridge.js";
 import type { GrowthOperationId, GrowthOutcome } from "../../growth-port/index.js";
 import type { GrowthPort } from "../../index.js";
-import type { ConsoleScenario } from "../../scenario-runtime/index.js";
-import { FLAGSHIP_SCENARIO } from "../../scenarios/flagship.js";
-import { WORKFLOWS_SCENARIO_DEFINITIONS } from "../../scenarios/workflow-fixture-definitions.js";
-import { DEFINITION_RELEASE_CHECKS_SESSION } from "../../scenarios/workflow-fixture-ids.js";
-import { WORKFLOWS_COMPLETED_PHASE_ID } from "../../scenarios/workflow-fixture-phase-outputs.js";
-import { WORKFLOWS_PARKED_RUN } from "../../scenarios/workflow-fixture-runs.js";
+import type { ConsoleScenario } from "../../scenario/runtime/index.js";
+import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
+import { WORKFLOWS_SCENARIO_DEFINITIONS } from "../../scenario/workflows/definitions.js";
+import { DEFINITION_RELEASE_CHECKS_SESSION } from "../../scenario/workflows/ids.js";
+import { WORKFLOWS_COMPLETED_PHASE_ID } from "../../scenario/workflows/phase-outputs.js";
+import { WORKFLOWS_PARKED_RUN } from "../../scenario/workflows/runs.js";
 
 /**
  * The definition the two body reads are probed at, resolved out of the summary table.

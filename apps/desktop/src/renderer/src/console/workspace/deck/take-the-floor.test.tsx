@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { bridgeAnswering } from "../../bridge/fixture/call-plane/bridge.test-support.js";
-import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
+import type { ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
 import { DECK_RESTORED_PANE_CAP } from "../../core/index.js";
 import { takeTheFloor, unregisterTakeTheFloorHandler } from "../../seats/index.js";
 import { SessionStore } from "../../store/index.js";

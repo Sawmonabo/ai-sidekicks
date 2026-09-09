@@ -10,7 +10,7 @@ import {
   REPOS_IMPLEMENTER_RUN_ID,
   REPOS_SESSION_ID,
   REPOS_VIEWING_PARTICIPANT_ID,
-} from "../../bridge/scenarios/repos.js";
+} from "../../bridge/scenario/repos/repos.js";
 import type { GrowthArtifactSummary } from "../../bridge/index.js";
 import type { ArtifactManifestRow } from "./artifact-model.js";
 

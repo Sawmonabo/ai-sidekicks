@@ -66,7 +66,7 @@
 import type { MembershipSummary } from "@ai-sidekicks/contracts";
 
 import { scriptedSessionReadMember } from "./scripted-session-read.js";
-import type { ConsoleScenario } from "../../scenario-runtime/index.js";
+import type { ConsoleScenario } from "../../scenario/runtime/index.js";
 import type { SessionSnapshot } from "../../../store/index.js";
 
 /**

@@ -23,7 +23,7 @@ import {
   type GrowthOutcome,
 } from "../../../../bridge/index.js";
 import { settleScriptedRead } from "../../../../bridge/readings/scheduled-read.test-support.js";
-import { SETTINGS_SCENARIO } from "../../../../bridge/scenarios/settings.js";
+import { SETTINGS_SCENARIO } from "../../../../bridge/scenario/settings/settings.js";
 import { crossMacrotaskBoundary } from "../../../../core/macrotask-boundary.test-support.js";
 import { LiveAnnouncerProvider } from "../../../../primitives/index.js";
 import { McpShell } from "./McpShell.js";

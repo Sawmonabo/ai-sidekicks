@@ -19,8 +19,8 @@ import { describe, expect, it } from "vitest";
 import type { DaemonEvent } from "@ai-sidekicks/contracts";
 
 import { PRESENCE_EVENT_STREAM } from "../../daemon/session-event-streams.js";
-import { COLLABORATION_SCENARIO } from "../../scenarios/collaboration.js";
-import { PARTICIPANT_TOMAS } from "../../scenarios/collaboration/identifiers.js";
+import { COLLABORATION_SCENARIO } from "../../scenario/collaboration/collaboration.js";
+import { PARTICIPANT_TOMAS } from "../../scenario/collaboration/identifiers.js";
 import { createFixture, type FixtureUnderTest } from "../call-plane/bridge.test-support.js";
 
 /** The tick the room's second activity frame falls due at. */

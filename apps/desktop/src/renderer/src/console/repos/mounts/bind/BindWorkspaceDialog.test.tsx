@@ -18,11 +18,11 @@ import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekic
 
 import { withDaemonCall } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
-import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
+import { REPOS_SCENARIO } from "../../../bridge/scenario/repos/repos.js";
 import { LiveAnnouncerProvider } from "../../../primitives/index.js";
 import { SessionStore } from "../../../store/index.js";
 import { eventOfKind } from "../../../store/session-event.test-support.js";
-import { advanceScenarioUntil } from "../../../bridge/scenario-runtime/scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../../bridge/scenario/runtime/clock.test-support.js";
 import { BindWorkspaceDialog } from "./BindWorkspaceDialog.js";
 import { quietShell } from "../../../store/shell-condition.test-support.js";
 

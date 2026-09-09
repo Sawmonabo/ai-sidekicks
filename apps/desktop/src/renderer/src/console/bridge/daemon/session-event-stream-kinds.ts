@@ -107,7 +107,7 @@ type RunInitialState = "queued";
  *
  * EXPORTED for one reader, and for what its COMPLEMENT is: the four run-lifecycle
  * kinds this union leaves out are exactly the kinds no narrowed stream projects, and
- * `scenarios/wire-truth/run-and-queue-semantics.ts` subtracts this union from the
+ * `scenario/wire-truth/run-and-queue-semantics.ts` subtracts this union from the
  * census's `run.` root to hold each of them to its own registered payload. Derived
  * there rather than listed, so a run kind that joins or leaves this stream moves
  * across that walk's obligation without anyone editing a second list.

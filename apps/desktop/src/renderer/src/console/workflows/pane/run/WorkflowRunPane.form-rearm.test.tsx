@@ -27,7 +27,7 @@ import { act } from "react";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import type { ConsoleBridge, GrowthPort } from "../../../bridge/index.js";
-import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenarios/workflow-fixture-runs.js";
+import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenario/workflows/runs.js";
 import type { WireErrorEnvelope } from "../../../core/index.js";
 import { settle } from "../../workflows-probe.test-support.js";
 import {

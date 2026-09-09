@@ -18,7 +18,7 @@ import {
   renderBar,
   storeWith,
 } from "./CastBar.test-support.js";
-import type { ConsoleScenario } from "../../bridge/scenario-runtime/index.js";
+import type { ConsoleScenario } from "../../bridge/scenario/runtime/index.js";
 
 /** How the session names itself, where a scenario says so. */
 const DISPLAY_TITLE = "Ship the ledger";

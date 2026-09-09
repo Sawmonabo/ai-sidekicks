@@ -10,7 +10,7 @@
 import type { SessionId } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { SETTINGS_SCENARIO } from "../../bridge/scenarios/settings.js";
+import { SETTINGS_SCENARIO } from "../../bridge/scenario/settings/settings.js";
 
 /** The tick this scenario's roster names two machines at. */
 export const BOTH_MACHINES_ONLINE_MS = 200;

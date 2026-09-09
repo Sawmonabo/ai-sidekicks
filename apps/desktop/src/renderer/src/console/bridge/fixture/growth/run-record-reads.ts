@@ -30,9 +30,9 @@ import { growthUnscriptedReply } from "../../growth-port/index.js";
 import {
   RUNS_INTERVENTION_RECORDS,
   RUNS_QUEUE_RUN_BINDINGS,
-} from "../../scenarios/runs.run-records.js";
+} from "../../scenario/runs/run-records.js";
 import type { GrowthPort } from "../../growth-port/index.js";
-import type { ScenarioEngine } from "../../scenario-runtime/scenario-engine.js";
+import type { ScenarioEngine } from "../../scenario/runtime/engine.js";
 import type {
   GrowthInterventionRecord,
   GrowthQueueItemRunBinding,

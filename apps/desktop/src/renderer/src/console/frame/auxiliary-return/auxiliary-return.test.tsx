@@ -19,7 +19,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
-import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { AuxiliaryHandoff } from "../../workspace/auxiliary/aux-handoff.js";
 import {
   ModelledShell,

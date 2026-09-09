@@ -26,8 +26,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type GrowthPort } from "../bridge/index.js";
 import { settleGrowthRead } from "../bridge/readings/read-settlement.js";
-import { FIRST_RUN_SCENARIO } from "../bridge/scenarios/first-run.js";
-import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
+import { FIRST_RUN_SCENARIO } from "../bridge/scenario/first-run.js";
+import { FLAGSHIP_SCENARIO } from "../bridge/scenario/flagship/flagship.js";
 import { CommittedFrameRecorder } from "../core/committed-frame.test-support.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { useSessionDirectory, type SessionDirectoryState } from "./session-directory.js";

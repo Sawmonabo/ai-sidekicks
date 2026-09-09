@@ -20,8 +20,8 @@ import { describe, expect, it } from "vitest";
 import type { SessionId } from "@ai-sidekicks/contracts";
 
 import { createFixture } from "./bridge.test-support.js";
-import { FLAGSHIP_SCENARIO } from "../../scenarios/flagship.js";
-import { SETTINGS_SCENARIO } from "../../scenarios/settings.js";
+import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
+import { SETTINGS_SCENARIO } from "../../scenario/settings/settings.js";
 
 describe("fixture bridge — the runtime-node roster and the signal that refreshes it", () => {
   /** Past the settings script's last node beat, which is the degrade at 320 ms. */

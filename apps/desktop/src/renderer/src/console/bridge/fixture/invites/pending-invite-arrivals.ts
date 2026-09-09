@@ -28,7 +28,7 @@ import type {
   ScenarioPendingInviteAttemptFrame,
   ScenarioPendingInviteFrame,
   ScenarioPendingInviteRefusedFrame,
-} from "../../scenario-runtime/index.js";
+} from "../../scenario/runtime/index.js";
 
 /** What one scripted reference can still produce. Consumed by the act it answers. */
 export interface PendingEntry {

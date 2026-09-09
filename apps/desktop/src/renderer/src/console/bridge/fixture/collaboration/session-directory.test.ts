@@ -18,8 +18,8 @@ import { describe, expect, it } from "vitest";
 
 import { ConsoleRefusalError } from "../../../core/index.js";
 import { directorySessionsOf } from "./session-directory.js";
-import type { ConsoleScenario } from "../../scenario-runtime/scenario.js";
-import { FIRST_RUN_SCENARIO } from "../../scenarios/first-run.js";
+import type { ConsoleScenario } from "../../scenario/runtime/vocabulary.js";
+import { FIRST_RUN_SCENARIO } from "../../scenario/first-run.js";
 
 /**
  * Every registered session state, as a total record so a member added to the

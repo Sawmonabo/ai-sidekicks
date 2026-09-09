@@ -28,8 +28,8 @@ import {
   type QueueFeed,
 } from "../../../bridge/index.js";
 import { settleScheduledRead } from "../../../bridge/readings/scheduled-read.test-support.js";
-import { RUNS_SCENARIO } from "../../../bridge/scenarios/runs.js";
-import { RUN_ID } from "../../../bridge/scenarios/runs.identifiers.js";
+import { RUNS_SCENARIO } from "../../../bridge/scenario/runs/runs.js";
+import { RUN_ID } from "../../../bridge/scenario/runs/identifiers.js";
 import { refuse } from "../../../core/index.js";
 import { QueueContents } from "./QueueContents.js";
 

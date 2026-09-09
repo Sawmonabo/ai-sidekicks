@@ -32,7 +32,7 @@ import {
   SidekicksBridgeProvider,
   createFixtureBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
-import { SETTINGS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/settings.js";
+import { SETTINGS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/settings/settings.js";
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
 import {
   bridgeAnswering,

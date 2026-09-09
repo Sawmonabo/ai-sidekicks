@@ -25,7 +25,7 @@
 // projection calls it `actorId`. A reader that looked for the console's
 // own names found neither, refused every live delivery as unreadable, and agreed
 // perfectly with a fixture that was handing it the console's shape to begin with.
-// `bridge/scenario-runtime/scenario-envelope.ts` closes the second half of that: the fixture now
+// `bridge/scenario/runtime/envelope.ts` closes the second half of that: the fixture now
 // composes the same registered envelope, so this parse is the one door both bridges
 // deliver through.
 //

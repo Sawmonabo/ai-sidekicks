@@ -10,7 +10,7 @@ import { act, render } from "@testing-library/react";
 
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
-import { ONBOARDING_SCENARIO } from "../bridge/scenarios/onboarding.js";
+import { ONBOARDING_SCENARIO } from "../bridge/scenario/onboarding.js";
 import { FrameStore } from "../store/index.js";
 import { OnboardingFlow } from "./onboarding-flow.js";
 import { OnboardingWalkthrough } from "./OnboardingWalkthrough.js";

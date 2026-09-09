@@ -16,7 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { TERMINAL_SCENARIO, TERMINAL_SCENARIO_ID } from "../bridge/scenarios/terminal.js";
+import { TERMINAL_SCENARIO, TERMINAL_SCENARIO_ID } from "../bridge/scenario/terminal/terminal.js";
 import { ConsolePaneRegistry } from "../seats/index.js";
 import {
   TERMINAL_LEASE_EVENT_KIND as LEASE_TRANSITION_KIND,

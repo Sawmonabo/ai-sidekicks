@@ -23,13 +23,13 @@
 //
 // WHAT A FAMILY DOES NOT DO
 //
-// A family never edits `seats/surface/surface-registry.ts`, `bridge/scenario-runtime/scenario-manifest.ts`,
+// A family never edits `seats/surface/surface-registry.ts`, `bridge/scenario/manifest.ts`,
 // `bridge/growth-port/growth-slate.ts`, or `vitest.config.ts`. Those are shared spines: a
 // concurrent edit to any of them from every one of those branches at once is a
 // guaranteed conflict, and worse, a merge that resolves cleanly while silently
 // dropping one family's registration.
 // A family registers through its own `index.ts` and its own reserved lines — here,
-// and in `bridge/scenarios/index.ts` for its fixture scenario.
+// and in `bridge/scenario/corpus.ts` for its fixture scenario.
 //
 // ORDER IS THE DAG, NOT PREFERENCE
 //

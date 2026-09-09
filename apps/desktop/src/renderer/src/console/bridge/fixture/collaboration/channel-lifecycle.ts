@@ -23,7 +23,7 @@
 //
 // AND THE CREATE IS THE FOURTH, WHICH IT ONCE WAS NOT. The three moves share one
 // receipt shape and one registered payload — `{sessionId, channelId}`, the shape
-// `bridge/scenarios/collaboration/beats.ts`'s own `channel.archived` beat carries — so one derivation
+// `bridge/scenario/collaboration/beats.ts`'s own `channel.archived` beat carries — so one derivation
 // serves all three, and a create was left out because its own payload is a different
 // shape. What that cost was the whole act: a served create returned its receipt, the
 // form reported success and reset, and the channel appeared in no directory anywhere,
@@ -61,7 +61,7 @@ import type {
 } from "../../growth-values/index.js";
 import type { GrowthOperationSignatures } from "../../growth-signatures/index.js";
 import type { GrowthOutcome, GrowthPort } from "../../growth-port/index.js";
-import type { ScenarioEngine } from "../../scenario-runtime/index.js";
+import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /** The three lifecycle verbs this stands in for, and the frame each one publishes. */
 const CHANNEL_LIFECYCLE_MOVES = {
@@ -163,7 +163,7 @@ export class FixtureChannelLifecycle {
       // participant count reach a reader from `channel.list`, never from the creation
       // event, and an unnamed channel OMITS the member rather than carrying it
       // undefined, because `name?` is an absent member on this wire and never a
-      // present empty one. Both are `bridge/scenarios/collaboration/beats.ts`'s own statement about the
+      // present empty one. Both are `bridge/scenario/collaboration/beats.ts`'s own statement about the
       // beat it writes by hand.
       this.#appendFrame(CHANNEL_CREATED_EVENT_KIND, {
         channelId: outcome.value.channelId,
@@ -209,7 +209,7 @@ export class FixtureChannelLifecycle {
     if (outcome.status === "served") {
       // The payload carries the session and the channel the envelope is about and
       // invents nothing else, because the census registers no payload variant for
-      // these three kinds — the same restraint `bridge/scenarios/collaboration/beats.ts` states for the
+      // these three kinds — the same restraint `bridge/scenario/collaboration/beats.ts` states for the
       // archival beat it writes by hand.
       this.#appendFrame(move.eventKind, {
         sessionId: this.#engine.scenario.sessionId,

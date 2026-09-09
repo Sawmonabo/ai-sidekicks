@@ -77,7 +77,7 @@ import type { WireErrorEnvelope } from "../../../core/index.js";
 import { directorySessionsOf } from "./session-directory.js";
 import { fixtureSessionSnapshot } from "./session-snapshot.js";
 import { growthUnavailable, type GrowthPort } from "../../growth-port/index.js";
-import type { ScenarioEngine } from "../../scenario-runtime/index.js";
+import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /**
  * The three session operations the fixture answers.

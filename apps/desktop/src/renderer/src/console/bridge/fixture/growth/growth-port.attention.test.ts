@@ -18,9 +18,9 @@ import { describe, expect, it } from "vitest";
 import type { AttentionItem } from "../../wire-shapes/attention-projection.js";
 import { createFixtureBridge } from "../call-plane/bridge.js";
 import type { GrowthPort } from "../../index.js";
-import type { ConsoleScenario, ScenarioBeat } from "../../scenario-runtime/scenario.js";
-import { FLAGSHIP_SCENARIO } from "../../scenarios/flagship.js";
-import { findScenarioWireTruthDefects } from "../../scenarios/wire-truth.js";
+import type { ConsoleScenario, ScenarioBeat } from "../../scenario/runtime/vocabulary.js";
+import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
+import { findScenarioWireTruthDefects } from "../../scenario/wire-truth/wire-truth.js";
 
 const ATTENTION_SESSION_ID = "019b7a11-0280-75e5-8510-ada11a5a33a5";
 const ATTENTION_PARTICIPANT_ID = "019b7a11-0280-79a4-8110-cca0117a0330";

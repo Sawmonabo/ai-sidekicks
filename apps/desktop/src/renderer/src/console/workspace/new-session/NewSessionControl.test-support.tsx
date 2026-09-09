@@ -13,7 +13,7 @@ import {
   withDaemonCall,
   type BridgeUnderTest,
 } from "../../bridge/fixture/call-plane/bridge.test-support.js";
-import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
+import type { ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { NewSessionControl } from "./NewSessionControl.js";
 import type { NewSessionBlockedAct } from "../../seats/index.js";

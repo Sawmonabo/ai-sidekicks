@@ -23,7 +23,7 @@ import {
   type BridgeUnderTest,
 } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import type { GrowthOutcome } from "../../bridge/index.js";
-import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
+import type { ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { settle as settleReactWork } from "../../core/settle.test-support.js";
 import { VIEWING_PARTICIPANT, invite } from "./sent-invites.test-support.js";

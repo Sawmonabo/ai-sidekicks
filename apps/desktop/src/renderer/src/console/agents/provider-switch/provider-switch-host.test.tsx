@@ -25,7 +25,7 @@ import {
   withDaemonCall,
 } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
-import { AGENTS_SCENARIO } from "../../bridge/scenarios/agents.js";
+import { AGENTS_SCENARIO } from "../../bridge/scenario/agents/agents.js";
 import { settleReads } from "../agent-console/agent-console.test-support.js";
 import { useAgentBindingSwitch, useDriverCatalogReading } from "./provider-switch-host.js";
 

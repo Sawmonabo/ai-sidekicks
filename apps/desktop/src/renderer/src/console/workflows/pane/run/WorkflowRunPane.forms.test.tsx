@@ -17,7 +17,7 @@ import { fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFixtureBridge, type WorkflowRunSnapshot } from "../../../bridge/index.js";
-import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenarios/workflow-fixture-runs.js";
+import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenario/workflows/runs.js";
 import { HumanFormSlot } from "./slots/HumanFormSlot.js";
 import {
   PARKED,

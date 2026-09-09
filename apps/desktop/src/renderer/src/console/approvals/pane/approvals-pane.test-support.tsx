@@ -17,9 +17,9 @@ import {
 } from "../../bridge/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
-import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
+import { APPROVALS_SCENARIO } from "../../bridge/scenario/approvals/approvals.js";
 import { SessionStore } from "../../store/index.js";
-import { type ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
+import { type ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
 import { type PaneContextOf } from "../../seats/index.js";
 import { paneContext } from "../../seats/pane/pane-context.test-support.js";
 

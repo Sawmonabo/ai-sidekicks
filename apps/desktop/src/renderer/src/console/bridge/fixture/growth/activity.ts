@@ -30,7 +30,7 @@ import {
   type GrowthOutcome,
 } from "../../growth-port/index.js";
 import type { GrowthActivitySnapshot } from "../../growth-values/index.js";
-import type { ScenarioActivityFrame, ScenarioEngine } from "../../scenario-runtime/index.js";
+import type { ScenarioActivityFrame, ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /** Read the session's live activity from the scenario. The fixture arm. */
 export function readActivityFromScenario(

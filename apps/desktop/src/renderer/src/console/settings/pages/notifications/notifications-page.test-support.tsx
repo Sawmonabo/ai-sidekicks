@@ -33,7 +33,7 @@ import type { CallerParticipantOutcome } from "../../../seats/index.js";
 import { settle as settleReactWork } from "../../../core/settle.test-support.js";
 import { settleScheduledRead } from "../../../bridge/readings/scheduled-read.test-support.js";
 
-import type { ConsoleScenario } from "../../../bridge/scenario-runtime/scenario.js";
+import type { ConsoleScenario } from "../../../bridge/scenario/runtime/vocabulary.js";
 
 export const SESSION_ID = "session-notifications";
 

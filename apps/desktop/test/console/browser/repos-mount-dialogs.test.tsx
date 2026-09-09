@@ -27,13 +27,13 @@ import { describe, expect, it } from "vitest";
 import { pressKeys, renderSettled } from "../console-harness.js";
 
 import { createFixtureBridge } from "../../../src/renderer/src/console/bridge/index.js";
-import { REPOS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/repos.js";
+import { REPOS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/repos/repos.js";
 import {
   GIT_MOUNT_ID,
   PLAIN_MOUNT_ID,
-} from "../../../src/renderer/src/console/bridge/scenarios/repos/repos-fixture-data.js";
+} from "../../../src/renderer/src/console/bridge/scenario/repos/repos-fixture-data.js";
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
-import { advanceScenarioUntil } from "../../../src/renderer/src/console/bridge/scenario-runtime/scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../../src/renderer/src/console/bridge/scenario/runtime/clock.test-support.js";
 import { BindWorkspaceDialog } from "../../../src/renderer/src/console/repos/mounts/bind/BindWorkspaceDialog.js";
 import { SessionStore } from "../../../src/renderer/src/console/store/index.js";
 import { quietShell } from "../../../src/renderer/src/console/store/shell-condition.test-support.js";

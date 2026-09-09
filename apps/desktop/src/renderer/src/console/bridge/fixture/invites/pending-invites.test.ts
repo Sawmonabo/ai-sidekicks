@@ -36,8 +36,8 @@ import {
   REFUSED_DETAIL,
 } from "./pending-invites.test-support.js";
 import type { GrowthInviteAttempt } from "../../growth-values/index.js";
-import { ScenarioEngine } from "../../scenario-runtime/index.js";
-import type { ScenarioPendingInviteFrame } from "../../scenario-runtime/index.js";
+import { ScenarioEngine } from "../../scenario/runtime/index.js";
+import type { ScenarioPendingInviteFrame } from "../../scenario/runtime/index.js";
 
 describe("fixture pending invites — a frame whose tick has not come yet", () => {
   it("delivers it to an open feed once the scenario advances past its tick", async () => {

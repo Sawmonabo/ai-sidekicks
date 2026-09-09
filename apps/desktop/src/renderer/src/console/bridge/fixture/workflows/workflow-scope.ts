@@ -22,8 +22,8 @@
 // mechanisms is in play is a property of the REPLY SHAPE and never of the call.
 
 import type { WireErrorEnvelope } from "../../../core/index.js";
-import type { ConsoleScenario } from "../../scenario-runtime/scenario.js";
-import { readUnknownStringMember } from "../../scenario-runtime/index.js";
+import type { ConsoleScenario } from "../../scenario/runtime/vocabulary.js";
+import { readUnknownStringMember } from "../../scenario/runtime/index.js";
 
 /**
  * The workflow identifiers one scenario's FIXED replies can answer for.

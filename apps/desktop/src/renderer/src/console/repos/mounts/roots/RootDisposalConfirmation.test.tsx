@@ -20,7 +20,7 @@ import {
   fixtureBridgeWithGrowth,
   withDaemonCall,
 } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
-import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
+import { REPOS_SCENARIO } from "../../../bridge/scenario/repos/repos.js";
 import { RootDisposalConfirmation } from "./RootDisposalConfirmation.js";
 import { quietShell } from "../../../store/shell-condition.test-support.js";
 

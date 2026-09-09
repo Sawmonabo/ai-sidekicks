@@ -28,7 +28,7 @@ import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { withRecordedGrowth } from "../../bridge/fixture/call-plane/bridge.growth.test-support.js";
-import { ONBOARDING_SCENARIO } from "../../bridge/scenarios/onboarding.js";
+import { ONBOARDING_SCENARIO } from "../../bridge/scenario/onboarding.js";
 import {
   PROBE_CALL,
   arrive,

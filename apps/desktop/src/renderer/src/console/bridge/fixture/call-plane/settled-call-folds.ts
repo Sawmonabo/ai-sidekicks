@@ -38,7 +38,7 @@
 import { foldChannelDirectoryOverLog } from "../collaboration/channel-directory.js";
 import type { FixtureChannelLifecycle } from "../collaboration/channel-lifecycle.js";
 import type { FixtureInviteLedger } from "../invites/invite-ledger.js";
-import type { ScenarioEngine } from "../../scenario-runtime/index.js";
+import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /** The registered method whose answer is the session's channel directory. */
 const CHANNEL_LIST_METHOD = "channel.list";

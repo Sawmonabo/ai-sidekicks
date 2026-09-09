@@ -14,7 +14,7 @@ import {
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../bridge/index.js";
-import { FIRST_RUN_SCENARIO } from "../../bridge/scenarios/first-run.js";
+import { FIRST_RUN_SCENARIO } from "../../bridge/scenario/first-run.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { ConsolePaneRegistry, type ConsolePaneContext } from "../../seats/index.js";
 import { Deck } from "./Deck.js";

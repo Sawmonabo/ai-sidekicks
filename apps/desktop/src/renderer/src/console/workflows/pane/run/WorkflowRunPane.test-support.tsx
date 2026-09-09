@@ -39,10 +39,10 @@ import {
   type WorkflowPhaseState,
   type WorkflowRunSnapshot,
 } from "../../../bridge/index.js";
-import type { ConsoleScenario } from "../../../bridge/scenario-runtime/scenario.js";
-import { FLAGSHIP_SCENARIO } from "../../../bridge/scenarios/flagship.js";
-import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenarios/workflow-fixture-runs.js";
-import { WORKFLOWS_SCENARIO } from "../../../bridge/scenarios/workflows.js";
+import type { ConsoleScenario } from "../../../bridge/scenario/runtime/vocabulary.js";
+import { FLAGSHIP_SCENARIO } from "../../../bridge/scenario/flagship/flagship.js";
+import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenario/workflows/runs.js";
+import { WORKFLOWS_SCENARIO } from "../../../bridge/scenario/workflows/workflows.js";
 import type { ConsoleRoute } from "../../../routing/index.js";
 import type { PaneContextOf } from "../../../seats/index.js";
 import { FrameStore, SessionStore, type ConsoleEntityRef } from "../../../store/index.js";

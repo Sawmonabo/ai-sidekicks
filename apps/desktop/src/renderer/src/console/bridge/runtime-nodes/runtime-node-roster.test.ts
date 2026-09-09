@@ -23,8 +23,8 @@ import { describe, expect, it } from "vitest";
 
 import { RUNTIME_NODE_EVENT_NAMES, RuntimeNodeRosterResponseSchema } from "@ai-sidekicks/contracts";
 
-import { CONSOLE_SCENARIOS } from "../scenarios/index.js";
-import { SETTINGS_SCENARIO } from "../scenarios/settings.js";
+import { CONSOLE_SCENARIOS } from "../scenario/index.js";
+import { SETTINGS_SCENARIO } from "../scenario/settings/settings.js";
 import {
   RUNTIME_NODE_PRESENCE_EVENT_NAMES,
   RUNTIME_NODE_ROSTER_PROCEDURE,

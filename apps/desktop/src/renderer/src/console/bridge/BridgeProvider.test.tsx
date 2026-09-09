@@ -30,10 +30,10 @@ import {
 } from "./BridgeProvider.js";
 import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
 import { createFixtureBridge } from "./fixture/call-plane/bridge.js";
-import { consoleScenario } from "./scenario-runtime/scenario-manifest.js";
-import { SCENARIO_FIXTURE_GLOBAL } from "./scenario-runtime/scenario-selection.js";
-import { FIRST_RUN_SCENARIO_ID } from "./scenarios/first-run.js";
-import { FLAGSHIP_SCENARIO, FLAGSHIP_SCENARIO_ID } from "./scenarios/flagship.js";
+import { consoleScenario } from "./scenario/index.js";
+import { SCENARIO_FIXTURE_GLOBAL } from "./scenario/selection.js";
+import { FIRST_RUN_SCENARIO_ID } from "./scenario/first-run.js";
+import { FLAGSHIP_SCENARIO, FLAGSHIP_SCENARIO_ID } from "./scenario/flagship/flagship.js";
 
 interface BridgeProbeProps {
   readonly onObserve: (bridge: ConsoleBridge) => void;

@@ -39,7 +39,7 @@ import {
   payloadNamesSession,
   readWireString,
 } from "../../../core/index.js";
-import type { ScenarioEngine } from "../../scenario-runtime/index.js";
+import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /** One `membership.*` frame the census registers. Derived, so the set has one home. */
 type MembershipLifecycleKind = Extract<SessionEventType, `membership.${string}`>;

@@ -23,8 +23,8 @@ import { describe, expect, it } from "vitest";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import type { ShellReport } from "../../../store/index.js";
 import type { GrowthStream } from "../../growth-port/growth-outcome.js";
-import { ScenarioEngine } from "../../scenario-runtime/index.js";
-import { SHELL_SCENARIO } from "../../scenarios/shell.js";
+import { ScenarioEngine } from "../../scenario/runtime/index.js";
+import { SHELL_SCENARIO } from "../../scenario/shell.js";
 import { FixtureShellChannel, startingReport, stoppedReport } from "./shell-status.js";
 
 /**

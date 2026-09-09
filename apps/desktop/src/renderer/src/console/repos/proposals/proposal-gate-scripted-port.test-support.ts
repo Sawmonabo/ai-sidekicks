@@ -24,13 +24,13 @@ import {
   type GrowthUnavailable,
 } from "../../bridge/index.js";
 import type { GrowthPortAnswer, GrowthServedValue } from "../../bridge/growth-port/growth-port.js";
-import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
+import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
 import {
   GIT_MOUNT_ID,
   GIT_WORKSPACE_ID,
   IMPLEMENTER_WORKTREE_ID,
   PARTICIPANT_YOU,
-} from "../../bridge/scenarios/repos/repos-fixture-data.js";
+} from "../../bridge/scenario/repos/repos-fixture-data.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import type { ProposalContextKey } from "./prepared-proposal.js";

@@ -22,8 +22,8 @@ import { MemoryPersistenceAdapter, UiStateStore } from "../../persistence/index.
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { settle } from "../../core/settle.test-support.js";
 import { FrameStore } from "../../store/index.js";
-import { FIRST_RUN_SCENARIO } from "../../bridge/scenarios/first-run.js";
-import { LEDGER_FIRST_SIXTY_SCENARIO } from "../../bridge/scenarios/ledger/ledger-first-sixty.js";
+import { FIRST_RUN_SCENARIO } from "../../bridge/scenario/first-run.js";
+import { LEDGER_FIRST_SIXTY_SCENARIO } from "../../bridge/scenario/ledger/ledger-first-sixty.js";
 import { FIRST_LAUNCH_SEEN_KEY } from "./first-launch.js";
 import { useFirstLaunchOpening } from "./first-launch-opening.js";
 

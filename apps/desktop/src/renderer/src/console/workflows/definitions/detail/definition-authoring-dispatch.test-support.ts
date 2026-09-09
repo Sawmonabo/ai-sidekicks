@@ -18,8 +18,8 @@ import { createRefusingGrowthPort } from "../../../bridge/growth-port/growth-por
 import {
   workflowDefinitionReadFor,
   workflowVersionBodyFor,
-} from "../../../bridge/scenarios/workflow-fixture-bodies.js";
-import { DEFINITION_RELEASE_CHECKS_SESSION } from "../../../bridge/scenarios/workflow-fixture-ids.js";
+} from "../../../bridge/scenario/workflows/bodies.js";
+import { DEFINITION_RELEASE_CHECKS_SESSION } from "../../../bridge/scenario/workflows/ids.js";
 import type { ConsoleBridge, GrowthPort, WorkflowVersionBody } from "../../../bridge/index.js";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import { useWorkflowDefinitionAuthoring } from "./definition-authoring-dispatch.js";

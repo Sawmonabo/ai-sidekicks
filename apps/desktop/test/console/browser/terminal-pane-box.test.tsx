@@ -31,7 +31,7 @@ import { terminalPaneContext } from "../../../src/renderer/src/console/terminal/
 // what that stylesheet computes to.
 import "../../../src/renderer/src/console/terminal/index.js";
 import { createFixtureBridge } from "../../../src/renderer/src/console/bridge/index.js";
-import { TERMINAL_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/terminal.js";
+import { TERMINAL_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/terminal/terminal.js";
 
 /** A deck slot of a fixed height, which is the only case the rule is about. */
 const SLOT_HEIGHT_PX = 400;

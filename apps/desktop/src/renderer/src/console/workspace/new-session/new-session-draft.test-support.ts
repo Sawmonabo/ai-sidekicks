@@ -12,7 +12,7 @@ import {
   withDaemonCall,
   type RecordedDaemonCall,
 } from "../../bridge/fixture/call-plane/bridge.test-support.js";
-import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
+import type { ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
 import { NewSessionDraft } from "./new-session-draft.js";
 // The methods the SEND names, taken from the module that sends them rather than
 // re-declared here: a script keyed on the suite's own copy of a wire string would go

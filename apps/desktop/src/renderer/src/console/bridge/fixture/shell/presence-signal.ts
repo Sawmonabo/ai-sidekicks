@@ -39,7 +39,7 @@
 import { activityFrameDueAt } from "../growth/activity.js";
 import type { Unsubscribe } from "../../../core/index.js";
 import type { AwarenessSignalStream } from "../../daemon/index.js";
-import type { ScenarioActivityFrame, ScenarioEngine } from "../../scenario-runtime/index.js";
+import type { ScenarioActivityFrame, ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /**
  * One open Awareness subscription: the two triggers, and the frame it last signalled.

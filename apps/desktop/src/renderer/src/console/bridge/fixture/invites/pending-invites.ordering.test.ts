@@ -27,7 +27,7 @@ import {
   REFUSED_CODE,
   REFUSED_DETAIL,
 } from "./pending-invites.test-support.js";
-import { ScenarioEngine } from "../../scenario-runtime/index.js";
+import { ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /** The ticks these cases are scripted at, and the advance that passes both. */
 const EARLY_TICK_MS = 100;

@@ -17,8 +17,8 @@ import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../console/bridge/index.js";
 import { settleScheduledRead } from "../../../console/bridge/readings/scheduled-read.test-support.js";
-import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
-import { AGENT_IMPLEMENTER } from "../../../console/bridge/scenarios/composer.identifiers.js";
+import { COMPOSER_SCENARIO } from "../../../console/bridge/scenario/composer/composer.js";
+import { AGENT_IMPLEMENTER } from "../../../console/bridge/scenario/composer/identifiers.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../../console/store/index.js";
 import { useAgentBindingReading, type AgentBindingReading } from "./agent-binding-read.js";
 

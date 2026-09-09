@@ -25,8 +25,8 @@ import {
   CHANNEL_MAIN,
   CHANNEL_REVIEW,
   COLLABORATION_PARTICIPANTS,
-} from "../../scenarios/collaboration/identifiers.js";
-import { COLLABORATION_SCENARIO } from "../../scenarios/collaboration.js";
+} from "../../scenario/collaboration/identifiers.js";
+import { COLLABORATION_SCENARIO } from "../../scenario/collaboration/collaboration.js";
 import {
   createFixture,
   unscriptedScenario,
@@ -40,7 +40,7 @@ import {
   directoryStateOf,
 } from "./channel-directory.test-support.js";
 import { scenarioAlsoPlaying } from "./scenario-append.test-support.js";
-import type { ConsoleScenario } from "../../scenario-runtime/index.js";
+import type { ConsoleScenario } from "../../scenario/runtime/index.js";
 
 /** Past every beat the collaboration room plays, so an advance leaves nothing due. */
 const PAST_EVERY_BEAT_MS = 10_000;

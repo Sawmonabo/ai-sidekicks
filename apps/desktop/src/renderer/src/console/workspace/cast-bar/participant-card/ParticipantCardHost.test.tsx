@@ -20,7 +20,7 @@ import { CastBar } from "../CastBar.js";
 import {
   AGENT_ARCHITECT,
   PARTICIPANT_PRIYA,
-} from "../../../bridge/scenarios/flagship/flagship-cast.js";
+} from "../../../bridge/scenario/flagship/flagship-cast.js";
 import {
   SESSION_ID,
   admittedMember,

@@ -17,7 +17,7 @@ import {
   isUnbuiltWireRefusal,
   type ConsoleBridge,
 } from "../../../bridge/index.js";
-import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenarios/ledger/ledger-quiet.js";
+import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenario/ledger/ledger-quiet.js";
 import {
   ledgerGapFillSubjectKey,
   resolveLedgerGapFill,

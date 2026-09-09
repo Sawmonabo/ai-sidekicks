@@ -19,11 +19,11 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { withDaemonCall } from "../../bridge/fixture/call-plane/bridge.test-support.js";
-import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
+import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
 import {
   GIT_WORKSPACE_ID,
   PLAIN_WORKSPACE_ID,
-} from "../../bridge/scenarios/repos/repos-fixture-data.js";
+} from "../../bridge/scenario/repos/repos-fixture-data.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { ParkedCalls } from "../held-calls.test-support.js";
 import { SessionStore } from "../../store/index.js";

@@ -12,7 +12,10 @@ import { fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { TERMINAL_SCENARIO, TERMINAL_SCENARIO_CAST } from "../../bridge/scenarios/terminal.js";
+import {
+  TERMINAL_SCENARIO,
+  TERMINAL_SCENARIO_CAST,
+} from "../../bridge/scenario/terminal/terminal.js";
 import { OTHER_PARTICIPANT, VIEWER_PARTICIPANT } from "./lease-model.test-support.js";
 import { claimControl, leaseState, renderLease } from "./LeaseLine.test-support.js";
 

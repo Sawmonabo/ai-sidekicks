@@ -36,7 +36,7 @@ import {
   QUIET_PREFERENCES,
   requireJoinDisclosure,
 } from "./session-acts.test-support.js";
-import { BRING_YOUR_HISTORY_SCENARIO } from "../../bridge/scenarios/bring-your-history.js";
+import { BRING_YOUR_HISTORY_SCENARIO } from "../../bridge/scenario/bring-your-history.js";
 import { DrivenGrowthStream } from "../../bridge/growth-port/driven-growth-stream.test-support.js";
 import {
   fixtureBridgeWithGrowth,

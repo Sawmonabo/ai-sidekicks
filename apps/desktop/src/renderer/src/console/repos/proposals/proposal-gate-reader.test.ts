@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../../bridge/index.js";
-import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
+import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import type { ProposalGateReading } from "./proposal-gate-model.js";
 import {

@@ -1,0 +1,87 @@
+// The workflow fixture's identifiers, and the framing its four data modules share.
+//
+// SPLIT FROM THE SCENARIO ON PURPOSE. `workflows.ts` owns the SESSION — the beats a
+// daemon could emit and the replies a call is answered with — and this fixture owns
+// the workflow STATE those replies carry. The two are different kinds of thing: a
+// beat is held to `packages/contracts`' strict layer by `scenario/wire-truth/wire-truth.ts`,
+// while these shapes are declared by `bridge/wire-shapes/workflow-projection.ts` because the
+// corpus registers no workflow types at all. Keeping them in one file put a wire the
+// contract owns and a wire the growth slate owes side by side under one header.
+//
+// AND SPLIT AGAIN, BY RESPONSIBILITY. The state itself is five independently
+// maintained tables — the definitions a browser groups, the bodies a detail pane
+// reads, the four runs a list ranks, the outputs a finished phase left behind, and
+// the agents a phase dispatches to — which shared one module until it passed the size
+// a reader can hold. Each has its own file now; what they share is this one, because
+// an identifier two of them name has to be one literal or the fixture proves nothing.
+// The agents table is the one that is not `workflow-projection.ts`-typed: it feeds the
+// session's `agent.attached` beats, so it sits beside neither the definitions nor the
+// runs.
+//
+// WHICH NAMES CARRY THE SCENARIO PREFIX. One that leaves this directory does —
+// `WORKFLOWS_SESSION_ID` is read by a pane test four families away, where `SESSION_ID`
+// would say nothing about which session. One that is read only by a sibling here does
+// not: `PHASE_DRAFT` at a `phaseId:` is exactly as clear as the import above it.
+//
+// EVERYTHING HERE IS BEHIND A SLATE ROW, AND SINCE THE DEFINITION BODIES LANDED IT IS
+// TWO. `workflow-run-control` owes nine of the thirteen registered workflow method
+// strings together with the run, phase, definition, and output shapes they carry, and
+// `workflow-definition-authoring` owes the three the detail pane reads and writes
+// through together with the body shapes those carry. Until each lands these are the
+// console's consumption shapes and nothing claims otherwise; when one lands its shapes
+// are replaced by the registered types and this data is re-typed against them.
+
+/** The session every fact in this fixture belongs to. The scenario's own id, once. */
+export const WORKFLOWS_SESSION_ID = "019b7a10-0280-75e5-8510-ada11a5a3333";
+
+/**
+ * The channel the parked run was started from, so a channel-scoped surface has a run
+ * to find and a second channel has none.
+ *
+ * One run in this table carries it and the other three do not, which is what makes the
+ * pinned-progress card's absence arm reachable from the same scenario as its present
+ * arm: a channel that started a workflow and a channel that did not are both in this
+ * fixture, and neither is a second scenario away.
+ */
+export const WORKFLOWS_CHANNEL_ID = "019b7a10-0280-7c41-8510-cf1a11e10001";
+
+/** The person this window is, and the actor on every beat a person caused. */
+export const WORKFLOWS_PARTICIPANT_YOU = "019b7a10-0280-79a4-8110-cca0117a0110";
+
+// Definition ids, shared by the summaries a browser groups, the chains three of them
+// have, and the bodies a detail pane reads. They were local to the definitions table
+// while nothing else addressed a definition — a run carries a workflow VERSION id, not
+// a definition one — and the body table is what made a second module name them, which
+// is exactly the condition this file exists for.
+//
+// SCOPE-QUALIFIED BECAUSE TWO NAMES APPEAR TWICE. `Release checks` and `Ship pipeline`
+// each exist at two scopes so the browser's most-specific-first resolution mark says
+// something, and a bare `DEFINITION_SHIP_PIPELINE` would leave a reader of the body
+// table guessing which of the two it addressed.
+export const DEFINITION_RELEASE_CHECKS_SESSION = "019b7a10-0280-7c11-8100-def111150001";
+export const DEFINITION_RELEASE_CHECKS_PROJECT = "019b7a10-0280-7c11-8100-def111150004";
+export const DEFINITION_SHIP_PIPELINE_PROJECT = "019b7a10-0280-7c11-8100-def111150002";
+export const DEFINITION_SHIP_PIPELINE_SHARED = "019b7a10-0280-7c11-8100-def111150005";
+export const DEFINITION_INCIDENT_TRIAGE_SHARED = "019b7a10-0280-7c11-8100-def111150003";
+
+// Version ids, shared by the definitions table and the runs table because the
+// frozen-pin state is an INEQUALITY between two of them: a run pinned to `Ship
+// pipeline` version 1 against a definition whose latest is version 3. Written as two
+// hand-typed literals that comparison is one typo away from proving nothing, and
+// written in two FILES it would be one rename away from the same.
+export const VERSION_RELEASE_CHECKS_LATEST = "019b7a10-0280-7d22-8100-be5100150004";
+export const VERSION_SHIP_PIPELINE_LATEST = "019b7a10-0280-7d22-8100-be5100150003";
+export const VERSION_SHIP_PIPELINE_PINNED = "019b7a10-0280-7d22-8100-be5100150001";
+export const VERSION_INCIDENT_TRIAGE_LATEST = "019b7a10-0280-7d22-8100-be5100150002";
+
+// Phase ids are UUIDs like every other identifier on these shapes: `WorkflowPhaseId`
+// is a branded id in `docs/architecture/contracts/api-payload-contracts.md` §Branded
+// ID Types rather than an author-chosen label. The phase's readable NAME is on none
+// of the reads this fixture can answer — see the note above the run table. The five
+// are one closed set and are declared here whole rather than split between the runs
+// that sequence them and the outputs that address one of them.
+export const PHASE_DRAFT = "019b7a10-0280-7e44-8100-9ba5e1150001";
+export const PHASE_BUILD = "019b7a10-0280-7e44-8100-9ba5e1150002";
+export const PHASE_REVIEW = "019b7a10-0280-7e44-8100-9ba5e1150003";
+export const PHASE_SIGN_OFF = "019b7a10-0280-7e44-8100-9ba5e1150004";
+export const PHASE_PUBLISH = "019b7a10-0280-7e44-8100-9ba5e1150005";

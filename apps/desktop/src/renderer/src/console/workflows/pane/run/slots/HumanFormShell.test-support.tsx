@@ -26,8 +26,8 @@ import {
   type ConsoleBridge,
   type GrowthPort,
 } from "../../../../bridge/index.js";
-import { WORKFLOWS_SCENARIO } from "../../../../bridge/scenarios/workflows.js";
-import { WORKFLOWS_PARKED_RUN } from "../../../../bridge/scenarios/workflow-fixture-runs.js";
+import { WORKFLOWS_SCENARIO } from "../../../../bridge/scenario/workflows/workflows.js";
+import { WORKFLOWS_PARKED_RUN } from "../../../../bridge/scenario/workflows/runs.js";
 import type { WireErrorEnvelope } from "../../../../core/index.js";
 // The seat's own wait for its two chunks, by its own specifier: a fixture helper has no
 // door to leave through — `barrel-census` fails a door line no production module reads —

@@ -19,7 +19,7 @@ import { pressKeys, renderSettled } from "../console-harness.js";
 
 import { createFixtureBridge } from "../../../src/renderer/src/console/bridge/index.js";
 import { crossMacrotaskBoundary } from "../../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
-import { ONBOARDING_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/onboarding.js";
+import { ONBOARDING_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/onboarding.js";
 import { onboardingActivation } from "../../../src/renderer/src/console/onboarding/index.js";
 import { onboardingWalkthroughMount } from "../../../src/renderer/src/console/onboarding/onboarding-walkthrough-mount.js";
 import { OnboardingOverlay } from "../../../src/renderer/src/console/onboarding/OnboardingOverlay.js";

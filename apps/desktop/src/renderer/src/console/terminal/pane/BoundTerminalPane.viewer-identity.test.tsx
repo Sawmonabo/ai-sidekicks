@@ -10,7 +10,7 @@
 import { waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { TERMINAL_SCENARIO_CAST } from "../../bridge/scenarios/terminal.js";
+import { TERMINAL_SCENARIO_CAST } from "../../bridge/scenario/terminal/terminal.js";
 import {
   bridgeAnsweringCallerWith,
   bridgeRefusingCaller,

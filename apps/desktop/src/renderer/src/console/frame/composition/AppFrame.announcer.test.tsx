@@ -19,7 +19,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { LIVE_ANNOUNCEMENT_HOLD_MS } from "../../core/index.js";
 import type { FrameBanner } from "../../store/index.js";
 import {

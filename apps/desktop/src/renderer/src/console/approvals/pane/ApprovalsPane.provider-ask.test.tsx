@@ -15,7 +15,7 @@ import { ApprovalsPane } from "./ApprovalsPane.js";
 import { APPROVAL_FLOW_PROJECTORS } from "../../bridge/approvals/approval-flow-projection.js";
 import { storeOver } from "../../bridge/approvals/approval-flow-projection.test-support.js";
 import { createFixtureBridge } from "../../bridge/index.js";
-import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
+import { APPROVALS_SCENARIO } from "../../bridge/scenario/approvals/approvals.js";
 import type { SessionStore } from "../../store/index.js";
 import { approvalsPaneContext, settle } from "./approvals-pane.test-support.js";
 

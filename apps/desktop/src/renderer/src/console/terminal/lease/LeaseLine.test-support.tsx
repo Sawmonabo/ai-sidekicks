@@ -29,8 +29,8 @@ import { render, type RenderResult } from "@testing-library/react";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import type { CallerMembershipRoleResult } from "../../store/index.js";
-import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
-import { TERMINAL_SCENARIO } from "../../bridge/scenarios/terminal.js";
+import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
+import { TERMINAL_SCENARIO } from "../../bridge/scenario/terminal/terminal.js";
 import {
   leaseEventWithPayload,
   OTHER_PARTICIPANT,

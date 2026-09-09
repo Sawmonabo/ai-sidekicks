@@ -58,7 +58,7 @@ import type {
   AttentionSeverity,
   AttentionTrigger,
 } from "../../wire-shapes/index.js";
-import type { ConsoleScenario } from "../../scenario-runtime/index.js";
+import type { ConsoleScenario } from "../../scenario/runtime/index.js";
 
 /** How one run state reaches a participant, where `Spec-019` classifies it. */
 interface AttentionClassification {

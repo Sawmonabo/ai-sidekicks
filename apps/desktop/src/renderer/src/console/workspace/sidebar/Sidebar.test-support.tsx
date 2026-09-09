@@ -19,7 +19,7 @@ import { render } from "@testing-library/react";
 import { useSyncExternalStore, type ReactElement } from "react";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { COMPOSER_SCENARIO } from "../../bridge/scenarios/composer.js";
+import { COMPOSER_SCENARIO } from "../../bridge/scenario/composer/composer.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { FrameStore, SessionStore } from "../../store/index.js";
 import { SidebarSectionRegistry } from "../../seats/index.js";

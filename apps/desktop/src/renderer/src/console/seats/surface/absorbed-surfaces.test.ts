@@ -30,13 +30,13 @@ import { describe, expect, it } from "vitest";
 import type { SessionId } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { COLLABORATION_SCENARIO } from "../../bridge/scenarios/collaboration.js";
+import { COLLABORATION_SCENARIO } from "../../bridge/scenario/collaboration/collaboration.js";
 import { unscriptedScenario } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { ConsoleRefusalError } from "../../core/index.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "../../core/settle.test-support.js";
 import { SurfaceAbsence } from "../../primitives/index.js";
-import { SETTINGS_SCENARIO } from "../../bridge/scenarios/settings.js";
-import { SETTINGS_RUNTIME_NODE_ATTACH_DRAFT } from "../../bridge/scenarios/settings/runtime-nodes.js";
+import { SETTINGS_SCENARIO } from "../../bridge/scenario/settings/settings.js";
+import { SETTINGS_RUNTIME_NODE_ATTACH_DRAFT } from "../../bridge/scenario/settings/runtime-nodes.js";
 import {
   AttachFlow,
   NodeRoster,

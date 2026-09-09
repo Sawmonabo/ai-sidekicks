@@ -14,9 +14,9 @@ import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
-import { ONBOARDING_SCENARIO } from "../../../bridge/scenarios/onboarding.js";
-import { RUNS_SCENARIO } from "../../../bridge/scenarios/runs.js";
-import { RUN_ID } from "../../../bridge/scenarios/runs.identifiers.js";
+import { ONBOARDING_SCENARIO } from "../../../bridge/scenario/onboarding.js";
+import { RUNS_SCENARIO } from "../../../bridge/scenario/runs/runs.js";
+import { RUN_ID } from "../../../bridge/scenario/runs/identifiers.js";
 import { InterventionHistory } from "./InterventionHistory.js";
 
 /** The real component over the real fixture, with no dispatched rows beside it. */

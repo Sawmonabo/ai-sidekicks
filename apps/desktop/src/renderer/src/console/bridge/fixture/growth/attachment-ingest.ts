@@ -40,7 +40,7 @@ import {
   ATTACHMENT_CHUNK_BYTE_CAP,
   base64DecodedByteLength,
 } from "../../../core/index.js";
-import { refuseAs } from "../../scenarios/computed-reply.js";
+import { refuseAs } from "../../scenario/computed-reply.js";
 import type { GrowthPort } from "../../growth-port/index.js";
 
 /**

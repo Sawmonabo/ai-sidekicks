@@ -13,7 +13,7 @@
 // implementation fail differently: a served set that admits an operation no scenario
 // can answer is wrong before any code runs, and a port whose answer is composed wrongly
 // is wrong at the call. They are also read by different callers —
-// `scenario-runtime/scenario-manifest.ts` ledgers the set and `bridge.ts`
+// `scenario/manifest.ts` ledgers the set and `bridge.ts`
 // publishes it as the bridge's served set, while the builder in `growth/growth-port.ts`
 // is reached only by the fixture bridge itself. What follows is the reasoning for every membership.
 //
@@ -99,7 +99,7 @@
 // and either answer is a claim about a handshake nobody performed. The one more is
 // that the false arm is the surface's whole subject — a fabricated `true` would make
 // the mismatch banner unreachable in every fixture window, and a fabricated `false`
-// would raise it in all of them. `scenarios/negotiation-replies.ts` scripts both arms
+// would raise it in all of them. `scenario/negotiation-replies.ts` scripts both arms
 // once and hands the agreeing one to the flagship and the refusing one to the ledger.
 //
 // WHY THE FOUR `approval.*` OPERATIONS ARE SERVED, AND THE TWO GOAL ONES ARE NOT

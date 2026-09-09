@@ -12,7 +12,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
-import { SETTINGS_SCENARIO } from "../../../bridge/scenarios/settings.js";
+import { SETTINGS_SCENARIO } from "../../../bridge/scenario/settings/settings.js";
 import { LiveAnnouncerProvider } from "../../../primitives/index.js";
 import { McpServersPage, registerMcpServersPage } from "./McpServersPage.js";
 import { MCP_SERVERS_PAGE_SLOT } from "./mcp-servers-slot.js";

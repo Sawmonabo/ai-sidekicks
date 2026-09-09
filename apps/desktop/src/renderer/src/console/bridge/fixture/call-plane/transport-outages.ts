@@ -60,7 +60,7 @@
 // interval nobody was ever inside is a reconnect nothing lost.
 
 import type { Unsubscribe } from "../../../core/index.js";
-import type { ScenarioEngine, ScenarioTransportOutage } from "../../scenario-runtime/index.js";
+import type { ScenarioEngine, ScenarioTransportOutage } from "../../scenario/runtime/index.js";
 import type {
   TransportReachability,
   TransportReconnectSignal,

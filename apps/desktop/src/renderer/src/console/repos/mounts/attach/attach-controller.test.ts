@@ -1,22 +1,22 @@
 // The attach act against the fixture: two wires, one surface, and no silent no-op.
 //
 // DRIVEN THROUGH THE REAL CONTROLLER AND THE REAL FIXTURE BRIDGE. The scripted arms in
-// `bridge/scenarios/repos/repos-mutation-replies.ts` are what a person meets on the fixture,
+// `bridge/scenario/repos/repos-mutation-replies.ts` are what a person meets on the fixture,
 // so a case that stubbed the port would be asserting against a bridge no window builds.
 
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
-import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
-import { NODE_ID } from "../../../bridge/scenarios/repos/repos-fixture-data.js";
+import { REPOS_SCENARIO } from "../../../bridge/scenario/repos/repos.js";
+import { NODE_ID } from "../../../bridge/scenario/repos/repos-fixture-data.js";
 
 /** The root the scenario's healthy git mount already holds. Attaching it re-attaches. */
 const ALREADY_ATTACHED_ROOT = "/Users/dev/code/ai-sidekicks";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../../core/index.js";
 import { SessionStore } from "../../../store/index.js";
 import { eventOfKind } from "../../../store/session-event.test-support.js";
-import { advanceScenarioUntil } from "../../../bridge/scenario-runtime/scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../../bridge/scenario/runtime/clock.test-support.js";
 import { AttachController, useAttachController, type AttachBinding } from "./attach-controller.js";
 
 const controllers: AttachController[] = [];

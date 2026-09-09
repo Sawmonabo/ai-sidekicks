@@ -48,15 +48,15 @@ import type { FunctionComponent, ReactElement } from "react";
 
 import { renderSettled } from "../console-harness.js";
 
-import { APPROVALS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/approvals.js";
-import { COMPOSER_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/composer.js";
-import { RUNS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/runs.js";
+import { APPROVALS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/approvals/approvals.js";
+import { COMPOSER_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/composer/composer.js";
+import { RUNS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/runs/runs.js";
 import {
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
 import { settleScheduledRead } from "../../../src/renderer/src/console/bridge/readings/scheduled-read.test-support.js";
-import type { ConsoleScenario } from "../../../src/renderer/src/console/bridge/scenario-runtime/index.js";
+import type { ConsoleScenario } from "../../../src/renderer/src/console/bridge/scenario/runtime/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../src/renderer/src/console/core/index.js";
 import { crossMacrotaskBoundary } from "../../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
 import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";

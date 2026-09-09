@@ -18,8 +18,8 @@ import {
   DEFINITION_RELEASE_CHECKS_PROJECT,
   DEFINITION_RELEASE_CHECKS_SESSION,
   WORKFLOWS_SESSION_ID,
-} from "../../../bridge/scenarios/workflow-fixture-ids.js";
-import { WORKFLOWS_SCENARIO } from "../../../bridge/scenarios/workflows.js";
+} from "../../../bridge/scenario/workflows/ids.js";
+import { WORKFLOWS_SCENARIO } from "../../../bridge/scenario/workflows/workflows.js";
 import { settle } from "../../workflows-probe.test-support.js";
 import { DefinitionDetail } from "./DefinitionDetail.js";
 

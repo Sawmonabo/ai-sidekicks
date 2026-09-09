@@ -15,10 +15,10 @@ import { describe, expect, it } from "vitest";
 
 import { createFixture } from "../call-plane/bridge.test-support.js";
 import { servedValueOf } from "./growth-port.test-support.js";
-import { ONBOARDING_SCENARIO } from "../../scenarios/onboarding.js";
-import { RUNS_SCENARIO } from "../../scenarios/runs.js";
-import { RUN_ID } from "../../scenarios/runs.identifiers.js";
-import { RUNS_INTERVENTION_RECORDS } from "../../scenarios/runs.run-records.js";
+import { ONBOARDING_SCENARIO } from "../../scenario/onboarding.js";
+import { RUNS_SCENARIO } from "../../scenario/runs/runs.js";
+import { RUN_ID } from "../../scenario/runs/identifiers.js";
+import { RUNS_INTERVENTION_RECORDS } from "../../scenario/runs/run-records.js";
 
 /** A run no scenario in the tree declares a durable record for. */
 const UNDECLARED_RUN_ID = "019b7a22-2200-740e-8110-d1a4c11504ff";

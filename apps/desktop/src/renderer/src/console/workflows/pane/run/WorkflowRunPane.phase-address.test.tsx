@@ -24,7 +24,7 @@ import {
   type WorkflowPhaseState,
   type WorkflowRunSnapshot,
 } from "../../../bridge/index.js";
-import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenarios/workflow-fixture-runs.js";
+import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenario/workflows/runs.js";
 import type { ConsoleRoute } from "../../../routing/index.js";
 import { HumanFormSlot } from "./slots/HumanFormSlot.js";
 import {

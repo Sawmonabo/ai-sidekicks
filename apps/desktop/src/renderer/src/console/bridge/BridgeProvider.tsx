@@ -50,11 +50,8 @@ import { ForwardingConsoleClock, type ConsoleClock } from "../core/index.js";
 import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
 import { createFixtureBridge } from "./fixture/index.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
-import { consoleScenario } from "./scenario-runtime/scenario-manifest.js";
-import {
-  DEFAULT_SCENARIO_ID,
-  ScenarioFixtureControl,
-} from "./scenario-runtime/scenario-selection.js";
+import { consoleScenario } from "./scenario/index.js";
+import { DEFAULT_SCENARIO_ID, ScenarioFixtureControl } from "./scenario/selection.js";
 
 /** Why the console has no bridge at all. Rendered as the "error" kind of nothing. */
 export interface BridgeUnavailable {

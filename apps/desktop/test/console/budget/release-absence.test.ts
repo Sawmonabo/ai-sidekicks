@@ -130,8 +130,16 @@ import { forEachDescendant, parseSourceText } from "../typescript-source.js";
  */
 const CONSOLE_PRESENCE_MARKER = "meridian-frame";
 
-/** Where the scenario corpus lives, as one directory this tier reads rather than imports. */
-const SCENARIO_CORPUS_DIRECTORY: string = join(CONSOLE_DIRECTORY, "bridge", "scenarios");
+/**
+ * Where the scenario corpus lives, as one directory this tier reads rather than imports.
+ *
+ * This is the whole family, `runtime/` inside it included. The runtime declares no literal
+ * carrying both marker fields, so it contributes nothing to the sweep — and it is under the
+ * same `FIXTURE_CORPUS_DIRECTORIES` declaration as the instances beside it, so a string it
+ * did contribute would be one a release build owes an absence for anyway. Reading the family
+ * root is therefore safe in the direction this sweep needs and is one path rather than two.
+ */
+const SCENARIO_CORPUS_DIRECTORY: string = join(CONSOLE_DIRECTORY, "bridge", "scenario");
 
 /**
  * The scenario fields whose values make good markers, and which a scenario CO-DECLARES.
@@ -145,7 +153,7 @@ const SCENARIO_CORPUS_DIRECTORY: string = join(CONSOLE_DIRECTORY, "bridge", "sce
  * does is carrying the corpus.
  *
  * BOTH TOGETHER AS THE ANCHOR, not as a second chance (2026-09-07). The pair is the shape
- * `bridge/scenario-runtime/scenario.ts` declares: `ConsoleScenario` requires both, so an
+ * `bridge/scenario/runtime/vocabulary.ts` declares: `ConsoleScenario` requires both, so an
  * object literal declaring both as siblings is a scenario, and one declaring a `label`
  * alone is somebody else's word. Sweeping every `label` in the directory swept
  * the WIRE's too: the corpus's `ProviderAccountUsageWindow` rows mirror the provider's

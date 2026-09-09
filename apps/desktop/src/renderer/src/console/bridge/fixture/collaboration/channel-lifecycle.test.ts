@@ -23,8 +23,8 @@ import { describe, expect, it } from "vitest";
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts";
 
-import { CHANNEL_HANDOFF, CHANNEL_REVIEW } from "../../scenarios/collaboration/identifiers.js";
-import { COLLABORATION_SCENARIO } from "../../scenarios/collaboration.js";
+import { CHANNEL_HANDOFF, CHANNEL_REVIEW } from "../../scenario/collaboration/identifiers.js";
+import { COLLABORATION_SCENARIO } from "../../scenario/collaboration/collaboration.js";
 import { SESSION_EVENT_STREAM } from "../../daemon/session-event-streams.js";
 import {
   createFixture,
@@ -32,7 +32,7 @@ import {
   unscriptedScenario,
   type FixtureUnderTest,
 } from "../call-plane/bridge.test-support.js";
-import type { ConsoleScenario } from "../../scenario-runtime/index.js";
+import type { ConsoleScenario } from "../../scenario/runtime/index.js";
 
 /** Past every beat the collaboration room plays, so an advance leaves nothing due. */
 const PAST_EVERY_BEAT_MS = 10_000;

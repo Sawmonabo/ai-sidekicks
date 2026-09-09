@@ -48,7 +48,7 @@ import {
 import {
   COLLABORATION_SCENARIO,
   COLLABORATION_SCENARIO_ID,
-} from "../../../src/renderer/src/console/bridge/scenarios/collaboration.js";
+} from "../../../src/renderer/src/console/bridge/scenario/collaboration/collaboration.js";
 import {
   createFixtureBridge,
   growthUnavailable,

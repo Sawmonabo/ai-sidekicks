@@ -57,8 +57,8 @@ import { subscribeToScenario, subscribeToScenarioRelay } from "./subscriptions.j
 import { readRuntimeNodeRosterFromScenario } from "../settings/runtime-node-roster.js";
 import { subscribeRuntimeNodePresence } from "../../runtime-nodes/index.js";
 import { createScriptedPaneViewHost } from "../pane-view-host-script.js";
-import { ScenarioEngine } from "../../scenario-runtime/index.js";
-import type { ConsoleScenario } from "../../scenario-runtime/index.js";
+import { ScenarioEngine } from "../../scenario/runtime/index.js";
+import type { ConsoleScenario } from "../../scenario/runtime/index.js";
 
 /** Fixed `app` meta, so a baseline screenshot does not move with the machine. */
 export const FIXTURE_APP_META: SidekicksBridge["app"] = {

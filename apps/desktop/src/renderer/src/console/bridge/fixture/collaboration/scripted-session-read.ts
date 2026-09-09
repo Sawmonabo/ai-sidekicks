@@ -13,7 +13,7 @@
 // hoists a helper on its second use, and this is that use.
 
 import { isWireRecord } from "../../../core/index.js";
-import type { ConsoleScenario } from "../../scenario-runtime/index.js";
+import type { ConsoleScenario } from "../../scenario/runtime/index.js";
 
 /** The wire call a scenario states its session through. */
 const SESSION_READ_CALL = "session.read";

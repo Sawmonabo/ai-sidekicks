@@ -30,14 +30,14 @@ import {
   RUNTIME_NODE_ROSTER_SCENARIO_REFUSAL_CODES,
 } from "./runtime-node-roster.js";
 import { RUNTIME_NODE_ROSTER_REFUSAL_ORIGIN } from "../../runtime-nodes/runtime-node-roster.js";
-import { COLLABORATION_SCENARIO } from "../../scenarios/collaboration.js";
-import { FLAGSHIP_SCENARIO } from "../../scenarios/flagship.js";
-import { SETTINGS_SCENARIO } from "../../scenarios/settings.js";
-import { ScenarioEngine } from "../../scenario-runtime/index.js";
+import { COLLABORATION_SCENARIO } from "../../scenario/collaboration/collaboration.js";
+import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
+import { SETTINGS_SCENARIO } from "../../scenario/settings/settings.js";
+import { ScenarioEngine } from "../../scenario/runtime/index.js";
 import type {
   ConsoleScenario,
   ScenarioRuntimeNodeRosterFrame,
-} from "../../scenario-runtime/index.js";
+} from "../../scenario/runtime/index.js";
 import type { RuntimeNodeRosterOutcome } from "../../runtime-nodes/index.js";
 
 /** A session id no scenario plays, for the wrong-session arm. */

@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 
 import { FrameStore, SessionStore, type ConsoleEntity } from "../../../store/index.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
-import { COMPOSER_SCENARIO } from "../../../bridge/scenarios/composer.js";
+import { COMPOSER_SCENARIO } from "../../../bridge/scenario/composer/composer.js";
 import {
   type ConsolePaneAddress,
   type SidebarRowDragBinder,

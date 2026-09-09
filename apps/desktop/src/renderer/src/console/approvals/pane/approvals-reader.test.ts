@@ -14,8 +14,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
-import { COMPOSER_SCENARIO } from "../../bridge/scenarios/composer.js";
+import { APPROVALS_SCENARIO } from "../../bridge/scenario/approvals/approvals.js";
+import { COMPOSER_SCENARIO } from "../../bridge/scenario/composer/composer.js";
 import { ApprovalsReader } from "./approvals-reader.js";
 
 function readerOver(bridge: ConsoleBridge): {

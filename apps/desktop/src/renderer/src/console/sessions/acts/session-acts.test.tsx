@@ -31,7 +31,7 @@ import { describe, expect, it } from "vitest";
 import {
   BRING_YOUR_HISTORY_SCENARIO,
   PROVIDER_SESSION_IMPORT_PROGRESS_FRAMES,
-} from "../../bridge/scenarios/bring-your-history.js";
+} from "../../bridge/scenario/bring-your-history.js";
 import { JoinSessionForm } from "./JoinSessionForm.js";
 import { SessionActs } from "./SessionActs.js";
 import { openImportDisclosure, QUIET_PREFERENCES } from "./session-acts.test-support.js";

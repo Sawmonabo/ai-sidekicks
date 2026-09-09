@@ -31,7 +31,7 @@ import { describe, expect, it } from "vitest";
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
+import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { currentShellMutationBlock, SessionStore, type FrameStore } from "../../store/index.js";
 import { quietShell, stoppedShell } from "../../store/shell-condition.test-support.js";
@@ -40,7 +40,7 @@ import { ReattachControl } from "./attach/ReattachControl.js";
 import { BindWorkspaceDialog } from "./bind/BindWorkspaceDialog.js";
 import { ExecutionModePicker } from "./ExecutionModePicker.js";
 import { workspaceControlPosture, type WorkspaceControlPosture } from "./mount-health.js";
-import { GIT_MOUNT_ID, GIT_WORKSPACE_ID } from "../../bridge/scenarios/repos/repos-fixture-data.js";
+import { GIT_MOUNT_ID, GIT_WORKSPACE_ID } from "../../bridge/scenario/repos/repos-fixture-data.js";
 import { CANONICAL_ROOT } from "./repo-mounts.test-support.js";
 import { PrepareExecutionRoot } from "./roots/PrepareExecutionRoot.js";
 import { RootDisposalConfirmation } from "./roots/RootDisposalConfirmation.js";

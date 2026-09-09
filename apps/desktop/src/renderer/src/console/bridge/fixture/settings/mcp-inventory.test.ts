@@ -32,9 +32,9 @@ import {
   type GrowthMcpInventoryEntry,
   type GrowthMcpMutationResult,
 } from "../../growth-values/index.js";
-import { SETTINGS_MCP_INVENTORY } from "../../scenarios/settings/mcp-plane.js";
-import { settingsMcpMutationResult } from "../../scenarios/settings/mcp-plane.test-support.js";
-import { SETTINGS_SCENARIO } from "../../scenarios/settings.js";
+import { SETTINGS_MCP_INVENTORY } from "../../scenario/settings/mcp-plane.js";
+import { settingsMcpMutationResult } from "../../scenario/settings/mcp-plane.test-support.js";
+import { SETTINGS_SCENARIO } from "../../scenario/settings/settings.js";
 
 /** The scripted latency on the inventory read, so a case advances past its own. */
 const MCP_LIST_LATENCY_MS = 40;

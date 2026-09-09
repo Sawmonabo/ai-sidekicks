@@ -24,8 +24,8 @@ import {
   unscriptedScenario,
 } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import type { ConsoleBridge, WorkflowRunListEntry } from "../../bridge/index.js";
-import { WORKFLOWS_CHANNEL_ID } from "../../bridge/scenarios/workflow-fixture-ids.js";
-import { WORKFLOWS_PARKED_RUN } from "../../bridge/scenarios/workflow-fixture-runs.js";
+import { WORKFLOWS_CHANNEL_ID } from "../../bridge/scenario/workflows/ids.js";
+import { WORKFLOWS_PARKED_RUN } from "../../bridge/scenario/workflows/runs.js";
 import { PAST_REFRESH_DEBOUNCE_MS, settle } from "../../core/settle.test-support.js";
 import { ChannelWorkflowProgressCard } from "./ChannelWorkflowProgressCard.js";
 

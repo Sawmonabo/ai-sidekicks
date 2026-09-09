@@ -59,7 +59,7 @@ import {
   openFlagshipSessionRoute,
 } from "./console-workload.js";
 import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap-instrument.js";
-import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/flagship/flagship.js";
 import {
   ConsoleBudgetRegistry,
   evaluateBudget,

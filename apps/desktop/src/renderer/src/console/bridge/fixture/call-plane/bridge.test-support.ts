@@ -29,8 +29,8 @@ import type {
   ConsoleScenario,
   ScenarioBeat,
   ScenarioEngine,
-} from "../../scenario-runtime/index.js";
-import { FLAGSHIP_SCENARIO } from "../../scenarios/flagship.js";
+} from "../../scenario/runtime/index.js";
+import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
 
 /** The scripted latency both settling suites spend. Longer than one tick. */
 export const SCRIPTED_LATENCY_MS = 120;

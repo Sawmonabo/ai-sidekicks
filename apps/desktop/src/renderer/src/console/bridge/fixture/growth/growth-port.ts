@@ -36,7 +36,7 @@
 
 import { fixtureApprovalAnswers } from "./approval-answers.js";
 import { FixtureAttachmentIngest, fixtureAttachmentIngest } from "./attachment-ingest.js";
-import { BROWSER_PRODUCED_ARTIFACTS_CALL } from "../../scenarios/browser.js";
+import { BROWSER_PRODUCED_ARTIFACTS_CALL } from "../../scenario/browser.js";
 import { deriveAttentionProjection } from "./attention-derivation.js";
 import type { FixtureInviteLedger } from "../invites/invite-ledger.js";
 import { fixtureInviteAnswers } from "../invites/invite-answers.js";
@@ -60,23 +60,23 @@ import {
   mapGrowthServed,
   type GrowthPort,
 } from "../../growth-port/index.js";
-import { DAEMON_NEGOTIATION_READ_CALL } from "../../scenarios/negotiation-replies.js";
+import { DAEMON_NEGOTIATION_READ_CALL } from "../../scenario/negotiation-replies.js";
 import type { FixtureServedGrowthOperationId } from "../call-plane/served-operations.js";
 import { fixtureWorkflowReads } from "../workflows/workflow-reads.js";
 import {
   PROVIDER_SESSION_IMPORT_BEGIN_CALL,
   PROVIDER_SESSION_IMPORT_PROGRESS_FRAMES,
   PROVIDER_SESSION_IMPORT_SUBSCRIBE_CALL,
-} from "../../scenarios/bring-your-history.js";
+} from "../../scenario/bring-your-history.js";
 // The routing keys themselves, from the scenario modules that mint them — the
 // workflow enumeration's rule one file over: restated as literals here, a rename would
 // move the constant and the reply and leave a handler answering a key nothing sends.
 import {
   REPOS_ARTIFACT_READ_CALL,
   REPOS_DIFF_ARTIFACT_CREATE_CALL,
-} from "../../scenarios/repos/repos-diff-replies.js";
-import { REPOS_EXECUTION_CONTEXT_CALL } from "../../scenarios/repos/repos-mutation-replies.js";
-import type { ScenarioEngine } from "../../scenario-runtime/index.js";
+} from "../../scenario/repos/repos-diff-replies.js";
+import { REPOS_EXECUTION_CONTEXT_CALL } from "../../scenario/repos/repos-mutation-replies.js";
+import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /**
  * Build the fixture's growth port for one running scenario.

@@ -32,7 +32,7 @@ import {
 } from "./repos-mount-harness.js";
 
 import type { GrowthPortAnswer } from "../../../src/renderer/src/console/bridge/growth-port/growth-port.js";
-import { REPOS_PINNED_ARTIFACT_ID } from "../../../src/renderer/src/console/bridge/scenarios/repos.js";
+import { REPOS_PINNED_ARTIFACT_ID } from "../../../src/renderer/src/console/bridge/scenario/repos/repos.js";
 import { ManualClock } from "../../../src/renderer/src/console/core/index.js";
 import { crossMacrotaskBoundary } from "../../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";

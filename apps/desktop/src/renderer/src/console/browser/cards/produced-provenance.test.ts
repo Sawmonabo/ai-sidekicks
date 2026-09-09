@@ -18,7 +18,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../../bridge/index.js";
-import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
+import { BROWSER_SCENARIO } from "../../bridge/scenario/browser.js";
 import { ManualClock } from "../../core/index.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "../../core/settle.test-support.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";

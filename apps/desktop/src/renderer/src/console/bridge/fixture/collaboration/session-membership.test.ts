@@ -17,12 +17,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { COLLABORATION_PARTICIPANTS } from "../../scenarios/collaboration/identifiers.js";
-import { COLLABORATION_SCENARIO } from "../../scenarios/collaboration.js";
+import { COLLABORATION_PARTICIPANTS } from "../../scenario/collaboration/identifiers.js";
+import { COLLABORATION_SCENARIO } from "../../scenario/collaboration/collaboration.js";
 import { createFixture } from "../call-plane/bridge.test-support.js";
 import { createdChannelIdIn, directoryMemberCountOf } from "./channel-directory.test-support.js";
 import { scenarioAlsoPlaying } from "./scenario-append.test-support.js";
-import type { ConsoleScenario } from "../../scenario-runtime/index.js";
+import type { ConsoleScenario } from "../../scenario/runtime/index.js";
 
 /** Past every beat the room plays, appended frames included. */
 const PAST_EVERY_BEAT_MS = 10_000;

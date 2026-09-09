@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { ScenarioEngine, type ConsoleScenario } from "../../scenario-runtime/index.js";
+import { ScenarioEngine, type ConsoleScenario } from "../../scenario/runtime/index.js";
 import {
   TransportReconnectSignal,
   type TransportReachability,

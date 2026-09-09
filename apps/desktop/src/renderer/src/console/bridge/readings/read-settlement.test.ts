@@ -19,7 +19,7 @@ import { answerFromScriptedReply } from "../fixture/growth/scripted-answer.js";
 import type { GrowthOutcome } from "../growth-port/growth-outcome.js";
 import { growthUnavailable, growthUnscriptedReply } from "../growth-port/index.js";
 import type { GrowthOperationSignatures } from "../growth-signatures/index.js";
-import { ScenarioEngine } from "../scenario-runtime/scenario-engine.js";
+import { ScenarioEngine } from "../scenario/runtime/engine.js";
 import {
   READ_SETTLEMENT_REFUSAL_ORIGIN,
   settleGrowthRead,
@@ -29,8 +29,8 @@ import {
 import {
   PROBE_PARTICIPANT_ID,
   PROBE_SESSION_ID,
-} from "../scenario-runtime/scripted-probe.test-support.js";
-import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
+} from "../scenario/runtime/scripted-probe.test-support.js";
+import type { ConsoleScenario } from "../scenario/runtime/vocabulary.js";
 
 /** The refusal the scenario below scripts, in the envelope a daemon sends. */
 const SCRIPTED_DAEMON_REFUSAL: WireErrorEnvelope = {

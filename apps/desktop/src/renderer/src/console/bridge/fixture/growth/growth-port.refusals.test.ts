@@ -30,10 +30,10 @@ import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "../call-plane/served-operat
 import type { GrowthOperationId } from "../../growth-port/growth-entry.js";
 import { GROWTH_OPERATIONS } from "../../growth-operations/index.js";
 import { createLiveBridge } from "../../live-bridge.js";
-import type { ConsoleScenario } from "../../scenario-runtime/scenario.js";
-import { FLAGSHIP_SCENARIO } from "../../scenarios/flagship.js";
-import { CONSOLE_SCENARIOS } from "../../scenarios/index.js";
-import { LEDGER_SCENARIO } from "../../scenarios/ledger/ledger.js";
+import type { ConsoleScenario } from "../../scenario/runtime/vocabulary.js";
+import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
+import { CONSOLE_SCENARIOS } from "../../scenario/index.js";
+import { LEDGER_SCENARIO } from "../../scenario/ledger/ledger.js";
 import { createTier1Bridge, EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
 
 /**

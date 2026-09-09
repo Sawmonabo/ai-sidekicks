@@ -20,7 +20,7 @@
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { LEDGER_FIRST_SIXTY_SCENARIO } from "../../bridge/scenarios/ledger/ledger-first-sixty.js";
+import { LEDGER_FIRST_SIXTY_SCENARIO } from "../../bridge/scenario/ledger/ledger-first-sixty.js";
 import { formatRoute } from "../../routing/index.js";
 import { SESSIONS_HASH, mountConsole } from "./ConsoleRoot.test-support.js";
 

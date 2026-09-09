@@ -19,9 +19,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { CONSOLE_SCENARIOS } from "../../bridge/scenarios/index.js";
+import { CONSOLE_SCENARIOS } from "../../bridge/scenario/index.js";
 import { SYNTHETIC_SESSION_ID } from "./run-lifecycle-projector.test-support.js";
-import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
+import type { ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
 import { SessionStore, type ConsoleSessionEvent, type SessionSnapshot } from "../../store/index.js";
 import {
   RUN_LIFECYCLE_EVENT_KINDS,

@@ -15,7 +15,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { WORKFLOWS_SESSION_ID } from "../bridge/scenarios/workflow-fixture-ids.js";
+import { WORKFLOWS_SESSION_ID } from "../bridge/scenario/workflows/ids.js";
 import { consolePaneRegistry } from "../seats/index.js";
 import {
   composeWindow,

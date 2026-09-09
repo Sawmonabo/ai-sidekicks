@@ -11,7 +11,7 @@ import { createElement, useCallback, useState } from "react";
 import { describe, expect, it } from "vitest";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../../../bridge/index.js";
-import { LEDGER_QUIET_SCENARIO } from "../../../../bridge/scenarios/ledger/ledger-quiet.js";
+import { LEDGER_QUIET_SCENARIO } from "../../../../bridge/scenario/ledger/ledger-quiet.js";
 import { CHAPTER_VISIBLE_ROW_CAP } from "../../../../core/index.js";
 import { ChapterCollapseState, type LedgerChapter } from "../../../structure/index.js";
 import { type ConsoleSessionEvent } from "../../../../store/index.js";

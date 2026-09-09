@@ -19,7 +19,7 @@ import {
 import type { ConsoleRefusal } from "../../core/index.js";
 import type { ConsoleCommand } from "./contributions.js";
 import { buildBridgeCommands, useBridgeCommands } from "./bridge-commands.js";
-import { FIRST_RUN_SCENARIO } from "../../bridge/scenarios/first-run.js";
+import { FIRST_RUN_SCENARIO } from "../../bridge/scenario/first-run.js";
 
 function fixtureBridge(): ConsoleBridge {
   return createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });

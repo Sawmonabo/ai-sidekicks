@@ -10,7 +10,7 @@
 import { act, render, screen, waitFor, type RenderResult } from "@testing-library/react";
 import { expect } from "vitest";
 
-import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
+import { BROWSER_SCENARIO } from "../../bridge/scenario/browser.js";
 import { consoleClockFor, createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { ManualClock } from "../../core/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";

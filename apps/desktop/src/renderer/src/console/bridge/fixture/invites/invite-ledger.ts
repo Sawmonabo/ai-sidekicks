@@ -44,7 +44,7 @@ import type { InviteState } from "@ai-sidekicks/contracts";
 
 import { parseInstant } from "../../../core/index.js";
 import type { GrowthInviteSummary } from "../../growth-values/index.js";
-import type { ScenarioEngine } from "../../scenario-runtime/index.js";
+import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /** The state the control plane gives an invitation the moment it mints one. */
 const MINTED_INVITE_STATE = "pending";

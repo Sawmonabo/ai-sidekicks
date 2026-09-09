@@ -41,9 +41,9 @@ import {
   subscribeThroughBridge,
 } from "./bridge.test-support.js";
 import { RUN_QUEUE_ROW_READ } from "../../run-streams/queue-row-source.js";
-import type { ConsoleScenario } from "../../scenario-runtime/scenario.js";
-import { FLAGSHIP_SCENARIO } from "../../scenarios/flagship.js";
-import { findScenarioWireTruthDefects } from "../../scenarios/wire-truth.js";
+import type { ConsoleScenario } from "../../scenario/runtime/vocabulary.js";
+import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
+import { findScenarioWireTruthDefects } from "../../scenario/wire-truth/wire-truth.js";
 import {
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,

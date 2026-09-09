@@ -14,7 +14,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../../../bridge/index.js";
-import { FIRST_RUN_SCENARIO } from "../../../../bridge/scenarios/first-run.js";
+import { FIRST_RUN_SCENARIO } from "../../../../bridge/scenario/first-run.js";
 import { sampleGeneralRow } from "../../../cards/row-samples.test-support.js";
 import {
   useLedgerRowOffers,

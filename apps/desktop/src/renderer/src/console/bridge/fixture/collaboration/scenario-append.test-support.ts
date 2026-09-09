@@ -12,7 +12,7 @@
 // engine and call a fold directly: a case that called the fold would pass against a
 // fixture that had wired it to nothing.
 
-import type { ConsoleScenario } from "../../scenario-runtime/index.js";
+import type { ConsoleScenario } from "../../scenario/runtime/index.js";
 
 /** One frame a suite appends to a shipped script: the kind, and what it carries. */
 export interface AppendedScenarioFrame {

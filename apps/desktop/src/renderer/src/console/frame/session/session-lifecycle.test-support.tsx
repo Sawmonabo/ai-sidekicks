@@ -13,7 +13,7 @@ import {
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../bridge/index.js";
-import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import {
   ConsoleEntityProjectorRegistry,
   type SessionStore,

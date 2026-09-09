@@ -29,15 +29,15 @@ import { growthUnavailable } from "./growth-port/growth-refusals.js";
 import { GROWTH_PREREQUISITES } from "./growth-port/growth-prerequisites.js";
 import { GROWTH_SLATE_ROWS } from "./growth-port/growth-slate.js";
 import type { GrowthSlateRow } from "./growth-port/growth-slate-row.js";
-import { findFrozenTickRegistryDefects } from "./scenario-runtime/frozen-tick-registry.js";
+import { findFrozenTickRegistryDefects } from "./scenario/runtime/frozen-tick-registry.js";
 import {
   consoleScenarioManifest,
   findOrphanedLedgerRowIds,
   mapSlateRowCoverage,
   type ConsoleScenarioManifest,
-} from "./scenario-runtime/scenario-manifest.js";
-import { ScenarioEngine } from "./scenario-runtime/scenario-engine.js";
-import { FIRST_RUN_SCENARIO } from "./scenarios/first-run.js";
+} from "./scenario/index.js";
+import { ScenarioEngine } from "./scenario/runtime/engine.js";
+import { FIRST_RUN_SCENARIO } from "./scenario/first-run.js";
 
 // Tripwires throw in development so a breach is impossible to ignore. Under test
 // they are RECORDED instead, because the point of these cases is to assert that the

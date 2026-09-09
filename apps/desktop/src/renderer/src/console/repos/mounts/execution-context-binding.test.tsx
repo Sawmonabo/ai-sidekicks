@@ -17,15 +17,15 @@ import { describe, expect, it } from "vitest";
 import type { WorkspaceState } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
+import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
 import {
   ATTACHED_WORKSPACE_ID,
   DRIFTED_WORKSPACE_ID,
   GIT_WORKSPACE_ID,
-} from "../../bridge/scenarios/repos/repos-fixture-data.js";
-import { ATTACHED_CANONICAL_ROOT } from "../../bridge/scenarios/repos/repos-mutation-replies.js";
+} from "../../bridge/scenario/repos/repos-fixture-data.js";
+import { ATTACHED_CANONICAL_ROOT } from "../../bridge/scenario/repos/repos-mutation-replies.js";
 import { SessionStore } from "../../store/index.js";
-import { advanceScenarioUntil } from "../../bridge/scenario-runtime/scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../bridge/scenario/runtime/clock.test-support.js";
 import { ExecutionContextDisclosure } from "./ExecutionContextDisclosure.js";
 import {
   BOUND_ROOT_LABEL,

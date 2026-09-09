@@ -57,7 +57,7 @@ import {
   type GrowthPort,
 } from "../../growth-port/index.js";
 import type { GrowthOperationSignatures } from "../../growth-signatures/index.js";
-import type { ScenarioEngine } from "../../scenario-runtime/index.js";
+import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /**
  * The operations this module implements, declared once and consumed twice.
@@ -95,7 +95,7 @@ export type FixtureServedCollaborationOperationId =
  *
  * The one operation of the seven whose slate row declares NO expected wire method —
  * the corpus registers a membership identifier on four write-shaped replies and on no
- * read — so `bridge/scenarios/wire-truth/reply-walk.ts` requires its reply to be keyed on the operation
+ * read — so `bridge/scenario/wire-truth/reply-walk.ts` requires its reply to be keyed on the operation
  * id under the `growth:` prefix rather than on a method name nobody has registered.
  * Named here, where both the handler and the scenario that answers it can take it from
  * one place instead of spelling the prefix twice.

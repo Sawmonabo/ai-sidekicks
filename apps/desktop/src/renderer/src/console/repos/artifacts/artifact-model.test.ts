@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { REPOS_VIEWING_PARTICIPANT_ID } from "../../bridge/scenarios/repos.js";
+import { REPOS_VIEWING_PARTICIPANT_ID } from "../../bridge/scenario/repos/repos.js";
 import { GROWTH_ARTIFACT_TYPES } from "../../bridge/index.js";
 import { artifactRow, artifactSummary } from "./artifacts.test-support.js";
 import * as artifactModel from "./artifact-model.js";

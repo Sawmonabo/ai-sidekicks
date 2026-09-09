@@ -3,7 +3,7 @@
 // WHY IT IS HERE. `bridge/fixture/index.ts` one level up states the rule: a module that
 // exists so the fixture can ANSWER something belongs in this family, and a roster is the first
 // example that header gives. Declared beside the seam's vocabulary instead, this read
-// was the only thing under `bridge/runtime-nodes/` that reached `scenario-runtime/` at
+// was the only thing under `bridge/runtime-nodes/` that reached `scenario/runtime/` at
 // all — so the feed directory carried an edge into the scripting engine for one
 // function, and the reason it gave for not being `daemon/` was manufactured by that
 // edge rather than by the feed it folds.
@@ -25,7 +25,7 @@ import {
 import type {
   ScenarioEngine,
   ScenarioRuntimeNodeRosterFrame,
-} from "../../scenario-runtime/index.js";
+} from "../../scenario/runtime/index.js";
 
 /**
  * The codes this arm raises. Both are facts about the scenario.

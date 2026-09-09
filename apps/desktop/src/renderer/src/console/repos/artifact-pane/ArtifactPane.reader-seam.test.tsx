@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "../../core/index.js";
 import { repeatedDisposalCount } from "../resource-seam.test-support.js";
-import { scenarioManualClock } from "../../bridge/scenario-runtime/scenario-clock.test-support.js";
+import { scenarioManualClock } from "../../bridge/scenario/runtime/clock.test-support.js";
 import { SessionStore } from "../../store/index.js";
 import {
   type GrowthPortAnswer,

@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../../bridge/index.js";
-import { COLLABORATION_SCENARIO } from "../../bridge/scenarios/collaboration.js";
+import { COLLABORATION_SCENARIO } from "../../bridge/scenario/collaboration/collaboration.js";
 import { FrameStore, modalSurfaceClaimFor } from "../../store/index.js";
 import {
   registerWindowOverlaySeat,

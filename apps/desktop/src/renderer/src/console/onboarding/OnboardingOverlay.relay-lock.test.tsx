@@ -22,7 +22,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../bridge/index.js";
-import { ONBOARDING_SCENARIO } from "../bridge/scenarios/onboarding.js";
+import { ONBOARDING_SCENARIO } from "../bridge/scenario/onboarding.js";
 import { bridgeWithNoRelayChosen, bridgeWithStepsDone } from "./onboarding-state.test-support.js";
 import {
   activateAt,

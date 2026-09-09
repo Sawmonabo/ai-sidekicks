@@ -21,10 +21,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { withDaemonCall } from "../../bridge/fixture/call-plane/bridge.test-support.js";
-import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
+import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
 import { SessionStore } from "../../store/index.js";
 import { repeatedDisposalCount } from "../resource-seam.test-support.js";
-import { advanceScenarioUntil } from "../../bridge/scenario-runtime/scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../bridge/scenario/runtime/clock.test-support.js";
 import { useRepoMounts, type RepoMountsBinding } from "./repo-mounts-binding.js";
 import { RepoMountsReader } from "./repo-mounts-reader.js";
 

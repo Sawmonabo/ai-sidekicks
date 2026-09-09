@@ -51,7 +51,7 @@ import {
   WORKSPACE_SURFACE_SELECTOR,
   flagshipDeliverySchedule,
 } from "./console-workload.js";
-import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/flagship/flagship.js";
 import { ConsoleBudgetRegistry, evaluateBudget } from "../../../scripts/budget/budget-registry.mjs";
 
 const bundleIsBuilt = fixtureBundleExists();

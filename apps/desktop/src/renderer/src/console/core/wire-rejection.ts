@@ -66,7 +66,7 @@ import {
 // one wire shape is exactly the drift the rule exists to stop.
 //
 // AND IT IS ON `core/index.ts`. It is held off no longer for want of a production
-// reader: `bridge/scenario-runtime/scenario.ts` and `scripted-reply.ts` both read the
+// reader: `bridge/scenario/runtime/vocabulary.ts` and `scripted-reply.ts` both read the
 // shape, so the door line has the readers `barrel-census` asks for, and the reading
 // layer beside them takes the same one name from the same door.
 //

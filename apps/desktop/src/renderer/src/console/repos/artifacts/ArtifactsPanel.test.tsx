@@ -4,7 +4,7 @@
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { REPOS_VIEWING_PARTICIPANT_ID } from "../../bridge/scenarios/repos.js";
+import { REPOS_VIEWING_PARTICIPANT_ID } from "../../bridge/scenario/repos/repos.js";
 import { refuse } from "../../core/index.js";
 import { formatByteQuantity, formatCount } from "../../primitives/index.js";
 import { artifactRow } from "./artifacts.test-support.js";

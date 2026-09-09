@@ -27,7 +27,7 @@ import {
   REFRESH_DEBOUNCE_MS,
   SCENARIO_FIXTURE_GLOBAL,
 } from "../../src/renderer/src/console/core/index.js";
-import type { ScenarioFixtureHandle } from "../../src/renderer/src/console/bridge/scenario-runtime/scenario-selection.js";
+import type { ScenarioFixtureHandle } from "../../src/renderer/src/console/bridge/scenario/selection.js";
 import { crossMacrotaskBoundary } from "../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
 
 /**

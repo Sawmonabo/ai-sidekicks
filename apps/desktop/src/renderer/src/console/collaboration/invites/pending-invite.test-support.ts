@@ -19,7 +19,7 @@ import type {
   GrowthPendingInviteUnavailable,
 } from "../../bridge/growth-values/invites.js";
 import { createFixtureBridge } from "../../bridge/index.js";
-import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
+import type { ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { PendingInviteAdapter } from "./pending-invite.js";
 import {

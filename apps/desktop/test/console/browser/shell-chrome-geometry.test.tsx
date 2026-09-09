@@ -19,7 +19,7 @@ import {
   applyConsoleScheme,
   installMeridianTokens,
 } from "../../../src/renderer/src/console/frame/index.js";
-import { SHELL_SCENARIO_ID } from "../../../src/renderer/src/console/bridge/scenarios/shell.js";
+import { SHELL_SCENARIO_ID } from "../../../src/renderer/src/console/bridge/scenario/shell.js";
 
 async function mountShellScenario(): Promise<HTMLElement> {
   document.location.hash = "";

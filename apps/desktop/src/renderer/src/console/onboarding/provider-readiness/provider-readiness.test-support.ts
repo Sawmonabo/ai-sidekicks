@@ -14,11 +14,11 @@ import {
   withDaemonCall,
   type RecordedDaemonCall,
 } from "../../bridge/fixture/call-plane/bridge.test-support.js";
-import { ONBOARDING_SCENARIO } from "../../bridge/scenarios/onboarding.js";
+import { ONBOARDING_SCENARIO } from "../../bridge/scenario/onboarding.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { FrameStore, UNREPORTED_SHELL_STATE, type ShellConnection } from "../../store/index.js";
 import { ProviderReadinessModel } from "./provider-readiness.js";
-import type { ConsoleScenario } from "../../bridge/scenario-runtime/index.js";
+import type { ConsoleScenario } from "../../bridge/scenario/runtime/index.js";
 
 /** The registry read every case here measures, named once for both suites. */
 export const READINESS_CALL = "providerAccount.list";

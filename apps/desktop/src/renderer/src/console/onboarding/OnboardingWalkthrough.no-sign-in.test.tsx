@@ -22,7 +22,7 @@ import { describe, expect, it } from "vitest";
 import { createFixtureBridge } from "../bridge/index.js";
 import { withRecordedGrowth } from "../bridge/fixture/call-plane/bridge.growth.test-support.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
-import { ONBOARDING_SCENARIO } from "../bridge/scenarios/onboarding.js";
+import { ONBOARDING_SCENARIO } from "../bridge/scenario/onboarding.js";
 import { mountAt } from "./OnboardingWalkthrough.test-support.js";
 
 describe("the sign-in remedy on the provider step", () => {

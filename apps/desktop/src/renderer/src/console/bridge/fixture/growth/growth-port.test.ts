@@ -28,12 +28,15 @@ import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "../workflows/workflow-rea
 import type { GrowthOperationId } from "../../growth-port/growth-entry.js";
 import { GROWTH_OPERATIONS } from "../../growth-operations/index.js";
 import { createLiveBridge } from "../../live-bridge.js";
-import type { ConsoleScenario } from "../../scenario-runtime/scenario.js";
-import { AGENTS_SCENARIO, AGENTS_SCENARIO_SWITCH_LATENCY_MS } from "../../scenarios/agents.js";
-import { APPROVALS_SCENARIO } from "../../scenarios/approvals.js";
-import { FIRST_RUN_SCENARIO } from "../../scenarios/first-run.js";
-import { FLAGSHIP_SCENARIO } from "../../scenarios/flagship.js";
-import { WORKFLOWS_SCENARIO } from "../../scenarios/workflows.js";
+import type { ConsoleScenario } from "../../scenario/runtime/vocabulary.js";
+import {
+  AGENTS_SCENARIO,
+  AGENTS_SCENARIO_SWITCH_LATENCY_MS,
+} from "../../scenario/agents/agents.js";
+import { APPROVALS_SCENARIO } from "../../scenario/approvals/approvals.js";
+import { FIRST_RUN_SCENARIO } from "../../scenario/first-run.js";
+import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
+import { WORKFLOWS_SCENARIO } from "../../scenario/workflows/workflows.js";
 import { createTier1Bridge } from "@ai-sidekicks/contracts";
 
 /**

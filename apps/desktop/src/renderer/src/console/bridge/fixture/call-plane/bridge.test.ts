@@ -40,7 +40,7 @@ import {
   lastScriptedBeatMs,
   subscribeThroughBridge,
 } from "./bridge.test-support.js";
-import { FLAGSHIP_SCENARIO } from "../../scenarios/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
 import {
   RUN_STATE_EVENT_STREAM,
   SESSION_EVENT_STREAM,

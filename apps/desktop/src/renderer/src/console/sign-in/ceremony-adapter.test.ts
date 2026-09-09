@@ -15,9 +15,9 @@
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
-import { ONBOARDING_SCENARIO } from "../bridge/scenarios/onboarding.js";
+import { ONBOARDING_SCENARIO } from "../bridge/scenario/onboarding.js";
 import { SignInCeremony } from "./ceremony-adapter.js";
-import { FIRST_RUN_SCENARIO } from "../bridge/scenarios/first-run.js";
+import { FIRST_RUN_SCENARIO } from "../bridge/scenario/first-run.js";
 
 describe("the adapter's answers", () => {
   it("reads the host the running scenario states", async () => {

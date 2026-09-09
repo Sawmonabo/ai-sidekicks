@@ -129,7 +129,7 @@ export class AttachmentIngestStreamDriver {
    * would re-publish into the same throwing sink and lose the diagnostic too.
    *
    * `apply-chokepoint-bypass` is the kind for it, on the two sites that already report
-   * under it (`frame/session/session-event-binder.ts`, `bridge/scenario-runtime/scenario-engine.ts`): a store
+   * under it (`frame/session/session-event-binder.ts`, `bridge/scenario/runtime/engine.ts`): a store
    * and the surfaces reading it are out of step because a delivery did not arrive. In
    * a development build the registry throws after recording, which is the console's
    * standing policy and the one arm where this promise does reject — loudly, at the

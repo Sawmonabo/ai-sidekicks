@@ -17,7 +17,7 @@
 import { describe, expect, it } from "vitest";
 
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
-import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { AuxiliaryHandoff } from "./aux-handoff.js";
 import {
   ModelledShell,

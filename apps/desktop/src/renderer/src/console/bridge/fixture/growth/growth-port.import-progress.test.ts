@@ -18,7 +18,7 @@ import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-su
 import {
   BRING_YOUR_HISTORY_SCENARIO,
   PROVIDER_SESSION_IMPORT_PROGRESS_FRAMES,
-} from "../../scenarios/bring-your-history.js";
+} from "../../scenario/bring-your-history.js";
 import type { GrowthImportProgress } from "../../growth-values/index.js";
 import type { GrowthStream } from "../../growth-port/growth-outcome.js";
 

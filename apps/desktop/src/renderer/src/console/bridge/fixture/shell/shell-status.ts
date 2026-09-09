@@ -15,7 +15,7 @@
 // yields it only when it differs from the last one it sent. A scenario whose shell
 // frames sit at ticks no beat is due at will therefore not wake on its own, which is
 // stated here rather than papered over: a scenario places its shell frames on beat
-// ticks, and `scenarios/shell.ts` does.
+// ticks, and `scenario/shell.ts` does.
 //
 // AND IT IS ONE CHANNEL, NOT FOUR. The feed and the three daemon controls answer
 // about the same shell, so a stop that did not move what the feed says would be a
@@ -55,7 +55,7 @@
 import { frameDueAt } from "../growth/due-frames.js";
 import { shellReportsAreEqual, type ShellReport } from "../../../store/index.js";
 import type { GrowthStream } from "../../growth-port/growth-outcome.js";
-import type { ScenarioEngine, ScenarioShellStatusFrame } from "../../scenario-runtime/index.js";
+import type { ScenarioEngine, ScenarioShellStatusFrame } from "../../scenario/runtime/index.js";
 
 /**
  * What a scenario declares to give this feed something to answer with.

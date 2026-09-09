@@ -19,7 +19,7 @@ import type { GrowthSlateRowId } from "./growth-slate-row.js";
 import {
   SCRIPT_ABSENT_REFUSAL_CODE,
   SCRIPTED_REPLY_REFUSAL_CODES,
-} from "../scenario-runtime/index.js";
+} from "../scenario/runtime/index.js";
 
 /**
  * The code a build with no wire for an operation refuses under.

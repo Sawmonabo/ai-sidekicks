@@ -33,8 +33,8 @@ import {
   type GrowthOutcome,
   type GrowthPort,
 } from "../../growth-port/index.js";
-import { SHELL_NOTIFICATION_PERMISSION_CALL } from "../../scenarios/bring-your-history.js";
-import type { ScenarioEngine } from "../../scenario-runtime/scenario-engine.js";
+import { SHELL_NOTIFICATION_PERMISSION_CALL } from "../../scenario/bring-your-history.js";
+import type { ScenarioEngine } from "../../scenario/runtime/engine.js";
 import type { ShellReport } from "../../../store/index.js";
 
 /**

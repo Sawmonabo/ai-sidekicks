@@ -29,7 +29,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
-import { ONBOARDING_SCENARIO } from "../bridge/scenarios/onboarding.js";
+import { ONBOARDING_SCENARIO } from "../bridge/scenario/onboarding.js";
 import { backgroundOf } from "../frame/composition/AppFrame.test-support.js";
 import { SESSIONS_HASH, mountConsole } from "../frame/composition/ConsoleRoot.test-support.js";
 import { consoleCommands } from "../palette/index.js";

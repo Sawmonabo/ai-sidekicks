@@ -333,7 +333,7 @@ export default {
         "only remedy open there, and the substrate has already taken it for the " +
         "command registry, the surface-scale absence and the error boundary. A " +
         "sub-module " +
-        "door (`bridge/growth-values/`, `bridge/scenarios/`) is deliberately NOT a " +
+        "door (`bridge/growth-values/`, `bridge/scenario/`) is deliberately NOT a " +
         "legal target here — it publishes to its own family only, which is why the " +
         "exemption below matches a family door's single path segment and not a nested " +
         "one. The pane board is subtracted at the TO end only. It is a legal target " +
@@ -349,6 +349,28 @@ export default {
         path: `${CONSOLE}/[^/]+/`,
         pathNot: [`${CONSOLE}/$1/`, CONSOLE_FAMILY_DOORS, COMPOSITION_PANE_BOARD],
       },
+    },
+    {
+      name: "console-scenario-runtime-imports-nothing-above-it",
+      comment:
+        "A module under `bridge/scenario/runtime/` imported something from `bridge/scenario/` " +
+        "outside it. `runtime/` holds the vocabulary a scenario is written in and the machinery " +
+        "that plays one; everything above it in that directory is an INSTANCE, or a module that " +
+        "reads the instances — the seat board, the manifest that ledgers it, the selection that " +
+        "resolves one of its ids. The one-way edge is what lets a family land a scenario without " +
+        "touching the engine, and the engine change without a merge conflict in every family " +
+        "branch at once; it is also what keeps the corpus off the vocabulary's own dependents, " +
+        "which is where the cycles are — the corpus reaches the fixture, the fixture reaches the " +
+        "bridge contract, and the bridge contract reaches the engine. THE FIX IS NEVER THE DEEP " +
+        "SPECIFIER: hand the runtime what it needs, the way the engine already takes " +
+        "`{ scenario }`, or move the module up beside `manifest.ts` and `selection.ts`, which " +
+        "are corpus-aware and live there for exactly this reason. This rule matches shipped " +
+        "modules only, because `options.exclude` subtracts every `*.test.ts` from the cruise; a " +
+        "suite under `runtime/` that needs a scenario declares a stand-in through " +
+        "`runtime/vocabulary.test-support.ts` rather than importing one from the board.",
+      severity: "error",
+      from: { path: `${BRIDGE}scenario/runtime/` },
+      to: { path: `${BRIDGE}scenario/`, pathNot: [`${BRIDGE}scenario/runtime/`] },
     },
     {
       name: "console-panes-hold-no-body",
@@ -379,7 +401,7 @@ export default {
       name: "console-no-barrel-chain",
       comment:
         "A barrel re-exported from another barrel. A family door publishes its own family's " +
-        "modules and a sub-module door (`bridge/growth-values/`, `bridge/scenarios/`) publishes " +
+        "modules and a sub-module door (`bridge/growth-values/`, `bridge/scenario/`) publishes " +
         "its own directory's; forwarding a symbol through a second `index.ts` makes its home a " +
         "matter of following two hops, and it lets a family door publish a name it never " +
         "declared. Re-export from the module that DECLARES the symbol. This matches only the " +

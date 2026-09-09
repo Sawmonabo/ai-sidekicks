@@ -21,7 +21,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fixtureBridgeWithGrowth } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { growthUnavailable } from "../../bridge/index.js";
-import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
+import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
 import { ManualClock } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { ArtifactPaneReader } from "./artifact-reader.js";

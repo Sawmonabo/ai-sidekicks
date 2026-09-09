@@ -9,7 +9,7 @@
 //
 // WHAT THIS FILE NO LONGER CLAIMS, AND WHO CLAIMS IT NOW. It carried a hand-copied
 // list of the event kinds this fixture may script and its own beat-ordering check.
-// Both are legs of `bridge/scenarios/wire-truth.ts`, the single predicate every
+// Both are legs of `bridge/scenario/wire-truth/wire-truth.ts`, the single predicate every
 // scenario on the seat board is measured through, and it reads the compiled
 // `SESSION_EVENT_CATEGORY_BY_TYPE` census rather than a copy — which matters, because
 // the copy had already gone stale once, carrying `participant.joined`, a name the
@@ -23,7 +23,7 @@ import {
   BROWSER_PRODUCED_ARTIFACTS_CALL,
   BROWSER_SCENARIO,
   BROWSER_SCENARIO_ID,
-} from "../bridge/scenarios/browser.js";
+} from "../bridge/scenario/browser.js";
 import { ConsolePaneRegistry } from "../seats/index.js";
 import { registerBrowserPanes } from "./index.js";
 
@@ -34,7 +34,7 @@ import { registerBrowserPanes } from "./index.js";
  * is manifestly NOT a method: the browser namespace is on `Plan-023 §Console growth
  * slate` and registers none, so the provenance read is keyed on its growth operation
  * id under the `growth:` prefix no daemon method can wear — the discipline
- * `bridge/scenarios/workflows.ts` states for the two workflow reads that register no method
+ * `bridge/scenario/workflows/workflows.ts` states for the two workflow reads that register no method
  * either. That is what this list exists to hold the fixture to: a scenario answering
  * `browser.act` would read as scripted behaviour and be a promise the wire has not
  * made, whereas a `growth:` key promises nothing and re-points itself the day the

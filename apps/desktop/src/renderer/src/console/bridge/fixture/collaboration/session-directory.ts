@@ -19,7 +19,7 @@ import type { SessionState } from "@ai-sidekicks/contracts";
 import { ConsoleRefusalError, refuse } from "../../../core/index.js";
 import type { GrowthSessionSummary } from "../../growth-values/index.js";
 import { scriptedSessionReadMember } from "./scripted-session-read.js";
-import type { ConsoleScenario } from "../../scenario-runtime/index.js";
+import type { ConsoleScenario } from "../../scenario/runtime/index.js";
 
 /** The subsystem a directory-derivation refusal names as its author. */
 const DIRECTORY_ORIGIN = "fixture-session-directory";

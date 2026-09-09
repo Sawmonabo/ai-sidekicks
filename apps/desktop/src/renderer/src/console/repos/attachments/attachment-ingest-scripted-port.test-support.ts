@@ -33,7 +33,7 @@ import type {
 } from "../../bridge/index.js";
 import { growthUnavailable } from "../../bridge/index.js";
 import { fixtureBridgeWithGrowth } from "../../bridge/fixture/call-plane/bridge.test-support.js";
-import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
+import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
 import type { ConsoleClock } from "../../core/index.js";
 import { manualGate } from "../held-calls.test-support.js";
 import type { ChunkAcknowledgement } from "./attachment-ingest-acknowledgement.js";

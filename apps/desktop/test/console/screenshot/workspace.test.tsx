@@ -50,7 +50,7 @@ import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens
 import {
   LEDGER_QUIET_SCENARIO,
   LEDGER_QUIET_SCENARIO_ID,
-} from "../../../src/renderer/src/console/bridge/scenarios/ledger/ledger-quiet.js";
+} from "../../../src/renderer/src/console/bridge/scenario/ledger/ledger-quiet.js";
 import { captureSettled } from "./settled-capture.js";
 
 /** What one opened workspace hands back: the mount, and what a capture is taken of. */

@@ -13,7 +13,7 @@
 
 import { waitFor, within } from "@testing-library/react";
 
-import { advanceScenarioUntil } from "../../../src/renderer/src/console/bridge/scenario-runtime/scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../../src/renderer/src/console/bridge/scenario/runtime/clock.test-support.js";
 
 import type { ConsoleBridge } from "../../../src/renderer/src/console/bridge/index.js";
 

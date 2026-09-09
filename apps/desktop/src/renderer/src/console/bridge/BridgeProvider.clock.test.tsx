@@ -21,8 +21,8 @@ import { describe, expect, it } from "vitest";
 import { SidekicksBridgeProvider, useConsoleBridge, useConsoleClock } from "./BridgeProvider.js";
 import { consoleClockFor } from "./console-bridge.js";
 import type { ConsoleClock } from "../core/index.js";
-import { FIRST_RUN_SCENARIO_ID } from "./scenarios/first-run.js";
-import { FLAGSHIP_SCENARIO_ID } from "./scenarios/flagship.js";
+import { FIRST_RUN_SCENARIO_ID } from "./scenario/first-run.js";
+import { FLAGSHIP_SCENARIO_ID } from "./scenario/flagship/flagship.js";
 
 interface ClockProbeProps {
   /** Every clock a render was handed, so its identity across renders is readable. */

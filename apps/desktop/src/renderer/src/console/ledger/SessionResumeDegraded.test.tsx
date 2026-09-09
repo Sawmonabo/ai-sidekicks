@@ -18,7 +18,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../bridge/index.js";
-import { LEDGER_QUIET_SCENARIO } from "../bridge/scenarios/ledger/ledger-quiet.js";
+import { LEDGER_QUIET_SCENARIO } from "../bridge/scenario/ledger/ledger-quiet.js";
 import { ManualClock } from "../core/index.js";
 import { settle as settleReactWork } from "../core/settle.test-support.js";
 import { ConsolePaneRegistry, ConsoleSurfaceRegistry } from "../seats/index.js";
