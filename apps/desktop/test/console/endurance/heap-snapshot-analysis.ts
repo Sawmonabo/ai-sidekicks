@@ -15,19 +15,25 @@
 // string table behind it, and an own parser for it would be several hundred lines of
 // code whose only consumer is a failure path.
 //
-// SNAPSHOTS GO TO A FILE AND NOT TO MEMORY. A snapshot of a 250 MB heap is itself
-// larger than the heap it describes, so buffering one into the process that is
-// measuring heap growth would make the instrument the leak. The chunks stream to
-// disk; the reader hands memlab a path; the caller removes the file.
+// SNAPSHOTS END UP IN A FILE AND NOT IN A BUFFER THE CALLER HOLDS. A snapshot of a
+// 250 MB heap is itself larger than the heap it describes, so a reader that returned
+// one as a string would make the instrument the leak. The chunks stream to disk; the
+// reader hands memlab a path; the caller removes the file.
 //
-// AND THAT CLAIM IS ONLY TRUE IF THE WRITES HONOUR BACK-PRESSURE. `write` answers
-// `false` once the kernel buffer is full and holds the rest IN MEMORY until the
-// stream drains, so firing a chunk at the stream per event and never waiting is the
-// same buffered snapshot the file was supposed to avoid, reached one level down. The
-// chunks therefore go through one queue that waits for `drain` — a queue rather than
-// a bare `await` per event, because CDP emits its chunks faster than a disk takes
-// them and two unordered waiters would interleave the file into something memlab
-// cannot parse.
+// AND THE PEAK WHILE IT IS BEING WRITTEN IS UNCHANGED BY THE QUEUE BELOW, which
+// RELOCATES those bytes rather than removing them. `write` answers `false` once the
+// kernel buffer is full and holds the rest in memory until the stream drains; `onChunk`
+// is synchronous and CDP delivers its chunks in a burst, so while the first write is
+// parked on `drain` every later chunk is appended to the chain as a closure holding its
+// own `event.chunk` string, plus one promise apiece. For a 250 MB heap the resident
+// peak is the same 250 MB either way, and no fix is available at this seam:
+// `HeapProfiler.addHeapSnapshotChunk` has no flow control and the session cannot be
+// paused mid-snapshot.
+//
+// WHAT THE QUEUE DOES BUY IS ORDER AND A PLACE TO RAISE FROM, which is why it is here.
+// CDP emits faster than a disk takes, and two unordered waiters interleave the file into
+// something memlab cannot parse; one chain also gives the stream's error exactly one
+// wait to be raced against, which the paragraph below is about.
 //
 // A STREAM ERROR IS RAISED, NOT LEFT TO ESCAPE. A `WriteStream` with no `error`
 // listener THROWS the event, so an unwritable path used to surface as an uncaught

@@ -1,10 +1,20 @@
-// What the snapshot writer promises: every chunk reaches the file in order, and a
-// stream that cannot be written to says so through this call rather than past it.
+// What the snapshot writer promises: every chunk reaches the file whole and in order,
+// and a stream that cannot be written to says so through this call rather than past it.
 //
-// The CDP session is a double and the write stream is real, which is the split the
-// subject asks for: what is under test is the writer's back-pressure and its failure
-// path, and both of those are properties of the stream half. A doubled stream would
-// answer `true` to every `write` and prove nothing about either.
+// ORDER AND COMPLETENESS, DELIBERATELY NOT PEAK MEMORY. The writer's queue relocates the
+// buffered bytes rather than removing them — `heap-snapshot-analysis.ts`' own header says
+// why the seam admits no fix — so there is no memory claim here to hold it to, and a case
+// that asserted one would be asserting something the subject does not do.
+//
+// The CDP session is a double and the write stream is REAL, which is the split the two
+// surviving claims ask for: both are properties of the stream half, and a doubled stream
+// would answer `true` to every `write` and prove nothing about either.
+//
+// IN THIS TIER RATHER THAN BESIDE ITS SUBJECT, on `bounded-cleanup.test.ts`' and
+// `launch-deadline.test.ts`' precedent — the console's own scaffolding, driven with
+// doubles, in the one tier a person runs before pushing. Under
+// `test/console/endurance/**` its two cases ran only when someone opted into the
+// thirty-minute tier by name, and this file launches no window and needs no built bundle.
 
 import { EventEmitter } from "node:events";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -14,7 +24,7 @@ import { join } from "node:path";
 import type { CDPSession } from "@playwright/test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { captureHeapSnapshot } from "./heap-snapshot-analysis.js";
+import { captureHeapSnapshot } from "../endurance/heap-snapshot-analysis.js";
 
 /**
  * A chunk large enough that a few of them cross the stream's high-water mark.

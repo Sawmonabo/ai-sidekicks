@@ -141,13 +141,27 @@ const STEADY_HEAP_GROWTH_CEILING_BYTES = 8 * 1024 * 1024;
  * the whole detached subtree — the leak shape a heap total reports as a number and
  * a snapshot reports as a name.
  *
- * `Map` and `Array` are the CONTROL, and they are here because the subject's own
+ * `Map` and `Array` are the READ control, and they are here because the subject's own
  * reading cannot tell "nothing is retained" from "nothing was read". A snapshot that
- * failed to parse, a path nothing was written to, or a V8 that spells detached nodes
- * some other way all report the subject as zero; neither of these two can be zero in
- * a heap that has run a React application, so a zero there fails the case instead.
+ * failed to parse or a path nothing was written to reports the subject as zero; neither
+ * of these two can be zero in a heap that has run a React application, so a zero there
+ * fails the case instead.
+ *
+ * `HTMLDivElement` — the ATTACHED one — is the NAMING control, and it closes what the
+ * two above cannot. `"Detached HTMLDivElement"` is a V8/blink snapshot node name with no
+ * other reader in this repository, so a Chromium that spelled DOM nodes any other way
+ * would turn the subject into a permanent zero while `Map` and `Array` stayed non-zero
+ * and the case stayed green — an absence claim quietly resting on a name nothing checks.
+ * A console with a window open has divs in its tree, so a zero here means the naming the
+ * subject is built on is not what this renderer's snapshot uses, and it fails rather than
+ * passing on a subject nothing could ever match.
  */
-const RETAINED_READING_CONSTRUCTORS = ["Detached HTMLDivElement", "Map", "Array"] as const;
+const RETAINED_READING_CONSTRUCTORS = [
+  "Detached HTMLDivElement",
+  "HTMLDivElement",
+  "Map",
+  "Array",
+] as const;
 
 /**
  * What the detached-node reading may reach and still pass.
@@ -464,6 +478,14 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
             "the snapshot reports no Map at all, so it was not written, not parsed, or not this renderer's",
           ).toBeGreaterThan(0);
           expect(instancesOf("Array")).toBeGreaterThan(0);
+
+          // And the naming control, which the two above do not cover: a snapshot can
+          // parse perfectly and still spell DOM nodes differently, which would make the
+          // subject a permanent zero rather than a bounded reading.
+          expect(
+            instancesOf("HTMLDivElement"),
+            "this renderer's snapshot names no attached HTMLDivElement, so the `Detached HTMLDivElement` subject below is a name nothing in this heap can match",
+          ).toBeGreaterThan(0);
 
           expect(
             retainedBytesOf("Detached HTMLDivElement"),
