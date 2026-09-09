@@ -40,9 +40,14 @@
   text-overflow: ellipsis;
 }
 
+/*
+ * The mono token brings the slashed zero with it — it is an `@font-face` descriptor
+ * on the mono faces themselves, not a property this sheet sets — so what is declared
+ * here is the family and the tabular figures the platform fallback faces need.
+ */
 .meridian-chip--mono .meridian-chip__label {
   font-family: var(--meridian-font-mono);
-  font-variant-numeric: tabular-nums slashed-zero;
+  font-variant-numeric: tabular-nums;
 }
 
 /* `neutral` is the common case and is the base rule above: no colour at all. */

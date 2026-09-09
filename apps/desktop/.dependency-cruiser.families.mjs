@@ -35,6 +35,22 @@ export const TOKENS = `${CONSOLE}/tokens/`;
 export const ROUTING = `${CONSOLE}/routing/`;
 export const PRIMITIVES = `${CONSOLE}/primitives/`;
 export const STATE = `${CONSOLE}/(store|persistence)/`;
+/**
+ * The two stores held apart INSIDE `store/`: one per window, one per open session.
+ *
+ * A flag copied across that line is a second record of one fact, and it is the record
+ * the reconnect path cannot heal — the session store's degraded cause clears on a
+ * re-pull, and a copy of it on the window store clears when somebody remembers to.
+ * Neither store can read the other's state without importing something from it (there
+ * is no global handle to either), so the import edge IS the reach and banning it is
+ * exact rather than a proxy. The composition ABOVE the stores reads both by design —
+ * the registry that opens session stores, the hooks, the schedulers — which is why
+ * this names the two subtrees and not `store/`.
+ *
+ * It is a capture group because the rule that spends it subtracts the SOURCE's own
+ * subtree from its target set, which is what makes one rule cover both directions.
+ */
+export const STORE_ISOLATED_SUBTREES = `${CONSOLE}/store/(shell|session)/`;
 export const BRIDGE = `${CONSOLE}/bridge/`;
 // `seats/` holds the contracts through which view families hand each other bodies — the
 // pane registry and its kinds and addresses, the composer seat, sidebar sections, the

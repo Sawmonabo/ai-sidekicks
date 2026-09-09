@@ -45,6 +45,7 @@ import {
   SEATS,
   SHELL,
   STATE,
+  STORE_ISOLATED_SUBTREES,
   TEST_SUPPORT_MODULES,
   TOKENS,
   VIEW_FAMILIES,
@@ -250,6 +251,29 @@ export default {
       // the ones `$1` removes.
       from: { path: `${CONSOLE}/([^/]+)/`, pathNot: VIEW_FAMILIES.pathNot },
       to: { path: `${CONSOLE}/`, pathNot: [...VIEW_FAMILIES.pathNot, `${CONSOLE}/$1/`] },
+    },
+    {
+      name: "console-store-isolation",
+      comment:
+        "The window store and the session store reached each other. They are two stores on " +
+        "purpose — one per WINDOW, one per open SESSION — and a flag copied across that line " +
+        "is a second record of one fact, the one the reconnect path cannot heal: the session " +
+        "store's degraded cause clears on a re-pull, and a copy of it on the window store " +
+        "clears when somebody remembers to. Read the other store through the registry, a " +
+        "hook, or a scheduler above both, which is where composing them belongs. THIS LIVES " +
+        "HERE RATHER THAN IN `no-restricted-imports` because that rule matches the specifier " +
+        "TEXT: the ban it replaced enumerated `../session/*`, `../../session/*` and their " +
+        "rooted forms, so it saw depth 1 and depth 2 and not depth 3 — and " +
+        "`store/session/outstanding-asks/` already exists, so one directory below it was " +
+        "enough to walk through the gate (measured: a planted `probe/x.ts` importing " +
+        "`../../../shell/shell-state.js` linted clean). dependency-cruiser resolves the " +
+        "specifier to a real path, so depth is not a thing it can be short of.",
+      severity: "error",
+      // The source's own subtree is captured and subtracted from the target set, so this is
+      // one rule covering both directions rather than two rules covering one each — the
+      // `console-view-family-isolation` shape, applied to a pair instead of to N families.
+      from: { path: STORE_ISOLATED_SUBTREES },
+      to: { path: STORE_ISOLATED_SUBTREES, pathNot: `${CONSOLE}/store/$1/` },
     },
     {
       name: "console-view-family-shared-through-core",
