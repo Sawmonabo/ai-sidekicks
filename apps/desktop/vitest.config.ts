@@ -78,11 +78,11 @@ export default defineConfig({
           // double-discovered here in a node environment that would fail them
           // for the wrong reason.
           //
-          // The count is held by `vitest-project-globs.test.ts` rather than
-          // stated here and read never. A pure unit that landed at this address
-          // paid the whole tier for two `process.kill(pid, 0)` assertions — the
-          // Electron download, the smoke bundle, and the serialized queue below
-          // — so a fourth file here is now a red check rather than a slow one.
+          // NOTHING CHECKS THE COUNT — a reviewer does, on the diff that adds
+          // a file here. A pure unit that landed at this address paid the whole
+          // tier for two `process.kill(pid, 0)` assertions: the Electron
+          // download, the smoke bundle, and the serialized queue below. A file
+          // that does not spawn Electron belongs in `main-unit`.
           include: ["test/*.test.ts"],
           // Two files under this glob each spawn a full Electron/Chromium
           // process tree — `launch.smoke.test.ts` and `lifecycle.gc.test.ts`.

@@ -58,24 +58,22 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 /**
  * The package this walk belongs to — what a package-relative path is measured from.
  *
- * EXPORTED because three gates had each resolved it for themselves, two of them by
- * climbing four levels out of {@link CONSOLE_DIRECTORY} and one by naming the walked
- * roots' own parent. Three spellings of one anchor is how a root move goes green in one
- * gate and red in another, and this module already owns the anchor: every root below is
- * derived from it. `eslint-harness.ts` beside it then declared a byte-identical fourth
- * from the same `resolve(HERE, "..", "..")` — the same drift under a second name — and
- * now imports this one.
+ * EXPORTED because several gates had each resolved it for themselves, some by climbing
+ * four levels out of {@link CONSOLE_DIRECTORY} and one by naming the walked roots' own
+ * parent. Two spellings of one anchor is how a root move goes green in one gate and red
+ * in another, and this module already owns the anchor: every root below is derived from
+ * it.
  */
 export const DESKTOP_PACKAGE_ROOT: string = resolve(HERE, "..", "..");
 
 /**
  * The renderer source root, the parent of every console family.
  *
- * EXPORTED for the anchor's own reason and on its own evidence: four consumers had
- * derived it, `eslint-harness.ts` by joining the segments as this line does and two
- * census suites by climbing out of {@link CONSOLE_DIRECTORY}. The two spellings agree
- * today and disagree the moment the console moves — one gate would keep pointing at the
- * old parent and the other would follow, with nothing reporting that they had parted.
+ * EXPORTED for the anchor's own reason and on its own evidence: several consumers had
+ * derived it, one by joining the segments as this line does and the rest by climbing out
+ * of {@link CONSOLE_DIRECTORY}. The two spellings agree today and disagree the moment the
+ * console moves — one reader would keep pointing at the old parent and the other would
+ * follow, with nothing reporting that they had parted.
  */
 export const RENDERER_SOURCE_ROOT: string = join(DESKTOP_PACKAGE_ROOT, "src", "renderer", "src");
 

@@ -79,12 +79,12 @@
 // still disagree with the run, which is the class of defect this whole file is
 // about.
 //
-// That resolution is NOT the one in `test/console/vitest-projects.ts`, and
-// cannot be: `tsconfig.scripts.json` roots at `scripts/`, so a script importing
-// from `test/` is outside the program that typechecks it. What would be shared
-// is a four-line `createVitest` call rather than a rule — the RULE is
-// `project.matchesTestGlob`, which is vitest's own and is the only matcher
-// either side runs.
+// A resolution under `test/` could not be shared with this one anyway:
+// `tsconfig.scripts.json` roots at `scripts/`, so a script importing from
+// `test/` is outside the program that typechecks it. What would be shared is a
+// four-line `createVitest` call rather than a rule — the RULE is
+// `project.matchesTestGlob`, which is vitest's own and is the only matcher this
+// file runs.
 //
 // NO `import.meta` ANYWHERE, DELIBERATELY
 // ---------------------------------------

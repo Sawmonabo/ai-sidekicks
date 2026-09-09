@@ -298,7 +298,8 @@
       // Every tier a desktop PR is gated on, in the order the three build
       // flavours allow, and the same order `.github/workflows/ci.yml` runs them
       // in — a developer's `pnpm test` and the required check answer the same
-      // question. `ci-tier-coverage.test.ts` fails if the two sets drift.
+      // question. Nothing checks that the two sets agree; a PR that adds or
+      // removes a tier edits both lists in the same diff, and a reviewer says so.
       //
       // The ORDER is load-bearing and is why the script is a chain of `turbo run`
       // invocations rather than one. `build`, `build:smoke`, and `build:fixtures`
@@ -311,8 +312,8 @@
       // browser-mode pair (which builds nothing), then release, smoke, and
       // fixtures each with its own consumers.
       //
-      // Two projects are deliberately absent and both are named, with their
-      // reason, in `ci-tier-coverage.test.ts`: `console-screenshot`, whose
+      // Two projects are deliberately absent, each with its reason:
+      // `console-screenshot`, whose
       // references are committed per platform and which runs in the pinned
       // `console-screenshot-macos` job, and `console-bench`, which records
       // timings into a ledger and gates nothing.
