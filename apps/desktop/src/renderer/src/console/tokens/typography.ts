@@ -71,10 +71,13 @@ export const TYPE_SCALE_REM: Readonly<Record<string, number>> = {
  * two places name: `frame/bindings/typeface.ts` declares two `@font-face` rules per
  * family over `@ibm/plex-sans-variable` and `@ibm/plex-mono-variable` — the Roman
  * and Italic Latin-1 splits of each, so an italic run gets the italic the foundry
- * cut rather than a browser-slanted upright — admitted as a distributed OFL-1.1
- * dependency by ADR-020's Decision Log. The platform fallbacks stay, and they are
- * not decoration — each face carries a `unicode-range`, so a codepoint outside
- * Latin-1 falls through to them rather than rendering as a notdef box.
+ * cut rather than a browser-slanted upright. What ships is the FONT FILES, admitted
+ * as distributed OFL-1.1 assets by ADR-020's Decision Log; the two packages are
+ * build-time-only `devDependencies`, because the bundler resolves those `?url`
+ * imports while building and nothing resolves either specifier at runtime. The
+ * platform fallbacks stay, and they are not decoration — each face carries a
+ * `unicode-range`, so a codepoint outside Latin-1 falls through to them rather than
+ * rendering as a notdef box.
  *
  * These two constants did not move when the faces arrived, which was the point of
  * naming the families here before anything loaded them: the stack is the design's

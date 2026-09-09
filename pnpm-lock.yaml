@@ -95,12 +95,6 @@ importers:
       '@base-ui/react':
         specifier: 1.7.0
         version: 1.7.0(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
-      '@ibm/plex-mono-variable':
-        specifier: 1.0.0
-        version: 1.0.0
-      '@ibm/plex-sans-variable':
-        specifier: 0.2.0
-        version: 0.2.0
       '@tanstack/react-virtual':
         specifier: 3.14.10
         version: 3.14.10(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -177,6 +171,12 @@ importers:
         specifier: 5.0.15
         version: 5.0.15(@types/react@19.2.14)(react@19.2.6)(use-sync-external-store@1.6.0(react@19.2.6))
     devDependencies:
+      '@ibm/plex-mono-variable':
+        specifier: 1.0.0
+        version: 1.0.0
+      '@ibm/plex-sans-variable':
+        specifier: 0.2.0
+        version: 0.2.0
       '@iconify-json/tabler':
         specifier: 1.2.38
         version: 1.2.38
