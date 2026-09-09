@@ -12,7 +12,7 @@ Each runs under `pnpm --filter @ai-sidekicks/desktop`.
 | --- | --- | --- |
 | `structure:dead-code` | `knip.json` | files, exports, types, and dependencies no entry point reaches |
 | `structure:layering` | `.dependency-cruiser.mjs` | cycles, orphans, process-boundary breaks, upward edges against the console DAG |
-| `lint` | `eslint.config.mjs` | the import bans, the console's wire-instant and exported-collection bans, and the nine rules below |
+| `lint` | `eslint.config.mjs` | the import bans, the console's wire-instant and exported-collection bans, and the eleven rules below |
 
 `structure` runs both legs locally; CI runs them as two Turbo tasks with `--continue`, so one red leg never hides the other's findings.
 
@@ -27,6 +27,10 @@ The ESLint rules that carry this file's structural claims. Each states its own s
 7. A relative `.css` import only from the owning directory's `index.ts` or a lazily-loaded chunk root (`*-body.{ts,tsx}`). Relative specifiers only — a vendor sheet reached by package specifier has no owning directory here to enter through and is outside the rule.
 8. No directory `import.meta.glob` under `src/`: the literal carries a `*`, so a raw read of one named module is untouched.
 9. No `toMatchSnapshot`, `toMatchInlineSnapshot`, or `toMatchFileSnapshot`, in the property and the computed-key spelling alike. This package's Vitest runs resolve `UPDATE_SNAPSHOT=all` so the screenshot tier writes capture aids rather than gating on them (§Tests), and under that mode a text snapshot rewrites itself and passes instead of failing — a green assertion that asserts nothing. Assert the value. Every directory `lint` reads — `src/**` (`src/main/**`, `src/preload/**`, and `src/shared/**` included, through the widest `src` block), `test/**`, `scripts/**`, `build/**`, and `vitest/**` — because five of the six `include` entries of the `main-unit` project sit outside the renderer and `test/**` unions and run under the same mode.
+10. The §Module shape file sections, in `src/renderer/src/console/**` only — co-located tests included, the four legacy renderer families excluded, because they predate the section. Exported types and interfaces, then the exported class, then the exported function, then everything private. Only the EXPORTED forms are ranked: a non-exported declaration matches no group, so all of them share one bucket held last and left in source order — which is what keeps the "private type directly above its one helper" exception followable rather than merely written down. A module-level constant is NOT positioned: the rule has no variable selector and treats every `const` as a partition boundary it moves nothing across, so section (4) is convention and the constants a file already has stay where they are.
+11. The §Module shape class order, in the same file set: fields (including index signatures, static blocks, and accessor and function properties), constructor, public methods, then everything else. An accessor ranks with the methods of its own accessibility, since this tree writes `get` after the constructor; `protected` ranks with `private`, because the line the four sections draw is the externally reachable surface against everything else. An absent accessibility keyword reads as public and a `#`-hash member reads as private, so neither half needs an explicit modifier to be classified.
+
+Rules 10 and 11 sort NOTHING within a section — the claim is the order of the sections, never an alphabet — and they add and remove no blank line. `eslint-plugin-perfectionist` is the one library the Spec-023 §Console Libraries structure-enforcement axis admits, and no rule of it beyond these two is enabled.
 
 What lint does not carry: one component per `.tsx` (§Module shape) is a review rule. No ESLint rule states it — `react-refresh/only-export-components` checks a different property, that a module exporting a component exports only components, which is a Fast Refresh constraint and not a count.
 
@@ -82,6 +86,7 @@ No console directory holds more than 42 modules a reader has to hold at once —
 
 ## Module shape
 
+- A file holds one concept and reads top to bottom in fixed sections: (1) the header comment, (2) imports, (3) the exported types and interfaces that are this module's contract, (4) module-level constants and `as const` value sets, (5) the exported component, class, or function the file is named for, (6) private helpers, caller above callee. A private type or constant that exactly one helper uses may sit directly above that helper; everything exported sits in its section. No `enum`, no `types.ts`, no folder named for a kind of thing. Inside a class: fields, constructor, public methods, private methods. Split a file on the seam between two concepts, never on a line count; a file past 900 lines is a review prompt, not a defect. Data tables, family doors, and test suites are never split for size. Sections (3), (5), (6) and the class order are rules 10 and 11 below; section (4) is convention, because the rule that carries the rest cannot position a constant.
 - Named exports only; the package-root tool configs are the sole `export default`, because their tools load one.
 - Every console family carries exactly one `index.ts`, its family door. Cross-family imports go through it, intra-family imports are deep, and a door reaching another family's door fails `structure:layering`.
   - A door line exists for a production reader: tag it with the task that will import it, or delete it and let its tests read the declaring module.
@@ -145,5 +150,5 @@ Neither rule below has a mechanical gate: one reads colour values out of stylesh
 
 1. `pnpm --filter @ai-sidekicks/desktop lint typecheck test structure` clean; `pnpm -w exec eslint .` clean.
 2. Every new helper name grepped for a prior implementation — hoist instead of writing the second one.
-3. No file over 900 lines without a review note.
+3. Every file past 900 lines carries a review note saying why it is one concept — the length is a prompt to look for a seam, not a defect to fix by splitting (§Module shape), and a data table, a family door, and a test suite are never split for size.
 4. Every new family: one `index.ts`, cross-family imports through doors, no edge against the DAG; every new constant in `console/core/constants/` with its rationale.
