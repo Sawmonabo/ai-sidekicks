@@ -358,16 +358,23 @@ describe("launch budgets — the figures come from the registry, not from here",
     expect(budget.scope).toBe("harness");
   });
 
-  it("reads the same rows the registry calls the harness's own", () => {
-    // Non-vacuous in the other direction: a harness row nobody reads would be a
-    // budget declared and unenforced, which is the shape this file exists to
-    // refuse.
-    expect(
-      registry
-        .harnessBudgets()
-        .map((budget) => budget.id)
-        .sort(),
-    ).toStrictEqual(
+  it("reads every harness row that states a TIMING bound", () => {
+    // Non-vacuous in the other direction: a timing bound declared as a row and
+    // read by nobody would be a budget nothing enforces, which is the shape this
+    // file exists to refuse.
+    //
+    // Scoped by UNIT rather than by scope. `harness` is the whole complement of
+    // the spec's own table, so it also holds bounds over shipped artifacts this
+    // launcher knows nothing about — `renderer-initial-fonts` is raw bytes, read
+    // by `budget/bundle-budget.test.ts`. A list of every harness row went stale
+    // the moment that one landed, and it failed here for a reason that had
+    // nothing to do with a launch deadline. Milliseconds is the property that
+    // actually names this file's subject, so a sixth timing row nobody reads
+    // still fails.
+    const timingRows = registry
+      .harnessBudgets()
+      .filter((budget) => budget.limit.canonicalUnit === "ms");
+    expect(timingRows.map((budget) => budget.id).sort()).toStrictEqual(
       [
         "console-endurance-body",
         "console-launch-body",
@@ -376,6 +383,8 @@ describe("launch budgets — the figures come from the registry, not from here",
         "console-launch-readiness",
       ].sort(),
     );
+    // And the filter is not the whole set, so the scoping above is doing work.
+    expect(registry.harnessBudgets().length).toBeGreaterThan(timingRows.length);
   });
 
   it("refuses a missing row rather than falling back to a literal", () => {
