@@ -4,11 +4,10 @@
 // `Spec-023 §Console Design (Meridian)`'s fourth product bar ("light on the
 // machine") prices the console at one frame for four streaming lanes, and the frame
 // that has to hold that budget is shared: the scroll chokepoint wants to write an
-// offset, the reveal engine wants to publish characters, and the provenance rail
-// wants to paint ticks — all in the same paint. THE SENTENCE THIS MODULE ADDS,
-// because no committed document states it: phase one performs scroll writes against
-// the last clean geometry sample, phase two performs reveal and rail work, and no
-// frame ever runs them the other way round.
+// offset and the reveal engine wants to publish characters — both in the same
+// paint. THE SENTENCE THIS MODULE ADDS, because no committed document states it:
+// phase one performs scroll writes against the last clean geometry sample, phase two
+// performs reveal work, and no frame ever runs them the other way round.
 //
 // WHY AN ORDER IS NEEDED AT ALL. Both subsystems armed their own frame through the
 // clock seam, so which ran first was whichever armed first — a fact about the order
@@ -64,7 +63,7 @@ import {
  * Declared as the ordering rather than described by one: the index of a phase in
  * this array is its precedence, and `#drainFrame` walks it forwards.
  */
-export const LEDGER_FRAME_PHASES = ["scroll-writes", "reveal-and-rail"] as const;
+export const LEDGER_FRAME_PHASES = ["scroll-writes", "reveal-work"] as const;
 
 /**
  * The label every frame meter series carries, before this coordinator's own ordinal.
@@ -206,9 +205,9 @@ export class LedgerFrameCoordinator {
     this.schedule("scroll-writes", taskKey, task);
   }
 
-  /** Phase two. Reveal drains and rail paints, after the offsets have settled. */
-  public scheduleRevealAndRailWork(taskKey: string, task: () => void): void {
-    this.schedule("reveal-and-rail", taskKey, task);
+  /** Phase two. Reveal drains, after the offsets have settled. */
+  public scheduleRevealWork(taskKey: string, task: () => void): void {
+    this.schedule("reveal-work", taskKey, task);
   }
 
   /**

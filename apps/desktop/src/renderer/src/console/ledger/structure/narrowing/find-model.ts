@@ -15,10 +15,10 @@
 // one sentence both the field and its test read.
 //
 // WHETHER ROWS EXIST BEFORE THE WINDOW IS THE VIEWPORT'S READING AND NOT A MEMBER
-// HERE. `VisibleLedgerWindow.hasEarlierRows` is what the rail's dotted segment is
-// drawn from, and the find surface offers no act on it — so a copy of it on this
-// result would be a second home for one fact, read by nothing, with the field's own
-// scope sentence rendered unconditionally either way.
+// HERE. `VisibleLedgerWindow.hasEarlierRows` is what the window's own truncation
+// sentence is drawn from, and the find surface offers no act on it — so a copy of it
+// on this result would be a second home for one fact, read by nothing, with the
+// field's own scope sentence rendered unconditionally either way.
 //
 // WHAT IS SEARCHED. A row's `summary`, which is the human-readable line the daemon
 // composed, and its `type`, which is the wire-verbatim event kind — so typing
@@ -43,8 +43,8 @@ export const LEDGER_FIND_SCOPE_NOTE = "Searched loaded rows only.";
  *
  * Declared here because this is where the walk is, and declared at all because it
  * was the family's one closed set restated inline: ten bare unions across six
- * modules and two directories, in a family where every other closed set — the
- * replay states, the rail tones, the chapter lifecycles — is an `as const` with a
+ * modules and two directories, in a family where every other closed set — the seam
+ * kinds, the row offers, the chapter lifecycles — is an `as const` with a
  * derived type. A third direction (a find that jumps to the head) would have meant
  * editing ten declarations with nothing reporting a missed one; from here it is a
  * compile error at every consumer.
@@ -174,10 +174,10 @@ const UNSELECTED_FIND_INDEX = -1;
 /**
  * Where the next or previous match sits, given where the walk is now.
  *
- * Wraps, unlike the rail's tick walk, and the difference is deliberate: a find
- * field shows "3 of 17", so a wrap is visible in the counter and a person always
- * knows they came round. The rail shows no counter, so a silent wrap there would
- * be a jump with nothing on screen explaining it.
+ * Wraps, and that is a decision rather than an accident: a find field shows
+ * "3 of 17", so a wrap is visible in the counter and a person always knows they came
+ * round. A walk with no counter beside it would be a jump with nothing on screen
+ * explaining it, and this one has the counter.
  *
  * THE UNSELECTED STATE IS AN ENTRY, NOT A STEP. With nothing selected there is no
  * position to step FROM, so both directions ENTER the list rather than move

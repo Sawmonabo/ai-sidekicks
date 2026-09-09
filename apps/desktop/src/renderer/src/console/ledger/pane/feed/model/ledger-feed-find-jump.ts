@@ -81,7 +81,6 @@ export function useLedgerFindAndJump(inputs: {
   /** Open the rewound band holding a row, so a jump into a folded one can land. */
   readonly openSupersededBandOfRow: (bandKey: string) => void;
   readonly setFilter: (filter: LedgerFilter) => void;
-  readonly endReplay: () => void;
   /** The ledger's ONE scroll writer. Nothing here touches an element. */
   readonly jumpToRow: (rowId: string) => void;
   readonly focusLedgerSurface: () => void;
@@ -98,7 +97,6 @@ export function useLedgerFindAndJump(inputs: {
     toggleChapter,
     openSupersededBandOfRow,
     setFilter,
-    endReplay,
     jumpToRow,
     focusLedgerSurface,
   } = inputs;
@@ -126,8 +124,8 @@ export function useLedgerFindAndJump(inputs: {
   );
   const find = useLedgerFind({ visible, filteredAwayRows, foldedAwayRows: allFoldedAwayRows });
   // Classified against every stage between the log and the screen rather than
-  // against the rows on it, so an id the fold, the replay or the cap took is not
-  // reported as one the filter is hiding.
+  // against the rows on it, so an id the fold or the cap took is not reported as one
+  // the filter is hiding.
   const outcome = useEventIdJumpOutcome({
     unfurledWindow,
     narrowedWindow,
@@ -185,7 +183,6 @@ export function useLedgerFindAndJump(inputs: {
     bandFoldedRowIds,
     clearFilter,
     openFoldsHoldingRow,
-    endReplay,
     requestJump,
   });
 
@@ -209,33 +206,4 @@ export function useLedgerFindAndJump(inputs: {
   }, [closeFind, focusLedgerSurface]);
 
   return { find, outcome, reach, onStep, onClose };
-}
-
-/**
- * Conceal the replay dock when focus really leaves the rail, and not before.
- *
- * React backs `onBlur` with `focusout`, which BUBBLES, so tabbing from the rail's
- * slider to a dock button reaches the wrapper although focus never left it — and
- * concealing there makes the dock's controls vanish or be skipped mid-tab. A
- * related target the wrapper contains is that move.
- *
- * A NULL related target is focus leaving the document, and that IS a conceal rather
- * than an exemption: reading it as one would leave the dock open under a window
- * nobody is in. Do not "fix" this into a leak.
- */
-export function useReplayDockConcealOnFocusLeaving(
-  conceal: () => void,
-): (event: React.FocusEvent<HTMLDivElement>) => void {
-  return useCallback(
-    (event: React.FocusEvent<HTMLDivElement>) => {
-      if (
-        event.relatedTarget instanceof Node &&
-        event.currentTarget.contains(event.relatedTarget)
-      ) {
-        return;
-      }
-      conceal();
-    },
-    [conceal],
-  );
 }

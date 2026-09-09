@@ -7,8 +7,8 @@
 // nothing about renders.
 //
 // ONE PER FEED, AND WHY THAT IS THE RIGHT SCOPE. A frame is a paint, and what shares a
-// paint is what shares a scroll surface — one feed's rows, one feed's lanes, one
-// feed's rail. Two feeds on screen are two boxes with two geometries, and ordering
+// paint is what shares a scroll surface — one feed's rows and one feed's lanes.
+// Two feeds on screen are two boxes with two geometries, and ordering
 // their writes against each other would be an ordering over nothing: neither one's
 // reveal work moves the other's offsets. So the coordinator is minted where the feed
 // is and disposed with it, exactly as that feed's reveal engine and viewport are.

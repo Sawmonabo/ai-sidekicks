@@ -104,13 +104,13 @@ describe("LedgerFrameCoordinator", () => {
     expect(devPerfMeters?.reading("frame-time", secondFeed.coordinatorId)).not.toBeNull();
   });
 
-  test("runs scroll writes before reveal and rail work, whatever order they were submitted in", () => {
+  test("runs scroll writes before reveal work, whatever order they were submitted in", () => {
     const { clock, coordinator } = constructCoordinator();
     const order: string[] = [];
 
     // Submitted the wrong way round on purpose: this is the arrival order the old
     // per-subsystem arming would have painted in.
-    coordinator.scheduleRevealAndRailWork(coordinator.claimTaskKey("reveal"), () => {
+    coordinator.scheduleRevealWork(coordinator.claimTaskKey("reveal"), () => {
       order.push("reveal");
     });
     coordinator.scheduleScrollWrite(coordinator.claimTaskKey("scroll"), () => {
@@ -123,7 +123,7 @@ describe("LedgerFrameCoordinator", () => {
   });
 
   test("the phase order is the declared enumeration", () => {
-    expect(LEDGER_FRAME_PHASES).toEqual(["scroll-writes", "reveal-and-rail"]);
+    expect(LEDGER_FRAME_PHASES).toEqual(["scroll-writes", "reveal-work"]);
   });
 
   test("coalesces by task key, so repeated submissions cost one run", () => {
@@ -132,7 +132,7 @@ describe("LedgerFrameCoordinator", () => {
     let runCount = 0;
 
     for (let submission = 0; submission < 10; submission += 1) {
-      coordinator.scheduleRevealAndRailWork(taskKey, () => {
+      coordinator.scheduleRevealWork(taskKey, () => {
         runCount += 1;
       });
     }
@@ -146,10 +146,10 @@ describe("LedgerFrameCoordinator", () => {
     const { clock, coordinator } = constructCoordinator();
     const runs: string[] = [];
 
-    coordinator.scheduleRevealAndRailWork(coordinator.claimTaskKey("reveal-engine"), () => {
+    coordinator.scheduleRevealWork(coordinator.claimTaskKey("reveal-engine"), () => {
       runs.push("first");
     });
-    coordinator.scheduleRevealAndRailWork(coordinator.claimTaskKey("reveal-engine"), () => {
+    coordinator.scheduleRevealWork(coordinator.claimTaskKey("reveal-engine"), () => {
       runs.push("second");
     });
 
@@ -164,7 +164,7 @@ describe("LedgerFrameCoordinator", () => {
 
     coordinator.scheduleScrollWrite(coordinator.claimTaskKey("scroll"), () => {
       order.push("scroll");
-      coordinator.scheduleRevealAndRailWork(coordinator.claimTaskKey("reveal"), () => {
+      coordinator.scheduleRevealWork(coordinator.claimTaskKey("reveal"), () => {
         order.push("reveal");
       });
     });
@@ -178,7 +178,7 @@ describe("LedgerFrameCoordinator", () => {
     const { clock, coordinator } = constructCoordinator();
     const order: string[] = [];
 
-    coordinator.scheduleRevealAndRailWork(coordinator.claimTaskKey("reveal"), () => {
+    coordinator.scheduleRevealWork(coordinator.claimTaskKey("reveal"), () => {
       order.push("reveal");
       coordinator.scheduleScrollWrite(coordinator.claimTaskKey("scroll"), () => {
         order.push("scroll");
@@ -202,7 +202,7 @@ describe("LedgerFrameCoordinator", () => {
     const taskKey = coordinator.claimTaskKey("reveal");
 
     const submitDrain = (): void => {
-      coordinator.scheduleRevealAndRailWork(taskKey, () => {
+      coordinator.scheduleRevealWork(taskKey, () => {
         runCount += 1;
         if (runCount < 3) {
           submitDrain();
@@ -224,7 +224,7 @@ describe("LedgerFrameCoordinator", () => {
     const { clock, coordinator } = constructCoordinator();
 
     coordinator.scheduleScrollWrite(coordinator.claimTaskKey("scroll"), () => {});
-    coordinator.scheduleRevealAndRailWork(coordinator.claimTaskKey("reveal"), () => {});
+    coordinator.scheduleRevealWork(coordinator.claimTaskKey("reveal"), () => {});
 
     expect(clock.pendingFrameCount).toBe(1);
     expect(coordinator.isFrameArmed).toBe(true);
@@ -233,7 +233,7 @@ describe("LedgerFrameCoordinator", () => {
   test("a settled coordinator holds no armed frame", () => {
     const { clock, coordinator } = constructCoordinator();
 
-    coordinator.scheduleRevealAndRailWork(coordinator.claimTaskKey("reveal"), () => {});
+    coordinator.scheduleRevealWork(coordinator.claimTaskKey("reveal"), () => {});
     clock.runFrame();
 
     expect(clock.pendingCount).toBe(0);
@@ -250,10 +250,10 @@ describe("LedgerFrameCoordinator", () => {
     const throwingKey = coordinator.claimTaskKey("throwing");
     let survivorRan = false;
 
-    coordinator.scheduleRevealAndRailWork(throwingKey, () => {
+    coordinator.scheduleRevealWork(throwingKey, () => {
       throw new Error("lane transition failed");
     });
-    coordinator.scheduleRevealAndRailWork(coordinator.claimTaskKey("survivor"), () => {
+    coordinator.scheduleRevealWork(coordinator.claimTaskKey("survivor"), () => {
       survivorRan = true;
     });
 
@@ -262,7 +262,7 @@ describe("LedgerFrameCoordinator", () => {
     }).not.toThrow();
     expect(survivorRan).toBe(true);
     expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0]?.phase).toBe("reveal-and-rail");
+    expect(diagnostics[0]?.phase).toBe("reveal-work");
     expect(diagnostics[0]?.taskKey).toBe(throwingKey);
     expect(diagnostics[0]?.detail).toContain("lane transition failed");
   });
@@ -289,10 +289,10 @@ describe("LedgerFrameCoordinator", () => {
     const taskKey = coordinator.claimTaskKey("reveal");
     let ran = false;
 
-    coordinator.scheduleRevealAndRailWork(taskKey, () => {
+    coordinator.scheduleRevealWork(taskKey, () => {
       ran = true;
     });
-    coordinator.cancel("reveal-and-rail", taskKey);
+    coordinator.cancel("reveal-work", taskKey);
     clock.runFrame();
 
     expect(ran).toBe(false);
@@ -301,7 +301,7 @@ describe("LedgerFrameCoordinator", () => {
     expect(clock.pendingCount).toBe(0);
     // Idempotent: a second cancel of a key that never ran is a no-op.
     expect(() => {
-      coordinator.cancel("reveal-and-rail", taskKey);
+      coordinator.cancel("reveal-work", taskKey);
     }).not.toThrow();
   });
 
@@ -309,7 +309,7 @@ describe("LedgerFrameCoordinator", () => {
     const { clock, coordinator } = constructCoordinator();
     let ran = false;
 
-    coordinator.scheduleRevealAndRailWork(coordinator.claimTaskKey("reveal"), () => {
+    coordinator.scheduleRevealWork(coordinator.claimTaskKey("reveal"), () => {
       ran = true;
     });
     coordinator.dispose();

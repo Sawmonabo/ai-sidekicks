@@ -3,11 +3,11 @@
 // It searches the VISIBLE window and not the log, because the walk offers to jump
 // and a jump is performed by the viewport: a result counting rows the viewport does
 // not hold would step to one and land nowhere, reporting success. What lies outside
-// that window is counted beside the field instead — in FOUR figures, one per
+// that window is counted beside the field instead — in THREE figures, one per
 // narrowing, because each names a different state with a different exit.
 //
-// FOUR AND NOT TWO, AND THE TWO THAT WERE MISSING ARE THE COMMON ONES. The cap and
-// the replay position were counted from the start; the filter and the terminal-run
+// THREE AND NOT ONE, AND THE TWO THAT WERE MISSING ARE THE COMMON ONES. The cap was
+// counted from the start; the filter and the terminal-run
 // fold were not, and rule 7 folds every finished run by default — so on a completed
 // session most of the log sits behind a chapter header, and a term in one of those
 // rows was reported as no match at all rather than as a match the reader could reach
@@ -37,32 +37,23 @@ export interface LedgerFindState {
   /**
    * Matches in rows the facet bar is narrowing away.
    *
-   * Its own figure for the reason the replay count is: clearing the narrowing brings
-   * every one of them back at once, which is a different move from scrubbing a
-   * replay and a different one again from a row the cap dropped for good.
+   * Its own figure because clearing the narrowing brings every one of them back at
+   * once, which is a different move from a row the cap dropped for good.
    */
   readonly filteredAwayMatchCount: number;
   /**
    * Matches inside terminal run chapters this ledger has folded.
    *
-   * Rule 7 folds finished runs by default, so this is the largest of the four on any
+   * Rule 7 folds finished runs by default, so this is the largest of the three on any
    * session that has finished a run — and it was the one nothing counted.
    */
   readonly foldedAwayMatchCount: number;
   /**
-   * Matches in rows the replay position has not reached.
-   *
-   * Its own figure rather than a share of the one above, because the sentence each
-   * is rendered in offers a different move: nothing brings a pruned row back, and
-   * scrubbing forward brings these back at once.
-   */
-  readonly notYetReplayedMatchCount: number;
-  /**
    * Where the walk is in the CURRENT result, or `-1` with nothing selected.
    *
    * Derived from the selected ROW rather than held as an ordinal, because the
-   * result recomputes whenever the visible window moves — every replay withhold,
-   * every prune, every appended row — while the query stays the same. A held
+   * result recomputes whenever the visible window moves — every prune, every appended
+   * row — while the query stays the same. A held
    * ordinal survived into a shorter list, so the counter could read "10 of 2" and
    * the next step wrapped over the new count from a position that meant nothing.
    * A lookup answers `-1` exactly when the selected row has left the result, and
@@ -113,15 +104,15 @@ export interface LedgerFindInputs {
 /**
  * Search the window on screen, and count what lies outside it.
  *
- * Five passes over five DISJOINT sets rather than one pass over the log and a
+ * Four passes over four DISJOINT sets rather than one pass over the log and a
  * partition afterwards, which costs the same and keeps the walkable result honest:
  * every match in `result` is a row `jumpToRow` can reach, and every match that is
- * not is in one of the four counts beside it, under the name of the narrowing
+ * not is in one of the three counts beside it, under the name of the narrowing
  * holding it.
  *
  * THE STAGES ARE READ AS SETS, one difference per narrowing, so a row is counted
  * once and against the FIRST thing that removed it. A row the filter took never
- * reaches the fold, so it cannot be reported as folded away, and the four counts
+ * reaches the fold, so it cannot be reported as folded away, and the three counts
  * plus the walk partition the loaded log exactly.
  *
  * THE WALK IS HELD BY ROW, NOT BY ORDINAL. The result recomputes whenever the
@@ -146,14 +137,6 @@ export function useLedgerFind(inputs: LedgerFindInputs): LedgerFindState {
   const beyondWindowMatchCount = useMemo(
     () =>
       query.trim().length === 0 ? 0 : findInLedger(visible.prunedAwayRows, query).totalMatchCount,
-    [visible, query],
-  );
-
-  const notYetReplayedMatchCount = useMemo(
-    () =>
-      query.trim().length === 0
-        ? 0
-        : findInLedger(visible.withheldByReplayRows, query).totalMatchCount,
     [visible, query],
   );
 
@@ -216,7 +199,6 @@ export function useLedgerFind(inputs: LedgerFindInputs): LedgerFindState {
     beyondWindowMatchCount,
     filteredAwayMatchCount,
     foldedAwayMatchCount,
-    notYetReplayedMatchCount,
     currentMatchIndex,
     setQuery,
     open,
@@ -233,7 +215,7 @@ export function useLedgerFind(inputs: LedgerFindInputs): LedgerFindState {
  * that removed nothing hands back the one shared empty set, which the memo above keys
  * on, so an appended row does not even reach this function.
  *
- * The four counts stay a partition because the stages report DISJOINT removals: a row
+ * The three counts stay a partition because the stages report DISJOINT removals: a row
  * the filter took never reaches the fold, so it cannot be reported as folded away.
  */
 function matchesAmong(rows: readonly TimelineRow[], query: string): number {

@@ -105,16 +105,25 @@ export const SETTINGS_SURFACE_SELECTOR: string =
 /**
  * What the session workspace renders and the settings route does not.
  *
- * The ledger's scroll container, which the workspace mounts on every session route
- * whether or not that session has rows yet — so the wait observes the MOUNT rather
- * than the arrival of content, which is what a churn cycle needs it to observe.
+ * The timeline PANE, which the workspace mounts on every session route whether or not
+ * that session has rows yet — so the wait observes the MOUNT rather than the arrival of
+ * content, which is what a churn cycle needs it to observe.
+ *
+ * NOT the ledger's body, which was this selector until the provenance rail was removed:
+ * that box is a container whose children are all conditional, so before the session's
+ * first read settles it holds a virtualized list with nothing in it and has no box at
+ * all. It satisfied a visibility wait only because the rail beside the window drew an
+ * unconditional strip — a wait that passed on the presence of a surface it was not
+ * asking about. The pane is the element the ROUTE mounts, which is the claim this
+ * constant is making.
  */
-export const WORKSPACE_SURFACE_SELECTOR: string = ".meridian-frame__surface .meridian-ledger__body";
+export const WORKSPACE_SURFACE_SELECTOR: string =
+  ".meridian-frame__surface .meridian-pane--timeline";
 
 /**
  * One ledger row, anchored under the frame's surface.
  *
- * The BODY says the workspace mounted; a ROW says the projection, the window
+ * The PANE says the workspace mounted; a ROW says the projection, the window
  * fold and the viewport's reconcile have all run and something is on screen. The
  * two budget readings in this tier need the second claim and the churn loop needs
  * the first, so both selectors live here and neither tier spells one itself.

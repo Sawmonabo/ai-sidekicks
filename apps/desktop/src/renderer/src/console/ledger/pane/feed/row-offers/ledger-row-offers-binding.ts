@@ -3,9 +3,8 @@
 // THE BUILDER NEXT DOOR IS PURE AND THIS ONE IS NOT, which is the whole reason they
 // are two modules: `ledger-row-offers.ts` decides WHICH offers a row carries and is
 // driven with no render at all, and this decides what each one reaches — the list's
-// lease table, the ledger's one scroll writer, the replay engine, and the host's
-// clipboard and file reveal. A test of the first needs four lambdas; a test of this
-// needs a bridge.
+// lease table, the ledger's one scroll writer, and the host's clipboard and file
+// reveal. A test of the first needs a few lambdas; a test of this needs a bridge.
 //
 // EVERY ACT IS RESOLVED AT PRESS TIME, `ledger-feed-acts.ts`' rule and for a sharper
 // version of its reason. The binding is handed to `LedgerFeedRow`, whose memo
@@ -86,8 +85,6 @@ export interface LedgerRowOfferSurface {
   readonly setRowLease: (rowKey: string, lease: LedgerRowLease) => void;
   /** The ledger's one scroll writer. A chapter header is keyed by its run id. */
   readonly jumpToRow: (rowKey: string) => void;
-  /** Reveal the dock and scrub to one row. Owns its own refusal. */
-  readonly replayFromRow: (rowId: string) => void;
   readonly bridge: ConsoleBridge;
 }
 
@@ -200,9 +197,6 @@ export function buildLedgerRowOffersBinding(
             () => readSurface().bridge.sidekicks.native.copyToClipboard(bodyText),
             LEDGER_BODY_NOT_COPIED_REFUSAL,
           );
-        },
-        replayFromRow: (rowId) => {
-          readSurface().replayFromRow(rowId);
         },
         chapterRunId: request.chapterRunId,
         jumpToChapter: (runId) => {

@@ -47,7 +47,7 @@ import { type GlyphName } from "../../../tokens/index.js";
  * seams (switch, compaction, rollback) plus the failed switch, and the four
  * remaining run-state subtype rows. They are one set here because a seam is a
  * one-line row marking a change in the run's condition, and a reader scanning the
- * rail does not care which paragraph of the design a mark came from.
+ * log does not care which paragraph of the design a mark came from.
  */
 export const LEDGER_SEAM_KINDS = [
   "provider-switch",
@@ -85,7 +85,7 @@ export interface SeamWireBinding {
   /** The wire event types that produce this seam, verbatim. */
   readonly wireTypes: readonly string[];
   /**
-   * The glyph the one-line row and the rail tick carry.
+   * The glyph the one-line row carries.
    *
    * Drawn from `tokens/glyphs.ts`'s closed family. Two readings here are
    * deliberate substitutions rather than the obvious pick, because the family

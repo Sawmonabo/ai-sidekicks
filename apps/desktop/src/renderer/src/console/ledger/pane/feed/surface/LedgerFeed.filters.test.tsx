@@ -4,7 +4,7 @@
 // the defect this file pins was never in the filter: `filters.test.ts` has proved
 // the narrowing correct since it was written, and no surface in the application
 // could reach it. So each case presses a chip or runs a palette row and reads what
-// the feed and the rail then hold.
+// the feed then holds.
 //
 // THE BOUNDARY RULE IS THE ONE THAT MUST NOT REGRESS. A narrowing that kept a run's
 // rows and dropped the rollback boundary between them would render a history that
@@ -61,7 +61,7 @@ function seatRowCount(feed: HTMLElement): number {
 }
 
 describe("the ledger's facet bar — a press narrows the feed", () => {
-  it("narrows to one participant's rows, and the rail with them", () => {
+  it("narrows to one participant's rows", () => {
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithFilterableLog());
     const unfilteredRowCount = seatRowCount(feed);

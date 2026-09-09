@@ -1,12 +1,10 @@
-// The one log, and the two names, both visible-window suites are driven over.
+// The one log, and the two names, the visible-window suite is driven over.
 //
-// ONE HOME, because the two suites next door measure two different things about the
-// same seam: `ledger-visible-window.test.ts` asks what the viewport's own reconciled
-// window keeps and what it counts, and `ledger-rail-geometry.test.ts` asks where the
-// rail puts a mark and a thumb over that window's ordering. A second session id or a
-// second matching kind would be two fixture epochs, and a case comparing a figure
-// derived under one against a figure derived under the other would be measuring the
-// setup.
+// ONE HOME, because the suite next door and the find walk beside it measure two
+// different things about the same seam: what the viewport's own reconciled window
+// keeps, and what a query over it counts. A second session id or a second matching
+// kind would be two fixture epochs, and a case comparing a figure derived under one
+// against a figure derived under the other would be measuring the setup.
 
 import { type ConsoleSessionEvent } from "../../../store/index.js";
 import { ledgerFixtureStampAt } from "../feed/ledger-feed-logs.test-support.js";

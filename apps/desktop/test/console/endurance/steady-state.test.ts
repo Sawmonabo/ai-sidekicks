@@ -69,7 +69,7 @@
 // on both arms, and a build without it would make every reading below vacuous.
 //
 // AND ONE CASE ASKS THE OTHER QUESTION. The growth ceiling says a run leaked; it
-// never says what held the bytes, and bisecting a two-hundred-cycle replay by hand
+// never says what held the bytes, and bisecting a two-hundred-cycle run by hand
 // to find out is the cost `heap-snapshot-analysis.ts` exists to remove. The last
 // case here spends that instrument: it snapshots the renderer's heap over the same
 // workload and reads what named constructors retained, so the tier can bound a

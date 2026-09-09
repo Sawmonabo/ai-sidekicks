@@ -1,5 +1,4 @@
-// The ledger structure's bounds: the chapter's two row caps, the rail's two painting
-// ceilings, and the find walk.
+// The ledger structure's bounds: the chapter's two row caps and the find walk.
 //
 // Spent inside `ledger/structure/`.
 
@@ -28,21 +27,6 @@ export const CHAPTER_VISIBLE_ROW_CAP = 120;
  * a chapter's retention grows with how long its run streams for.
  */
 export const CHAPTER_BODY_RETAINED_ROW_CAP: number = CHAPTER_VISIBLE_ROW_CAP * 2;
-/**
- * The widest a tick grows at the centre of the fisheye. Past roughly three the
- * magnified band stops reading as the same rail and starts reading as a second
- * control.
- */
-export const RAIL_FISHEYE_MAX_SCALE = 2.6;
-/**
- * Ticks the rail paints per column of ink.
- *
- * The rail draws the loaded window, which the ledger's own timeline cap already
- * bounds; this is the second bound, and it is a painting bound rather than a data
- * one — past one tick per pixel the marks overdraw and the minimap stops being a
- * map. Ticks beyond it are folded into the nearest painted column, never dropped.
- */
-export const RAIL_MAX_TICKS_PER_PIXEL = 1;
 /**
  * Matches the find field ranks and offers next/previous over.
  *

@@ -50,7 +50,6 @@ export const LEDGER_ROW_OFFER_KINDS = [
   "close-row",
   "copy-row-id",
   "copy-body",
-  "replay-from-here",
   "jump-to-chapter",
   "reveal-file-at-path",
 ] as const;
@@ -85,8 +84,6 @@ export interface LedgerRowOfferInputs {
   readonly bodyText: string | undefined;
   /** Put a body on the clipboard, refusal and all. */
   readonly copyBody: (bodyText: string) => void;
-  /** Reveal the replay dock and scrub to this row, refusal and all. */
-  readonly replayFromRow: (rowId: string) => void;
   /**
    * The run whose chapter THIS window holds for this row, or `undefined`.
    *
@@ -160,14 +157,6 @@ export function buildLedgerRowOffers(inputs: LedgerRowOfferInputs): readonly Led
       },
     });
   }
-
-  offers.push({
-    kind: "replay-from-here",
-    label: "Replay from here",
-    perform: () => {
-      inputs.replayFromRow(rowId);
-    },
-  });
 
   const chapterRunId = inputs.chapterRunId;
   if (chapterRunId !== undefined) {

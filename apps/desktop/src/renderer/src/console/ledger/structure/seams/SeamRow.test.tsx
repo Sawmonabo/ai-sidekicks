@@ -4,8 +4,8 @@
 // the defect this component answers was exactly that the model was correct and
 // nothing drew it: `LedgerSeamIndex` derived the boundary, the continuity, the
 // losses, the reason and the blocked-on state on every pass, and the only consumer
-// was the replay dock's next-seam jump. A case asserting over `classify()` would
-// have passed throughout.
+// was the narrowing, which carries a seam forward and draws none. A case asserting
+// over `classify()` would have passed throughout.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

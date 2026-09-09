@@ -282,8 +282,7 @@ describe("which payload member names a row's run", () => {
       projection.rows.map((row) => (row.kind === "run" ? row.runId : undefined)),
     ).toStrictEqual([RUN_ONE, RUN_ONE, RUN_ONE]);
     // And it takes its ordinal in that run's own sequence rather than sitting
-    // outside the counting: chapters fold on this number and the rail lays its
-    // marks along it.
+    // outside the counting: chapters fold on this number and bands rank on it.
     expect(runOrdinals(projection.rows)).toStrictEqual([
       [0, 0],
       [1, 0],

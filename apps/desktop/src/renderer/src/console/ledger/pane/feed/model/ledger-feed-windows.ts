@@ -2,11 +2,10 @@
 //
 // WHAT THIS MODULE OWNS. A ledger pane holds a chain of windows, not one: the whole
 // unfurled projection, the same projection narrowed by the facet bar, that narrowing
-// with finished chapters folded, that fold with rewound bands folded, the part of it
-// the replay position has reached, and finally the part the viewport reconciled onto
-// the screen. Each stage is somebody else's derivation — `ledger-window.ts`',
-// `ledger-narrowing.ts`', `ledger-chapter-fold.ts`', `ledger-superseded-fold.ts`',
-// `ledger-replay-window.ts`', `viewport-binding.ts`', `ledger-visible-window.ts`' —
+// with finished chapters folded, that fold with rewound bands folded, and finally the
+// part the viewport reconciled onto the screen. Each stage is somebody else's
+// derivation — `ledger-window.ts`', `ledger-narrowing.ts`', `ledger-chapter-fold.ts`',
+// `ledger-superseded-fold.ts`', `viewport-binding.ts`', `ledger-visible-window.ts`' —
 // and what this module adds is the ORDER and nothing else. It folds no log, measures
 // no row and writes no `scrollTop`.
 //
@@ -19,20 +18,20 @@
 // composed these stages itself would be free to get that wrong, and the failure is
 // silent: every ordering renders rows.
 //
-// AND WHY EACH STAGE'S OWN REPORT LEAVES WITH IT. The four counts beside the find
-// field are made of exactly these separations — a match the cap took, one replay has
-// not reached, one the facet bar is hiding, one a folded chapter holds are four
-// states with four different exits — so the stage that removed the rows is the one
-// that publishes them. Re-deriving the difference downstream re-walked the whole
-// projection on every appended row for as long as a query sat in the field.
+// AND WHY EACH STAGE'S OWN REPORT LEAVES WITH IT. The three counts beside the find
+// field are made of exactly these separations — a match the cap took, one the facet
+// bar is hiding, one a folded chapter holds are three states with three different
+// exits — so the stage that removed the rows is the one that publishes them.
+// Re-deriving the difference downstream re-walked the whole projection on every
+// appended row for as long as a query sat in the field.
 //
 // WHY THE VIEWPORT BINDING IS DERIVED HERE RATHER THAN BESIDE THE ARRANGEMENT. The
 // last window in the chain is read back off the viewport's own reconciled snapshot,
-// so find and the rail look at what is on screen rather than at the log behind it —
-// which puts the binding INSIDE the chain rather than downstream of it. There is
-// exactly one binding, minted here: a second one would leave the rail and the find
-// walk reading a virtualizer with no element under it, which is a jump that reports
-// success and scrolls nothing. The reveal engine is minted here for the same reason
+// so find looks at what is on screen rather than at the log behind it — which puts
+// the binding INSIDE the chain rather than downstream of it. There is exactly one
+// binding, minted here: a second one would leave the find walk reading a virtualizer
+// with no element under it, which is a jump that reports success and scrolls
+// nothing. The reveal engine is minted here for the same reason
 // in a different register — a lane is a row of THIS window, so a second engine would
 // publish a second answer for one row's text — and it is disposed with the mount
 // that holds this chain.
@@ -67,11 +66,6 @@ import {
   type LedgerFilterState,
 } from "../../find/index.js";
 import {
-  useLedgerReplay,
-  useReplayRevealedRows,
-  type LedgerReplayState,
-} from "../../replay/index.js";
-import {
   useLedgerFirstReadSettled,
   useLedgerProjection,
   useVisibleLedgerWindow,
@@ -103,11 +97,11 @@ export interface LedgerFeedWindowsInputs {
  * The chain, with every stage's own report beside it.
  *
  * Published as separate members rather than as the last window alone, because the
- * surfaces above read from four different points in it: the facet bar offers facets
+ * surfaces above read from three different points in it: the facet bar offers facets
  * derived from the whole unfurled projection (or admitting one participant would take
  * away the chip that widens back), find classifies an id against every narrowing to
- * say WHICH one is the reason a row is not on screen, the rail draws marks from the
- * visible window, and the rows render the folded one.
+ * say WHICH one is the reason a row is not on screen, and the rows render the folded
+ * one.
  */
 export interface LedgerFeedWindows {
   /**
@@ -147,7 +141,6 @@ export interface LedgerFeedWindows {
    * The key belongs to `input-ask.ts` and is never spelled here.
    */
   readonly askTerminalByAskIdentity: ReadonlyMap<string, DriverAskReading>;
-  readonly replay: LedgerReplayState;
   readonly reveal: LedgerRevealBinding;
   readonly viewport: LedgerViewportBinding;
   readonly earlierPaging: LedgerEarlierPaging;
@@ -182,9 +175,8 @@ export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFee
   // THE UNFURLED PROJECTION — every member row of every chapter, before any fold.
   const unfurledWindow = useLedgerProjection(inputs.sessionStore, inputs.channelId);
   // THE NARROWING RUNS ON THAT PROJECTION, BEFORE ANYTHING ELSE SEES IT. Everything
-  // below — the chapter fold, the replay engine, the viewport, the visible window,
-  // find and the rail — is built over the narrowed model, so no piece has to
-  // remember that a filter exists. The facets the bar offers are the exception, and
+  // below — the chapter fold, the viewport, the visible window and find — is built
+  // over the narrowed model, so no piece has to remember that a filter exists. The facets the bar offers are the exception, and
   // deliberately so: they are derived from the WHOLE unfurled projection, or
   // admitting one participant would take away the chip that widens back.
   //
@@ -216,11 +208,6 @@ export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFee
     () => deriveDriverAskTerminals(unfurledWindow.rows),
     [unfurledWindow.rows],
   );
-  const replay = useLedgerReplay({ ledgerWindow, loadedWindow: unfurledWindow });
-  // What the replay position has reached. The whole window while nobody is
-  // replaying, so a ledger with the dock closed pays nothing and reconciles nothing.
-  const revealedViewportRows = useReplayRevealedRows(ledgerWindow, replay.position);
-
   // THE REVEAL ENGINE IS THIS FEED'S, minted once and disposed with it. What it
   // publishes reaches a row through the frame's own channel; what it is DOING reaches
   // the viewport as the drain state, which used to be the literal `false` — a default
@@ -233,7 +220,7 @@ export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFee
   const reveal = useLedgerReveal({ frameCoordinator });
   const viewport = useLedgerViewport({
     clock: inputs.clock,
-    rows: revealedViewportRows,
+    rows: ledgerWindow.viewportRows,
     hasActiveTurn: ledgerWindow.hasActiveTurn,
     isRevealDraining: reveal.isDraining,
   });
@@ -270,16 +257,10 @@ export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFee
     );
   }, [retireRevealLanes, ledgerWindow]);
 
-  // Read back off the viewport's own reconciled snapshot, so find and the rail are
-  // looking at the window on screen rather than at the log behind it. The revealed
-  // set goes in beside it so the two absences stay separable: what the cap took is
-  // the difference between the two, and what replay is holding back is everything
-  // the revealed set never carried.
-  const visible = useVisibleLedgerWindow(
-    ledgerWindow,
-    revealedViewportRows,
-    viewport.snapshot.rows,
-  );
+  // Read back off the viewport's own reconciled snapshot, so find is looking at the
+  // window on screen rather than at the log behind it. What the cap took is the
+  // difference between the two.
+  const visible = useVisibleLedgerWindow(ledgerWindow, viewport.snapshot.rows);
 
   return {
     peerInvocationEnabled: peerInvocation.enabled,
@@ -294,7 +275,6 @@ export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFee
     bandFold,
     ledgerWindow,
     askTerminalByAskIdentity,
-    replay,
     reveal,
     viewport,
     earlierPaging,

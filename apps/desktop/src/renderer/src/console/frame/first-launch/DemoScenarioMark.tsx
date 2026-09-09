@@ -13,7 +13,7 @@
 // moment it can be put away, and a person who dismissed it on Monday is the person most
 // likely to screenshot the room on Tuesday; and not the watch / start chrome, which is
 // a different obligation with controls attached and belongs to whichever lane builds
-// the replay scrub beside it.
+// those controls.
 //
 // IT NAMES THE COMPOSITION. `Spec-023`'s absence grammar puts the identifying value in
 // the mono face and the console's own words in prose, so the scenario's label travels

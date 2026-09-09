@@ -11,7 +11,7 @@
  * `LEDGER_MAX_ELEMENT_HEIGHT_PX`, so an uncapped log eventually renders rows the
  * browser cannot place. Four hundred rows is several screens of scrollback at the
  * ledger's density, which is as far back as a person reads before reaching for
- * find or the rail.
+ * find.
  */
 export const LEDGER_WINDOW_ROW_CAP = 400;
 /**

@@ -1,7 +1,7 @@
 // The ledger scenario — three lanes ending in three different conditions.
 //
-// The session the ledger frame, the chapters, the seams, the rail, and the replay
-// scrub are all measured against. Each lane ends somewhere different, and the three
+// The session the ledger frame, the chapters, and the seams are all measured
+// against. Each lane ends somewhere different, and the three
 // endings are exactly the ones a reader has to be able to tell apart in one frame:
 //
 //   • The implementer's run runs, blocks on an approval, unblocks, is rewound past
@@ -42,8 +42,8 @@
 //     the log can tell.
 //   • **A cost or token reading.** Not because the members are unnamed — the taxonomy
 //     leg names them, and `scenario/flagship/flagship.ts` meters a cost against exactly that row
-//     — but because this session's subject is the ledger frame, the chapters, the seams,
-//     the rail, and the replay scrub, and the meter is not on any of them. Flagship is
+//     — but because this session's subject is the ledger frame, the chapters and the
+//     seams, and the meter is not on any of them. Flagship is
 //     the scenario that moves the meter; a second one here would be a reading no surface
 //     in this session's frame reads. Scripting one would carry every member
 //     `Spec-006 §Usage Telemetry (usage_telemetry)` makes required of a post-amendment
@@ -77,7 +77,7 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
   id: LEDGER_SCENARIO_ID,
   label: "Three lanes",
   purpose:
-    "A session whose three runs end in three different conditions at once — one finished behind a rewind boundary, one parked, one still streaming — so the chapters, the seams, the rail, and the replay scrub all have something to render.",
+    "A session whose three runs end in three different conditions at once — one finished behind a rewind boundary, one parked, one still streaming — so the chapters and the seams all have something to render.",
   sessionId: SESSION_ID,
   // Join order IS hue order: two people first, then the agents in attach order,
   // which is what a real session's join log looks like.

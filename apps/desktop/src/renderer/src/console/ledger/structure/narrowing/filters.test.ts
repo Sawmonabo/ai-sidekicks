@@ -225,7 +225,7 @@ describe("filters — jump by id names which narrowing is hiding the row", () =>
   const narrowed = applyLedgerFilter(rows, { participantIds: ["agent-one"], categories: [] });
 
   /**
-   * The four stages, each admitting whatever it is handed.
+   * The three stages, each admitting whatever it is handed.
    *
    * Built from row lists rather than from a window model, because the classifier's
    * whole claim is that it answers from the STAGES and not from either end of
@@ -235,7 +235,6 @@ describe("filters — jump by id names which narrowing is hiding the row", () =>
   function stagesOver(admissions: {
     filter?: readonly TimelineRow[];
     fold?: readonly TimelineRow[];
-    replay?: readonly TimelineRow[];
     viewport?: readonly TimelineRow[];
   }): LedgerJumpStages {
     const idsOf = (admitted: readonly TimelineRow[] | undefined): ReadonlySet<string> =>
@@ -243,7 +242,6 @@ describe("filters — jump by id names which narrowing is hiding the row", () =>
     return {
       "hidden-by-filter": idsOf(admissions.filter),
       "folded-into-chapter": idsOf(admissions.fold),
-      "withheld-by-replay": idsOf(admissions.replay),
       "outside-window": idsOf(admissions.viewport),
     };
   }
@@ -258,15 +256,12 @@ describe("filters — jump by id names which narrowing is hiding the row", () =>
     );
   });
 
-  it("names the chapter fold, the replay and the cap, each for its own stage", () => {
-    // The three arms that used to be reported as the filter's. Each stage is the
+  it("names the chapter fold and the cap, each for its own stage", () => {
+    // The two arms that used to be reported as the filter's. Each stage is the
     // only one narrowed in its case, so the answer can come from nowhere else.
     const foldedAway = rows.filter((row) => row.id !== "b1");
     expect(jumpToEventId(rows, stagesOver({ fold: foldedAway }), "b1").status).toBe(
       "folded-into-chapter",
-    );
-    expect(jumpToEventId(rows, stagesOver({ replay: foldedAway }), "b1").status).toBe(
-      "withheld-by-replay",
     );
     expect(jumpToEventId(rows, stagesOver({ viewport: foldedAway }), "b1").status).toBe(
       "outside-window",
@@ -280,7 +275,7 @@ describe("filters — jump by id names which narrowing is hiding the row", () =>
     const withoutB1 = rows.filter((row) => row.id !== "b1");
     const outcome = jumpToEventId(
       rows,
-      stagesOver({ filter: withoutB1, fold: withoutB1, replay: withoutB1, viewport: withoutB1 }),
+      stagesOver({ filter: withoutB1, fold: withoutB1, viewport: withoutB1 }),
       "b1",
     );
     expect(outcome.status).toBe("hidden-by-filter");

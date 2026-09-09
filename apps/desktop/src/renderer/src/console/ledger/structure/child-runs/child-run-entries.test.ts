@@ -7,9 +7,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  SESSION_EVENT_CATEGORY_BY_TYPE,
   type ChildRunSummary,
   type NodeId,
   type RunId,
+  type SessionEventType,
   type TimelineRow,
 } from "@ai-sidekicks/contracts";
 
@@ -20,7 +22,6 @@ import {
   deriveChildRunEntries,
   deriveHandoffEntries,
 } from "./child-run-entries.js";
-import { RAIL_TICK_BINDINGS } from "../rail/rail-ticks.js";
 
 /** When a later observation saw the child's transcript lose entries. */
 const OBSERVED_AT = "2026-09-02T10:04:00.000Z";
@@ -43,9 +44,19 @@ function rowCarryingChildRun(id: string, sequence: number, summary: ChildRunSumm
   } as TimelineRow;
 }
 
-describe("the handoff wire vocabulary — one table, two renderers", () => {
-  it("reads the rail's own handoff tick binding rather than restating it", () => {
-    expect(HANDOFF_WIRE_TYPES).toBe(RAIL_TICK_BINDINGS.handoff.wireTypes);
+describe("the handoff wire vocabulary — every member is a type the daemon can emit", () => {
+  it("names only wire types the contract registers", () => {
+    for (const wireType of HANDOFF_WIRE_TYPES) {
+      expect(SESSION_EVENT_CATEGORY_BY_TYPE.has(wireType)).toBe(true);
+    }
+  });
+
+  it("negative control: a type the contract does not register is absent from the census", () => {
+    // Cast because the census is keyed by the wire union and this value is deliberately
+    // outside it — which is the whole point: without this the case above would pass over
+    // a census that answered `true` for everything.
+    const unregistered = "agent.definitely_not_a_wire_type" as SessionEventType;
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.has(unregistered)).toBe(false);
   });
 });
 

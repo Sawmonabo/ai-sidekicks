@@ -205,9 +205,8 @@ export function channelIdOfRow(row: TimelineRow): string | undefined {
  * name none, and the rollback boundary's typed payload names one the row reader
  * deliberately cannot reach — see `channelIdOfRow`. Admitting on the member alone
  * would therefore take a channel's prose and leave behind the run that produced it:
- * no chapter to fold it into, no receipt saying how the run ended, no boundary
- * marking the rows a rewind superseded, and a rail drawn over a window with no runs
- * in it.
+ * no chapter to fold it into, no receipt saying how the run ended, and no boundary
+ * marking the rows a rewind superseded.
  *
  * So a run is CLAIMED by the channels its rows name, and a claimed run's
  * channel-less rows ride in with it. A row naming a DIFFERENT channel never does,
@@ -250,7 +249,6 @@ export function scopeLedgerRowsToChannel(
 export const LEDGER_JUMP_ABSENCES = [
   "hidden-by-filter",
   "folded-into-chapter",
-  "withheld-by-replay",
   "outside-window",
 ] as const;
 
@@ -271,7 +269,7 @@ export interface LedgerRowIdMembership {
 /**
  * What each stage admitted, for one classification.
  *
- * Total over the absence tuple by construction: a fifth narrowing added to
+ * Total over the absence tuple by construction: a fourth narrowing added to
  * `LEDGER_JUMP_ABSENCES` fails to compile at every caller until that caller says
  * what the new stage kept, which is the whole reason the stages arrive as a record
  * rather than as an array a caller could pass short or out of order.
@@ -283,8 +281,8 @@ export type LedgerJumpStages = Readonly<Record<LedgerJumpAbsence, LedgerRowIdMem
  *
  * A discriminated result rather than `TimelineRow | undefined`, because each
  * failure calls for different words AND a different act: a narrowed-away row is
- * reached by clearing the filter, a folded one by opening its chapter, a withheld
- * one by leaving the replay, and a row the cap took by nothing this build can
+ * reached by clearing the filter, a folded one by opening its chapter, and a row the
+ * cap took by nothing this build can
  * press. Collapsing any two tells somebody to perform an act that cannot reach the
  * row they asked for — which is what one arm for every absence after the filter
  * did: it read "clear a filter" over a ledger with no filter on it.

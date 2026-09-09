@@ -38,7 +38,7 @@ import { LedgerFeed } from "./LedgerFeed.js";
 import {
   LEDGER_FIXTURE_PANE_ID,
   LeasingRowBody,
-  REPLAY_LOG_EVENT_COUNT,
+  SHORT_LOG_EVENT_COUNT,
   renderFeed,
   withLaidOutViewport,
 } from "./LedgerFeedFixtures.test-support.js";
@@ -93,7 +93,7 @@ describe("the ledger feed — what a parent's render costs the rows", () => {
   it("draws no row body again when the parent re-renders with the same values", () => {
     withLaidOutViewport();
     let rowBodyRenders = 0;
-    const sessionStore = openSessionStoreWithGeneralLog(REPLAY_LOG_EVENT_COUNT);
+    const sessionStore = openSessionStoreWithGeneralLog(SHORT_LOG_EVENT_COUNT);
     // Stable across the re-render below, so the only thing that can move the
     // callback's identity is the dependency this case is about.
     const renderTimelineRow = (mount: TimelineRowSlotProps): React.JSX.Element => {
@@ -130,7 +130,7 @@ describe("the ledger feed — what a parent's render costs the rows", () => {
     // renderer, so moving the renderer is what must move the count.
     withLaidOutViewport();
     let rowBodyRenders = 0;
-    const sessionStore = openSessionStoreWithGeneralLog(REPLAY_LOG_EVENT_COUNT);
+    const sessionStore = openSessionStoreWithGeneralLog(SHORT_LOG_EVENT_COUNT);
     const countingRenderer = (mount: TimelineRowSlotProps): React.JSX.Element => {
       rowBodyRenders += 1;
       return <p>{mount.row.summary}</p>;
@@ -177,7 +177,7 @@ describe("the ledger feed — what one admitted event costs the rows", () => {
   it("draws no row body again for a row the event did not change", () => {
     withLaidOutViewport();
     const drawsByRowId = new Map<string, number>();
-    const sessionStore = openSessionStoreWithGeneralLog(REPLAY_LOG_EVENT_COUNT);
+    const sessionStore = openSessionStoreWithGeneralLog(SHORT_LOG_EVENT_COUNT);
     renderFeed(sessionStore, (mount) => {
       drawsByRowId.set(mount.row.id, (drawsByRowId.get(mount.row.id) ?? 0) + 1);
     });
@@ -187,7 +187,7 @@ describe("the ledger feed — what one admitted event costs the rows", () => {
     expect(rowIdsAtMount.length).toBeGreaterThan(0);
     const drawsAtMount = new Map(drawsByRowId);
 
-    admitOneMoreEntry(sessionStore, REPLAY_LOG_EVENT_COUNT);
+    admitOneMoreEntry(sessionStore, SHORT_LOG_EVENT_COUNT);
 
     for (const rowId of rowIdsAtMount) {
       expect(drawsByRowId.get(rowId), `row ${rowId} was drawn again by an event it is not in`).toBe(
@@ -207,7 +207,7 @@ describe("the ledger feed — what one admitted event costs the rows", () => {
     withLaidOutViewport();
     const drawsByRowId = new Map<string, number>();
     const feed = renderFeed(
-      openSessionStoreWithGeneralLog(REPLAY_LOG_EVENT_COUNT),
+      openSessionStoreWithGeneralLog(SHORT_LOG_EVENT_COUNT),
       (mount) => {
         drawsByRowId.set(mount.row.id, (drawsByRowId.get(mount.row.id) ?? 0) + 1);
       },

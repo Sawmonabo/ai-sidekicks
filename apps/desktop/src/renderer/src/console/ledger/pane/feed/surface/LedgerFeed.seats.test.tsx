@@ -16,11 +16,10 @@ import { actorFollowHandler, unregisterActorFollowHandler } from "../../../../se
 import { LedgerFeed } from "./LedgerFeed.js";
 import {
   LEDGER_FIXTURE_PANE_ID,
-  REPLAY_LOG_EVENT_COUNT,
+  SHORT_LOG_EVENT_COUNT,
   contributeLedgerCommands,
   dispatchConsoleCommand,
   renderFeed,
-  replayDockHarness,
   withdrawLedgerCommands,
   withLaidOutViewport,
 } from "./LedgerFeedFixtures.test-support.js";
@@ -38,7 +37,7 @@ describe("the ledger feed — the palette acts on the mounted feed", () => {
   it("opens this feed's find field when the palette's find row is run", () => {
     withLaidOutViewport();
     contributeLedgerCommands();
-    const feed = renderFeed(openSessionStoreWithFeedLog(REPLAY_LOG_EVENT_COUNT));
+    const feed = renderFeed(openSessionStoreWithFeedLog(SHORT_LOG_EVENT_COUNT));
     expect(feed.querySelector(".meridian-find")).toBeNull();
     dispatchConsoleCommand("ledger.find");
     expect(feed.querySelector(".meridian-find")).not.toBeNull();
@@ -50,7 +49,7 @@ describe("the ledger feed — the palette acts on the mounted feed", () => {
     // scrolling the log. Before this focus stayed on the ledger or the palette.
     withLaidOutViewport();
     contributeLedgerCommands();
-    const feed = renderFeed(openSessionStoreWithFeedLog(REPLAY_LOG_EVENT_COUNT));
+    const feed = renderFeed(openSessionStoreWithFeedLog(SHORT_LOG_EVENT_COUNT));
     dispatchConsoleCommand("ledger.find");
     const input = feed.querySelector<HTMLInputElement>(".meridian-find__input");
     expect(input).not.toBeNull();
@@ -63,29 +62,6 @@ describe("the ledger feed — the palette acts on the mounted feed", () => {
     // Not `body`: the log is where the reader was, and it is focusable for exactly
     // this reason.
     expect(document.activeElement).toBe(feed.querySelector(".meridian-ledger-viewport__surface"));
-  });
-
-  it("reveals the replay dock when the palette starts playback", () => {
-    // Playing from idle parks the position at zero, so the ledger collapses to the
-    // rows sharing the window's first instant. Behind a hidden dock there is no
-    // visible control to undo that.
-    withLaidOutViewport();
-    contributeLedgerCommands();
-    const feed = renderFeed(openSessionStoreWithFeedLog(REPLAY_LOG_EVENT_COUNT));
-    expect(replayDockHarness(feed).dock.hidden).toBe(true);
-    dispatchConsoleCommand("ledger.toggleReplay");
-    expect(replayDockHarness(feed).dock.hidden).toBe(false);
-  });
-
-  it("reveals the replay dock when the palette jumps to the next seam", () => {
-    // The seam jump scrubs, and a scrub promotes idle to paused — engaged, so rows
-    // are withheld exactly as a play withholds them.
-    withLaidOutViewport();
-    contributeLedgerCommands();
-    const feed = renderFeed(openSessionStoreWithFeedLog(REPLAY_LOG_EVENT_COUNT));
-    expect(replayDockHarness(feed).dock.hidden).toBe(true);
-    dispatchConsoleCommand("ledger.jumpToNextSeam");
-    expect(replayDockHarness(feed).dock.hidden).toBe(false);
   });
 
   it("states the seat's refusal when the same row is run with no ledger up", () => {
@@ -114,7 +90,7 @@ describe("the ledger feed — the palette acts on the mounted feed", () => {
     const mounted = render(
       <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
         <LedgerFeed
-          sessionStore={openSessionStoreWithFeedLog(REPLAY_LOG_EVENT_COUNT)}
+          sessionStore={openSessionStoreWithFeedLog(SHORT_LOG_EVENT_COUNT)}
           paneId={LEDGER_FIXTURE_PANE_ID}
           renderTimelineRow={(mount) => <p>{mount.row.summary}</p>}
           feedLabel="Session timeline"
@@ -139,21 +115,21 @@ describe("the ledger feed — the cast bar's follow seat", () => {
 
   it("reveals the row a chip's sequence names while the feed is mounted", () => {
     withLaidOutViewport();
-    renderFeed(openSessionStoreWithFeedLog(REPLAY_LOG_EVENT_COUNT));
+    renderFeed(openSessionStoreWithFeedLog(SHORT_LOG_EVENT_COUNT));
     const follow = actorFollowHandler(LEDGER_FIXTURE_PANE_ID);
     expect(follow).toBeDefined();
     expect(
-      follow?.({ participantId: "participant-alba", newestSequence: REPLAY_LOG_EVENT_COUNT - 1 }),
+      follow?.({ participantId: "participant-alba", newestSequence: SHORT_LOG_EVENT_COUNT - 1 }),
     ).toBe("revealed");
   });
 
   it("answers row-not-in-view for a sequence this window does not hold", () => {
     withLaidOutViewport();
-    renderFeed(openSessionStoreWithFeedLog(REPLAY_LOG_EVENT_COUNT));
+    renderFeed(openSessionStoreWithFeedLog(SHORT_LOG_EVENT_COUNT));
     expect(
       actorFollowHandler(LEDGER_FIXTURE_PANE_ID)?.({
         participantId: "participant-alba",
-        newestSequence: REPLAY_LOG_EVENT_COUNT + 100,
+        newestSequence: SHORT_LOG_EVENT_COUNT + 100,
       }),
     ).toBe("row-not-in-view");
   });

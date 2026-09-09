@@ -123,7 +123,7 @@ export function Deck(props: DeckProps): React.JSX.Element {
   // The window's own clock, not a second time base beside it. In fixture mode that
   // is the scenario's FROZEN clock, which every other surface in the window already
   // reads: a deck that minted a `RealClock` ran its rect-flush coalescing on wall
-  // time while the ledger, the replay dock and the reveal engine were frozen, so
+  // time while the ledger and the reveal engine were frozen, so
   // whether a flush had happened when a screenshot was taken depended on how long
   // the runner took, and no advance of the fixture clock could settle it.
   const clock = useConsoleClock();

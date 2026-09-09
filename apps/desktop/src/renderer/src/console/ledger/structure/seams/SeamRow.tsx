@@ -4,7 +4,7 @@
 // not a receipt — it is a change in the run's condition, and `seams.ts` already
 // decomposes it into named parts precisely so that the layout is decided here and
 // the meaning is decided there. Before this component, `ledgerWindow.seams` reached
-// one consumer (the replay dock's next-seam jump) and no renderer at all, so a
+// the narrowing and no renderer at all, so a
 // rollback, a compaction, a provider switch or a blocked run fell through to the
 // generic row renderer and read as an ordinary one-line receipt: the boundary
 // position, the continuity, the declared losses, the failed switch's reason and the

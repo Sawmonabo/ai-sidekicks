@@ -9,11 +9,7 @@ import { act, renderHook, type RenderHookResult } from "@testing-library/react";
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import {
-  UNFILTERED_LEDGER,
-  ProvenanceRailModel,
-  type LedgerFilter,
-} from "../../structure/index.js";
+import { UNFILTERED_LEDGER, type LedgerFilter } from "../../structure/index.js";
 import { useLedgerFind, type LedgerFindState } from "./ledger-find.js";
 import { NO_ROWS_REMOVED, type LedgerWindowModel } from "../window/ledger-window.js";
 import { useFilteredLedgerWindow } from "./ledger-narrowing.js";
@@ -34,13 +30,10 @@ describe("the walk when the result moves under it", () => {
     return {
       rows,
       prunedAwayRows: [],
-      withheldByReplayRows: [],
       hasEarlierRows: false,
-      // Nothing outside this window, so both stage memberships are the rows
+      // Nothing outside this window, so the stage membership is the rows
       // themselves — the identity the partition would have produced.
-      revealedRowKeys: new Set(rows.map((row) => row.id)),
       heldRowKeys: new Set(rows.map((row) => row.id)),
-      railModel: new ProvenanceRailModel({ rows, hasEarlierRows: false }),
     };
   }
 
@@ -101,7 +94,7 @@ describe("the walk when the result moves under it", () => {
     }
     expect(result.current.currentMatchIndex).toBe(LOG_EVENT_COUNT - 1);
 
-    // The same query over a window the replay or the cap has cut down to two rows,
+    // The same query over a window the cap has cut down to two rows,
     // neither of which is the selected one. A held ordinal read "10 of 2" here.
     rerender({ rows: wholeLog.slice(0, 2) });
     expect(result.current.result.matches).toHaveLength(2);
@@ -220,11 +213,8 @@ describe("what an appended row costs the counts beside the field", () => {
   const NOTHING_ON_SCREEN: VisibleLedgerWindow = {
     rows: [],
     prunedAwayRows: [],
-    withheldByReplayRows: [],
     hasEarlierRows: false,
-    revealedRowKeys: new Set<string>(),
     heldRowKeys: new Set<string>(),
-    railModel: new ProvenanceRailModel({ rows: [], hasEarlierRows: false }),
   };
 
   /** What one measured render reports back. */
@@ -308,11 +298,7 @@ describe("the find field's own open act", () => {
     const ledgerWindow = deriveLedgerWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
     return renderHook(() =>
       useLedgerFind({
-        visible: useVisibleLedgerWindow(
-          ledgerWindow,
-          ledgerWindow.viewportRows,
-          ledgerWindow.viewportRows,
-        ),
+        visible: useVisibleLedgerWindow(ledgerWindow, ledgerWindow.viewportRows),
         // Nothing is narrowed and nothing is folded here, so both upstream stages
         // report the shared empty removal and both of their counts stay zero.
         filteredAwayRows: NO_ROWS_REMOVED,

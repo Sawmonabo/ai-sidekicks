@@ -1,6 +1,6 @@
-// The ledger, composed: the rail, the find field, the feed, and the replay dock.
+// The ledger, composed: the find field, the feed, and the row menu.
 //
-// WHAT THIS FILE ADDS TO THE PIECES IT MOUNTS: arrangement, and the four callbacks
+// WHAT THIS FILE ADDS TO THE PIECES IT MOUNTS: arrangement, and the callbacks
 // that let one of them act on another. Every derivation it renders is
 // `ledger-feed-windows.ts`', every scroll it performs is the viewport binding's, and
 // every model it drives is `ledger/structure/`'s. Nothing here folds a log, measures
@@ -9,14 +9,13 @@
 // TWO GROUPS BESIDE `row-offers/`, AND `../model/` CARRIES A DOOR. `../model/` is what
 // the feed works out — the chapter and superseded folds, the window chain, the
 // palette's acts, the find-and-jump system, and the workspace's follow seat — and
-// `surface/` is what draws it: this component, the header, the rail, the row and its
-// footer, the row host the pane mounts, and the replay notice. The log fixtures two of
-// them share stay at `feed/`, the directory that owns both. Every edge runs one way,
-// surface to model — measured with the parser, nine edges out of `surface/` and none
-// back — which is exactly the condition `apps/desktop/AGENTS.md` §Module shape puts a
-// sub-module door on, so this side reads through `../model/index.js` and `surface/`
-// stays doorless because nothing reads it. `model/index.ts` states what it publishes
-// and why nothing else is on it.
+// `surface/` is what draws it: this component, the header, the row and its footer, and
+// the row host the pane mounts. The log fixtures two of them share stay at `feed/`, the
+// directory that owns both. Every edge runs one way, surface to model — measured with
+// the parser, seven edges out of `surface/` and none back — which is exactly the
+// condition `apps/desktop/AGENTS.md` §Module shape puts a sub-module door on, so this
+// side reads through `../model/index.js` and `surface/` stays doorless because nothing
+// reads it. `model/index.ts` states what it publishes and why nothing else is on it.
 //
 // WHY THE FEED IS A COMPONENT OF ITS OWN RATHER THAN THE PANE'S BODY. The pane owns
 // chrome — a header, a heading id, and the row seat's two absences — and can render
@@ -31,28 +30,19 @@
 // that order lives, so the ordering has one home and this file has none of it. What
 // is left here is the arrangement and the seams.
 //
-// THE FOUR SEAMS BETWEEN THE PIECES:
+// THE THREE SEAMS BETWEEN THE PIECES:
 //
-//   • The rail's tick and find's walk both JUMP, and both jump through the
-//     viewport's `jumpToRow` — the ledger's one scroll writer. Neither touches an
-//     element. There is exactly ONE binding, minted by the chain and handed to
-//     `<LedgerViewport>`: a second one would leave the rail and the find walk
-//     reading a virtualizer with no element under it, which is a jump that reports
-//     success and scrolls nothing.
-//   • The replay dock's reveal is the caller's, per
-//     `ledger/structure/replay/ReplayControls.tsx`: the dock is hidden until
-//     the rail is hovered or focused, because both triggers are facts about this
-//     surface rather than about replay. What the dock's POSITION reveals is the
-//     rows: the viewport is given the rows the position has reached, so playing or
-//     scrubbing moves the ledger rather than only its timestamp.
-//   • Find's result and the rail's marks are derived from the same window the feed
-//     renders — the viewport's own reconciled snapshot, after the cap — so the
-//     boundary find states is the boundary that is actually true of what is on
-//     screen, and every tick the rail draws is a row the viewport can scroll to.
-//     Matches outside that window are counted beside the field rather than walked
-//     into and lost — in FOUR counts, one per narrowing, because a match the cap
-//     took, one the replay position has not reached, one the facet bar is hiding and
-//     one a folded chapter holds are four states with four different exits.
+//   • Find's walk JUMPS, and it jumps through the viewport's `jumpToRow` — the
+//     ledger's one scroll writer. Nothing here touches an element. There is exactly
+//     ONE binding, minted by the chain and handed to `<LedgerViewport>`: a second one
+//     would leave the find walk reading a virtualizer with no element under it, which
+//     is a jump that reports success and scrolls nothing.
+//   • Find's result is derived from the same window the feed renders — the viewport's
+//     own reconciled snapshot, after the cap — so the boundary find states is the
+//     boundary that is actually true of what is on screen. Matches outside that window
+//     are counted beside the field rather than walked into and lost — in THREE counts,
+//     one per narrowing, because a match the cap took, one the facet bar is hiding and
+//     one a folded chapter holds are three states with three different exits.
 //   • A row body is the SEAT's, handed down whole. This file supplies only the three
 //     decisions the seat says the list makes.
 //
@@ -62,13 +52,11 @@
 // — read inside this arrangement they were forty lines of callbacks between two
 // elements. What stays here is the composition that hands them their windows.
 //
-// AND WHAT THIS FILE RENDERS IS THREE CHILDREN, NOT TWENTY ELEMENTS. What the ledger
+// AND WHAT THIS FILE RENDERS IS A FEW CHILDREN, NOT TWENTY ELEMENTS. What the ledger
 // says ABOVE its rows is `LedgerFeedHeader.tsx`' — the find field, the facet bar, the
-// id jump, and the four absences a person can still act on, one subject — and the
-// right-hand column is `LedgerFeedRail.tsx`', where the dock's reveal is a property
-// of the strip that reveals it. Both DERIVE NOTHING: every value they take is a
-// reading already held here, so neither can become a second answer to a question the
-// derivations next door already answer.
+// id jump, and the three absences a person can still act on, one subject. It DERIVES
+// NOTHING: every value it takes is a reading already held here, so it cannot become a
+// second answer to a question the derivations next door already answer.
 //
 // AND TWO SEATS THIS MOUNT CLAIMS, both for callers composed before it existed: the
 // palette's, so a ledger chord acts on the feed that is up when it fires, and the
@@ -76,24 +64,23 @@
 // own chokepoint. The palette's nine acts are built in `ledger-feed-acts.ts` and the
 // follow seat in `ledger-actor-follow-seat.ts`.
 //
-// THE TWO STRUCTURAL CONTROLS OFFER NO LOAD-EARLIER ACT, and the reason is that they
-// are about a different absence. `ledger-visible-window.ts` sets `hasEarlierRows`
+// THE STRUCTURAL CONTROL OFFERS NO LOAD-EARLIER ACT, and the reason is that it is
+// about a different absence. `ledger-visible-window.ts` sets `hasEarlierRows`
 // exactly when the window CAP took rows — rows this store still HOLDS — so an offer
 // behind that clip would re-admit rows already in memory, which is a decision about
 // the cap and the reading pin in `ledger/frame/viewport/` and not a fetch. Wiring the
 // backward read to it would send the daemon after rows the console is already
-// holding. The clip is passed truthfully either way, so the rail still draws its
-// dotted segment; the find result states its own boundary as the rows it searched and
-// carries no copy of that clip, because no surface reading the result would branch on
-// one.
+// holding. The clip is passed truthfully either way; the find result states its own
+// boundary as the rows it searched and carries no copy of that clip, because no
+// surface reading the result would branch on one.
 //
-// AND THE ACT ITSELF HAS A HOME, which is why neither surface takes one: the backward
+// AND THE ACT ITSELF HAS A HOME, which is why the surface takes none: the backward
 // read is `frame/paging/`'s, offered by `LoadEarlierAffordance` off the viewport this
 // mount already composes, over `earlier-window-reader`'s producer verdict about the
-// LOG rather than over the cap's fact about the window. Both surfaces carried a
-// handler prop for a while and no caller anywhere supplied one — two buttons, two CSS
-// blocks and a shared focus ring for an offer this file had already decided against —
-// so the props went and the readings stayed.
+// LOG rather than over the cap's fact about the window. The surface carried a
+// handler prop for a while and no caller anywhere supplied one — a button, a CSS
+// block and a focus ring for an offer this file had already decided against —
+// so the prop went and the readings stayed.
 
 import { useCallback, useMemo } from "react";
 
@@ -106,25 +93,17 @@ import {
   type LedgerScope,
 } from "../../../frame/index.js";
 import { LedgerFeedHeader } from "./LedgerFeedHeader.js";
-import { LedgerFeedRail } from "./LedgerFeedRail.js";
-import {
-  LedgerWindowAbsences,
-  LedgerWindowReadState,
-  useRailGeometry,
-} from "../../window/index.js";
+import { LedgerWindowAbsences, LedgerWindowReadState } from "../../window/index.js";
 import { useLedgerRowRenderer } from "./LedgerFeedRow.js";
 import { type SessionStore } from "../../../../store/index.js";
 import { type TimelineRowRenderer } from "../../../../seats/index.js";
 import {
-  buildReplayFromRowAct,
   useActorFollowSeat,
   useLedgerFeedWindows,
   useLedgerFindAndJump,
   useLedgerStructureActs,
-  useReplayDockConcealOnFocusLeaving,
 } from "../model/index.js";
 import { LedgerRowOffersMenu, useLedgerRowOffers } from "../row-offers/index.js";
-import { useReplayAnchorRowId } from "../../replay/index.js";
 
 export interface LedgerFeedProps {
   readonly sessionStore: SessionStore;
@@ -140,8 +119,8 @@ export interface LedgerFeedProps {
    *
    * Absent, the feed is the whole session — which is what a bare timeline address
    * means. Present, it is applied inside the projection rather than beside it, so
-   * the facets, the chapters, the seams, the cap, replay, find and the rail are all
-   * facts about the channel and no piece below has to be told a scope exists.
+   * the facets, the chapters, the seams, the cap and find are all facts about the
+   * channel and no piece below has to be told a scope exists.
    */
   readonly channelId?: string;
   /** The row body, from the seat. Resolved by the pane, so this file reads no seat. */
@@ -165,7 +144,6 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     chapterDisclosure,
     ledgerFilter,
     ledgerWindow,
-    replay,
     supersededBandDisclosure,
     viewport,
     visible,
@@ -186,20 +164,17 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     openedTerminalRunIds: chapterDisclosure.openedTerminalRunIds,
     toggleChapter: chapterDisclosure.toggle,
     setFilter: ledgerFilter.setFilter,
-    endReplay: replay.end,
     jumpToRow,
     focusLedgerSurface: viewport.focusSurface,
   });
   const find = findAndJump.find;
 
-  // The STORE's wheel, which is the one the cast bar reads, handed to both surfaces
-  // that colour by actor — the rows and the rail's marks — so one person wears one
-  // colour everywhere. A surface asks the session who somebody is rather than
-  // deciding it again from the order this window happened to meet them in.
+  // The STORE's wheel, which is the one the cast bar reads, handed to the rows so one
+  // person wears one colour everywhere. A surface asks the session who somebody is
+  // rather than deciding it again from the order this window happened to meet them in.
   // `assignmentFor` never allocates, so an actor the wheel has never admitted
-  // answers `undefined`: the row renders its unattributed shape and the rail its
-  // neutral tone, rather than either being handed a colour nobody else would agree
-  // with.
+  // answers `undefined`: the row renders its unattributed shape rather than being
+  // handed a colour nobody else would agree with.
   const hueForActor = useCallback(
     (participantId: string) => props.sessionStore.hueAllocator.assignmentFor(participantId),
     [props.sessionStore],
@@ -212,18 +187,12 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // Named off the props object rather than read through it, because the callback
   // below keys on this and `props` is a fresh object on every render. Depending on
   // the whole object rebuilt `renderRow` on every render of this feed — a find
-  // keystroke, a rail hover, a replay tick, a lease write — and `LedgerRowMount`'s
-  // memo compares it, so every mounted row re-rendered for a change none of them
-  // could see.
+  // keystroke, a lease write — and `LedgerRowMount`'s memo compares it, so every
+  // mounted row re-rendered for a change none of them could see.
   const renderTimelineRow = props.renderTimelineRow;
   const rowLeaseChannel = useMemo(() => ({ setLease: setRowLease }), [setRowLease]);
   // THE ROW'S OWN OFFERS, bound once for the mount — `row-offers/` owns why.
-  const rowOffers = useLedgerRowOffers({
-    rowLease,
-    setRowLease,
-    jumpToRow,
-    replayFromRow: buildReplayFromRowAct(replay),
-  });
+  const rowOffers = useLedgerRowOffers({ rowLease, setRowLease, jumpToRow });
   const renderRow = useLedgerRowRenderer({
     ledgerWindow,
     openedTerminalRunIds,
@@ -236,12 +205,6 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     rowOffers,
   });
 
-  const geometry = useRailGeometry(viewport.visibleRange, viewport.snapshot.rows.length);
-  // "Here" FOR THE CHORD, which fires with no row in hand: the row at the top of the
-  // box, off the same range the rail's thumb is sized from. The menu needs no anchor.
-  const replayAnchorRowId = useReplayAnchorRowId(viewport.visibleRange, viewport.snapshot.rows);
-  const concealReplayDockOnFocusLeaving = useReplayDockConcealOnFocusLeaving(replay.conceal);
-
   // The palette's chords and the cast bar's chips both act on whichever ledger is
   // mounted when they fire, and neither can import this component. Both seats are
   // claimed here for the mount's lifetime; what each act does is its own module's.
@@ -249,14 +212,12 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   const collapseAllTerminalChapters = useCallback(() => {
     collapseAllTerminal([...ledgerWindow.chapterByHeaderKey.values()]);
   }, [collapseAllTerminal, ledgerWindow]);
-  const structureActs = useLedgerStructureActs({
+  useLedgerStructureActs({
     find,
-    replay,
     jumpToRow,
     jumpToTail: viewport.jumpToTail,
     collapseAllTerminalChapters,
     ledgerFilter,
-    replayAnchorRowId,
   });
   useActorFollowSeat({ paneId: props.paneId, visibleRows: visible.rows, jumpToRow });
 
@@ -268,8 +229,6 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
         filter={ledgerFilter.filter}
         onFilterChange={ledgerFilter.setFilter}
         onJumpToRow={jumpToRow}
-        rowsAdmittedSinceReplayBegan={replay.rowsAdmittedSinceReplayBegan}
-        onEndReplay={replay.end}
       />
       <div className="meridian-ledger__body">
         <LedgerRowLeaseProvider channel={rowLeaseChannel}>
@@ -297,20 +256,6 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
             </LedgerAskTerminalProvider>
           </LedgerRowRevealProvider>
         </LedgerRowLeaseProvider>
-        <LedgerFeedRail
-          railModel={visible.railModel}
-          geometry={geometry}
-          isFollowing={viewport.snapshot.reading.mode === "following"}
-          onJumpToRow={jumpToRow}
-          hueForActor={hueForActor}
-          clock={clock}
-          replay={replay}
-          onFocusLeaving={concealReplayDockOnFocusLeaving}
-          // THE SAME ACT THE PALETTE RUNS, not a second copy: the refusal for an
-          // absent anchor lives inside it, so a control with its own callback
-          // would be a second place this console decides what to say.
-          onReplayFromRowInView={structureActs.replayFromRowInView}
-        />
       </div>
       {/*
         THE WINDOW'S ONE ROW MENU, mounted beside the list rather than inside each row
@@ -323,18 +268,6 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
       <LedgerWindowAbsences
         unprojectableEventCount={ledgerWindow.unprojectableEventCount}
         droppedRowCount={visible.prunedAwayRows.length}
-        // The rows a walk began after are a SUBSET of what replay is withholding —
-        // they are in no revealed set at any position — so they are subtracted here
-        // and reported above under their own exit. Leaving them in would tell
-        // somebody to scrub forward for rows scrubbing cannot reach.
-        //
-        // THE WINDOW-SCOPED READING, because this pile is this window's. An arrival
-        // the fold or the facet bar is hiding never reached `withheldByReplayRows`,
-        // so subtracting the log-wide count here would take away rows that pile
-        // never held and understate what scrubbing forward brings back.
-        withheldByReplayRowCount={
-          visible.withheldByReplayRows.length - replay.rowsAdmittedIntoThisWindowSinceReplayBegan
-        }
         hasUnreceivedEntries={ledgerWindow.hasUnreceivedEntries}
         scope={scope}
       />

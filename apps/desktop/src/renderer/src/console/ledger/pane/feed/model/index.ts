@@ -31,12 +31,8 @@
 // than through this one.
 
 export { useActorFollowSeat } from "./ledger-actor-follow-seat.js";
-export { buildReplayFromRowAct, useLedgerStructureActs } from "./ledger-feed-acts.js";
+export { useLedgerStructureActs } from "./ledger-feed-acts.js";
 export { useLedgerFeedWindows } from "./ledger-feed-windows.js";
-export {
-  useLedgerFindAndJump,
-  useReplayDockConcealOnFocusLeaving,
-  type LedgerFindAndJump,
-} from "./ledger-feed-find-jump.js";
+export { useLedgerFindAndJump, type LedgerFindAndJump } from "./ledger-feed-find-jump.js";
 export { type LedgerSupersededBandDisclosure } from "./ledger-superseded-fold.js";
 export { densityFor } from "./ledger-chapter-fold.js";

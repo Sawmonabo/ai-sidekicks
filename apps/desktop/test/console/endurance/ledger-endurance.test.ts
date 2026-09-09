@@ -5,7 +5,7 @@
 //
 // Its two neighbours hold a real window open and read the renderer's heap. This one
 // measures the ledger's own FOLD — `deriveLedgerWindow`, which turns a session's
-// event log into rows, chapters, seams, a rail model and a superseded index — over a
+// event log into rows, chapters, seams and a superseded index — over a
 // generated session of ten thousand rows.
 //
 // It cannot be one of those runs, and the reason is structural rather than a

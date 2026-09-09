@@ -3,7 +3,7 @@
 // `heap-instrument.ts` beside this answers "how big is the renderer heap"; this
 // answers the question a flat-heap gate asks only when it fails — "what is holding
 // it". A total figure says a run leaked; it does not say which constructor grew, and
-// bisecting a thirty-minute replay by hand to find out is the cost this module
+// bisecting a thirty-minute run by hand to find out is the cost this module
 // removes.
 //
 // TWO ADOPTed TOOLS, EACH DOING THE HALF IT IS FOR, per `Spec-023 §Console Libraries`.

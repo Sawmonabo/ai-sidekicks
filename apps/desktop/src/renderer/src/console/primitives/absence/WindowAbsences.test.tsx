@@ -16,7 +16,6 @@ const SUBJECT = "entries";
 const ABSENCE_BY_KIND: Readonly<Record<WindowAbsenceKind, WindowAbsence>> = {
   unprojectable: { kind: "unprojectable", count: 2 },
   dropped: { kind: "dropped", count: 2 },
-  "withheld-by-replay": { kind: "withheld-by-replay", count: 2 },
   "never-received": { kind: "never-received" },
   "duplicate-key": { kind: "duplicate-key", count: 2 },
   "past-element-ceiling": { kind: "past-element-ceiling", count: 2 },
@@ -38,7 +37,6 @@ const EVERY_ABSENCE: readonly WindowAbsence[] = WINDOW_ABSENCE_KINDS.map(
 const TITLE_PHRASE_BY_KIND: Readonly<Record<WindowAbsenceKind, string>> = {
   unprojectable: "could not be placed",
   dropped: "no longer in this window",
-  "withheld-by-replay": "behind the replay position",
   "never-received": "never arrived",
   "duplicate-key": "share an identifier",
   "past-element-ceiling": "past what this window can draw",
@@ -80,7 +78,7 @@ describe("WindowAbsences — one absence per way the window is short", () => {
   it("mounts one absence per thing there is to say", () => {
     const container = renderAbsences(
       { kind: "dropped", count: 12 },
-      { kind: "withheld-by-replay", count: 3 },
+      { kind: "duplicate-key", count: 3 },
       { kind: "never-received" },
     );
     expect(container.querySelectorAll(".meridian-nothing").length).toBe(3);

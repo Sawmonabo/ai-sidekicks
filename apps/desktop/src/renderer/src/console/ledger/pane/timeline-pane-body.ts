@@ -31,7 +31,7 @@
 //
 // WHY THIS DIRECTORY IS INSIDE THE FAMILY, carried here from the door this module
 // replaced. The pane body is ledger view code: the feed, the window derivations, the find
-// and replay acts, the row host. It lived under `panes/` while `panes/` was read as
+// acts, the row host. It lived under `panes/` while `panes/` was read as
 // "where pane bodies go", and that directory is a COMPOSITION SITE — the layering gate
 // subtracts it from both endpoints of the view-family rules so the one file whose job is
 // to name every family can name them. The whole of this body sat behind that
@@ -41,16 +41,15 @@
 // here would be a claim about a tree that grows every time a lane lands, and its going
 // stale would be invisible. `panes/` now holds its composition file and nothing else.
 //
-// FOUR SUB-MODULES AND THE PANE ITSELF. `window/` derives which rows this pane holds,
-// `find/` decides which of them a person is asking for, `replay/` decides which of them a
-// position lets through, and `feed/` composes the three into the surface a reader
-// scrolls.
+// THREE SUB-MODULES AND THE PANE ITSELF. `window/` derives which rows this pane holds,
+// `find/` decides which of them a person is asking for, and `feed/` composes the two
+// into the surface a reader scrolls.
 //
 // A SUB-MODULE PUBLISHES A DOOR ONLY WHERE ONE HAS READERS — the family's one criterion,
 // stated the same way in `ledger/cards/index.ts` and `ledger/structure/index.ts`, and it
-// is READERS and not directories: `window/` is read from three of them, `find/` and
-// `replay/` from one apiece, and all three carry a door because every one of those
-// readers is a module other than the door that declares them. `feed/` publishes none,
+// is READERS and not directories: `window/` is read from three of them and `find/`
+// from one, and both carry a door because every one of those readers is a module
+// other than the door that declares them. `feed/` publishes none,
 // because the one name that leaves it is read by exactly one module — `TimelinePane.tsx`,
 // beside this one. THIS directory carries no door either, and by that same criterion: the
 // one name that used to leave it, `TimelinePane`, was read by the family door alone, and

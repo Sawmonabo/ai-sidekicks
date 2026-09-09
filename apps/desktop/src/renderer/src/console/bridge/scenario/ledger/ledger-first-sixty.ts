@@ -9,7 +9,7 @@
 // arriving, a receipt landing past tense — and the empty state IS the demo. So this
 // scenario is not a tour and not a checklist: it is one
 // ordinary session, scripted over sixty seconds of scenario time, that a person can
-// watch, scrub, and leave.
+// watch and leave.
 //
 // WHY THE TIMINGS ARE THE DESIGN AND NOT DECORATION
 //

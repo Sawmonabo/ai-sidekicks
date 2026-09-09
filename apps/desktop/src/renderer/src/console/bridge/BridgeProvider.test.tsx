@@ -241,8 +241,8 @@ describe("useConsoleClock — the clock is a fact about the bridge", () => {
   });
 
   it("negative control: the mount-pinned form keeps the retired bridge's clock", () => {
-    // The shape this hook had. Everything downstream of it — the replay dock, the
-    // reveal engine's armed frame, every `[clock]` re-mint arm — would go on
+    // The shape this hook had. Everything downstream of it — the deck's rect flush,
+    // the reveal engine's armed frame, every `[clock]` re-mint arm — would go on
     // reading a clock the scenario switch stopped advancing.
     const bridgeA = flagshipBridge();
     const bridgeB = firstRunBridge();

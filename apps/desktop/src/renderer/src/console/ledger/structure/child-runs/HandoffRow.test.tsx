@@ -1,8 +1,8 @@
 // The handoff row, held to the two actors it exists to name.
 //
-// The rail has bound the four handoff wire types since it was written, so a case over
-// the tick table would already have passed; these read the rendered line, which is
-// where the treatment was missing.
+// The derivation has bound the four handoff wire types since it was written, so a
+// case over that table would already have passed; these read the rendered line, which
+// is where the treatment was missing.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
