@@ -79,7 +79,24 @@ import { resolveSchemaValidatorCompiler } from "../../../src/renderer/src/consol
  * `phase-graph-settled.ts`'s reasoning: a tier that audited a form which never got its
  * verdict reports clean over the surface it was written to cover.
  */
-const VERDICT_DEADLINE_MS = 5_000;
+export const SCHEMA_FORM_VERDICT_DEADLINE_MS = 5_000;
+
+/**
+ * Resolve both chunks the seat rides before a caller mounts anything that draws it.
+ *
+ * The form kit is one `import()` and the validator compiler is a second, and each is
+ * memoized behind its chunk, so resolving them here puts both in the module cache and the
+ * seat's own `loadSchemaValidatorCompiler()` then settles in a microtask of the mount. A
+ * mount that skipped this raced its wait against a COLD load — a Vite transform of the
+ * compiler on a runner that had never served it — and lost on the busiest host the tier
+ * runs on, under a message naming a compiler that was merely late. One home for the pair,
+ * because the family mount that reaches the seat through a park and the seat's own mount
+ * below both need exactly this and neither owns the chunks.
+ */
+export async function resolveSchemaFormChunks(): Promise<void> {
+  await resolveSchemaValidatorCompiler();
+  await schemaFormChunk.load();
+}
 
 /**
  * The class the seat puts on its own `<form>`, read here and set there.
@@ -136,7 +153,7 @@ export function isSchemaFormSettled(region: ParentNode): boolean {
  * and then assert on a callback rather than on what the form drew.
  */
 export async function mountSettledSchemaForm(mounting: SchemaFormMounting): Promise<HTMLElement> {
-  await resolveSchemaValidatorCompiler();
+  await resolveSchemaFormChunks();
   const { SchemaFormAnswer } = await schemaFormChunk.load();
   const { container } = await renderSettled(
     <SchemaFormAnswer
@@ -151,7 +168,7 @@ export async function mountSettledSchemaForm(mounting: SchemaFormMounting): Prom
         throw new Error("the schema form is still waiting for its compiler");
       }
     },
-    { timeout: VERDICT_DEADLINE_MS },
+    { timeout: SCHEMA_FORM_VERDICT_DEADLINE_MS },
   );
   return container;
 }
