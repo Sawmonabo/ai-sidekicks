@@ -257,7 +257,7 @@ describe("the disclosure switch while an import is being read", () => {
         onJoined={() => undefined}
       />,
     );
-    openImportDisclosure(container);
+    await openImportDisclosure(container);
 
     await startAnImport(container);
     await act(async () => {
@@ -282,7 +282,7 @@ describe("the disclosure switch while an import is being read", () => {
         onJoined={() => undefined}
       />,
     );
-    openImportDisclosure(container);
+    await openImportDisclosure(container);
     await settle();
 
     expect(joinDisclosure(container).disabled).toBe(false);

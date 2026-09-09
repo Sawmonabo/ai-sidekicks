@@ -27,6 +27,7 @@
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { joinSessionFormMount } from "./acts/act-body-mounts.js";
 import { contextWith, storeHolding } from "./session-surface.context.test-support.js";
 import { listAbsenceKinds, renderSurface, settle } from "./session-surface.test-support.js";
 import {
@@ -327,6 +328,11 @@ describe("while the shell cannot be written to", () => {
       contextWith({ shellConnection: { kind: "version-incompatible" } }),
     );
     await settle();
+    // The form arrives on its own chunk — `acts/join-session-form-body.ts` states why —
+    // so it is resolved through the MOUNT the acts bar itself renders before the press
+    // that discloses it. One home for the wait rather than a per-spec race; the press
+    // below then draws the settled body and never the reserved region.
+    await joinSessionFormMount.load();
     act(() => {
       container.querySelector<HTMLButtonElement>(".meridian-session-acts__secondary")?.click();
     });
