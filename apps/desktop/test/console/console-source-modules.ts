@@ -9,8 +9,8 @@
 //
 // WHAT COUNTS AS SOURCE, decided once and in TWO PLACES that answer different
 // halves. A FILE — asked of the directory entry, not inferred from the name,
-// because Vitest names a screenshot tier's committed reference directory after
-// its spec (`__screenshots__/frame.test.tsx` is a directory) and a walk deciding
+// because Vitest names a screenshot tier's capture directory after its spec
+// (`__screenshots__/frame.test.tsx` is a directory) and a walk deciding
 // by extension handed that back as a module and threw on the read — is this
 // module's half, because only the walk holds the entry. What the NAME says is
 // `console-source-classification.ts`'s: which extensions are TypeScript modules,

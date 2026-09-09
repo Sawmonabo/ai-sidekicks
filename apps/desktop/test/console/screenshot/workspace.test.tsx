@@ -16,19 +16,17 @@
 // AND THE TWO SUBJECTS SHARE A DATABASE, which is what the reset and the arm guards
 // are for. The collapse a person makes is DURABLE — it is written under this
 // session's partition and read back by the next mount — so the collapsed case here
-// used to arrive in the expanded case after it, and the tier minted a dark
-// "expanded" reference byte-identical to its own collapsed sibling. Each case now
+// used to arrive in the expanded case after it, and the tier wrote a dark
+// "expanded" capture byte-identical to its own collapsed sibling. Each case now
 // starts from a deleted database and refuses to photograph a sidebar in the state
-// the other case's reference is named for. The reading and the refusal live in
+// the other case's capture is named for. The reading and the refusal live in
 // `sidebar-arm.ts` rather than here, because `ledger.test.tsx`'s flagship pair pins
 // a whole frame too and is exposed to the same restored arrangement without being
 // about the sidebar at all.
 //
-// The tier's fail-closed guard and its missing-reference probe are asserted once
-// for the whole tier by `frame.test.tsx`; `baseline-platform.ts` says why they are
-// not repeated here, and holds the one decision about which hosts may compare — a
-// RUNNER rather than a platform. `baseline-host.ts` reads this run against that rule
-// once, and this file asks it rather than reading the environment for itself.
+// `settled-capture.ts` owns the mechanism this file rides: every capture is written
+// into the gitignored `__screenshots__/` and compared against nothing, so this file
+// gates on whether each surface can be captured at all.
 
 import { afterEach, beforeEach, describe, it } from "vitest";
 import { act } from "@testing-library/react";
@@ -40,11 +38,7 @@ import {
   resetDurableConsoleState,
 } from "../console-harness.js";
 import { walkScenarioToFrozenTick } from "../scenario-clock.js";
-import {
-  requireCapturedElement,
-  skipOffBaselineHost,
-  warnOnceOffBaselineHost,
-} from "./baseline-host.js";
+import { requireCapturedElement } from "./captured-element.js";
 import { requireSidebarColumn, requireSidebarExpanded, sidebarIsCollapsed } from "./sidebar-arm.js";
 
 import {
@@ -111,14 +105,14 @@ function collapseSidebar({ container, frame }: WorkspaceMount): void {
   }
   // Inside `act`, because the collapse is a store transition whose commit the capture
   // below reads: outside it the frame is photographed one commit behind the state the
-  // reference is named for.
+  // capture is named for.
   act(() => {
     control.click();
   });
   if (!sidebarIsCollapsed(container)) {
     throw new Error(
       "the collapse control was pressed and the sidebar did not render its collapsed arm, so this " +
-        "capture would put an expanded sidebar under the collapsed reference",
+        "capture would put an expanded sidebar under the collapsed capture",
     );
   }
 }
@@ -139,12 +133,8 @@ afterEach(async () => {
 });
 
 describe("screenshot — the session workspace and its sidebar", () => {
-  // Said once at collection, on the one channel the terminal reporter forwards.
-  warnOnceOffBaselineHost();
-
   for (const scheme of CONSOLE_SCHEMES) {
-    it(`renders the sidebar expanded in the ${scheme} scheme`, async (context) => {
-      skipOffBaselineHost(context);
+    it(`renders the sidebar expanded in the ${scheme} scheme`, async () => {
       await emulateSystemScheme(scheme);
       const mount = await openWorkspace();
       requireSidebarExpanded(mount.container);
@@ -152,8 +142,7 @@ describe("screenshot — the session workspace and its sidebar", () => {
       await captureSettled(mount.frame, `workspace-sidebar-expanded-${scheme}`);
     });
 
-    it(`renders the sidebar collapsed in the ${scheme} scheme`, async (context) => {
-      skipOffBaselineHost(context);
+    it(`renders the sidebar collapsed in the ${scheme} scheme`, async () => {
       await emulateSystemScheme(scheme);
       const mount = await openWorkspace();
       collapseSidebar(mount);

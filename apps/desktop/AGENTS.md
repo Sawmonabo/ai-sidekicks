@@ -12,7 +12,7 @@ Each runs under `pnpm --filter @ai-sidekicks/desktop`.
 | --- | --- | --- |
 | `structure:dead-code` | `knip.json` | files, exports, types, and dependencies no entry point reaches |
 | `structure:layering` | `.dependency-cruiser.mjs` | cycles, orphans, process-boundary breaks, upward edges against the console DAG |
-| `lint` | `eslint.config.mjs` | the import bans, the console's wire-instant and exported-collection bans, and the eight rules below |
+| `lint` | `eslint.config.mjs` | the import bans, the console's wire-instant and exported-collection bans, and the nine rules below |
 
 `structure` runs both legs locally; CI runs them as two Turbo tasks with `--continue`, so one red leg never hides the other's findings.
 
@@ -23,9 +23,10 @@ The ESLint rules that carry this file's structural claims. Each states its own s
 3. No `export default` outside the package-root tool configs, which their tools load by default export. Off for `**/*.d.ts`, where the `export default` inside an ambient `declare module` is how a default-exporting virtual module is typed.
 4. No module-level `let` in shipped renderer source. Lifted for `*.test.{ts,tsx}` and `*.test-support.{ts,tsx}`: a `let` reassigned in `beforeEach` is the standard Vitest shape and holds no state anything else can reach.
 5. `spawn` from `node:child_process` only in `test/helpers/electron-child.ts` — the static import, the dynamic `import()`, and the `require` form alike, across `test/**`, `src/main/**`, and `scripts/**`. `spawnSync` is untouched: it settles before the statement after it and leaves no child to own.
-6. `toMatchScreenshot` only in `test/console/screenshot/settled-capture.ts` and in `test/console/screenshot/frame.test.tsx`, the one probe that asserts the matcher REJECTS and cannot be written without naming it.
+6. `toMatchScreenshot` only in `test/console/screenshot/settled-capture.ts`, the one module that writes a capture. A never-saved `page.screenshot({ save: false })` read is a measurement rather than a capture and is outside the rule, which names the matcher.
 7. A relative `.css` import only from the owning directory's `index.ts` or a lazily-loaded chunk root (`*-body.{ts,tsx}`). Relative specifiers only — a vendor sheet reached by package specifier has no owning directory here to enter through and is outside the rule.
 8. No directory `import.meta.glob` under `src/`: the literal carries a `*`, so a raw read of one named module is untouched.
+9. No `toMatchSnapshot`, `toMatchInlineSnapshot`, or `toMatchFileSnapshot`, in the property and the computed-key spelling alike. This package's Vitest runs resolve `UPDATE_SNAPSHOT=all` so the screenshot tier writes capture aids rather than gating on them (§Tests), and under that mode a text snapshot rewrites itself and passes instead of failing — a green assertion that asserts nothing. Assert the value. Every directory `lint` reads — `src/**` (`src/main/**`, `src/preload/**`, and `src/shared/**` included, through the widest `src` block), `test/**`, `scripts/**`, `build/**`, and `vitest/**` — because five of the six `include` entries of the `main-unit` project sit outside the renderer and `test/**` unions and run under the same mode.
 
 What lint does not carry: one component per `.tsx` (§Module shape) is a review rule. No ESLint rule states it — `react-refresh/only-export-components` checks a different property, that a module exporting a component exports only components, which is a Fast Refresh constraint and not a count.
 
@@ -42,6 +43,7 @@ The dead-code gate's one exemption is per SYMBOL: an export tagged `@consumedBy 
 | `src/renderer/src/<family>/` | Another plan's renderer subtree; the console imports these through no path |
 | `build/` and `scripts/` | Executables run during `pnpm build`, and executables invoked by name from a package script |
 | `test/` | Cross-process suites, `test/helpers/`, and the console tiers under `test/console/<tier>/` |
+| `vitest/` | The Vitest project definitions and the pins they carry, imported by `vitest.config.ts`. In the `lint` and `structure:layering` scopes since 2026-09-09, because the snapshot-mode pin here reaches every project in the package |
 
 There is one shared layer: `src/renderer/src/shared/` is not created; a renderer-wide helper lives in the lowest console family that needs it.
 
@@ -119,7 +121,8 @@ Neither rule below has a mechanical gate: one reads colour values out of stylesh
 - Helper tests live in `test/helpers/` beside their helpers, in the `main-unit` project. The console tiers live under `test/console/<tier>/`, one Vitest project each, globs disjoint.
 - Shared scaffolding lives once, one home per ROLE: cross-process roles in `test/helpers/`, console roles in the flat files of `test/console/`. A tier that hand-rolls a role another tier already has is rejected.
 - A test never reimplements the rule it checks and never drives a stand-in for the module under test; import the real one. Every clean result has a negative control that fails.
-- A screenshot is taken through `test/console/screenshot/settled-capture.ts` and no other way. `captureSettled` refuses a tree still carrying the pending marker; a mount never waits for a deferred body itself, and a per-spec wait is rejected.
+- The screenshot tier is a LOCAL CAPTURE AID, not a gate: `pnpm --filter @ai-sidekicks/desktop run test:console-screenshot` writes a picture of every surface into the gitignored `test/console/screenshot/__screenshots__/`, compares it against nothing, runs in no CI job and in no `pnpm test` chain, and fails only where a surface cannot be captured at all. No image is versioned, and no PR is gated on pixels. Every Vitest run in this package resolves `UPDATE_SNAPSHOT=all` so that a bare `--project=console-screenshot` run writes exactly as the script does; the same mode is why rule 9 bans the text-snapshot matchers, which under it would rewrite themselves rather than fail.
+- A capture is WRITTEN through `test/console/screenshot/settled-capture.ts` and no other way. `captureSettled` refuses a tree still carrying the pending marker; a mount never waits for a deferred body itself, and a per-spec wait is rejected.
 - Every test that launches Electron goes through `test/console/electron-harness.ts` (Playwright tiers), `test/helpers/electron-probe.ts` (smoke), or `test/helpers/gc-probe.ts` (GC), which set `SIDEKICKS_UNOBTRUSIVE_WINDOWS=1` so a test build never reveals a window, takes focus, or switches Spaces. A `show()` / `showInactive()` / `focus()` call outside `src/main/window-reveal.ts` is rejected.
 - A spawned child's lifetime belongs to the test, never to a timer: `test/helpers/electron-child.ts` registers the kill on `onTestFinished`, and a spawner's own deadline fires before its enclosing per-test budget.
 - Lanes verify with `pnpm --filter @ai-sidekicks/desktop run test:changed <base-ref>` plus the files they authored, and `structure`; the aggregate `test` script and the Electron tiers are CI's. That base ref is the first argument of `scripts/test-changed.ts`; no ref, or a file no project claims, exits `2`.

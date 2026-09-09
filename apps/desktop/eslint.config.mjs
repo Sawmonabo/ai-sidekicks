@@ -312,12 +312,40 @@ const CHILD_PROCESS_DYNAMIC_REACH = [
 ];
 
 /**
- * Taking a screenshot anywhere but through the settled capture.
+ * A text snapshot in a package whose Vitest runs resolve `UPDATE_SNAPSHOT=all`.
+ *
+ * `vitest/screenshot-pins.ts` sets that variable so the screenshot tier writes its
+ * capture aids instead of gating on them, and the variable is process-wide because
+ * Vitest offers no per-project snapshot mode. Under it a text snapshot does not fail
+ * on a change — it rewrites itself and passes, which is the one shape of green that
+ * means nothing. There is no such matcher in this package today; this is what keeps
+ * it that way. Assert the value instead.
+ *
+ * SCOPE: every directory this package's `lint` script reads — `src/**` (the renderer
+ * union and, through the widest `src` block, `src/main/**`, `src/preload/**`, and
+ * `src/shared/**`), `test/**`, `scripts/**`, `build/**`, and `vitest/**`. That set is
+ * not decoration: five of `main-unit`'s six `include` entries live outside the renderer
+ * and `test/**` unions, so a ban that stopped there would leave the process-wide mode
+ * unguarded in exactly the projects that run under it. Because flat config REPLACES a
+ * rule's options at the last matching block, the selector is added to each block by
+ * name rather than declared once in a widest one, which a later block would drop.
+ */
+const TEXT_SNAPSHOT_MATCHER_REACH = {
+  selector:
+    "MemberExpression[property.name=/^toMatch(Inline|File)?Snapshot$/], MemberExpression[computed=true][property.value=/^toMatch(Inline|File)?Snapshot$/]",
+  message:
+    "`apps/desktop/AGENTS.md` §Tests: this package's Vitest runs resolve `UPDATE_SNAPSHOT=all` so the screenshot tier writes capture aids rather than gating on them, and under that mode a text snapshot rewrites itself instead of failing. Assert the value.",
+};
+
+/**
+ * Writing a capture anywhere but through the settled capture.
  *
  * A capture taken straight after a mount photographs the reserved region a loader-backed
- * body has not filled yet — an image that is stable, green, and a picture of a pane that
- * had not finished loading. `captureSettled` refuses a tree still carrying the pending
- * marker, which is why every capture goes through it.
+ * body has not filled yet — a picture of a pane that had not finished loading, which is
+ * exactly what a person opening `__screenshots__/` must not be shown. `captureSettled`
+ * refuses a tree still carrying the pending marker, which is why every written capture
+ * goes through it. A never-saved `page.screenshot({ save: false })` read is a
+ * MEASUREMENT rather than a capture and is outside this rule, which names the matcher.
  */
 const SCREENSHOT_MATCHER_REACH = {
   // The computed arm is the same reach with the matcher named as a string —
@@ -380,6 +408,12 @@ const RENDERER_SYNTAX_BANS = [
   DIRECTORY_SOURCE_GLOB,
   MODULE_LEVEL_LET,
   STYLESHEET_THROUGH_OWNER,
+  // Carried by the renderer union rather than by a test-file block of its own, because
+  // flat config REPLACES a rule's options at the last matching entry: a separate block
+  // matching `**/*.test.tsx` would sit after these and lift every other selector for
+  // exactly the files that already carry them. Riding the union puts the ban on the
+  // renderer's co-located tests, which is where a snapshot would actually be written.
+  TEXT_SNAPSHOT_MATCHER_REACH,
   // Renderer-wide rather than console-scoped, because the hazard is the renderer's and
   // not the console's: a surface that reads the bridge off the global with no existence
   // check throws inside a render under a preload that failed to install. Four legacy
@@ -399,6 +433,7 @@ const CONSOLE_SYNTAX_BANS = [
 const TEST_SYNTAX_BANS = [
   EXPORT_DEFAULT_DECLARATION,
   SCREENSHOT_MATCHER_REACH,
+  TEXT_SNAPSHOT_MATCHER_REACH,
   ...CHILD_PROCESS_DYNAMIC_REACH,
 ];
 
@@ -632,7 +667,12 @@ export default [
   {
     files: ["src/**/*.{ts,tsx}"],
     rules: {
-      "no-restricted-syntax": ["error", EXPORT_DEFAULT_DECLARATION, DIRECTORY_SOURCE_GLOB],
+      "no-restricted-syntax": [
+        "error",
+        EXPORT_DEFAULT_DECLARATION,
+        DIRECTORY_SOURCE_GLOB,
+        TEXT_SNAPSHOT_MATCHER_REACH,
+      ],
     },
   },
   {
@@ -645,6 +685,7 @@ export default [
         "error",
         EXPORT_DEFAULT_DECLARATION,
         DIRECTORY_SOURCE_GLOB,
+        TEXT_SNAPSHOT_MATCHER_REACH,
         ...CHILD_PROCESS_DYNAMIC_REACH,
       ],
     },
@@ -780,10 +821,10 @@ export default [
     rules: { "no-restricted-syntax": ["error", ...CONSOLE_TIER_SYNTAX_BANS] },
   },
   {
-    // The capture door itself, and the one probe that asserts the matcher REJECTS —
-    // which is a test of the matcher rather than a capture, and cannot be written
-    // without naming it.
-    files: ["test/console/screenshot/settled-capture.ts", "test/console/screenshot/frame.test.tsx"],
+    // The capture door itself, and nothing else. The tier compares nothing since
+    // 2026-09-09, so the probe that used to assert the matcher REJECTS is gone with
+    // the comparison it probed, and this exemption is one file wide.
+    files: ["test/console/screenshot/settled-capture.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
@@ -805,12 +846,28 @@ export default [
   {
     files: ["scripts/**/*.{ts,mts}"],
     rules: {
-      "no-restricted-syntax": ["error", EXPORT_DEFAULT_DECLARATION, ...CHILD_PROCESS_DYNAMIC_REACH],
+      "no-restricted-syntax": [
+        "error",
+        EXPORT_DEFAULT_DECLARATION,
+        TEXT_SNAPSHOT_MATCHER_REACH,
+        ...CHILD_PROCESS_DYNAMIC_REACH,
+      ],
     },
   },
   {
     files: ["build/**/*.{ts,mts}"],
-    rules: { "no-restricted-syntax": ["error", EXPORT_DEFAULT_DECLARATION] },
+    rules: {
+      "no-restricted-syntax": ["error", EXPORT_DEFAULT_DECLARATION, TEXT_SNAPSHOT_MATCHER_REACH],
+    },
+  },
+  {
+    // The Vitest configuration modules, which the `lint` script reads since 2026-09-09
+    // and which are where the process-wide snapshot mode is set in the first place.
+    // They carry no other syntax ban — `export default` is how a Vitest config is
+    // written and no block above claims this directory — so the union is the one
+    // selector rather than a restatement of somebody else's.
+    files: ["vitest/**/*.{ts,mts}"],
+    rules: { "no-restricted-syntax": ["error", TEXT_SNAPSHOT_MATCHER_REACH] },
   },
   {
     // A declaration file carries no runtime code — no call, no assignment, no import of
