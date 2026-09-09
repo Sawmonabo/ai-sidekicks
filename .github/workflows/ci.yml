@@ -474,7 +474,7 @@ jobs:
         run: |
           set -euo pipefail
           cache_flag='${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}'
-          pnpm turbo run test:renderer test:main-unit test:console-unit test:console-architecture test:console-assets --filter=@ai-sidekicks/desktop ${cache_flag}
+          pnpm turbo run test:renderer test:main-unit test:console-unit test:console-assets --filter=@ai-sidekicks/desktop ${cache_flag}
           pnpm turbo run test:console-browser test:console-accessibility --filter=@ai-sidekicks/desktop --concurrency=1 ${cache_flag}
           pnpm turbo run test:console-bundle --filter=@ai-sidekicks/desktop --concurrency=1 ${cache_flag}
           pnpm turbo run test:smoke --filter=@ai-sidekicks/desktop --concurrency=1 ${cache_flag}

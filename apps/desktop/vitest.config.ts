@@ -23,7 +23,7 @@
 // runtime in this test surface.
 //
 // Plan-023 Phase 1C (T-023p-1C-1) registers the console's test tiers
-// (`Spec-023 §Console Test Tiers`). All NINE of them are Vitest projects,
+// (`Spec-023 §Console Test Tiers`). All of them are Vitest projects,
 // declared in `vitest/console-projects.ts` and spread below — there is no
 // `playwright.config.ts` anywhere in this repository, and the two tiers that
 // need a real Electron window do not want one: `console-e2e` and
@@ -165,12 +165,17 @@ export default defineConfig({
           // and their units are co-located beside the executable exactly as
           // `src/main/**`'s are; both are spawned as commands from a node
           // environment, which is this project's.
+          // `test/helpers/**` joins them for the same reason: those suites drive
+          // the cross-process scaffolding — the managed Electron child, the
+          // process-tree readers, the bounded cleanup, the launch deadline — which
+          // is Node code with no DOM and no build behind it.
           include: [
             "src/main/**/*.test.ts",
             "src/preload/**/*.test.ts",
             "src/shared/**/*.test.ts",
             "build/**/*.test.ts",
             "scripts/**/*.test.ts",
+            "test/helpers/**/*.test.ts",
           ],
         },
       },

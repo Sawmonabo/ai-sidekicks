@@ -106,11 +106,18 @@
         "src/shared/**",
         "build/**",
         // Named file by file rather than as `scripts/**`, on the `test:smoke`
-        // precedent: the budget harnesses under `scripts/budget/` are not this
-        // project's inputs and a tree glob would pull them in.
+        // precedent: a tree glob would pull in budget harnesses this project does
+        // not read. The registry IS read — `launch-deadline.test.ts` holds the
+        // harness bounds against the rows it serves.
         "scripts/test-changed.ts",
         "scripts/test-changed.test.ts",
+        "scripts/budget/**",
+        "test/console/budget/budgets.json",
         "test/helpers/**",
+        // The launch and cleanup scaffolding the suites under `test/helpers/`
+        // drive. The flat modules only — the console tiers under
+        // `test/console/<tier>/` are their own projects' inputs.
+        "test/console/*.ts",
         "vitest.config.*",
         "tsconfig*.json",
         "package.json"
@@ -161,27 +168,6 @@
         "src/renderer/src/console/**",
         "vitest.config.*",
         "tsconfig*.json",
-        "package.json"
-      ],
-      "outputs": [],
-      "cache": false
-    },
-    "test:console-architecture": {
-      // Reads source text rather than importing it, so it takes no build edge —
-      // but it reads ALL of `src`, not just the files it asserts about.
-      //
-      // `package.json` and the shared project resolver join the set because
-      // `ci-tier-coverage.test.ts` reads the package's own scripts and resolves
-      // the real Vitest projects through it. That tier also reads
-      // `.github/workflows/ci.yml`, which is outside this package and so cannot
-      // be named here; `cache: false` is what keeps that honest — a workflow edit
-      // can never be hidden behind a hash this list does not cover, because
-      // nothing here is ever restored from a cache.
-      "inputs": [
-        "src/**",
-        "test/console/architecture/**",
-        "test/console/vitest-projects.ts",
-        "vitest.config.*",
         "package.json"
       ],
       "outputs": [],

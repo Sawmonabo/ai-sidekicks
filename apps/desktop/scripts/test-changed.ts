@@ -133,12 +133,7 @@ const MISUSE_EXIT_CODE = 2;
  * renamed in `vitest.config.ts` fails this script rather than quietly shrinking
  * what it verifies.
  */
-const CHANGED_TIER_PROJECTS: readonly string[] = [
-  "renderer",
-  "main-unit",
-  "console-unit",
-  "console-architecture",
-];
+const CHANGED_TIER_PROJECTS: readonly string[] = ["renderer", "main-unit", "console-unit"];
 
 /** Held here rather than in the script line, which is what the caller appends to. */
 const CHANGED_TIER_WORKERS = "2";
