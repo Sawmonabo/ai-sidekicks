@@ -45,8 +45,8 @@ export type RepoWorkspaceRow = WorkspaceListResponse["workspaces"][number];
  *
  * NAMED FOR WHAT IT HOLDS AND NOT FOR THE WORD `Register`, which the console reserves:
  * a `Register` suffix names a subject-scoped generation holder, of which the console has
- * exactly one, and `subject-state-chokepoint.test.ts` reads that suffix as a second copy
- * of it. This is a pair of plain lookup tables and takes the plural noun instead.
+ * exactly one, and a reader takes that suffix as a second copy of it. This is a pair of
+ * plain lookup tables and takes the plural noun instead.
  */
 export interface WorkspaceRefusals {
   /** What the capabilities read could not answer, per workspace. Rebuilt by every read. */

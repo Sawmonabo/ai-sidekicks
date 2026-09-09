@@ -4,9 +4,11 @@
 // what makes the fixture substitutable at all. A single stray `window.sidekicks` in
 // a component would quietly make that component unrenderable under the fixture, and
 // nobody would notice until a screenshot run failed for an unrelated reason — so
-// the single-reader rule is a source-text claim, checked by the architecture tier
-// (`test/console/architecture/`), while the claim that the two bridges are the same
-// SHAPE is a runtime one and is checked by `bridge-shape.test.ts` beside this file.
+// the single-reader rule is a lint rule — `no-restricted-syntax` in
+// `apps/desktop/eslint.config.mjs` bans `window.sidekicks`, `globalThis.sidekicks`, and
+// the cast form this file uses everywhere but here — while the claim that the two bridges
+// are the same SHAPE is a runtime one and is checked by `bridge-shape.test.ts` beside
+// this file.
 //
 // The preload not having run is a real state, not a theoretical one: an auxiliary
 // window whose preload path is wrong, a renderer loaded before the bridge is

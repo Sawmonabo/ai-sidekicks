@@ -24,8 +24,8 @@
 // THE DIRECTORY IS WHY THIS FILE STAYS AT THE TOP LEVEL, on `wire-truth.ts`' rule: the
 // scenario is what the manifest imports and what a reader opens first, and its parts
 // sit under a directory named for it. The parts moved there when a fourth plane landed
-// and `scenarios/` crossed the module ceiling `console-directory-shape.test.ts` holds
-// every console directory to — a ceiling whose remedy is a seam, never a larger number,
+// and `scenarios/` crossed the module ceiling `apps/desktop/AGENTS.md` holds every
+// console directory to — a ceiling whose remedy is a seam, never a larger number,
 // and the settings planes are the seam this directory grew.
 //
 // ITS NODE-HEALTH BEATS ARE SCRIPTABLE BECAUSE THAT ONE IS ON THE EVENT WIRE (the

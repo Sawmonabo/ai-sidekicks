@@ -110,3 +110,33 @@
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);
 }
+
+/* One labelled group inside the discovery listbox.
+ *
+ * `display: contents` is deliberately NOT used: the group is a real row of the list's
+ * flex column, and its own column is what keeps the heading above its rows without a
+ * second gap rule. The nested list carries no marker and no indent of its own — the
+ * rows are the outer listbox's options through this group, and an indent would read
+ * as a hierarchy the entries do not have.
+ */
+.meridian-command-discovery__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-command-discovery__group-label {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.meridian-command-discovery__group-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

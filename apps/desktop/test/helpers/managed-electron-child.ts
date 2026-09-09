@@ -2,7 +2,7 @@
 //
 // Split out of `electron-child.ts` rather than left inside it because that
 // module is the SPAWN door — the one file under `test/` allowed to reach
-// `spawn`, which `electron-spawn-chokepoint.test.ts` enforces by name — and the
+// `spawn`, which `apps/desktop/eslint.config.mjs` enforces — and the
 // lifetime object beside it had become a second job in the same file.
 //
 // `EXIT` IS NOT `CLOSE`, AND THE DIFFERENCE IS THE WHOLE POINT

@@ -21,7 +21,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../call-plane/bridge.js";
-import { callOperation, fixturePort } from "./growth-port.test-support.js";
+import { callOperation, fixturePort, settleOperation } from "./growth-port.test-support.js";
 import { FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS } from "../call-plane/script-only-operations.js";
 import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "../call-plane/served-operations.js";
 import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "../workflows/workflow-reads.js";
@@ -73,16 +73,18 @@ function scenarioDeclaring(state: string): ConsoleScenario {
  * The served operations whose answer depends on what the playing scenario states.
  *
  * Membership in the served set says the PORT implements an operation, not that every
- * scenario has something for it to answer with. The branch-context read is the one
- * such operation under the flagship scenario, which scripts none: the registered reply
- * is flat and carries no absence, so there is nothing honest to serve and the read
- * refuses. Named rather than left implicit in the sweep, which reaches only the
- * operations the port does NOT serve: without this set nothing would say out loud
+ * scenario has something for it to answer with. Under the flagship, which scripts
+ * neither, the branch-context read has no context to serve — the registered reply is
+ * flat and carries no absence — and the run's durable intervention record has no run
+ * it states rows for; an empty answer from either would be a claim about a subject
+ * nobody described. Named rather than left implicit in the sweep, which reaches only
+ * the operations the port does NOT serve: without this set nothing would say out loud
  * that a served operation may still refuse, and the case below asserts that refusal
  * rather than merely leaving the operation unscanned.
  */
 const SCENARIO_CONDITIONAL_SERVED_OPERATIONS: ReadonlySet<GrowthOperationId> = new Set([
   "gitflowBranchContextRead",
+  "runRecordInterventionHistoryRead",
 ]);
 
 /**
@@ -156,10 +158,23 @@ describe("the fixture growth port — what it serves, and what it still refuses"
     // refuses with the fixture's `reply-unscripted` and never with `wire-unregistered`,
     // which would send a reader to a document that owes a wire this bridge already
     // stands in for.
+    //
+    // A served arm has a THIRD settlement beside those two, and it is the daemon's:
+    // an arm standing in for a wire whose refusals a surface reads by the daemon's own
+    // code throws the wire envelope rather than paraphrasing it into a growth code —
+    // the ingest plane's whole refusal vocabulary, and `sessionRead`'s unresolvable
+    // resume cursor. So the claim is made over both shapes rather than over the one
+    // the sweep happens to reach, and the thrown arm carries its own half of it: a
+    // NAMESPACED wire code, which no member of the growth vocabulary is.
     const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
 
     for (const operationId of FIXTURE_SERVED_GROWTH_OPERATION_IDS) {
-      const outcome = await callOperation(bridge.growth, operationId);
+      const settlement = await settleOperation(bridge.growth, operationId);
+      if (settlement.kind === "wire-refusal") {
+        expect(settlement.code, `${operationId} threw a growth code as a wire one`).toContain(".");
+        continue;
+      }
+      const { outcome } = settlement;
       if (outcome.status === "unavailable") {
         expect(outcome.code, `${operationId} refused as an unbuilt wire`).not.toBe(
           "wire-unregistered",
@@ -234,10 +249,11 @@ describe("the fixture growth port — what it serves, and what it still refuses"
   it("refuses a served operation the playing scenario states nothing for", async () => {
     // The half the sweep above cannot make: an operation is in the served set because
     // the PORT implements it, and whether a given scenario has anything to answer with
-    // is the scenario's business. The branch-context read is that case — the registered
-    // reply is flat and carries no absence, so a scenario scripting none leaves nothing
-    // honest to serve and the read takes the "not checked" refusal instead of a
-    // fabricated empty context.
+    // is the scenario's business. The branch-context read is one such case — the
+    // registered reply is flat and carries no absence, so a scenario scripting none
+    // leaves nothing honest to serve and the read takes the "not checked" refusal
+    // instead of a fabricated empty context — and the durable intervention record is
+    // the other, refusing for a run no scenario wrote rows for.
     const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
 
     for (const operationId of SCENARIO_CONDITIONAL_SERVED_OPERATIONS) {

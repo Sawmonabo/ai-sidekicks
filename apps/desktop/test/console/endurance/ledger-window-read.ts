@@ -51,9 +51,8 @@ export async function readLedgerWindow(
   const firstLedgerRow = consoleApplication.window.locator(LEDGER_ROW_BOX_SELECTOR).first();
   try {
     // The allowance is spelled INSIDE the wait's own arguments rather than bound to a
-    // local first: `architecture/body-allowance-consumption.test.ts` reads the call's
-    // argument list, so a hoisted local charges the allowance correctly and still reads
-    // as a wait bounded by something else.
+    // local first: a hoisted local charges the allowance correctly and still reads as
+    // a wait bounded by something else.
     await firstLedgerRow.waitFor({
       state: "attached",
       timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),

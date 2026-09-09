@@ -73,19 +73,14 @@
     // the fixture's own bridge surface into whatever program holds it — renderer
     // modules that reach `window` and `document`.
     "test/console/scenario-clock.ts",
-    // The benchmark ledger moved to `tsconfig.console-bench-test.json` for the
-    // architecture tier's reason: its two `.bench.ts` files import the markdown
+    // The benchmark ledger moved to `tsconfig.console-bench-test.json` for the reason
+    // `tsconfig.console-electron-test.json` exists: its two `.bench.ts` files import the markdown
     // pipeline and the store's entity kinds on purpose — a benchmark that timed a
     // local copy would be measuring the copy — so whatever those modules reach is
     // in this program too. It compiled clean only while that reach happened to stay
     // clear of a browser global, which is a property of the graph below it rather
-    // than of anything the tier wrote.
+    // than of anything the ledger wrote.
     "test/console/bench/**",
-    // The architecture tier moved to `tsconfig.console-architecture-test.json` when
-    // its wire-truth test started IMPORTING console source rather than reading it:
-    // that pulls `store/shell/location-hash.ts` into the program, which reaches `window`. Same
-    // split, and the same reason, as the browser and Electron tiers below.
-    "test/console/architecture/**",
     // The browser tiers' shared surface scaffolding, excluded with the tiers that
     // read it: it is typechecked by `tsconfig.console-browser-test.json` under the
     // renderer's own options, and a `.tsx` fixture landing there would fail here
@@ -117,6 +112,16 @@
     // the reasons its neighbours above are: its `page.evaluate` callback is
     // browser code this Node-lib config has no `document` for, and it imports the
     // launcher, so a program that pulls it in pulls those callbacks in too.
-    "test/console/palette-interaction.ts"
+    "test/console/palette-interaction.ts",
+    // The cross-process scaffolding's own suites. They drive the managed Electron
+    // child, the process-tree readers, the bounded cleanup, and the launch
+    // deadline — Node subjects — but two of them reach the launcher and the
+    // palette door above, whose `page.evaluate` callbacks are browser code this
+    // Node-lib config has no `document` for. They are typechecked with those
+    // modules by `tsconfig.console-electron-test.json`. The helpers themselves
+    // stay here; only the suites move.
+    "test/helpers/**/*.test.ts",
+    "test/helpers/**/*.test-support.ts",
+    "test/helpers/deferred-rejection.ts"
   ]
 }

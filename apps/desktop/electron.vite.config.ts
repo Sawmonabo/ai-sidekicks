@@ -89,7 +89,6 @@ import {
   RENDERER_DEV_CONTENT_SECURITY_POLICY,
   RENDERER_DEV_SERVER_PORT,
 } from "./src/main/renderer-scheme.js";
-import { chunkModulesManifestPlugin } from "./vitest/chunk-modules-manifest.js";
 import { iconCompilationPlugin } from "./vitest/icon-compilation.js";
 
 const ELECTRON_EXTERNAL: readonly (string | RegExp)[] = ["electron", /^electron\/.+/];
@@ -217,7 +216,7 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       // than fetched or inlined as markup. The options live in one module the
       // Vitest tiers call too — see `vitest/icon-compilation.ts` for why the
       // three consumers cannot be allowed to drift.
-      plugins: [iconCompilationPlugin(), chunkModulesManifestPlugin()],
+      plugins: [iconCompilationPlugin()],
       server: {
         port: RENDERER_DEV_SERVER_PORT,
         // See the header note: the policy names this port, so a silent
@@ -236,9 +235,9 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       // job — it would ship every scenario, the engine, and the manifest to
       // users, charge them the bytes on every bundle-budget run, and leave a
       // switch that flips the app into fixture data in production. As a literal,
-      // Rollup folds `if (false)` and drops the whole subtree, which the
-      // architecture tier asserts by grepping the release bundle for a scenario
-      // id.
+      // Rollup folds `if (false)` and drops the whole subtree, which
+      // `test/console/budget/release-absence.test.ts` asserts by sweeping the built
+      // bundle for the scenario corpus's own label and purpose strings.
       //
       // True only under `--mode=fixtures` (the gallery and screenshot builds) and
       // in the Vitest console projects, which set the same define.

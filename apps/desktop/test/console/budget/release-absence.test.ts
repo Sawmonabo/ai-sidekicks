@@ -7,9 +7,9 @@
 // code still ships a handle to the console's internals and a set of fabricated
 // sessions to anyone who reads the file.
 //
-// The architecture tier already asserts the mechanism — that the assignment sits
-// inside the guard, checked against source text in milliseconds. This asserts the
-// OUTCOME, against the artifact a person would actually install, because a define
+// The mechanism — that the assignment sits inside the guard — is a source-text claim
+// review makes. This asserts the OUTCOME, against the artifact a person would actually
+// install, because a define
 // that was misspelled, dropped from one build mode, or defeated by a bundler
 // setting would leave the mechanism intact and the outcome wrong.
 //
@@ -65,12 +65,10 @@
 // import below is already written around.
 //
 // AND THAT READ IS WHY THE BUILT TREE IS WALKED NEXT DOOR. Reading the corpus means
-// reaching renderer SOURCE, and `architecture/source-walk-chokepoint.test.ts` holds that
-// a module which does that may not also walk a directory of its own — one admission for
-// what counts as console source, and no second opinion drifting from it. Build output is
-// a different subject with no such admission, so its walk lives in
-// `built-renderer-tree.ts`, which reaches no renderer path and is admitted by that gate's
-// derived escape rather than by a name on a list.
+// reaching renderer SOURCE, and a module which does that may not also walk a directory
+// of its own — one admission for what counts as console source, and no second opinion
+// drifting from it. Build output is a different subject with no such admission, so its
+// walk lives in `built-renderer-tree.ts`, which reaches no renderer path at all.
 
 import { join } from "node:path";
 
@@ -204,7 +202,7 @@ function markersInSourceText(fileName: string, sourceText: string): readonly str
  * is read the way this tier reads everything else: off disk.
  *
  * Through the compiler's own parser rather than a regular expression, and through the
- * source reader the architecture tier already owns rather than a second directory walk.
+ * shared source reader in `console-source-modules.ts` rather than a second walk.
  * What it collects is the marker fields of every literal in that directory declaring
  * BOTH of them — every scenario, and a helper carrying the same pair, whose label is just
  * as much a string only the corpus has. A superset of the SCENARIOS is the safe direction

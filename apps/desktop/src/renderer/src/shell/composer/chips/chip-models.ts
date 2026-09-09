@@ -89,7 +89,21 @@ export interface ComposerRunTarget {
    * guard the caller supplied rather than one the daemon verified.
    */
   readonly expectedRunVersion: number | undefined;
-  /** Wire-verbatim run state, rendered as received. */
+  /**
+   * Wire-verbatim run state, rendered as received.
+   *
+   * AND IT REACHES HERE THROUGH THE SESSION STORE RATHER THAN THROUGH THE LIVE
+   * SUBSCRIPTION THE DESIGN NAMES. The path label the composer shows under its line
+   * — a new turn, or a steer — is resolved from the run entity this store projected
+   * off the event log, which is honest and testable but is a fold rather than the
+   * `run.subscribeState` reading the design says the state is delivered by. The two
+   * agree today because the fold is built from the same events the subscription
+   * carries; they would part the moment a state change reaches a client without an
+   * event this store admits. The subscription is not wired in the renderer yet, so
+   * nothing here reads it, and this member stays the projection — named rather than
+   * silently substituted, and re-homed onto that reading by the task that lands it
+   * (Plan-023, the run-state subscription task).
+   */
   readonly runState: string | undefined;
   /**
    * The run terminal's `providerFailureDetail`, wire-verbatim.

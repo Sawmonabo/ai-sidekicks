@@ -32,8 +32,7 @@ export const POSITION_SIBLING_OBSERVER_CAP = 64;
  *
  * It lives here rather than beside the page that spends it because a bound declared
  * in a view family is a ceiling nobody audits. `apps/desktop/AGENTS.md` §Config
- * single-sourcing states the rule and `cap-constant-home.test.ts` enforces it, over
- * `_THRESHOLD` as well as `_CAP` and `_MAX`.
+ * single-sourcing states the rule, over `_THRESHOLD` as well as `_CAP` and `_MAX`.
  */
 export const PARTITION_FOLD_THRESHOLD = 10;
 

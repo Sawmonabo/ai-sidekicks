@@ -3,6 +3,12 @@
 // Split from `QueueContents.tsx`, which owns the read, the delivery reading, and
 // the empty case, while this owns one row.
 //
+// AND THE RUN BINDING IS A PROJECTION, NEVER A DERIVATION. `QueueItemSummary` carries
+// no run member — the durable `queue_items.target_run_id` is read separately and folded
+// onto the feed — so a row draws the target it was handed and NOTHING where it was
+// handed none. Absent means the daemon named no binding for this row, which is the
+// column's nullable arm, and it is drawn as an absence rather than as a run.
+//
 // CANCELLABILITY IS THE WIRE'S ANSWER, NOT A LOOK. The state a row may be
 // cancelled from is a closed set kept here beside the control it gates, so the
 // control and the rule that admits it cannot drift apart; the tone table sits with
@@ -32,6 +38,14 @@ const QUEUE_STATE_TONES: Readonly<
 /** One queued item: its state, its figures, and cancel where cancel applies. */
 export function QueueRow(props: {
   readonly item: QueueItemSummary;
+  /**
+   * The run this item is bound to, where the binding read named one.
+   *
+   * `undefined` is the unbound row and the not-yet-answered read alike, and the row
+   * draws neither as a target: the feed carries the read's own refusal beside the rows,
+   * which is where a reader learns the difference.
+   */
+  readonly targetRunId: string | undefined;
   readonly isCancelPending: boolean;
   readonly cancelRefusal: { readonly code: string; readonly detail: string } | undefined;
   readonly onCancel: (queueItemId: string) => void;
@@ -50,6 +64,14 @@ export function QueueRow(props: {
             <WireFigure value={String(item.priority)} />
           </dd>
         </div>
+        {props.targetRunId === undefined ? null : (
+          <div className="meridian-queue__figure">
+            <dt>Target run</dt>
+            <dd>
+              <WireFigure value={props.targetRunId} />
+            </dd>
+          </div>
+        )}
         {item.channelId === undefined ? null : (
           <div className="meridian-queue__figure">
             <dt>Channel</dt>

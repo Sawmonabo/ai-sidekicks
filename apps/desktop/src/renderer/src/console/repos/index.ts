@@ -143,9 +143,31 @@ export function registerReposPanes(registry: ConsolePaneRegistry): void {
 // is used and a marker here would suppress nothing.
 export {
   useAttachmentCarrier,
-  // Consumed by T-023p-1C-3, the composer family's attachment affordance, in the
-  // cross-family task that composes it.
   type AttachmentCarrierBinding,
-  // Consumed by T-023p-1C-3, with the binding above.
-  type AttachmentCarrierSnapshot,
 } from "./attachments/attachment-carrier.js";
+
+// WHAT THE COMPOSER'S AFFORDANCE TAKES BESIDE THE BINDING, and why each of these and
+// nothing more. The composer renders attachment CHIPS — one line each, at the density
+// the send bar has room for — where this family renders cards, so the COMPONENT is not
+// shared and every one of these is a READING or a SENTENCE the two surfaces must not
+// answer differently: which name an entry goes by and whose it is, which media-type
+// readings it has, what cancelling actually does, what each refusal disposition
+// recommends, where a carrier stands against the count bound, whether one file is past
+// the byte bound, and whether an upload has gone quiet. The one COMPONENT published is
+// the bounds disclosure, which `Spec-014 §Bounds (normative defaults; operator-tunable)`
+// puts on the picker: two pickers rendering two lists would be two answers to one
+// question about a deployment neither of them can see.
+export { AttachmentBoundsDisclosure } from "./attachments/AttachmentBoundsDisclosure.js";
+export {
+  SHIPPED_DEFAULT_ALLOWLIST,
+  attachmentCarrierFill,
+  exceedsAttachmentByteAllowance,
+} from "./attachments/attachment-bounds.js";
+export { INGEST_ABANDON_COPY, INGEST_DISPOSITION_COPY } from "./attachments/attachment-policy.js";
+export { isIngestStalled } from "./attachments/attachment-presentation.js";
+export {
+  ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
+  attachmentMediaTypeReadings,
+  attachmentNameReading,
+} from "./attachments/attachment-provenance.js";
+export type { AttachmentIngestEntry } from "./attachments/attachment-shapes.js";

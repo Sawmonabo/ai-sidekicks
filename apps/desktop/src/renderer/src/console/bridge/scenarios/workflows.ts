@@ -56,7 +56,7 @@
 //
 // EVERY ID IS THE UUID THE WIRE DECLARES. `scenarios/wire-truth.ts` presents each beat
 // to the strict contract layer as the whole envelope it claims to be, so a readable
-// placeholder is a beat no daemon could emit and the architecture tier refuses it. The
+// placeholder is a beat no daemon could emit and the predicate refuses it. The
 // literals are fixed rather than generated for the same reason the flagship's are: a
 // screenshot reference and a recorded end-to-end run both name the same session twice.
 

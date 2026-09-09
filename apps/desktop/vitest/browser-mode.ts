@@ -9,8 +9,6 @@
 
 import { playwright, type PlaywrightProviderOptions } from "@vitest/browser-playwright";
 
-import { BROWSER_MODE_OPTIMIZE_DEPS_INCLUDE } from "../test/console/browser-mode-deps.js";
-
 /**
  * Conditions that resolve workspace *value* imports to TS source rather than a
  * stale `dist/`. Shared by every DOM-environment project, because each of them
@@ -18,17 +16,55 @@ import { BROWSER_MODE_OPTIMIZE_DEPS_INCLUDE } from "../test/console/browser-mode
  */
 export const WORKSPACE_SOURCE_CONDITIONS: string[] = ["@ai-sidekicks/source", "import", "default"];
 
+/** The Base UI package root. Subpath entries are `${BASE_UI_PACKAGE}/<part>`. */
+const BASE_UI_PACKAGE = "@base-ui/react";
+
+/**
+ * Every Base UI entry point the console imports, root included.
+ *
+ * Declared rather than derived, because the optimizer must know the set before any
+ * test file is loaded. Keeping it current is a reviewer's job: a console module that
+ * imports a Base UI subpath adds its line here in the same change.
+ */
+const BASE_UI_ENTRY_POINTS: readonly string[] = [
+  BASE_UI_PACKAGE,
+  `${BASE_UI_PACKAGE}/alert-dialog`,
+  `${BASE_UI_PACKAGE}/checkbox`,
+  `${BASE_UI_PACKAGE}/collapsible`,
+  `${BASE_UI_PACKAGE}/combobox`,
+  `${BASE_UI_PACKAGE}/dialog`,
+  `${BASE_UI_PACKAGE}/menu`,
+  `${BASE_UI_PACKAGE}/popover`,
+  `${BASE_UI_PACKAGE}/radio-group`,
+  `${BASE_UI_PACKAGE}/radio`,
+  `${BASE_UI_PACKAGE}/select`,
+  `${BASE_UI_PACKAGE}/switch`,
+  `${BASE_UI_PACKAGE}/tooltip`,
+];
+
 /**
  * Everything a browser-mode tier renders through, pre-bundled in ONE optimizer
- * pass and deduplicated. The list lives in `test/console/browser-mode-deps.ts`
- * so the architecture tier can hold it against the Base UI entries the source
- * tree imports: the optimizer keys on the exact specifier, so a subpath the list
- * does not name is discovered lazily on a cold cache, starts a second pass, and
- * leaves the tier with two React copies — the first Base UI `useContext` then
- * reads `null` and the whole tree fails to render.
+ * pass and deduplicated.
+ *
+ * Vite's optimizer keys its pre-bundle on the exact specifier, so listing
+ * `@base-ui/react` covers the package root and NOTHING else: a subpath the list
+ * does not name is discovered lazily — the first time a test renders through it —
+ * which starts a second optimizer pass. That second pass emits its own `react`
+ * chunk under a new `?v=` hash, two React module instances share no context, and
+ * the first Base UI component to call `useContext` reads `null`. The failure
+ * appears only on a cold optimizer cache, which is every CI run and no developer
+ * machine that has run the tier once.
  */
 export const BROWSER_MODE_OPTIMIZE_DEPS: { include: string[] } = {
-  include: [...BROWSER_MODE_OPTIMIZE_DEPS_INCLUDE],
+  include: [
+    "react",
+    "react/jsx-dev-runtime",
+    "react-dom",
+    "react-dom/client",
+    ...BASE_UI_ENTRY_POINTS,
+    "@testing-library/react",
+    "axe-core",
+  ],
 };
 
 /** The one React copy every browser-mode tier resolves. */

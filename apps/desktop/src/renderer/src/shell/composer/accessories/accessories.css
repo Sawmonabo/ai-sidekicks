@@ -157,7 +157,8 @@
 }
 
 .meridian-compaction__action,
-.meridian-attachment-seat__action,
+.meridian-composer-picker__control,
+.meridian-attach-menu__action,
 .meridian-queue-shelf__cancel,
 .meridian-plus-menu__trigger {
   display: inline-flex;
@@ -173,8 +174,17 @@
   border-radius: var(--meridian-radius-sm);
 }
 
+/* THE PICKER MATCHES ITS SIBLINGS, and its selector differs for one structural
+   reason. The other four are the focusable element; the picker's control is a `label`
+   wrapping a visually-hidden `<input type="file">`, so the label itself never takes
+   focus and a bare `:focus-visible` on it would match nothing and remove the ring
+   entirely. `:has(:focus-visible)` asks the same question the others ask — is the
+   focus here, and did it arrive by keyboard — of the element that actually holds it.
+   `:focus-within` asked a different one: it lit on a POINTER press, so this one
+   control drew a keyboard ring for a click while the four beside it did not. */
 .meridian-compaction__action:focus-visible,
-.meridian-attachment-seat__action:focus-visible,
+.meridian-composer-picker__control:has(:focus-visible),
+.meridian-attach-menu__action:focus-visible,
 .meridian-queue-shelf__cancel:focus-visible,
 .meridian-plus-menu__trigger:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
@@ -220,6 +230,19 @@
   gap: var(--meridian-space-2);
   align-items: baseline;
   font-size: var(--meridian-text-xs);
+}
+
+/* The run a queued row is bound to. The figure inside is the wire value verbatim;
+   this slot is what keeps the row one line — a run id is 36 characters and the row
+   wraps, so the value is clamped here and carried whole in the row's own tooltip
+   rather than shortened into a string the daemon never sent. */
+.meridian-queue-shelf__run {
+  display: inline-block;
+  max-width: 12ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 
 .meridian-queue-shelf__fold {
@@ -279,17 +302,9 @@
   border-radius: var(--meridian-radius-md);
 }
 
-.meridian-attachment-seat {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-}
-
-.meridian-attachment-seat__hint {
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
+/* The picker and the family rows inside the panel are dressed by
+   `attachments/composer-attachments.css`, which this directory owns and imports
+   through its own door beside this sheet. */
 
 /* --- Reserved seats ------------------------------------------------------ */
 

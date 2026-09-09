@@ -23,6 +23,7 @@ import type { McpGrowthSignatures } from "./mcp.js";
 import type { PaneGrowthSignatures } from "./panes.js";
 import type { PresenceGrowthSignatures } from "./presence.js";
 import type { ProviderAccountGrowthSignatures } from "./provider-accounts.js";
+import type { RunRecordGrowthSignatures } from "./run-records.js";
 import type { SessionGrowthSignatures } from "./sessions.js";
 import type { SidekickGrowthSignatures } from "./sidekicks.js";
 import type { WorkflowGrowthSignatures } from "./workflows.js";
@@ -54,4 +55,5 @@ export interface GrowthOperationSignatures
     McpGrowthSignatures,
     ChannelGrowthSignatures,
     PresenceGrowthSignatures,
-    InviteGrowthSignatures {}
+    InviteGrowthSignatures,
+    RunRecordGrowthSignatures {}

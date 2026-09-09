@@ -156,13 +156,15 @@ export {
 } from "./pane/pane-kinds.js";
 
 export {
-  /** @consumedBy T-023p-1C-3 */
+  // Consumed by T-023p-1C-3: the composer's own attach-menu suite empties the registry
+  // between cases. Reached from a test rather than from a shipped module, so the line
+  // carries the claim and not the exemption — knip needs none.
   clearComposerAttachMenu,
-  /** @consumedBy T-023p-1C-3 */
   composerAttachMenuEntries,
   registerComposerAttachMenuEntry,
   /** @consumedBy T-023p-1C-3 */
   type ComposerAttachMenuContext,
+  type ComposerArtifactAttachment,
   type ComposerAttachMenuEntry,
   type ComposerAttachOutcome,
 } from "./composer/composer-attach-menu.js";
@@ -227,7 +229,7 @@ export {
 // expires with the same change: it had exactly one reader outside this directory and that
 // reader was a test — the screenshot tier's capture helper, which refuses to photograph a
 // half-loaded body — so a door line would have been a specifier no shipped module reads,
-// which `architecture/barrel-census.test.ts` fails rather than tolerates. A settings page
+// which `apps/desktop/AGENTS.md` §Module shape rejects rather than tolerates. A settings page
 // waiting on its chunk is the same hazard the marker exists for, so the attribute now has
 // a production reader and a door line is what it is owed. `pendingPaneKindsIn` and
 // `pendingPaneBodiesIn` still have none and still take the leaf directly, for the reason
@@ -317,7 +319,7 @@ export {
 // The window's one overlay body, filled by the family that owns it and read by the
 // frame. `unregisterWindowOverlaySeat` is deliberately absent: its only reader is
 // this directory's own suite, and a door line no production module reads is what
-// `architecture/barrel-census.test.ts` fails.
+// `apps/desktop/AGENTS.md` §Module shape rejects.
 export {
   registerWindowOverlaySeat,
   sessionOpenerFor,
@@ -339,7 +341,7 @@ export {
 // registration, the ledger's mount, and the two types both name. Its slot contract,
 // its row-type tuple, and its release call are read by its own suite alone, which
 // reaches the declaring module directly — a door line without a production reader is
-// what `barrel-census.test.ts` fails.
+// what `apps/desktop/AGENTS.md` §Module shape rejects.
 export {
   registerTimelineRowFooterRenderer,
   rowTakesFooter,

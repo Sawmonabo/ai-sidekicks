@@ -106,11 +106,18 @@
         "src/shared/**",
         "build/**",
         // Named file by file rather than as `scripts/**`, on the `test:smoke`
-        // precedent: the budget harnesses under `scripts/budget/` are not this
-        // project's inputs and a tree glob would pull them in.
+        // precedent: a tree glob would pull in budget harnesses this project does
+        // not read. The registry IS read — `launch-deadline.test.ts` holds the
+        // harness bounds against the rows it serves.
         "scripts/test-changed.ts",
         "scripts/test-changed.test.ts",
+        "scripts/budget/**",
+        "test/console/budget/budgets.json",
         "test/helpers/**",
+        // The launch and cleanup scaffolding the suites under `test/helpers/`
+        // drive. The flat modules only — the console tiers under
+        // `test/console/<tier>/` are their own projects' inputs.
+        "test/console/*.ts",
         "vitest.config.*",
         "tsconfig*.json",
         "package.json"
@@ -161,27 +168,6 @@
         "src/renderer/src/console/**",
         "vitest.config.*",
         "tsconfig*.json",
-        "package.json"
-      ],
-      "outputs": [],
-      "cache": false
-    },
-    "test:console-architecture": {
-      // Reads source text rather than importing it, so it takes no build edge —
-      // but it reads ALL of `src`, not just the files it asserts about.
-      //
-      // `package.json` and the shared project resolver join the set because
-      // `ci-tier-coverage.test.ts` reads the package's own scripts and resolves
-      // the real Vitest projects through it. That tier also reads
-      // `.github/workflows/ci.yml`, which is outside this package and so cannot
-      // be named here; `cache: false` is what keeps that honest — a workflow edit
-      // can never be hidden behind a hash this list does not cover, because
-      // nothing here is ever restored from a cache.
-      "inputs": [
-        "src/**",
-        "test/console/architecture/**",
-        "test/console/vitest-projects.ts",
-        "vitest.config.*",
         "package.json"
       ],
       "outputs": [],
@@ -268,13 +254,14 @@
       "cache": false
     },
     "test:console-bench": {
-      // Not one of the nine tiers and deliberately not on the `test` aggregate,
-      // because each run APPENDS its absolutes to `test/console/bench/ledger.json`
-      // — a curated record a person reads, which no test run should rewrite as a
-      // side effect. It does gate: CI runs it in its own step with the ledger
-      // pointed at the runner's temp directory, and both arms assert a RATIO with
-      // a wide margin rather than a millisecond count, so a noisy runner cannot
-      // fail it and the store's own `mergeUpsert` losing its partitioning can.
+      // Not one of the eight tiers `Spec-023 §Console Test Tiers` registers, and
+      // deliberately not on the `test` aggregate, because each run APPENDS its
+      // absolutes to `test/console/bench/ledger.json` — a curated record a person
+      // reads, which no test run should rewrite as a side effect. It does gate: CI
+      // runs it in its own step with the ledger pointed at the runner's temp
+      // directory, and both arms assert a RATIO with a wide margin rather than a
+      // millisecond count, so a noisy runner cannot fail it and the store's own
+      // `mergeUpsert` losing its partitioning can.
       //
       // `passThroughEnv` is what makes that redirection reach the runner: Turborepo
       // 2's default `strict` env mode filters out every variable no task declares,
@@ -328,7 +315,8 @@
       // Every tier a desktop PR is gated on, in the order the three build
       // flavours allow, and the same order `.github/workflows/ci.yml` runs them
       // in — a developer's `pnpm test` and the required check answer the same
-      // question. `ci-tier-coverage.test.ts` fails if the two sets drift.
+      // question. Nothing checks that the two sets agree; a PR that adds or
+      // removes a tier edits both lists in the same diff, and a reviewer says so.
       //
       // The ORDER is load-bearing and is why the script is a chain of `turbo run`
       // invocations rather than one. `build`, `build:smoke`, and `build:fixtures`
@@ -341,8 +329,8 @@
       // browser-mode pair (which builds nothing), then release, smoke, and
       // fixtures each with its own consumers.
       //
-      // Two projects are deliberately absent and both are named, with their
-      // reason, in `ci-tier-coverage.test.ts`: `console-screenshot`, whose
+      // Two projects are deliberately absent, each with its reason:
+      // `console-screenshot`, whose
       // references are committed per platform and which runs in the pinned
       // `console-screenshot-macos` job, and `console-bench`, which records
       // timings into a ledger and gates nothing.

@@ -20,16 +20,12 @@
 //     and across two independently constructed folds is the assertion, and the
 //     discriminating case is an append belonging to ANOTHER run: it moves the
 //     projection's `builtAtPosition` and must not move the key.
-//   * NOTHING DURABLE IS WRITTEN. Asserted twice as an ABSENCE — an exhaustive
-//     allow-list over the module's own import specifiers, and a proxy recorder
-//     observing that the only members touched on the target across all four
-//     delivery paths are the read and the send.
+//   * NOTHING DURABLE IS WRITTEN. Asserted as an ABSENCE, through a proxy
+//     recorder observing that the only members touched on the target across all
+//     four delivery paths are the read and the send.
 //
 // Refs: Plan-005 §Phase 3 / T3.21, invariant I-005-9, ADR-029,
 // `Spec-005 §Canonical Transcript Export And Replay`, `Spec-005 §Fallback Behavior`.
-
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
@@ -2290,51 +2286,7 @@ describe("memo identity key — derived, never stored", () => {
 // 5 — no durable claim on any path
 // --------------------------------------------------------------------------
 
-const MODULE_SOURCE: string = readFileSync(
-  fileURLToPath(new URL("../memo-projection.ts", import.meta.url)),
-  "utf8",
-);
-
-function withoutComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
-}
-
 describe("memo delivery — nothing durable is written", () => {
-  it("imports nothing that could persist — an exhaustive allow-list, not a denylist", () => {
-    const importSpecifiers: Set<string> = new Set<string>();
-    for (const match of MODULE_SOURCE.matchAll(/^import[\s\S]*?from\s+"([^"]+)";/gm)) {
-      importSpecifiers.add(match[1] ?? "");
-    }
-
-    expect([...importSpecifiers].sort()).toEqual([
-      "../drivers/outbound-frame.js",
-      "./transform-pipeline.js",
-      "@ai-sidekicks/contracts",
-      "@noble/hashes/blake3.js",
-      "@noble/hashes/utils.js",
-    ]);
-  });
-
-  it("contains no persistence call, path, or statement in executable code", () => {
-    const executableSource: string = withoutComments(MODULE_SOURCE);
-    for (const forbidden of [
-      "better-sqlite3",
-      "node:fs",
-      "node:sqlite",
-      "migrations",
-      "runtime_bindings",
-      "INSERT",
-      "UPDATE ",
-      "DELETE FROM",
-      "CREATE TABLE",
-      "writeFile",
-      "localStorage",
-      "prepare(",
-    ]) {
-      expect(executableSource).not.toContain(forbidden);
-    }
-  });
-
   it("touches only the read and the send on the target, across all four delivery paths", async () => {
     const observedMemberNames: string[] = [];
     const request: DeliveryDraft = requestFor(

@@ -22,9 +22,9 @@
 // about every declaration in the tree. Asserted here they were asserted over a hand
 // list of the four contracts this file happens to render, which left the two declared
 // elsewhere unswept — and one of those carries a plan id beneath a doc comment saying
-// it does not. `test/console/architecture/owner-slot-contracts.test.ts` resolves every
-// `OwnerSlotContract` declaration through the parser and owns both. The rendering
-// claim stays here, because it is the only place a render can be looked at.
+// it does not. Both are claims about every declaration in the tree, so both are stated
+// in `apps/desktop/AGENTS.md` and held in review. The rendering claim stays here,
+// because it is the only place a render can be looked at.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

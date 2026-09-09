@@ -12,8 +12,8 @@
 //
 // `store/read/read-triggers.ts` owns the four moments and `store/read/refresh-scheduler.ts` owns what
 // asking costs; what this class adds is the `ReadTriggerTarget` shape that makes it
-// wireable, which is what the console's other four readings are and what the
-// architecture tier holds every reading to.
+// wireable, which is what the console's other four readings are and what
+// `apps/desktop/AGENTS.md` §Chokepoints holds every reading to.
 //
 // THE TRIGGERING KINDS ARE THE AGENT LIFECYCLE'S, AND THEIR PAYLOADS ARE NEVER READ.
 // The `approvals-wire.ts` rule, for the same reason: the roster read is the single
@@ -35,7 +35,7 @@
 // it as this reading's `refused` phase, which is what makes that claim true and what
 // the console's four other readings already do.
 
-import type { AgentPendingSwitch } from "../../../console/bridge/index.js";
+import type { AgentPendingSwitch, AgentRosterEntry } from "../../../console/bridge/index.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
 import {
   normalizeWireRejection,
@@ -75,6 +75,22 @@ export interface AgentRosterReadout {
   readonly payingAccountId: string | undefined;
   readonly isProviderDefaultAccount: boolean;
   readonly pendingSwitch: AgentPendingSwitch | undefined;
+  /**
+   * The whole row the roster served for this agent, wire-verbatim.
+   *
+   * PRESENT EXACTLY WHEN THE ROSTER SERVED AND NAMED THIS AGENT, which is narrower than
+   * `phase === "read"`: a served roster that carries no such row IS a read, and what it
+   * read is that the session holds no such agent. Absent on every other phase.
+   *
+   * CARRIED WHOLE RATHER THAN PROJECTED. The two members beside it are projections
+   * because the chip renders a sentence about each; this one exists so a surface
+   * composing a form over the agent's binding is handed the row the daemon sent instead
+   * of taking a second `agent.list` of its own — two reads of one roster being two
+   * arrival orders with nothing able to say which is right. Nothing here decides what a
+   * consumer may read off it, which is why it is not narrowed to the axes one is known
+   * to want today.
+   */
+  readonly agent: AgentRosterEntry | undefined;
   readonly refusal: ConsoleRefusal | undefined;
 }
 
@@ -95,6 +111,7 @@ const NOTHING_ASKED: AgentRosterReadout = Object.freeze({
   payingAccountId: undefined,
   isProviderDefaultAccount: false,
   pendingSwitch: undefined,
+  agent: undefined,
   refusal: undefined,
 });
 
@@ -257,6 +274,9 @@ export class AgentRosterReading implements ReadTriggerTarget {
       payingAccountId,
       isProviderDefaultAccount: payingAccountId === undefined,
       pendingSwitch: summary.pendingSwitch,
+      // The row itself, unprojected, on the arm where the roster named it — see the
+      // member's own note for why this is the one place it can be set.
+      agent: summary,
       refusal: undefined,
     });
   }

@@ -26,7 +26,7 @@ import {
 
 import "../../../src/renderer/src/console/agents/index.js";
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
-import { AgentCard } from "../../../src/renderer/src/console/agents/AgentCard.js";
+import { AgentCard } from "../../../src/renderer/src/console/agents/agent-card/index.js";
 import type { AgentRosterEntry } from "../../../src/renderer/src/console/bridge/wire-shapes/agent-plane.js";
 
 /** An agent whose echo fills every row the card can draw, including the tail. */

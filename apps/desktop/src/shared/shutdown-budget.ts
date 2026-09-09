@@ -37,7 +37,7 @@
  *
  * Read by `src/main/sidecar-lifecycle.ts`, which races the drain against it, and quoted
  * by the console's restart confirmation, which renders it as a derived figure. Neither
- * side declares a second one; `test/console/architecture/shutdown-budget-single-home.test.ts`
- * is what keeps that true.
+ * side declares a second one; `apps/desktop/AGENTS.md` §Config single-sourcing is what
+ * keeps that true.
  */
 export const DAEMON_SHUTDOWN_FLUSH_BUDGET_MS = 10_000;

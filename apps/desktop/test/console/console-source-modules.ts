@@ -1,11 +1,11 @@
-// The desktop source the architecture tier reads.
+// The desktop source the tiers that ask about source text read.
 //
-// Not a test file — no `include` glob reaches it; the architecture tier imports it,
-// the way the browser tiers import `console-harness.tsx`. It exists because three
-// source-text tripwires now walk the same two directories, and `apps/desktop`
-// AGENTS.md hoists a helper on its second use: three copies of a recursive read with
-// three slightly different ideas of what counts as source is how one tripwire comes
-// to scan `.d.ts` files and another does not, with nothing reporting the difference.
+// Not a test file — no `include` glob reaches it; its readers import it, the way the
+// browser tiers import `console-harness.tsx`. It exists because more than one reader
+// walks the same two directories, and `apps/desktop` AGENTS.md hoists a helper on its
+// second use: copies of a recursive read with slightly different ideas of what counts
+// as source is how one reader comes to scan `.d.ts` files and another does not, with
+// nothing reporting the difference.
 //
 // WHAT COUNTS AS SOURCE, decided once and in TWO PLACES that answer different
 // halves. A FILE — asked of the directory entry, not inferred from the name,
@@ -33,12 +33,12 @@
 // `.test-support.*`, so one gate scanned `bridge/fixture/call-plane/bridge.test-support.ts` and another
 // did not, with nothing reporting the difference.
 //
-// THE ROOTS ARE A PARAMETER TOO, and one gate's subject is the whole package. A
-// stacked documentation block is an editing accident rather than a console one, so
-// `DESKTOP_PROSE_ROOTS` names `src/` and `test/` and the walk resolves a display base
-// per root — see `displayBaseFor`. Nothing else about the walk changes: it is the same
-// recursion, the same file test, and the same `tests` answer, which is exactly why the
-// widening cost a root list rather than a fifth walk.
+// THE ROOTS ARE A PARAMETER TOO, because a caller's subject is not always the console:
+// the assets tier reads the generator's own inputs and the bundle tier reads what a
+// release must not carry. The walk resolves a display base per root — see
+// `displayBaseFor`. Nothing else about the walk changes: it is the same recursion, the
+// same file test, and the same `tests` answer, which is exactly why the widening cost a
+// root list rather than a second walk.
 //
 // THE SHELL SUBTREE IS LISTED AND MAY BE ABSENT. `src/renderer/src/shell/` is a
 // console tier — it composes console seats and runs under the same fixture define —
@@ -58,24 +58,22 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 /**
  * The package this walk belongs to — what a package-relative path is measured from.
  *
- * EXPORTED because three gates had each resolved it for themselves, two of them by
- * climbing four levels out of {@link CONSOLE_DIRECTORY} and one by naming the walked
- * roots' own parent. Three spellings of one anchor is how a root move goes green in one
- * gate and red in another, and this module already owns the anchor: every root below is
- * derived from it. `eslint-harness.ts` beside it then declared a byte-identical fourth
- * from the same `resolve(HERE, "..", "..")` — the same drift under a second name — and
- * now imports this one.
+ * EXPORTED because several gates had each resolved it for themselves, some by climbing
+ * four levels out of {@link CONSOLE_DIRECTORY} and one by naming the walked roots' own
+ * parent. Two spellings of one anchor is how a root move goes green in one gate and red
+ * in another, and this module already owns the anchor: every root below is derived from
+ * it.
  */
 export const DESKTOP_PACKAGE_ROOT: string = resolve(HERE, "..", "..");
 
 /**
  * The renderer source root, the parent of every console family.
  *
- * EXPORTED for the anchor's own reason and on its own evidence: four consumers had
- * derived it, `eslint-harness.ts` by joining the segments as this line does and two
- * census suites by climbing out of {@link CONSOLE_DIRECTORY}. The two spellings agree
- * today and disagree the moment the console moves — one gate would keep pointing at the
- * old parent and the other would follow, with nothing reporting that they had parted.
+ * EXPORTED for the anchor's own reason and on its own evidence: several consumers had
+ * derived it, one by joining the segments as this line does and the rest by climbing out
+ * of {@link CONSOLE_DIRECTORY}. The two spellings agree today and disagree the moment the
+ * console moves — one reader would keep pointing at the old parent and the other would
+ * follow, with nothing reporting that they had parted.
  */
 export const RENDERER_SOURCE_ROOT: string = join(DESKTOP_PACKAGE_ROOT, "src", "renderer", "src");
 
@@ -87,36 +85,6 @@ export const SHELL_DIRECTORY: string = join(RENDERER_SOURCE_ROOT, "shell");
 
 /** The two roots a console source-text tripwire scans, in scan order. */
 export const CONSOLE_SOURCE_ROOTS: readonly string[] = [CONSOLE_DIRECTORY, SHELL_DIRECTORY];
-
-/**
- * Every hand-written module the package SHIPS, both processes included.
- *
- * The root for a gate whose subject spans the process boundary — a value main and the
- * renderer both read, a shape neither may re-declare. `CONSOLE_SOURCE_ROOTS` cannot
- * express such a claim at all, because half of what it forbids lives in `src/main/`,
- * and `DESKTOP_PROSE_ROOTS` over-reaches it by carrying `test/`, where a case that
- * proves a rule bites has to write the thing the rule forbids.
- */
-export const DESKTOP_SOURCE_ROOT: string = join(DESKTOP_PACKAGE_ROOT, "src");
-
-/**
- * Every hand-written module in the package, in scan order.
- *
- * The roots for a gate whose subject is PROSE rather than console structure. A stacked
- * documentation block is an editing accident, not a console one: it lands wherever a
- * declaration was inserted under a block or a block was copied with its declaration,
- * and both happen in `src/main/`, in a co-located test, and — most of all — in a
- * `.test-support.*` module, which is where a block gets copied along with the helper
- * it describes. Scoping such a gate to the console left the two largest homes of the
- * defect unscanned, and the tests it did not scan outnumber the modules it did.
- *
- * Paired with `{ tests: true }` at every call site, which is what reaches the
- * `.test-support.*` half; the roots alone would still subtract it.
- */
-export const DESKTOP_PROSE_ROOTS: readonly string[] = [
-  DESKTOP_SOURCE_ROOT,
-  join(DESKTOP_PACKAGE_ROOT, "test"),
-];
 
 /** One source module, named by the root it was found under. */
 export interface ConsoleSourceModule {
@@ -165,7 +133,7 @@ export function consoleSourceModules(scan: ConsoleSourceScan = {}): readonly Con
  * display path, a barrel's `…/index.ts` suffix, a chunk root's directory prefix, a
  * specifier resolved with `path.posix`. A gate holding both spellings at once is green
  * on this machine and red on Windows, which is a defect no host running the tier here
- * can observe: `lazy-chunk-isolation.test.ts` looked for the last `/` in a path that
+ * can observe: a chunk-isolation walk once looked for the last `/` in a path that
  * carried none, took the empty string as the chunk's directory, and quantified its claim
  * over the whole console instead of over one directory.
  *
@@ -246,146 +214,4 @@ export function consoleStylesheets(
 /** Read one module's text. Separate from the walk so a caller can filter first. */
 export function readConsoleSourceModule(module: ConsoleSourceModule): string {
   return readFileSync(module.absolutePath, "utf8");
-}
-
-/**
- * One named module out of a scan, or a failure that says which name was not found.
- *
- * The other half of the walk, and it was written three times before it lived here —
- * with three signatures, one of them an inline `find` and a `throw`. A gate whose
- * "the scan reached this module" failure reads differently in three files is three
- * gates a reader has to learn separately, and the divergence is invisible until one
- * of them reports nothing useful on the day it fires.
- *
- * `what` names the module in a person's terms where the path alone would not say why
- * the gate cared. It is optional because in a gate whose whole subject is that one
- * path, the path IS the sentence.
- */
-export function moduleNamed(
-  modules: readonly ConsoleSourceModule[],
-  displayPath: string,
-  what?: string,
-): ConsoleSourceModule {
-  const found = modules.find((module) => module.displayPath === displayPath);
-  if (found === undefined) {
-    throw new Error(
-      what === undefined
-        ? `the scan did not reach ${displayPath}`
-        : `the scan did not reach ${what} at ${displayPath}`,
-    );
-  }
-  return found;
-}
-
-/** One module and the text it was read as, paired so a scan carries both. */
-export interface ConsoleModuleText {
-  readonly module: ConsoleSourceModule;
-  /** What a failure message names the module by — {@link ConsoleSourceModule.displayPath}. */
-  readonly displayPath: string;
-  readonly source: string;
-}
-
-/** What one reading of the tree answers: the modules, and every one of them read. */
-export interface ConsoleSourceReading {
-  readonly modules: readonly ConsoleSourceModule[];
-  readonly texts: readonly ConsoleModuleText[];
-}
-
-/**
- * The tree, walked and read ONCE for a file, behind a throwing accessor.
- *
- * A ROLE RATHER THAN A HELPER, which is why it lives beside the walk it pays for. A
- * source-text gate asks several questions of one tree, and the shape that answers them
- * cheaply is always the same: walk once, read every module once, hold the pair, and
- * assert the count so the hoist is a claim rather than a structure that looks right. A
- * gate that splits into two files needs it in both, which is the second use this is
- * hoisted on.
- *
- * BEHIND A PRIVATE FIELD WITH A THROWING ACCESSOR rather than a mutable binding a case
- * could read as `undefined`: a `beforeAll` that failed would otherwise surface as a
- * type error in whichever case ran first, which names the wrong thing.
- *
- * A GATE THAT FOLDS ITS READING IMMEDIATELY IS NOT A SECOND COPY OF THIS. The censuses
- * in `glyph-size-home.test.ts` and `one-doc-per-declaration.test.ts` walk and read the
- * same way and then keep a DERIVED answer — a set of sizes, a list of stranded blocks —
- * and never hold the texts at all. What they share with this is the walk and the
- * per-module read, and those they already share, from this module.
- */
-export class ConsoleSourceTree {
-  readonly #scan: ConsoleSourceScan;
-  #reading: ConsoleSourceReading | undefined = undefined;
-  #readCount = 0;
-
-  /** @param scan Which roots to walk and whether tests count, as {@link consoleSourceModules} takes it. */
-  public constructor(scan: ConsoleSourceScan = {}) {
-    this.#scan = scan;
-  }
-
-  /** How many times the tree has been walked, for the control that it is once. */
-  public get readCount(): number {
-    return this.#readCount;
-  }
-
-  /** The one reading this file paid for. Throws if a case asks before the hook ran. */
-  public get reading(): ConsoleSourceReading {
-    if (this.#reading === undefined) {
-      throw new Error("the console reading was asked for before the hook filled it in");
-    }
-    return this.#reading;
-  }
-
-  /** Walk the roots and read every module. Called once, from a `beforeAll`. */
-  public read(): void {
-    this.#readCount += 1;
-    const modules = consoleSourceModules(this.#scan);
-    this.#reading = {
-      modules,
-      texts: modules.map((module) => ({
-        module,
-        displayPath: module.displayPath,
-        source: readConsoleSourceModule(module),
-      })),
-    };
-  }
-}
-
-/**
- * The console-relative paths of a console scan, in scan order.
- *
- * Three gates wrote `module.displayPath.slice("console/".length)` inline, which is a
- * literal about this module's own naming convention copied into files that do not own
- * it: the day a root is renamed, three private slices go on reporting paths with a
- * stale prefix stripped and nothing says so. It takes the modules rather than
- * re-walking, because a caller has already filtered by the time it wants names.
- *
- * A module found under a root OTHER than the console keeps its whole `displayPath` —
- * there is no console prefix on it to strip, and silently returning the shell path
- * unchanged beside stripped console ones would hand a caller two spellings of one
- * thing. A mixed-root scan wants `displayPath` and not this.
- */
-export function consoleRelativePaths(modules: readonly ConsoleSourceModule[]): readonly string[] {
-  const consolePrefix = `${toPosixSeparators(relative(RENDERER_SOURCE_ROOT, CONSOLE_DIRECTORY))}/`;
-  return modules.map((module) =>
-    module.displayPath.startsWith(consolePrefix)
-      ? module.displayPath.slice(consolePrefix.length)
-      : module.displayPath,
-  );
-}
-
-/**
- * One named module's text, or the failure `moduleNamed` raises.
- *
- * The composition four gates wrote out by hand, and it is the pair that belongs
- * together: every caller of `moduleNamed` in this tier immediately reads the module it
- * found, and a lookup that succeeds is never the thing a gate wanted. Naming the pair
- * is also what keeps the failure message singular — a private
- * `readConsoleSourceModule(moduleNamed(...))` in each gate is four call sites that can
- * drift into four ideas of what to say when the scan did not reach a path.
- */
-export function readModuleNamed(
-  modules: readonly ConsoleSourceModule[],
-  displayPath: string,
-  what?: string,
-): string {
-  return readConsoleSourceModule(moduleNamed(modules, displayPath, what));
 }

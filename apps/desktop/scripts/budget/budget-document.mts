@@ -78,10 +78,11 @@ export interface ConsoleBudget {
    *
    * `existsSync` over `measuredBy` passed for two rows that named a file which
    * never touches their subject — the frame-witness and cleanup bounds both
-   * pointed at `architecture/launch-deadline.test.ts`, which compares registry
+   * pointed at `test/helpers/launch-deadline.test.ts`, which compares registry
    * figures with imported constants and drives neither `FrameWitness` nor
    * `BoundedCleanup`. A path is not evidence; the symbol the harness has to hold
-   * is, and `budget/measured-by.test.ts` reads the file and checks it.
+   * is, so this parser refuses an `enforced` row that names none. Whether the named
+   * symbol is the one that suite actually drives is a reviewer's read.
    */
   readonly subjectSymbol: string | null;
   /** Why it is not measurable yet; non-null exactly when `status` is `"n/a"`. */

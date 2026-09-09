@@ -1,16 +1,17 @@
 // Runtime tripwires.
 //
-// `Spec-023 §Console Test Tiers` names an architecture tier whose lint tests
-// assert the STATIC tripwires (no `scrollTop` write outside the chokepoint, no
-// `scrollIntoView`, no runtime `process.env` gate, no `dangerouslySetInnerHTML`
-// outside the math-owned node, no direct `window.sidekicks` outside the bridge
-// provider, no second mount door for a pane kind, no import from a plan-owned
-// subtree, no store reading another store's flag, every `define`-gated module
-// unreachable from a release entry). Those are proved by reading source and
-// live under `test/console/architecture/`.
+// A tripwire is the console's own defect detector for a violation whose evidence is a
+// VALUE rather than a token in the source. Nothing here reads source text: a rule that
+// can be decided by reading the tree is a lint rule in `apps/desktop/eslint.config.mjs`
+// or a sentence in `apps/desktop/AGENTS.md`, and never a kind below.
 //
-// This module owns the six tripwires that can only be proved at RUNTIME,
-// because their violation is a value rather than a token:
+// What this module does at runtime: it holds one process-wide `TripwireRegistry` per
+// renderer, records every firing on it with a bounded report buffer and an unbounded
+// per-kind count, hands each report to whatever diagnostic sinks are subscribed, and —
+// under the fixture build define alone — hangs that registry on `globalThis` so a tier
+// driving a real window can read what fired.
+//
+// The six kinds, each a value rather than a token:
 //
 //   • `bridge-shape-drift`   — the live and fixture bridges stopped being
 //                              shape-identical (I-023-13).
@@ -225,7 +226,8 @@ export { TRIPWIRE_FIXTURE_GLOBAL };
  *
  * `__SIDEKICKS_CONSOLE_FIXTURES__` is a literal at build time, so Rollup folds
  * this to nothing in a release bundle: the property does not exist in shipped
- * code, and the architecture tier's release-bundle grep is what keeps that true.
+ * code, and `test/console/budget/release-absence.test.ts` sweeps the built artifact
+ * for every fixture global to keep that true.
  */
 if (__SIDEKICKS_CONSOLE_FIXTURES__) {
   (globalThis as Record<string, unknown>)[TRIPWIRE_FIXTURE_GLOBAL] = consoleTripwires;

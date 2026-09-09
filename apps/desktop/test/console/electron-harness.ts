@@ -329,7 +329,7 @@ async function launchConsole(options: LaunchConsoleOptions): Promise<LaunchedCon
  *
  * Takes the close alone rather than a whole launched application, for that same
  * module's reason: the refusal is then reachable without an Electron, and
- * `architecture/settle-time-close.test.ts` is what drives it.
+ * `test/helpers/settle-time-close.test.ts` is what drives it.
  */
 export async function registerSettleTimeClose(
   application: Pick<ClosableApplication, "close">,

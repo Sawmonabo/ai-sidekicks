@@ -100,6 +100,8 @@ describe("a partial reading is said beside the rows, never in place of them", ()
       pendingCancelIds: new Set(),
       cancelRefusalByItemId: new Map(),
       cancelItem: () => undefined,
+      targetRunIdByItemId: new Map<string, string>(),
+      bindingRefusal: undefined,
       unreadableDeliveryCount: 2,
       unreadableRefusal: refuse(
         "session-queue",

@@ -65,20 +65,18 @@
 // already takes. Naming it at only one leaves the other painting undressed until an
 // unrelated chunk happens to arrive, and then silently working.
 //
-// BOTH HALVES ARE CHECKED, IN BOTH DIRECTIONS.
-// `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` fails a sheet held
-// at a door whose own static graph can render nothing against it, AND a sheet deferred
-// to a chunk root while a module on the initial graph names a class no eagerly-arriving
-// sheet declares. Neither claim is about where a file sits.
+// BOTH HALVES MATTER, IN BOTH DIRECTIONS. `apps/desktop/AGENTS.md` §Module shape rejects
+// a sheet held at a door whose own static graph can render nothing against it, AND a
+// sheet deferred to a chunk root while a module on the initial graph names a class no
+// eagerly-arriving sheet declares. Neither claim is about where a file sits.
 //
 // AND THE DEFERRAL WAS ADMITTED BY MEASUREMENT AND NOT BY THE SHAPE OF THE FILE. A sheet
 // may only travel behind a chunk boundary when no other family declares any class it
 // declares: two families declaring one class at equal specificity are resolved by LOAD
 // ORDER, so deferring such a sheet silently restyles the other family's surface. That is
 // not hypothetical — `runs/index.ts` carries the measurement of it happening. None of
-// this family's seven sheets declares a class any other family declares, and
-// `test/console/architecture/stylesheet-selector-owners.test.ts` is the census that
-// says so and fails if that stops being true.
+// this family's seven sheets declares a class any other family declares, which was
+// checked against the tree rather than assumed.
 
 import { registerComposerAttachMenuEntry, type ConsolePaneRegistry } from "../seats/index.js";
 import { browserAttachMenuEntry } from "./pane/attach-entry.js";

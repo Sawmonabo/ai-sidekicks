@@ -40,7 +40,7 @@
 // in `managed-electron-child.ts` owns WHEN that call is made and how many times,
 // and what a child's terminal events mean. This file is the DOOR: the one place
 // under `test/` that reaches `spawn`, which is the property
-// `electron-spawn-chokepoint.test.ts` enforces by name. It asserts nothing, and
+// `apps/desktop/eslint.config.mjs` enforces. It asserts nothing, and
 // the one test-framework symbol it imports is a teardown registrar rather than
 // an assertion API — a helper that could fail a test would be a second place a
 // spawn failure can come from.
@@ -198,9 +198,10 @@ export interface ElectronChildSpawnOptions {
  * Spawn Electron with its lifetime bound to the current test.
  *
  * The single spawn chokepoint for `apps/desktop/test/**`, enforced by
- * `test/console/architecture/electron-spawn-chokepoint.test.ts`: a second
- * `spawn` import anywhere under that tree is a red check, because a second
- * spawn site is a second lifetime nobody owns.
+ * `no-restricted-imports` and `no-restricted-syntax` in
+ * `apps/desktop/eslint.config.mjs`: a second `spawn` reach anywhere under that
+ * tree — static, dynamic `import()`, or `require` — is a red check, because a
+ * second spawn site is a second lifetime nobody owns.
  *
  * Must be called from inside a running test — `onTestFinished` is not legal
  * anywhere else, and a spawn in a `beforeAll` would be a child whose lifetime

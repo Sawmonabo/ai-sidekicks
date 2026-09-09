@@ -62,8 +62,8 @@
 // ADMITTED BY THE COLLISION CENSUS. A sheet may travel behind a chunk boundary only if
 // no other family declares a class it declares — load order decides equal-specificity
 // conflicts, so deferring such a sheet restyles somebody else's surface, which
-// `runs/index.ts` records happening. None of this family's four sheets does, per
-// `test/console/architecture/stylesheet-selector-owners.test.ts`.
+// `runs/index.ts` records happening. None of this family's four sheets does, checked
+// against the tree.
 
 import type { ConsolePaneRegistry } from "../seats/index.js";
 

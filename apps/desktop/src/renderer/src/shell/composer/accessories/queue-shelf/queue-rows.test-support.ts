@@ -9,7 +9,19 @@
 
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 
-import { readQueueItemId } from "../../../../console/bridge/index.js";
+import { readQueueItemId, type QueueRunBindingState } from "../../../../console/bridge/index.js";
+
+/**
+ * The reading a case that is not about run bindings hands the shelf.
+ *
+ * Named here rather than rebuilt per call site, because it is the shape of "the read
+ * served and found none" and every suite in this zone that is asking about something
+ * else needs exactly it. A case that IS about bindings builds its own.
+ */
+export const NO_RUN_BINDINGS: QueueRunBindingState = {
+  targetRunIdByItemId: new Map<string, string>(),
+  bindingRefusal: undefined,
+};
 
 /**
  * A queue-item id the wire admits, or a loud failure.

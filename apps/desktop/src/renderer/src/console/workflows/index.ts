@@ -99,8 +99,8 @@ import {
 import { ChannelWorkflowProgressCard } from "./channel-progress/ChannelWorkflowProgressCard.js";
 // TYPE-ONLY, WHICH IS THE WHOLE POINT OF THE FORM. The loader below is typed against the
 // picker's own props, and a value import of that module would be a static edge into the
-// directory the loader defers — the shape `composer-workflow-picker-boundary.test.ts`
-// fails. A type import is erased before the bundler sees the graph, so it carries none.
+// directory the loader defers — the shape this boundary exists to prevent. A type
+// import is erased before the bundler sees the graph, so it carries none.
 import type { WorkflowStartMenuProps } from "./start/WorkflowStartMenu.js";
 
 /**
@@ -149,8 +149,8 @@ const WORKFLOW_PANES: readonly ConsolePaneRegistration[] = [
     // Keeping the body eager hid the coupling instead of removing it. The class has one
     // owner now: this family's block is `meridian-workflow-run-controls` and the runs
     // family keeps the name it was already declaring, so no bundle boundary decides how
-    // either surface looks. `test/console/architecture/stylesheet-selector-owners.test.ts`
-    // holds the census that keeps a second collision from landing unnoticed.
+    // either surface looks. `apps/desktop/AGENTS.md` §Module shape is the rule that
+    // keeps a second collision from landing unnoticed, and review is what reads it.
     body: () => import("./pane/workflow-run-pane-body.js"),
   },
   {

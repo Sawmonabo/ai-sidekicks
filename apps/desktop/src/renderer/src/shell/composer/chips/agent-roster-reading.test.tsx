@@ -232,3 +232,31 @@ describe("the reading survives a remount that disposes it", () => {
     expect(rosterReads()).toBeGreaterThan(afterMount);
   });
 });
+
+describe("the readout carries the row the read named, and only once it has", () => {
+  it("names no row until the read serves, then the roster's own entry", async () => {
+    // The two moments in one case, because the claim is about the transition: a
+    // readout that carried a row before the daemon answered would be the console
+    // deciding what a binding is, which is the fabrication this module replaced.
+    const bridge = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
+    const rendered = renderHook(() =>
+      useAgentBindingReading(bridge, openStore(), AGENT_IMPLEMENTER),
+    );
+    expect(rendered.result.current.agent).toBeUndefined();
+
+    await settleScheduledRead(bridge);
+
+    expect(rendered.result.current.agent?.agentId).toBe(AGENT_IMPLEMENTER);
+  });
+
+  it("negative control: a composer addressed at a channel never names one", async () => {
+    // Every trigger still fires and the reading names no agent, so there is no row to
+    // carry — which is what keeps the case above from passing over a readout that
+    // handed back whichever row the roster happened to list first.
+    const bridge = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
+    const readout = await mountedReadout(bridge, openStore(), undefined);
+
+    expect(readout().phase).toBe("not-checked");
+    expect(readout().agent).toBeUndefined();
+  });
+});

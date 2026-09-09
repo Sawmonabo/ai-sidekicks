@@ -6,7 +6,7 @@
 // module that DECLARES it rather than through this line.
 //
 // FOUR NAMES, one per measured production edge, because a line with no production
-// reader is a dead export `barrel-census.test.ts` fails:
+// reader is a dead export `apps/desktop/AGENTS.md` §Module shape rejects:
 //   - `ConsolePaneAddress` — `composer/composer-seat.ts`
 //   - `ConsolePaneOpener` — `slots/sidebar-sections.ts`
 //   - `ConsolePaneRegistry` — `surface/surface-context.ts`

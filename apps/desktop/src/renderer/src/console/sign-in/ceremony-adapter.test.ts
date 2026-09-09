@@ -6,15 +6,11 @@
 // and because reading an unrecognised value as success would sign somebody in on the
 // strength of nothing.
 //
-// THE TREE-WIDE HALF OF THIS CLAIM LIVES IN THE ARCHITECTURE TIER, at
-// `test/console/architecture/ceremony-adapter-sites.test.ts`: which modules may name
-// the namespace, what they may hand it, and that nothing calls the PRF derivation. It
-// was written here, reading the console through a raw `import.meta.glob` over
-// `../**/*.{ts,tsx}` — and a directory glob in a suite is a set of dependency EDGES
-// rather than a read, so that one file made the whole console reachable and the
-// dead-code gate stopped reporting orphans anywhere under it. A source-text claim
-// belongs where the shared walk and the shared parse are; what stays here is what this
-// file is for, which is the adapter's own behaviour against a fixture bridge.
+// WHAT THIS FILE IS FOR is the adapter's own behaviour against a fixture bridge, and
+// nothing in it reads source text. Which modules may name the `webAuthn` namespace,
+// what they may hand it, and that nothing calls the PRF derivation are STRUCTURAL
+// rules, whose home is a lint or layering config rather than a suite that reads the
+// tree.
 
 import { describe, expect, it } from "vitest";
 

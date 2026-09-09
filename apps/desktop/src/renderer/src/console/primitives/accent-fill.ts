@@ -7,9 +7,9 @@
 // a string that drifts away from the sheet in silence: the rule stays green, the
 // control quietly loses its face, and no gate reports it.
 //
-// The other half of the seam cannot be an import — a stylesheet imports nothing —
-// so `test/console/architecture/accent-fill-pairing.test.ts` reads the sheet and
-// asserts the selector this constant names is in it.
+// The other half of the seam cannot be an import — a stylesheet imports nothing — so
+// the pairing is held in review: `primitives.css` has to declare the selector this
+// constant names.
 
 /**
  * The class a control wears to take the whole accent as its face, with

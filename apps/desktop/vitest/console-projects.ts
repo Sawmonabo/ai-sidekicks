@@ -1,12 +1,10 @@
 // The console's own test tiers, as Vitest projects.
 //
-// `Spec-023 §Console Test Tiers` names NINE — unit, browser, end-to-end, screenshot,
-// accessibility, endurance, architecture, assets, bundle — and all nine are declared
-// below. The list here holds TEN projects: the tenth, `console-bench`, is this
-// package's own micro-benchmark ledger and is not a spec tier, which is why its own
-// block says so and why it is one of the two exemptions `ci-tier-coverage.test.ts`
-// carries. Neither figure is held by a gate — no test asserts a tier count — so both
-// are stated here, beside the array a reader can count, and nowhere else.
+// `Spec-023 §Console Test Tiers` names the console's tiers — unit, browser,
+// end-to-end, screenshot, accessibility, endurance, assets, bundle — and each is
+// declared below. The array also holds `console-bench`, this package's own
+// micro-benchmark ledger, which is not a spec tier and gates nothing; its own block
+// says so. No count is stated here: a reader counts the array.
 //
 // AND NONE OF THEM RIDES A `playwright.config.ts`, which does not exist in this
 // repository. The two tiers that need a real Electron window — `console-e2e` and
@@ -135,41 +133,9 @@ const CONSOLE_TIERS: readonly TestProjectInlineConfiguration[] = [
     },
   },
   {
-    // Tier: architecture. Structural claims about the console — most of them
-    // read source as text; `scenario-wire-truth.test.ts` IMPORTS it, because
-    // the rule it asserts is a shipped predicate and a test carrying its own
-    // copy of a rule proves nothing about the copy that ships. Node
-    // environment either way: nothing here renders.
-    //
-    // The define was carried before any test imported a console module, and
-    // that anticipation is now load-bearing: `core/tripwires.ts` guards its
-    // fixture-only assignment at MODULE scope, so an importing test would
-    // otherwise abort at import with a bare `ReferenceError` naming an
-    // identifier that is not a variable in any process. `false`, on the bundle
-    // tier's reasoning — the process doing the reading is not a build — so such
-    // a test reports its own assertion instead of the tier's configuration.
-    //
-    // The source conditions arrive with that first importing test, for the
-    // reason the `main-unit` block above states: without them a workspace
-    // VALUE import resolves against `dist/`, which is stale or absent, and the
-    // tier fails to resolve `@ai-sidekicks/contracts` at all. Its files are
-    // typechecked by `tsconfig.console-architecture-test.json`, which exists
-    // for the other half of the same change.
-    define: {
-      __SIDEKICKS_CONSOLE_FIXTURES__: "false",
-    },
-    resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS },
-    ssr: { resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS } },
-    test: {
-      name: "console-architecture",
-      environment: "node",
-      include: ["test/console/architecture/**/*.test.ts"],
-    },
-  },
-  {
     // Tier: assets. Generated artifacts byte-identical to their sources.
     //
-    // The define is here for the architecture tier's reason, reached the same way:
+    // The define is here for the reason every console tier carries it, reached the same way:
     // this tier imports the generator, and a token module that reaches its own
     // family door for a value — the enumeration row ceiling, whose home is
     // `core/constants/palette-caps.ts` — pulls `core/index.ts` in with it, and that door
@@ -281,7 +247,8 @@ const CONSOLE_TIERS: readonly TestProjectInlineConfiguration[] = [
     },
   },
   {
-    // Not one of the nine tiers: the micro-benchmark ledger. Separated so a
+    // Not one of the eight tiers `Spec-023 §Console Test Tiers` registers: the
+    // micro-benchmark ledger. Separated so a
     // benchmark's timing noise can never fail a gate — it records, and a
     // human reads the ledger.
     // The fixture flag is FALSE here, as it is for every non-fixture project: an arm
@@ -298,21 +265,9 @@ const CONSOLE_TIERS: readonly TestProjectInlineConfiguration[] = [
 ];
 
 /**
- * Every `include` glob the console tiers declare, in tier order.
- *
- * DERIVED FROM THE TIERS THEMSELVES rather than restated, because the reader is a gate
- * asserting that its own walk covers what the runner makes an ENTRY
- * (`test/console/architecture/no-directory-source-globs.test.ts`), and a hand-listed
- * copy of these globs would agree with this file exactly until a tier moved.
- */
-export const CONSOLE_TIER_INCLUDE_GLOBS: readonly string[] = CONSOLE_TIERS.flatMap(
-  (tier) => tier.test?.include ?? [],
-);
-
-/**
  * The same tiers, each resolving `~icons/*`.
  *
- * Declared as a map rather than as a `plugins` line repeated ten times, because
+ * Declared as a map rather than as a `plugins` line repeated per tier, because
  * a tier that forgot the line would fail at import with a specifier no reader
  * could place — and it would fail only for the tiers that happen to render a
  * glyph, which is a hole nothing reports. A fresh plugin per tier: a Vite

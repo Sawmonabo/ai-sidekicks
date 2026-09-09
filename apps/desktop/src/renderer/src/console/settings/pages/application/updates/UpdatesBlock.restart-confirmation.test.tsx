@@ -53,8 +53,8 @@ describe("the restart confirmation — what it says before it is answered", () =
     // console held a copy of its own, a sentence promising ten seconds over a shell
     // that waited five satisfied it exactly, because both halves of the comparison
     // came from the same renderer file and main's cap was on neither side of it.
-    // `test/console/architecture/shutdown-budget-single-home.test.ts` is what keeps
-    // the two from separating again; this asserts the figure a person actually reads.
+    // `apps/desktop/AGENTS.md` §Config single-sourcing is what keeps the two from
+    // separating again; this asserts the figure a person actually reads.
     expect(restartDialog()?.textContent ?? "").toContain(
       formatDuration(DAEMON_SHUTDOWN_FLUSH_BUDGET_MS),
     );

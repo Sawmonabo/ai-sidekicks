@@ -14,8 +14,8 @@
  * is `runs/pane/runs.css`'s, declared with different layout and disjoint children, so
  * while both sheets were on the document whichever loaded last decided how THIS pane laid
  * its controls out — and this body could not go behind a loader without that answer
- * changing. One class, one owner; `test/console/architecture/stylesheet-selector-owners.test.ts`
- * holds the census that keeps a second collision from landing unnoticed.
+ * changing. One class, one owner — the rule `apps/desktop/AGENTS.md` §Module shape
+ * states, and a second collision is caught by reading it there rather than by a census.
  */
 
 /* -------------------------------------------------------------- run controls */

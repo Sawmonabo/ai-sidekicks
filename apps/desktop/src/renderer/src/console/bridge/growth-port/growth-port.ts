@@ -229,6 +229,10 @@ export function createRefusingGrowthPort(): GrowthPort {
     sessionSearch: async () => growthUnavailable("sessionSearch"),
     providerSessionImportBegin: async () => growthUnavailable("providerSessionImportBegin"),
     providerSessionImportSubscribe: async () => growthUnavailable("providerSessionImportSubscribe"),
+    // run records — the two durable columns with no read seam anywhere in the corpus.
+    runRecordInterventionHistoryRead: async () =>
+      growthUnavailable("runRecordInterventionHistoryRead"),
+    runRecordQueueRunBindingRead: async () => growthUnavailable("runRecordQueueRunBindingRead"),
     attentionProjectionRead: async () => growthUnavailable("attentionProjectionRead"),
     attentionPreferenceRead: async () => growthUnavailable("attentionPreferenceRead"),
     attentionPreferenceUpdate: async () => growthUnavailable("attentionPreferenceUpdate"),

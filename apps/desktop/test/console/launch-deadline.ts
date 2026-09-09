@@ -63,7 +63,7 @@
 // So the tier timeout is DERIVED rather than written down: `tierTimeoutFor()`
 // sums the launch budget, the body allowance that tier applies, and the
 // settlement residual, and `vitest.config.ts` carries the call instead of a
-// number. `architecture/launch-deadline.test.ts` resolves the REAL projects out
+// number. `test/helpers/launch-deadline.test.ts` resolves the REAL projects out
 // of that config and holds each tier's own `testTimeout` and `hookTimeout`
 // against the derived figures, so a literal re-planted there fails a test that
 // says why rather than re-creating this defect quietly.
@@ -96,7 +96,7 @@ import {
  * bound and this file states how many times a cleanup may spend it. What holds
  * the two in step is a measurement rather than a constant: the whole-cleanup
  * spend is driven against an injected clock in
- * `architecture/cleanup-slice-derivation.test.ts`, so a third phase — or a loop
+ * `test/helpers/cleanup-slice-derivation.test.ts`, so a third phase — or a loop
  * that stopped restarting — fails there rather than silently re-opening the gap.
  */
 export const CLEANUP_PHASES = 2;
@@ -317,7 +317,7 @@ export class LaunchDeadline {
     // whichever loses stays handled for the rest of its life. A bare
     // `work.catch(() => undefined)` used to sit here claiming to be the
     // mechanism, and it was a second handler on an already-handled promise. The
-    // claim lives in `architecture/launch-deadline.test.ts` instead, where an
+    // claim lives in `test/helpers/launch-deadline.test.ts` instead, where an
     // abandoned operation is rejected and the process is asserted never to have
     // been told. Racing rather than only bounding also keeps a rejection that
     // arrives first propagating as itself.

@@ -9,7 +9,7 @@
 //
 // THE BOUND IS GONE, AND ITS ABSENCE IS THE POINT. Those eight numbers were tuned
 // against whatever promise chain each case happened to be written over, which is the
-// defect `test/console/architecture/act-settling.test.ts` forbids: a reply that grows
+// defect a counted flush always has: a reply that grows
 // one link deeper stops being waited for, and the case then reports the ABSENCE of an
 // answer that was merely still in flight — silent in exactly the direction that
 // matters, because a presence claim fails loudly and an absence claim goes quietly

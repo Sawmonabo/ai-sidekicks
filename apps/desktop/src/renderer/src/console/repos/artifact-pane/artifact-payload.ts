@@ -155,8 +155,9 @@ const BASE64_GROUP_BYTES = 3;
  * A FACTOR AND NOT A CEILING, which is why it sits beside the two base64 facts above
  * rather than in `core/constants/` with the console's bounds. Nothing is checked
  * against it — it is multiplied by, to turn a character cap into the byte length that
- * certainly holds it — and `cap-constant-home.test.ts` draws exactly that line between
- * a bound and a measurement. It was named `UTF8_MAX_…` after the encoding's own word
+ * certainly holds it — and `apps/desktop/AGENTS.md` §Config single-sourcing draws
+ * exactly that line between a bound and a measurement. It was named `UTF8_MAX_…` after
+ * the encoding's own word
  * for it, which read as a ceiling this module had invented.
  */
 const UTF8_WIDEST_CODE_POINT_BYTES = 4;

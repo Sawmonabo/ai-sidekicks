@@ -59,6 +59,21 @@ export interface ComposerSeatProps {
    * would be two paths to one wire.
    */
   readonly focusedPane: ConsolePaneAddress | undefined;
+  /**
+   * The same pane as a HANDLE, for the acts that address a pane rather than a target.
+   *
+   * `focusedPane` is an address — a kind and, where the kind takes one, an entity —
+   * and that is what a send is routed by. A `+` menu row contributed by a view family
+   * addresses the PANE itself (`browserCapture({ paneId })`), and an address cannot be
+   * turned into a handle: two browser panes over two pages share one address.
+   *
+   * Optional rather than `| undefined` and required, which is the one place this
+   * interface departs from its own rule, and deliberately: a composer mounted outside
+   * a deck — an auxiliary window, a harness — has no focused pane at all, so an
+   * omitted member and a supplied `undefined` are the same fact rather than the
+   * forgotten-versus-decided pair that rule exists to keep apart.
+   */
+  readonly focusedPaneId?: string | undefined;
 }
 
 // Consumed by T-023p-1C-2, T-023p-1C-3

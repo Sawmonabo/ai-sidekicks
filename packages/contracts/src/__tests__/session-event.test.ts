@@ -63,11 +63,8 @@
 // registered exactly as shipped, real-`sessionId` binding (NOT the
 // daemon-scope sentinel), the payload-narrows-the-envelope compile pins, the
 // standalone-vs-union parity block for the five `RuntimeNode*EventSchema`
-// exports, and the module-cycle TRIPWIRE that pins clean init from BOTH entry
-// orders plus the `event-core.ts` leaf's import set.
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-
+// exports, and the module-cycle tripwire that pins clean init from BOTH entry
+// orders.
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -2872,20 +2869,22 @@ describe("standalone runtime_node.* event schemas agree with the union arms (T1.
 // eager Zod cycle: whichever module the runtime enters FIRST, the other reads
 // a binding still in temporal dead zone and throws `ReferenceError: Cannot
 // access '<binding>' before initialization`. TypeScript compiles cycles
-// silently, so nothing else in this repo's toolchain catches it — and because
-// every test loads the barrel, the symptom is a total package failure. The fix
-// is `event-core.ts`, a leaf both files import.
+// silently, so no type-check catches it — and because every test loads the
+// barrel, the symptom is a total package failure. The fix is `event-core.ts`,
+// a leaf both files import.
 //
-// TWO LEGS, symptom and cause:
-//   • SYMPTOM — a from-scratch module graph is evaluated once per ENTRY ORDER
-//     (`../event.js` first, then `../runtime-node.js` first) and asserted to
-//     initialize cleanly. A cycle fails only from one direction, so pinning a
-//     single order would half-cover it.
-//   • CAUSE — `event-core.ts`'s own import set, read from source text. The
-//     symptom leg goes green again the moment someone re-adds a `./event.js`
-//     import ONLY IF the resulting cycle happens to be benign under the
-//     current evaluation order; the cause leg fails immediately and names the
-//     rule.
+// SYMPTOM COVERAGE, both directions: a from-scratch module graph is evaluated
+// once per ENTRY ORDER (`../event.js` first, then `../runtime-node.js` first)
+// and asserted to initialize cleanly. A cycle fails only from one direction, so
+// pinning a single order would half-cover it.
+//
+// THE CAUSE is enforced statically instead, by the `no-restricted-syntax`
+// block for `packages/contracts/src/event-core.ts` in eslint.config.mjs: the
+// leaf may not import, dynamically import, or re-export from `./event.js` in
+// any of the four edge-carrying forms. That is where the rule belongs — the
+// symptom legs below can go green again the moment someone re-adds the import,
+// if the resulting cycle happens to be benign under the current evaluation
+// order, and lint fails immediately and names the rule.
 //
 // ISOLATION MECHANISM — `vi.resetModules()` + dynamic `import()`, which clears
 // the module registry so the graph is re-evaluated from scratch, on top of
@@ -2912,7 +2911,7 @@ describe("standalone runtime_node.* event schemas agree with the union arms (T1.
 //     `src/event.ts` dies on the first `./session.js` with ERR_MODULE_NOT_FOUND
 //     BEFORE any module-scope initializer runs — no cycle is exercised either
 //     way.
-// So these legs read the SOURCE graph, which is what the hoist changed.
+// So these legs evaluate the SOURCE graph, which is what the hoist changed.
 //
 // HONEST RESIDUAL of staying in-process: vitest evaluates the graph through
 // Vite's SSR transform, whose circular-import semantics are not byte-identical
@@ -2946,31 +2945,6 @@ describe("event-core.ts leaf keeps the contracts module graph acyclic (T1.12)", 
     expect(eventModule.SessionEventSchema.safeParse(buildRuntimeNodeRegistered()).success).toBe(
       true,
     );
-  });
-
-  it("imports zod, ./session.js and ./provider-driver.js — and nothing else", () => {
-    // Comments are stripped first so a specifier NAMED in prose (that file's
-    // own header names `./event.js` repeatedly) cannot register as an edge.
-    // Line comments are cut from `//` to end-of-line, never whole lines: a
-    // trailing comment must not be able to carry its statement away with it.
-    const leafPath = fileURLToPath(new URL("../event-core.ts", import.meta.url));
-    const source = readFileSync(leafPath, "utf8")
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/\/\/[^\n]*/g, "");
-    // TWO scans, unioned. The `from` scan covers `import … from` AND
-    // `export … from`; the second covers the BARE side-effect form
-    // `import "./event.js"`, which carries no `from` and is precisely the
-    // shape that would re-close the cycle while leaving a `from`-only
-    // assertion green. Additive on purpose — replacing the first with an
-    // `import`-anchored pattern would silently drop the re-export class.
-    const specifiers = [
-      ...[...source.matchAll(/\bfrom\s+"([^"]+)"/g)].map((match) => match[1] ?? ""),
-      ...[...source.matchAll(/(?:^|\n)\s*import\s+"([^"]+)"/g)].map((match) => match[1] ?? ""),
-    ];
-    expect(specifiers.length).toBeGreaterThan(0);
-    expect(new Set(specifiers)).toEqual(new Set(["zod", "./provider-driver.js", "./session.js"]));
-    // Named explicitly: this is the edge whose absence the hoist exists for.
-    expect(specifiers).not.toContain("./event.js");
   });
 });
 

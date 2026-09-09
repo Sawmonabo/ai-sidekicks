@@ -8,9 +8,9 @@
 // So the deferral and the arrival are asserted separately, in that order.
 //
 // THE STATIC HALF IS NOT HERE. Whether the picker's directory is on the initial import
-// graph is a fact about the module graph and not about a render, and
-// `test/console/architecture/composer-workflow-picker-boundary.test.ts` measures it from
-// both importers. What this file measures is the half that reaches a person: what the `+`
+// graph is a fact about the module graph and not about a render, and no suite measures
+// it from the two importers — `apps/desktop/AGENTS.md` states the loader rule and review
+// holds it. What this file measures is the half that reaches a person: what the `+`
 // menu holds before the chunk lands, and what it holds after.
 //
 // ORDER IS LOAD-BEARING WITHIN THIS FILE. The seat's `LoadedLazyBody` memoises its module
