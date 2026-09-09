@@ -29,21 +29,37 @@ export const PROVIDER_ACCOUNT_GROWTH_OPERATIONS: Readonly<
     "providerAccountLogin",
     "provider-account-signin-and-token",
     "method",
-    "ask the daemon to run the provider's own first-party sign-in against one account's credential home, and answer with where the operator completes it",
     "providerAccount.login",
   ),
   providerAccountLoginCancel: op(
     "providerAccountLoginCancel",
     "provider-account-signin-and-token",
     "method",
-    "cancel a brokered sign-in that is still in flight, named by the attempt it started",
     "providerAccount.loginCancel",
   ),
   providerAccountRegister: op(
     "providerAccountRegister",
     "provider-account-signin-and-token",
     "method",
-    "register an account, optionally carrying the one write-only non-interactive token member that appears on no reply",
     "providerAccount.register",
   ),
+};
+
+/**
+ * What each of this plane's operations is, in a sentence.
+ *
+ * A second declaration rather than a member of the row beside it — `index.ts` states
+ * the rule, which is `growth-slate-consumers.ts`'s: the split is by CONSUMER, and no
+ * running console reads a sentence. The `Record` is over this plane's own id set, so a
+ * row with no sentence and a sentence under an unknown id are both compile errors.
+ */
+export const PROVIDER_ACCOUNT_GROWTH_OPERATION_SUMMARIES: Readonly<
+  Record<ProviderAccountOperationId, string>
+> = {
+  providerAccountLogin:
+    "ask the daemon to run the provider's own first-party sign-in against one account's credential home, and answer with where the operator completes it",
+  providerAccountLoginCancel:
+    "cancel a brokered sign-in that is still in flight, named by the attempt it started",
+  providerAccountRegister:
+    "register an account, optionally carrying the one write-only non-interactive token member that appears on no reply",
 };

@@ -36,34 +36,10 @@ export const CHANNEL_GROWTH_OPERATIONS: Readonly<Record<ChannelOperationId, Grow
     // notification mute `Spec-019` governs is global and has no per-channel form at all.
     // A surface that offered this control as "quieten this for me" would be promising a
     // scope the wire does not have.
-    channelCreate: op(
-      "channelCreate",
-      "channel-lifecycle-verbs",
-      "method",
-      "create one channel with its whole policy fixed at creation, so a session can hold a named room of one topic rather than one thread carrying every subject",
-      "channel.create",
-    ),
-    channelMute: op(
-      "channelMute",
-      "channel-lifecycle-verbs",
-      "method",
-      "suppress a channel's attention without suppressing its execution — a muted channel still admits runs, which is why this is a lifecycle state and not a per-reader preference",
-      "channel.mute",
-    ),
-    channelUnmute: op(
-      "channelUnmute",
-      "channel-lifecycle-verbs",
-      "method",
-      "return a muted channel to the ordinary attention weight, the one lifecycle move that is reversible",
-      "channel.unmute",
-    ),
-    channelArchive: op(
-      "channelArchive",
-      "channel-lifecycle-verbs",
-      "method",
-      "retire a channel terminally, so the directory can sink it below the live rows and stop offering it as somewhere to work",
-      "channel.archive",
-    ),
+    channelCreate: op("channelCreate", "channel-lifecycle-verbs", "method", "channel.create"),
+    channelMute: op("channelMute", "channel-lifecycle-verbs", "method", "channel.mute"),
+    channelUnmute: op("channelUnmute", "channel-lifecycle-verbs", "method", "channel.unmute"),
+    channelArchive: op("channelArchive", "channel-lifecycle-verbs", "method", "channel.archive"),
     // The roster read, which is a DIFFERENT read from `channel.list` rather than a
     // richer version of it: the directory read is Plan-002's control-plane projection
     // and this is Plan-016's daemon-native session-local roster, carrying the three
@@ -72,7 +48,27 @@ export const CHANNEL_GROWTH_OPERATIONS: Readonly<Record<ChannelOperationId, Grow
       "channelRosterRead",
       "channel-roster-read",
       "method",
-      "read each channel's kind, its member pair where it has one, and the configuration whose audience says whether this session's agents read it — the three facts a directory needs to badge a row and to label a direct channel by the other human in it",
       "channel.rosterRead",
     ),
   };
+
+/**
+ * What each of this plane's operations is, in a sentence.
+ *
+ * A second declaration rather than a member of the row beside it — `index.ts` states
+ * the rule, which is `growth-slate-consumers.ts`'s: the split is by CONSUMER, and no
+ * running console reads a sentence. The `Record` is over this plane's own id set, so a
+ * row with no sentence and a sentence under an unknown id are both compile errors.
+ */
+export const CHANNEL_GROWTH_OPERATION_SUMMARIES: Readonly<Record<ChannelOperationId, string>> = {
+  channelCreate:
+    "create one channel with its whole policy fixed at creation, so a session can hold a named room of one topic rather than one thread carrying every subject",
+  channelMute:
+    "suppress a channel's attention without suppressing its execution — a muted channel still admits runs, which is why this is a lifecycle state and not a per-reader preference",
+  channelUnmute:
+    "return a muted channel to the ordinary attention weight, the one lifecycle move that is reversible",
+  channelArchive:
+    "retire a channel terminally, so the directory can sink it below the live rows and stop offering it as somewhere to work",
+  channelRosterRead:
+    "read each channel's kind, its member pair where it has one, and the configuration whose audience says whether this session's agents read it — the three facts a directory needs to badge a row and to label a direct channel by the other human in it",
+};

@@ -9,6 +9,13 @@
 // definition: a row that went live left the ledger for `daemon-reply-registry.ts` in
 // the same change. A parameter here would be a knob whose only correct argument is
 // the default.
+//
+// THE SENTENCE DESCRIBING AN OPERATION IS NOT A PARAMETER EITHER, and that is a
+// different reason: it is not this row's member at all. Each plane declares its own
+// `<PLANE>_GROWTH_OPERATION_SUMMARIES` beside its table, keyed by the same closed id
+// set, because the split is by CONSUMER — `growth-operations/index.ts` states the
+// reading. Passing one through here would put it back on the row this constructor
+// builds, which is the object the initial import graph carries.
 
 import type {
   GrowthOperationEntry,
@@ -29,8 +36,7 @@ export function op(
   id: GrowthOperationId,
   slateRow: GrowthSlateRowId,
   kind: GrowthOperationKind,
-  summary: string,
   expectedWireMethod?: string,
 ): GrowthOperationEntry {
-  return { id, slateRow, kind, summary, expectedWireMethod, liveStatus: "fixture-only" };
+  return { id, slateRow, kind, expectedWireMethod, liveStatus: "fixture-only" };
 }

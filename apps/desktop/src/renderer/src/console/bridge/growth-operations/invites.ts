@@ -38,35 +38,30 @@ export const INVITE_GROWTH_OPERATIONS: Readonly<Record<InviteOperationId, Growth
     "invitePendingSubscribe",
     "pending-invite-namespace",
     "subscription",
-    "receive the invitations waiting on this participant's confirmation, each as an opaque reference main can resolve and this renderer cannot",
     "invite.subscribePending",
   ),
   inviteOutcomeSubscribe: op(
     "inviteOutcomeSubscribe",
     "pending-invite-namespace",
     "subscription",
-    "receive how an attempt on one of those references ended — joined, or needing authentication, or refused — since acceptance runs in main and its reply is not where the answer lands",
     "invite.subscribeOutcome",
   ),
   inviteConfirmPending: op(
     "inviteConfirmPending",
     "pending-invite-namespace",
     "method",
-    "confirm one pending invitation by its reference, which is the only act that accepts and happens only when a person asks for it",
     "invite.confirmPending",
   ),
   inviteRetryPending: op(
     "inviteRetryPending",
     "pending-invite-namespace",
     "method",
-    "re-drive the preview of one outstanding deep link by the opaque attempt handle its unavailable state supplied, which names which link failed and can confirm nothing",
     "invite.retryPending",
   ),
   inviteDismissPending: op(
     "inviteDismissPending",
     "pending-invite-namespace",
     "method",
-    "put one pending invitation away and release its reference, sending no decline verb anywhere because declining is implicit",
     "invite.dismissPending",
   ),
   // the control-plane host
@@ -75,10 +70,28 @@ export const INVITE_GROWTH_OPERATIONS: Readonly<Record<InviteOperationId, Growth
   // `Spec-002 §Invite Delivery` fixes the LINK's shape and leaves who tells a client
   // its own control-plane host unstated. An invented name here would be a wire fact
   // traceable to nothing — the identity plane's disposition, for the same reason.
-  controlPlaneHostRead: op(
-    "controlPlaneHostRead",
-    "control-plane-host",
-    "method",
+  controlPlaneHostRead: op("controlPlaneHostRead", "control-plane-host", "method"),
+};
+
+/**
+ * What each of this plane's operations is, in a sentence.
+ *
+ * A second declaration rather than a member of the row beside it — `index.ts` states
+ * the rule, which is `growth-slate-consumers.ts`'s: the split is by CONSUMER, and no
+ * running console reads a sentence. The `Record` is over this plane's own id set, so a
+ * row with no sentence and a sentence under an unknown id are both compile errors.
+ */
+export const INVITE_GROWTH_OPERATION_SUMMARIES: Readonly<Record<InviteOperationId, string>> = {
+  invitePendingSubscribe:
+    "receive the invitations waiting on this participant's confirmation, each as an opaque reference main can resolve and this renderer cannot",
+  inviteOutcomeSubscribe:
+    "receive how an attempt on one of those references ended — joined, or needing authentication, or refused — since acceptance runs in main and its reply is not where the answer lands",
+  inviteConfirmPending:
+    "confirm one pending invitation by its reference, which is the only act that accepts and happens only when a person asks for it",
+  inviteRetryPending:
+    "re-drive the preview of one outstanding deep link by the opaque attempt handle its unavailable state supplied, which names which link failed and can confirm nothing",
+  inviteDismissPending:
+    "put one pending invitation away and release its reference, sending no decline verb anywhere because declining is implicit",
+  controlPlaneHostRead:
     "read the host this node's control plane answers on, so a freshly minted invitation can be shown as the link a person actually sends rather than as an identifier that opens nothing",
-  ),
 };

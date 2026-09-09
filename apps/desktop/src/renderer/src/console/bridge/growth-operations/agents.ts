@@ -28,40 +28,36 @@ type AgentOperationId = Extract<
 /** The agent rows, in the order the single table carried them. */
 export const AGENT_GROWTH_OPERATIONS: Readonly<Record<AgentOperationId, GrowthOperationEntry>> = {
   // agent plane — the four verbs, in the order a surface meets them.
-  agentList: op(
-    "agentList",
-    "agent-snapshot-axes",
-    "method",
-    "read every agent attached to one session, with its effective provider binding and any switch the daemon has accepted and not yet applied — the roster a cast bar and an agent console both render",
-    "agent.list",
-  ),
-  agentAttach: op(
-    "agentAttach",
-    "agent-snapshot-axes",
-    "method",
-    "put a configured sidekick into a session, by definition reference or inline, and echo back the configuration the attach resolved to — zero-residue on refusal, so nothing is pre-created and nothing is cleaned up",
-    "agent.attach",
-  ),
-  agentConfigUpdate: op(
-    "agentConfigUpdate",
-    "agent-snapshot-axes",
-    "method",
-    "move a running agent's provider axes, answering with the boundary the switch resolved to rather than with a settlement — the mutation and the application are two moments and only the immediate arm collapses them",
-    "agent.configUpdate",
-  ),
-  agentDetach: op(
-    "agentDetach",
-    "agent-snapshot-axes",
-    "method",
-    "move an agent to `disabled`, reversible by re-attaching — never a delete, so its runs stay in the session's history",
-    "agent.detach",
-  ),
+  agentList: op("agentList", "agent-snapshot-axes", "method", "agent.list"),
+  agentAttach: op("agentAttach", "agent-snapshot-axes", "method", "agent.attach"),
+  agentConfigUpdate: op("agentConfigUpdate", "agent-snapshot-axes", "method", "agent.configUpdate"),
+  agentDetach: op("agentDetach", "agent-snapshot-axes", "method", "agent.detach"),
   // orchestration — the one read that makes refused work visible at all.
   orchestrationChildRunLinkRead: op(
     "orchestrationChildRunLinkRead",
     "child-run-linkage",
     "method",
-    "read one parent run's child-run links and the fold of the creates that were refused — a refusal is zero-residue, so this fold is the only path by which work that was asked for and denied is visible",
     "orchestration.childRunLinkRead",
   ),
+};
+
+/**
+ * What each of this plane's operations is, in a sentence.
+ *
+ * A second declaration rather than a member of the row beside it — `index.ts` states
+ * the rule, which is `growth-slate-consumers.ts`'s: the split is by CONSUMER, and no
+ * running console reads a sentence. The `Record` is over this plane's own id set, so a
+ * row with no sentence and a sentence under an unknown id are both compile errors.
+ */
+export const AGENT_GROWTH_OPERATION_SUMMARIES: Readonly<Record<AgentOperationId, string>> = {
+  agentList:
+    "read every agent attached to one session, with its effective provider binding and any switch the daemon has accepted and not yet applied — the roster a cast bar and an agent console both render",
+  agentAttach:
+    "put a configured sidekick into a session, by definition reference or inline, and echo back the configuration the attach resolved to — zero-residue on refusal, so nothing is pre-created and nothing is cleaned up",
+  agentConfigUpdate:
+    "move a running agent's provider axes, answering with the boundary the switch resolved to rather than with a settlement — the mutation and the application are two moments and only the immediate arm collapses them",
+  agentDetach:
+    "move an agent to `disabled`, reversible by re-attaching — never a delete, so its runs stay in the session's history",
+  orchestrationChildRunLinkRead:
+    "read one parent run's child-run links and the fold of the creates that were refused — a refusal is zero-residue, so this fold is the only path by which work that was asked for and denied is visible",
 };

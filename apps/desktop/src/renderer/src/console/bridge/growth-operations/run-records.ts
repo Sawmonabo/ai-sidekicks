@@ -23,14 +23,26 @@ export const RUN_RECORD_GROWTH_OPERATIONS: Readonly<
     "runRecordInterventionHistoryRead",
     "intervention-history-read",
     "method",
-    "read every durable intervention raised against one run — its origin discriminator, the admitting principal on the participant arm, the queue item it admitted, and the decrypted directive where the authoring participant's key still opens it",
-    undefined,
   ),
   runRecordQueueRunBindingRead: op(
     "runRecordQueueRunBindingRead",
     "queue-item-run-binding",
     "method",
-    "read the run each queued item in a session is bound to, the projection of `queue_items.target_run_id` that the registered `QueueItemSummary` carries no member for",
-    undefined,
   ),
 };
+
+/**
+ * What each of this plane's operations is, in a sentence.
+ *
+ * A second declaration rather than a member of the row beside it — `index.ts` states
+ * the rule, which is `growth-slate-consumers.ts`'s: the split is by CONSUMER, and no
+ * running console reads a sentence. The `Record` is over this plane's own id set, so a
+ * row with no sentence and a sentence under an unknown id are both compile errors.
+ */
+export const RUN_RECORD_GROWTH_OPERATION_SUMMARIES: Readonly<Record<RunRecordOperationId, string>> =
+  {
+    runRecordInterventionHistoryRead:
+      "read every durable intervention raised against one run — its origin discriminator, the admitting principal on the participant arm, the queue item it admitted, and the decrypted directive where the authoring participant's key still opens it",
+    runRecordQueueRunBindingRead:
+      "read the run each queued item in a session is bound to, the projection of `queue_items.target_run_id` that the registered `QueueItemSummary` carries no member for",
+  };

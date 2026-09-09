@@ -37,39 +37,52 @@ export const DIAGNOSTICS_GROWTH_OPERATIONS: Readonly<
   // cast bar's compact form and this page's banner. A wire named by two rows would be
   // two records of one absence, so the row keyed on the wire carries both consumers
   // and the row beside it carries the four reads that have no row of their own.
-  healthStatusRead: op(
-    "healthStatusRead",
-    "health-status-read",
-    "method",
-    "read this machine's execution health — one verdict over its named components, each carrying its own reading — over the daemon JSON-RPC transport",
-    "health.statusRead",
-  ),
+  healthStatusRead: op("healthStatusRead", "health-status-read", "method", "health.statusRead"),
   healthFailureDetailRead: op(
     "healthFailureDetailRead",
     "health-diagnostics-reads",
     "method",
-    "read one run's classified failure detail, so a provider that refused and a worktree that vanished do not read the same",
     "health.failureDetailRead",
   ),
   healthStuckRunInspect: op(
     "healthStuckRunInspect",
     "health-diagnostics-reads",
     "method",
-    "read one run's stall reading — when it last progressed, what is blocking it, and the daemon's own suggestion",
     "health.stuckRunInspect",
   ),
   healthRecoveryActionRequest: op(
     "healthRecoveryActionRequest",
     "health-diagnostics-reads",
     "method",
-    "ask the daemon to retry, interrupt, or abandon one stuck run, and answer with the states it moved between",
     "health.recoveryActionRequest",
   ),
   healthRedactionPolicyRead: op(
     "healthRedactionPolicyRead",
     "health-diagnostics-reads",
     "method",
-    "read the diagnostic redaction policy in force — the per-bucket retention, the outbound default, and whether an override is active",
     "health.redactionPolicyRead",
   ),
+};
+
+/**
+ * What each of this plane's operations is, in a sentence.
+ *
+ * A second declaration rather than a member of the row beside it — `index.ts` states
+ * the rule, which is `growth-slate-consumers.ts`'s: the split is by CONSUMER, and no
+ * running console reads a sentence. The `Record` is over this plane's own id set, so a
+ * row with no sentence and a sentence under an unknown id are both compile errors.
+ */
+export const DIAGNOSTICS_GROWTH_OPERATION_SUMMARIES: Readonly<
+  Record<DiagnosticsOperationId, string>
+> = {
+  healthStatusRead:
+    "read this machine's execution health — one verdict over its named components, each carrying its own reading — over the daemon JSON-RPC transport",
+  healthFailureDetailRead:
+    "read one run's classified failure detail, so a provider that refused and a worktree that vanished do not read the same",
+  healthStuckRunInspect:
+    "read one run's stall reading — when it last progressed, what is blocking it, and the daemon's own suggestion",
+  healthRecoveryActionRequest:
+    "ask the daemon to retry, interrupt, or abandon one stuck run, and answer with the states it moved between",
+  healthRedactionPolicyRead:
+    "read the diagnostic redaction policy in force — the per-bucket retention, the outbound default, and whether an override is active",
 };

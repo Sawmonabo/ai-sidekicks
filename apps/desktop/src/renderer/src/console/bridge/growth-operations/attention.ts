@@ -24,21 +24,36 @@ export const ATTENTION_GROWTH_OPERATIONS: Readonly<
     "attentionProjectionRead",
     "attention-plane",
     "method",
-    "read a session's actionable and informational attention, run-scoped items and the session aggregate together, over the daemon JSON-RPC transport",
     "attention.projectionRead",
   ),
   attentionPreferenceRead: op(
     "attentionPreferenceRead",
     "attention-plane",
     "method",
-    "read the participant's global notification preferences, over the control-plane transport",
     "attention.preferenceRead",
   ),
   attentionPreferenceUpdate: op(
     "attentionPreferenceUpdate",
     "attention-plane",
     "method",
-    "set one global notification preference, over the control-plane transport",
     "attention.preferenceUpdate",
   ),
 };
+
+/**
+ * What each of this plane's operations is, in a sentence.
+ *
+ * A second declaration rather than a member of the row beside it — `index.ts` states
+ * the rule, which is `growth-slate-consumers.ts`'s: the split is by CONSUMER, and no
+ * running console reads a sentence. The `Record` is over this plane's own id set, so a
+ * row with no sentence and a sentence under an unknown id are both compile errors.
+ */
+export const ATTENTION_GROWTH_OPERATION_SUMMARIES: Readonly<Record<AttentionOperationId, string>> =
+  {
+    attentionProjectionRead:
+      "read a session's actionable and informational attention, run-scoped items and the session aggregate together, over the daemon JSON-RPC transport",
+    attentionPreferenceRead:
+      "read the participant's global notification preferences, over the control-plane transport",
+    attentionPreferenceUpdate:
+      "set one global notification preference, over the control-plane transport",
+  };

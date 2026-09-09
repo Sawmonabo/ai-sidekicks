@@ -30,12 +30,7 @@ export const LEDGER_GROWTH_OPERATIONS: Readonly<Record<LedgerOperationId, Growth
   // The hydrated event read. It names no wire method for the same reason the two
   // identity rows above name none: the projection is built daemon-side and reaches
   // no bridge namespace, so an invented string here would be traceable to nothing.
-  hydratedEventRead: op(
-    "hydratedEventRead",
-    "hydrated-event-read",
-    "method",
-    "open one event's machine-authored body — the assistant and tool prose the taxonomy records the existence of and the event payload does not carry — so a ledger row renders what was said rather than only that something was",
-  ),
+  hydratedEventRead: op("hydratedEventRead", "hydrated-event-read", "method"),
   // The session cost plane. Both ids are the registered method's TAIL without its
   // root, unlike the workflow and sidekick blocks above: the console calls exactly
   // these two verbs of a plane whose other pairs it never reaches, so a root folded
@@ -45,14 +40,12 @@ export const LEDGER_GROWTH_OPERATIONS: Readonly<Record<LedgerOperationId, Growth
     "orchestrationCostReceiptRead",
     "cost-receipt-read",
     "method",
-    "read the committed-spend fold decomposed along its per-run, per-caused-by, and per-paying-account axes, each a partition of the same session figure rather than a second computation of it",
     "orchestration.costReceiptRead",
   ),
   orchestrationBudgetRead: op(
     "orchestrationBudgetRead",
     "cost-receipt-read",
     "method",
-    "read the session's limits and the committed-spend figure admission compares against, served from the same accountant accessor the receipt is, so the two can never disagree",
     "orchestration.budgetRead",
   ),
   // The live gap fill. A SUBSCRIPTION rather than a method, and the one row on this
@@ -65,7 +58,25 @@ export const LEDGER_GROWTH_OPERATIONS: Readonly<Record<LedgerOperationId, Growth
     "timelineSubscribe",
     "timeline-live-resubscribe",
     "subscription",
-    "re-open a session's stream after a position the caller states, so a window that was told about entries it never received replays from the last place it kept instead of re-reading the whole log",
     "timeline.subscribe",
   ),
+};
+
+/**
+ * What each of this plane's operations is, in a sentence.
+ *
+ * A second declaration rather than a member of the row beside it — `index.ts` states
+ * the rule, which is `growth-slate-consumers.ts`'s: the split is by CONSUMER, and no
+ * running console reads a sentence. The `Record` is over this plane's own id set, so a
+ * row with no sentence and a sentence under an unknown id are both compile errors.
+ */
+export const LEDGER_GROWTH_OPERATION_SUMMARIES: Readonly<Record<LedgerOperationId, string>> = {
+  hydratedEventRead:
+    "open one event's machine-authored body — the assistant and tool prose the taxonomy records the existence of and the event payload does not carry — so a ledger row renders what was said rather than only that something was",
+  orchestrationCostReceiptRead:
+    "read the committed-spend fold decomposed along its per-run, per-caused-by, and per-paying-account axes, each a partition of the same session figure rather than a second computation of it",
+  orchestrationBudgetRead:
+    "read the session's limits and the committed-spend figure admission compares against, served from the same accountant accessor the receipt is, so the two can never disagree",
+  timelineSubscribe:
+    "re-open a session's stream after a position the caller states, so a window that was told about entries it never received replays from the last place it kept instead of re-reading the whole log",
 };
