@@ -50,6 +50,18 @@
 // closes it, a head that has not moved — a refused retry, an outcome arriving against
 // the invitation on screen — keeps it open with its own words, and every new prompt
 // costs the same one gesture the first one did.
+//
+// AND THE CARD ITSELF ARRIVES ON ITS OWN CHUNK. What is on this module is what nobody
+// can wait for: the two subscriptions, the queue, and the notice a person is shown
+// without acting. The card is drawn only after a press, which is the question
+// `apps/desktop/AGENTS.md` §Module shape makes a registration answer, so it is reached
+// through `invite-confirmation-mount.ts` and `invite-confirmation-body.ts` is the split
+// point. The mount is rendered from the moment there is a PROMPT rather than from the
+// press — which is the same condition the card's own first line already tested, hoisted
+// one level up — so the chunk is asked for as the notice appears and is settled by the
+// time anybody has reached **Look at it**. What renders while it is in flight is the
+// substrate's hidden reserved region and nothing else: no spinner, no skeleton, and
+// nothing that moves the layout the notice is drawn in.
 
 import { useCallback, useState } from "react";
 
@@ -58,7 +70,7 @@ import { InlineRefusal } from "../../primitives/index.js";
 import type { WindowOverlaySeatProps } from "../../seats/index.js";
 import { useModalSurfaceClaim } from "../../store/index.js";
 import { inviteNoticeLede } from "./invite-queue-copy.js";
-import { InviteConfirmation } from "./InviteConfirmation.js";
+import { inviteConfirmationMount } from "./invite-confirmation-mount.js";
 import { useJoinedOutcomeNavigation } from "./joined-outcome-navigation.js";
 import { usePendingInvites } from "./use-pending-invites.js";
 
@@ -166,14 +178,24 @@ export function InviteLifecycleOverlay(
           )}
         </div>
       ) : null}
-      <InviteConfirmation
-        open={isConfirmationOpen}
-        snapshot={snapshot}
-        onConfirm={confirm}
-        onRetry={retry}
-        onDismiss={dismiss}
-        onAcknowledge={acknowledge}
-      />
+      {/* GATED ON `hasPrompt`, WHICH IS THE CARD'S OWN FIRST LINE AND NOT A NEW RULE.
+          `InviteConfirmation` opens with `if (invite === undefined && previewFailure ===
+          undefined) return null`, so this renders exactly what it rendered before: a
+          window with nothing waiting drew no card, and one with a prompt drew a dialog
+          root that paints nothing until it is open. Hoisting that test here is what lets
+          the chunk be asked for on the arrival rather than on the press, and it is why
+          the mount's lifetime — mounted closed, opened, closed, unmounted with the last
+          prompt — is the lifetime the card always had. */}
+      {hasPrompt
+        ? inviteConfirmationMount.render({
+            open: isConfirmationOpen,
+            snapshot,
+            onConfirm: confirm,
+            onRetry: retry,
+            onDismiss: dismiss,
+            onAcknowledge: acknowledge,
+          })
+        : null}
     </>
   );
 }
