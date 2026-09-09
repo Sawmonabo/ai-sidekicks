@@ -49,13 +49,13 @@
 // one uniform list would let the axis controls be built against a wire shape neither
 // provider produces.
 
-import type { DeclaredLossKind, ProviderOutputSpeedState } from "@ai-sidekicks/contracts";
+import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts";
 
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 import {
   AGENT_ARCHITECT,
   AGENT_IMPLEMENTER,
-  APPLIED_SWITCH_ID,
+  APPLIED_SWITCH_SETTLEMENT,
   ATTACHED_AGENTS,
   CLAUDE_FLAGS,
   CODEX_FLAGS,
@@ -222,43 +222,48 @@ export const AGENTS_SCENARIO: ConsoleScenario = {
               providerAccountId: ATTACHED_AGENTS[1].providerAccountId,
               effort: ATTACHED_AGENTS[1].effort,
             },
+            // The attach snapshot, on ONE of the two agents and deliberately not
+            // both: the card's tool grant separates a populated allowlist from a
+            // roster row that carried no configuration at all, and a cast where
+            // every agent answered the same way could not show that they differ.
+            // The Architect above keeps the unanswered arm, which is what an
+            // ordinary roster reply looks like today.
+            //
+            // The allowlist is a RESTRICTION, so the grant reads as a count and the
+            // echo below it names the tools — the split `tool-grant.ts` records.
+            //
+            // NO `resolvedFromDefinitionId`, deliberately: an inline attach resolves
+            // a configuration too, and an echo naming no definition is never
+            // attributed to one. This is the arm the card draws as "Resolved
+            // configuration" rather than "Attached from a definition", and no
+            // scenario had reached it.
+            resolvedConfiguration: {
+              driverName: ATTACHED_AGENTS[1].driverName,
+              modelId: ATTACHED_AGENTS[1].modelId,
+              providerAccountId: ATTACHED_AGENTS[1].providerAccountId,
+              effort: ATTACHED_AGENTS[1].effort,
+              executionPostureMode: "worktree",
+              instructions: "Land the smallest change that closes the task.",
+              goal: "Close the open review threads on the console lane",
+              toolAllowlist: ["read_file", "write_file", "run_command", "search"],
+            },
           },
         ],
       },
     },
     {
-      // The applied arm, with its losses DECLARED rather than implied. `continuity`
-      // is `replayed`, which is what makes a non-empty loss list possible at all: an
-      // `in_place` carry drops nothing, and a `memo` settlement drops the transcript
-      // wholesale.
-      //
-      // THE PAIR IS THE REPLAY PIPELINE'S OWN, and `satisfies` is what holds it to
-      // the registered vocabulary — the list was two invented strings, which the
-      // settlement renderer read as two UNNAMED losses, so the surface built for the
-      // declared-loss path was being shown a response no daemon may emit. The two
-      // are also causally ordered rather than merely both legal: stripping private
-      // reasoning orphans the tool calls that referenced it, and the pairing repair
-      // that follows mints a synthetic result for each — which is why a replay that
-      // declares the first so often declares the second. The two memo-scoped kinds
-      // are deliberately absent: they belong to the settlement this one is not.
+      // The applied arm, with its losses DECLARED rather than implied. The value is
+      // `agents-cast.ts`' `APPLIED_SWITCH_SETTLEMENT`, which is where the reasoning
+      // for each of its members lives and which the screenshot tier's settlement
+      // route renders from as well — one answer to what a settled switch looks like,
+      // read from both sides.
       call: "agent.configUpdate",
       // A real switch is not instant — it waits for the boundary the daemon
       // resolved — so the settlement is parked on the frozen clock and the card's
       // in-flight rendering is reachable. The caller moves the clock; nothing here
       // does.
       afterMs: AGENTS_SCENARIO_SWITCH_LATENCY_MS,
-      result: {
-        switch: {
-          status: "applied",
-          switchId: APPLIED_SWITCH_ID,
-          appliesAt: "turn_boundary",
-          continuity: "replayed",
-          declaredLosses: [
-            "provider_private_reasoning",
-            "tool_call_history_repaired",
-          ] satisfies readonly DeclaredLossKind[],
-        },
-      },
+      result: { switch: APPLIED_SWITCH_SETTLEMENT },
     },
     {
       call: "driver.listModels",

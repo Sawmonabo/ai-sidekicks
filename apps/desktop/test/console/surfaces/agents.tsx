@@ -60,6 +60,7 @@ import {
   settle as settleRegistryRead,
 } from "../../../src/renderer/src/console/agents/definitions/sidekick-definitions-page.test-support.js";
 import { registerAgentConsolePane } from "../../../src/renderer/src/console/agents/index.js";
+import { SwitchSettlementLine } from "../../../src/renderer/src/console/agents/provider-switch/SwitchSettlementLine.js";
 import { SIDEKICK_DEFINITIONS_SECTION } from "../../../src/renderer/src/console/agents/sidekick-definitions-section.js";
 import {
   createFixtureBridge,
@@ -68,6 +69,8 @@ import {
 import { AGENTS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/agents.js";
 import {
   AGENT_ARCHITECT,
+  APPLIED_SWITCH_SETTLEMENT,
+  ATTACHED_AGENTS,
   PROVIDER_ACCOUNT_PERSONAL,
   SESSION_ID,
 } from "../../../src/renderer/src/console/bridge/scenarios/agents-cast.js";
@@ -221,6 +224,28 @@ export async function mountProviderSwitchPendingSupersession(): Promise<HTMLElem
   editProviderAccount(container, PROVIDER_ACCOUNT_PERSONAL);
   await settleReactWork();
   return requireRendered(container, ".meridian-switch");
+}
+
+/**
+ * One settled switch, as the line a person reads after a binding move lands.
+ *
+ * MOUNTED DIRECTLY RATHER THAN DRIVEN: reaching this state through the form costs an
+ * edit, a submit, and an advance of the frozen clock past the settlement latency —
+ * three moving parts to photograph a component whose whole input is one reply value,
+ * and that value is the scenario's own, so the picture is of the settlement the
+ * fixture serves rather than of a shape written for a picture. The pane body is
+ * resolved first FOR ITS STYLESHEETS: this family imports no sheet through its door,
+ * so a component mounted without that resolution pins a layout nobody ships.
+ */
+export async function mountProviderSwitchSettlement(): Promise<HTMLElement> {
+  await paneBodyComponent();
+  const { container } = await renderSettled(
+    <SwitchSettlementLine
+      settlement={APPLIED_SWITCH_SETTLEMENT}
+      agentLabel={ATTACHED_AGENTS[1].name}
+    />,
+  );
+  return requireRendered(container, ".meridian-settlement");
 }
 
 /**

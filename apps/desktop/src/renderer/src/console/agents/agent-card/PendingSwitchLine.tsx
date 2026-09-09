@@ -1,6 +1,6 @@
-import { WireFigure } from "../primitives/index.js";
-import { boundaryPhrase } from "./provider-switch/switch-settlement.js";
-import { type AgentPendingSwitch } from "../bridge/index.js";
+import { WireFigure } from "../../primitives/index.js";
+import { boundaryPhrase } from "../provider-switch/switch-settlement.js";
+import { type AgentPendingSwitch } from "../../bridge/index.js";
 
 /**
  * A switch the daemon accepted and has not applied, as a line of its own.

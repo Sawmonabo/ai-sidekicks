@@ -12,8 +12,8 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { AgentCard } from "./AgentCard.js";
-import { formatDateTime } from "../primitives/index.js";
-import type { AgentRosterEntry } from "../bridge/index.js";
+import { formatDateTime } from "../../primitives/index.js";
+import type { AgentRosterEntry } from "../../bridge/index.js";
 
 const ATTACHED_AT = "2026-03-04T08:15:00.000Z";
 
