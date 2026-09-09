@@ -359,7 +359,6 @@ export function runBundleBudgetCommand(argumentList: readonly string[]): Promise
     gates: RENDERER_BUNDLE_GATES,
     measure: () => new RendererBundleMeasurer().measure(),
     format: formatRendererBundleReport,
-    emitJson: false,
   });
 }
 

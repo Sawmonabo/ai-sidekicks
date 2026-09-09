@@ -128,7 +128,6 @@ interface BudgetHarness<TMeasurement> {
     gateReadings: readonly BudgetGateReading[],
     registry: ConsoleBudgetRegistry,
   ) => string;
-  readonly emitJson: boolean;
 }
 
 /**
@@ -173,10 +172,6 @@ export async function runBudgetHarness<TMeasurement>(
     verdict: evaluateBudget(budget, gate.compare(measurement)),
     measuredDescription: gate.measuredDescription(measurement),
   }));
-  console.log(
-    harness.emitJson
-      ? JSON.stringify({ gateReadings, measurement }, null, 2)
-      : harness.format(measurement, gateReadings, registry),
-  );
+  console.log(harness.format(measurement, gateReadings, registry));
   return gateReadings.every((gateReading) => gateReading.verdict.withinBudget) ? 0 : 1;
 }
