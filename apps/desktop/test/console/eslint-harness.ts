@@ -7,6 +7,13 @@
 // two spelled the desktop root differently and each carried its own timeout constant
 // with its own derivation, so a change to the engine's cost had two places to land.
 //
+// THE ROOTS ARE IMPORTED AND NOT RE-DERIVED. This module briefly declared its own
+// `DESKTOP_PACKAGE_ROOT` and `RENDERER_SOURCE_ROOT`, byte-identical to the pair
+// `console-source-modules.ts` already owned — the same anchor drift one seam over,
+// and reachable from one suite that imported both names from both modules. What this
+// module owns is the ENGINE and the paths composed for it; where the tree begins is
+// that module's answer, and every root here is joined onto it.
+//
 // WHY THE ENGINE AND NEVER A COPY OF THE RULE. A gate carrying its own selector list
 // would pass with the config deleted, which is the failure every one of these gates
 // exists to prevent. `lintText` lints the text it is given AS a path, and the path is
@@ -14,18 +21,11 @@
 // by handing the engine console-shaped source at a console-shaped path and reading what
 // comes back.
 
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import { ESLint } from "eslint";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-
-/** `console/` → `test/` → the desktop package. */
-export const DESKTOP_PACKAGE_ROOT: string = resolve(HERE, "..", "..");
-
-/** The renderer source root every probe path is composed under. */
-export const RENDERER_SOURCE_ROOT: string = join(DESKTOP_PACKAGE_ROOT, "src", "renderer", "src");
+import { DESKTOP_PACKAGE_ROOT, RENDERER_SOURCE_ROOT } from "./console-source-modules.js";
 
 /**
  * A console path the syntax-ban block covers and no `ignores` entry names.

@@ -49,8 +49,8 @@ import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
-  CONSOLE_DIRECTORY,
   DESKTOP_PACKAGE_ROOT,
+  RENDERER_SOURCE_ROOT,
   consoleSourceModules,
   readConsoleSourceModule,
   toPosixSeparators,
@@ -60,7 +60,6 @@ import type { CensusModule } from "./barrel-syntax.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TEST_CONSOLE_ROOT = resolve(HERE, "..");
-const RENDERER_SOURCE_ROOT = resolve(CONSOLE_DIRECTORY, "..");
 
 /** Where a console module sits in the census, and in a failure message. */
 const CONSOLE_PREFIX = "src/renderer/src/console";

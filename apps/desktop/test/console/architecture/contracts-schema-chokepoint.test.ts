@@ -28,17 +28,17 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   consoleSourceModules,
+  DESKTOP_PACKAGE_ROOT,
   readConsoleSourceModule,
+  RENDERER_SOURCE_ROOT,
   toPosixSeparators,
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
 import {
   createDesktopLinter,
-  DESKTOP_PACKAGE_ROOT,
   ESLINT_CASE_BUDGET_MS,
   rendererProbePath,
   ruleMessagesAt,
-  RENDERER_SOURCE_ROOT,
 } from "../eslint-harness.js";
 import { readModuleSyntax, type CensusModule } from "./barrel-syntax.js";
 
