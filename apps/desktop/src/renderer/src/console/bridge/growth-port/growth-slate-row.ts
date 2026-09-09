@@ -4,7 +4,7 @@
 // SPLIT OFF `growth-slate.ts` ON `growth-entry.ts`'S OWN SEAM. That module states the
 // rule this one applies: a row's CONTENT is its table's and a row's SHAPE is a
 // type-only module's, because a type-only module has no reason to change when a row
-// lands. The ledger is prose — four sentences per row, fifty-nine rows — and it had
+// lands. The ledger is prose — four sentences per row, sixty rows — and it had
 // grown past the size the structure rules set while carrying this vocabulary as well.
 //
 // THE UNION IS HERE AND THE ROWS ARE NEXT DOOR, WHICH THE COMPILER STILL PAIRS.
@@ -77,7 +77,8 @@ export type GrowthSlateRowId =
   | "health-diagnostics-reads"
   | "provider-account-signin-and-token"
   | "mcp-governance-plane"
-  | "node-self-declaration";
+  | "node-self-declaration"
+  | "workflow-human-form-schema";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;

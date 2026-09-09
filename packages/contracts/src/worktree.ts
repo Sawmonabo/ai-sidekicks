@@ -127,8 +127,8 @@ export { ExecutionModeSchema } from "./repo.js";
 // Canonical origin of the `WorktreeId` brand
 // (`docs/architecture/contracts/api-payload-contracts.md §Branded ID Types`).
 // The family payload's `worktreeId?` field in repo.ts stays an unbranded
-// canonical-UUID string with an IDENTICAL runtime accept set (both parse
-// `z.string().uuid()`) — the brand applies where consumers parse through this
+// canonical-UUID string with an IDENTICAL runtime accept set (both parse the
+// same RFC 9562 text form) — the brand applies where consumers parse through this
 // schema, so declaring it here required no repo.ts edit (PR #250 round 4).
 export type WorktreeId = string & { readonly __brand: "WorktreeId" };
 export const WorktreeIdSchema: z.ZodType<WorktreeId, WorktreeId> =

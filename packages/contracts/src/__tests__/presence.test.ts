@@ -50,7 +50,7 @@ import {
   type PresenceState,
 } from "../presence.js";
 
-// Real RFC 9562 UUIDs (mix of v4 and v7). z.uuid() validates the version
+// Real RFC 9562 UUIDs (mix of v4 and v7). `RFC_9562_TEXT_FORM` validates the version
 // nibble + variant bits in canonical positions; mismatch is rejected at the
 // branded-id schema layer.
 const PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440003";

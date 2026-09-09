@@ -522,6 +522,14 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     consumingSurface: "settings runtime-nodes page (the attach control)",
     wireRegistered: false,
   },
+  "workflow-human-form-schema": {
+    id: "workflow-human-form-schema",
+    wire: "the prompt and the input schema of a phase parked on a person, as two live-scoped members of the run read's phase projection. Registered nowhere: that projection carries the four park members and no form content at all, so a phase waiting on somebody is legible and unanswerable — and the definition body that holds a human phase's prompt and schema is addressed by the definition and a version NUMBER, which a run holding one opaque version id has neither half of, so composing the form from the definition is not merely a second read but an unaddressable one",
+    owningDocument:
+      "Spec-017 §Park surfacing on the read model (SA-44) (the live-scoped phase-state members this pair joins, and the one-response rule a separately-fetched prompt would break) + §Human phase — HumanPhaseConfig (SA-10, SA-11, SA-12) (the prompt and the JSON Schema a human phase asks with); Plan-017 (the shared-contracts and client-SDK registration these members would join)",
+    consumingSurface: "workflow-run pane (the human form a parked phase opens)",
+    wireRegistered: false,
+  },
 };
 
 /**

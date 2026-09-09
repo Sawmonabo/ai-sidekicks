@@ -2529,7 +2529,7 @@ function decodeForeignState(message: PresenceFanoutMessage): Record<string, unkn
 // ----------------------------------------------------------------------------
 //
 // UUID hex text is case-INSENSITIVE (RFC 9562 §4) and `SessionIdSchema` /
-// `ParticipantIdSchema` (`z.string().uuid()`) accept an uppercase UUID
+// `ParticipantIdSchema` (`RFC_9562_TEXT_FORM`) accept an uppercase UUID
 // unchanged (no normalization). Ids in this codebase are branded by bare cast
 // at DB-row reads, NOT by parsing through the schema, so an uppercase and a
 // lowercase spelling of the SAME logical id can both reach the service. Both

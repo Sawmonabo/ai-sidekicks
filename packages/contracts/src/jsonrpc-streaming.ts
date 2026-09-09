@@ -80,7 +80,7 @@
 //
 // Canonical source: this file. `subscriptionId` is a UUID-shaped
 // branded type; `crypto.randomUUID()` (Node 22.12+ native) emits
-// RFC 9562 UUIDs matching `z.uuid()`. The brand symbol convention
+// RFC 9562 UUIDs the branded factory's predicate admits. The brand symbol convention
 // follows session.ts §Branded ID Types verbatim. Per BL-102 no-mirror
 // disposition, `api-payload-contracts.md` does not maintain a doc-side
 // mirror of this code-side typed surface; ADR-018 §Decision #1 (MINOR
@@ -88,6 +88,8 @@
 // narrows in place — consumers keep the same import lines.
 
 import { z } from "zod";
+
+import { brandedUuidIdSchema } from "./internal/branded.js";
 
 // --------------------------------------------------------------------------
 // Method-name constants
@@ -149,7 +151,7 @@ export type SubscriptionCancelMethod = typeof SUBSCRIPTION_CANCEL_METHOD;
 /**
  * The opaque per-subscription identifier. Branded (TypeScript nominal)
  * over a UUID string at runtime — `crypto.randomUUID()` (Node 22.12+
- * native) emits RFC 9562 UUIDs matching `z.uuid()`'s acceptance.
+ * native) emits RFC 9562 UUIDs the branded factory's predicate admits.
  *
  * Brand pattern follows session.ts §Branded ID Types verbatim:
  *   * runtime is a plain UUID string;
@@ -159,15 +161,14 @@ export type SubscriptionCancelMethod = typeof SUBSCRIPTION_CANCEL_METHOD;
 export type SubscriptionId = string & { readonly __brand: "SubscriptionId" };
 
 /**
- * Zod schema for `SubscriptionId`. Cast through `unknown` for the same
- * reason session.ts:48-51 does — Zod's `.brand<>()` produces a
- * `$ZodBranded<>` shape whose internal symbol marker is not structurally
- * compatible with our `__brand` field, but the runtime parser is correct
- * and the public type stays nominal.
+ * Zod schema for `SubscriptionId`, composed through the `brandedUuidIdSchema`
+ * factory exactly as `SessionIdSchema` is, so this brand shares the ONE
+ * RFC 9562 accept set every branded UUID id in the package parses with: a
+ * spelling `SessionId` admits is never refused as a `SubscriptionId`, and a
+ * change to that set reaches this brand without a second edit.
  */
-export const SubscriptionIdSchema: z.ZodType<SubscriptionId> = z
-  .uuid()
-  .brand<"SubscriptionId">() as unknown as z.ZodType<SubscriptionId>;
+export const SubscriptionIdSchema: z.ZodType<SubscriptionId, SubscriptionId> =
+  brandedUuidIdSchema<SubscriptionId>("SubscriptionId");
 
 // --------------------------------------------------------------------------
 // SubscribeAckResponse — canonical subscribe-init ack

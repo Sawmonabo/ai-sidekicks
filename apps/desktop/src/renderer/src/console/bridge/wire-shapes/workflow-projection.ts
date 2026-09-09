@@ -102,7 +102,7 @@ export type WorkflowDefinitionScope = (typeof WORKFLOW_DEFINITION_SCOPES)[number
 /**
  * One phase of a run, as the run read and the start reply both project it.
  *
- * The optional members are optional on the wire for two different reasons and the
+ * The optional members are optional on the wire for three different reasons and the
  * console must not collapse them. `phaseRunId`, `attemptNumber`, and `formRevision`
  * are additive-optional on an already-published shape, so their absence means an
  * older daemon. The four park members are LIVE-SCOPED: a daemon emits them for
@@ -111,6 +111,18 @@ export type WorkflowDefinitionScope = (typeof WORKFLOW_DEFINITION_SCOPES)[number
  * discriminator, and its absence means this phase is not parked NOW rather than that
  * it never was. A surface that read absence as "unknown" would show a resumed phase
  * as still waiting.
+ *
+ * `prompt` and `inputSchema` are BOTH at once — additive-optional, because they are
+ * new on a shape that is already published, and live-scoped to the human park, because
+ * what a phase asks is a question only while somebody is being asked it. They ride the
+ * park discriminator rather than a fourth presence rule: emitted for exactly those
+ * phases whose `parkReason` is `waiting-human` when the response is built, and for no
+ * other phase, so a phase that has answered its form carries neither. They are declared
+ * here, on the growth slate's `workflow-human-form-schema` row, because the registered
+ * shape carries the four park members and no form content at all — and the definition
+ * body that holds a human phase's prompt and schema is addressed by
+ * `(definitionId, versionNumber)`, which a run holding one opaque version id has
+ * neither half of.
  */
 export interface WorkflowPhaseState {
   readonly phaseId: string;
@@ -124,6 +136,25 @@ export interface WorkflowPhaseState {
    * attempt has no accepted submission, 1 after one. Emitted for human phases only.
    */
   readonly formRevision?: number;
+  /**
+   * What this phase asks, as its definition's author wrote it.
+   *
+   * Present exactly while the phase is parked on a person. Carried on the run read
+   * rather than resolved from the definition, because the park is renderable from ONE
+   * response and a prompt fetched separately would be the second call that rule exists
+   * to remove.
+   */
+  readonly prompt?: string;
+  /**
+   * The schema the answer is shaped by, untyped on purpose.
+   *
+   * `unknown` rather than a JSON Schema type, for the reason the definition-side reader
+   * gives: deciding what a schema IS belongs to the one mapper that draws it, and its
+   * fallback is what covers everything it is not. A narrowing here would be that
+   * decision made twice, with only one of the two able to say why it went the way it
+   * did. Present on the same rule as `prompt`.
+   */
+  readonly inputSchema?: unknown;
   /** Present exactly while this phase is parked; the park's wire discriminator. */
   readonly parkReason?: WorkflowParkReason;
   /** The bounded engine-authored cause. Present whenever `parkReason` is. */

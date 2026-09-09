@@ -85,6 +85,17 @@
 // console-parity verbs, `session.not_found` (404) and `agent.not_found` (404).
 // Nothing new is minted; the driver namespace stays closed at its seven codes.
 //
+// ATTACHMENT-BEARING STEERS ARE REFUSED HERE, AT THE ONE INGRESS BOTH DRIVERS
+// SHARE. `SteerPayload.attachments` is typed `ArtifactId[]`, but no seam in this
+// daemon resolves an id to bytes yet and neither dispatcher reads the list — the
+// Codex one builds `steerRun` from `runId` / `content` / `expectedTurnId` / the
+// idempotency key, so a supported steer would return `applied` having dropped
+// every element. The contract is right and the daemon is what cannot honour it,
+// so the refusal lives at the dispatch boundary rather than in the schema (which
+// would make the arm unsendable for good) and rather than in each dispatcher
+// (which would be the same rule written twice). See
+// `refuseAttachmentDeliveryUnsupported`.
+//
 // Invariants this module participates in (canonical text in
 // `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`):
 //   * I-007-6 — duplicate registration is rejected at register-time by the
@@ -511,6 +522,41 @@ function requireDriverOperation(
 }
 
 /**
+ * Refuse a steer carrying attachment references the daemon cannot yet deliver.
+ *
+ * ONE throw site, at the ONE ingress both drivers share, and BEFORE any driver
+ * method runs — which is the whole point. `SteerPayload.attachments` is typed
+ * `ArtifactId[]` and the schema admits it, but nothing downstream resolves an
+ * id to bytes: the Codex dispatcher builds its `steerRun` request from
+ * `runId` / `content` / `expectedTurnId` / the idempotency key and never reads
+ * the list, so a supported steer would answer `applied` having dropped every
+ * element. A silently shortened attachment list is precisely the failure the
+ * typed carrier exists to prevent, so the carrier is refused WHOLE rather than
+ * partially honoured. The Claude arm sends nothing today and degrades, but it
+ * is refused on the same terms: `degraded` would tell the orchestration layer
+ * to queue-and-interrupt with attachments the daemon equally cannot deliver.
+ *
+ * `driver.capability_unsupported` rather than a new code: no driver declares an
+ * attachment-delivery leg, which is the same fact the registry's flag gate and
+ * the operation check above report, and this refusal lifts the moment a driver
+ * can honour the arm. Message, numerics, and `data.fields` mirror
+ * `requireDriverOperation` exactly so the two cannot drift, and no new fields
+ * member is minted (the count is not carried: the caller sent the list this
+ * refusal answers).
+ */
+function refuseAttachmentDeliveryUnsupported(driverName: string): never {
+  throw new DaemonDomainError(
+    "Attachment references on a steer cannot be delivered yet, so the whole intervention is refused rather than applied with its attachments dropped. Re-send the steer without attachments; delivery arrives with the daemon's attachment-reference resolver.",
+    {
+      code: "driver.capability_unsupported",
+      jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
+      httpStatus: 400,
+      detail: { driverId: driverName, operation: "applyIntervention" },
+    },
+  );
+}
+
+/**
  * The roster every group-list reply is built over: registered driver names in
  * stable sorted order.
  *
@@ -669,6 +715,13 @@ export function registerDriverInterruptRun(
  * and refusing at a gate would replace a usable fallback hint with an error. The
  * registry records the same exclusion on its own side by having no branch for
  * this operation.
+ *
+ * The ONE exception to that is the attachment guard below, and it is not a
+ * capability gate in disguise: it reports what the DAEMON cannot do, not what
+ * the provider cannot do, so there is no fallback hint for it to displace. It
+ * runs last in the canonical refusal order — address, availability, operation,
+ * then this — so a caller is never sent to fix the attachment list for a run id
+ * that does not resolve.
  */
 export function registerDriverApplyIntervention(
   registry: MethodRegistry,
@@ -678,6 +731,9 @@ export function registerDriverApplyIntervention(
     return withDriverErrorTranslation(async () => {
       const { driverName, driver } = resolveDriverForRunOrThrow(deps, params.targetRunId);
       requireDriverOperation(driver, driverName, "applyIntervention");
+      if (params.type === "steer" && (params.payload.attachments?.length ?? 0) > 0) {
+        refuseAttachmentDeliveryUnsupported(driverName);
+      }
       return driver.applyIntervention(params);
     });
   };

@@ -343,4 +343,5 @@ export type GrowthPrerequisiteId =
   | "providerSessionImportSpec"
   | "timelineResumeCursorMember"
   | "mountHealthIdentityProjection"
-  | "workflowParentContentHashMember";
+  | "workflowParentContentHashMember"
+  | "workflowHumanFormContentMembers";

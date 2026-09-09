@@ -70,7 +70,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import type { SessionId } from "@ai-sidekicks/contracts";
+import { canonicalizeUuid, type SessionId } from "@ai-sidekicks/contracts";
 
 /**
  * One live acquisition. Identity (not `sessionId` equality) is what the
@@ -133,9 +133,16 @@ const heldSessionAppendLocks = new AsyncLocalStorage<
  * @param critical The critical section. Runs at most once per call.
  */
 export async function withSessionAppendLock<T>(
-  sessionId: SessionId,
+  requestedSessionId: SessionId,
   critical: () => Promise<T>,
 ): Promise<T> {
+  // CANONICALIZE AT THE BOUNDARY. Both maps below are keyed by session id, and
+  // UUID hex is case-insensitive (RFC 9562 §4) while the branded schema admits
+  // either case unchanged — so without this, one logical session spelled two
+  // ways would take two locks, and the whole "one appender per session per
+  // process" invariant would hold per SPELLING rather than per session. This is
+  // the explicit per-boundary canonicalization `uuid-canonical.ts` requires.
+  const sessionId: SessionId = canonicalizeUuid(requestedSessionId);
   const currentHolds: ReadonlyMap<SessionId, SessionAppendLockHold> | undefined =
     heldSessionAppendLocks.getStore();
   const existingHold: SessionAppendLockHold | undefined = currentHolds?.get(sessionId);

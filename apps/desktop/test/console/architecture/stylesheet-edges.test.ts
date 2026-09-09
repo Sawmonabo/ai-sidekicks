@@ -392,9 +392,12 @@ describe("stylesheet edges — a sheet enters at the door of the directory that 
     expect(
       moduleStylesheetImports("workflows/index.ts", readConsoleFile("workflows/index.ts")),
       // The family door's three remaining sheets, in file order. Its own chrome moved to
-      // the three chunk roots when the last of its bodies went behind a loader; what
-      // stays is the run list's sheet, whose cascade position is shared with the runs
-      // family, and the two the door's pinned region draws against on the first paint.
+      // the three chunk roots that paint it when the last of those bodies went behind a
+      // loader; what stays is the run list's sheet, whose cascade position is shared with
+      // the runs family, and the two the door's pinned region draws against on the first
+      // paint. The composer picker's menu sheet left with its own chunk root when that
+      // seat took a loader — the door reaching it was the second of the two static paths
+      // that kept the picker in every session's entry chunk.
     ).toStrictEqual([
       "./runs/run-list.css",
       "./parks/park-badge.css",

@@ -4,13 +4,19 @@
 // visible button. The composer keeps exactly one primary action, and attachments
 // and workflow start live behind this disclosure rather than beside it.
 //
-// TWO OCCUPANTS, ONE OF THEM SOMEBODY ELSE'S. The attachment picker is this lane's
-// and is built. "Start a workflow" opens a definition picker over the workflow
-// definition list and dispatches a workflow run — both registered method strings
-// with no shape in the shared contracts package and no growth-port operation, so
-// the body is the workflow plan's and this file mounts a seat for it. A picker
-// rendered here against no enumeration would be a list of nothing that looks like
-// a list of none.
+// TWO OCCUPANTS, ONE OF THEM SOMEBODY ELSE'S. The attachment picker is this menu's
+// own and is built. "Start a workflow" opens a definition picker over the workflow
+// definition list and dispatches a workflow run, and that body belongs to the
+// workflows family: this file supplies the position, the disclosure and the framing,
+// and takes the body as a prop.
+//
+// IT WAS A RESERVED SEAT AND IS NOT ONE ANY MORE. While no family had the enumeration,
+// the entry stood as an owner-slot contract with a "not built yet" absence behind it,
+// because a picker rendered against no enumeration would have been a list of nothing
+// that looks like a list of none. The workflows family has landed that enumeration and
+// the start it dispatches, so the seat's own deletion obligation falls due here: the
+// shell, the contract and the reserved state are gone, and the body arrives through
+// that family's door.
 //
 // KEYBOARD, NOT MOUSE-ONLY. The disclosure is a real button with `aria-expanded`;
 // Escape closes and returns focus to it. An icon-only trigger carries its name in
@@ -22,30 +28,19 @@ import { Glyph } from "../../../../console/primitives/index.js";
 // draw this mark larger than the rail it sits in; a private copy of the number would
 // be the second declaration of one scale that a token exists to prevent.
 import { GLYPH_SIZE_CHROME } from "../../../../console/tokens/index.js";
-import type { OwnerSlotContract } from "../../../../console/seats/index.js";
 import type { ConsoleBridge } from "../../../../console/bridge/index.js";
 import { AttachmentPickerSeat } from "./AttachmentPickerSeat.js";
-import { WorkflowStartSlot } from "./WorkflowStartSlot.js";
-
-/**
- * The workflow-start seat's three facts. Developer-facing; never rendered.
- *
- * The governance identifier lives in this comment rather than in the value, per the
- * repository's standing rule on runtime strings: the body is the workflow plan's,
- * and the console owes it the menu position and the session it starts within.
- */
-export const WORKFLOW_START_SLOT_CONTRACT: OwnerSlotContract = {
-  owningTask: "the workflow orchestration plan's definition picker and start dispatch",
-  mountObligation:
-    "the composer supplies the menu position, the session the run would start in, and the accessible framing of the disclosure; the body owns the definition enumeration, the pinned-version choice, and the start dispatch with its denial rendering",
-  deleteShellIn: "the PR that mounts the workflow definition picker into this seat",
-};
 
 export interface PlusMenuProps {
   readonly bridge: ConsoleBridge;
   readonly sessionId: string;
-  /** The workflow picker, once its owner mounts one. `undefined` until then. */
-  readonly workflowStartBody: React.ReactNode | undefined;
+  /**
+   * The workflow picker, composed by the family that owns the enumeration it lists.
+   *
+   * Required and never optional: the entry is part of this menu, and a caller that
+   * omitted it would leave the disclosure holding one item with nothing saying why.
+   */
+  readonly workflowStartBody: React.ReactNode;
 }
 
 export function PlusMenu(props: PlusMenuProps): React.JSX.Element {
@@ -81,10 +76,9 @@ export function PlusMenu(props: PlusMenuProps): React.JSX.Element {
       {isOpen ? (
         <div className="meridian-plus-menu__panel" aria-label="Add to this message">
           <AttachmentPickerSeat bridge={props.bridge} sessionId={props.sessionId} />
-          <WorkflowStartSlot
-            contract={WORKFLOW_START_SLOT_CONTRACT}
-            body={props.workflowStartBody}
-          />
+          {/* The menu's own placement around a body it did not author, which is the
+              whole of this file's half of the entry. */}
+          <div className="meridian-plus-menu__workflow">{props.workflowStartBody}</div>
         </div>
       ) : null}
     </div>

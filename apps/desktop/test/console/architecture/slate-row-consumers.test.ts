@@ -132,9 +132,14 @@ const CONSUMER_OWED_BY_ANOTHER_LANE: Readonly<Record<string, string>> = {
   "worktree-setup-recipe": "repos lane — the repos surface",
   "mount-health-identity-verdict":
     "repos lane — the mount card's health chip and the settings mounts row",
-  // workflows lanes — the run pane and the builder.
+  // workflows lanes — the run pane and the builder. The human form's own row is a
+  // third of the same class as the mount-health verdict above: its console consumer
+  // is built — the run pane's human form composes the prompt and the schema the run
+  // read hands it — and what is missing is the CARRIER, two members on a reply rather
+  // than a call, so the operation-derived check below cannot reach it either way.
   "workflow-event-registration": "workflows lane — the workflow-run pane",
   "workflow-definition-scope": "workflows lane — the workflow-builder pane",
+  "workflow-human-form-schema": "workflows lane — the run pane's human form",
   // approvals lane — the remembered-rule arm and the amendment arm. The callback
   // registry came off this list when that lane landed the pane's posture section:
   // `callbackToolRegistryRead` is reached by
@@ -270,6 +275,7 @@ const ROWS_WITH_NO_LEDGER_OPERATION: readonly GrowthSlateRowId[] = [
   "approval-amendment-arm",
   "mount-health-identity-verdict",
   "node-self-declaration",
+  "workflow-human-form-schema",
 ] as GrowthSlateRowId[];
 
 /** A row id no ledger operation and no module can match. The negative control's. */
