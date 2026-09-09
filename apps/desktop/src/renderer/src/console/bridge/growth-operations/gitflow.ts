@@ -28,7 +28,6 @@ export const GITFLOW_GROWTH_OPERATIONS: Readonly<Record<GitflowOperationId, Grow
       "gitActionExecute",
       "gitflow-actions",
       "method",
-      "run a git action from the repos and diffs surfaces",
       "gitflow.gitActionExecute",
     ),
     // gitflow
@@ -36,7 +35,6 @@ export const GITFLOW_GROWTH_OPERATIONS: Readonly<Record<GitflowOperationId, Grow
       "gitflowBranchContextRead",
       "gitflow-actions",
       "method",
-      "read the base, head, upstream, and worktree association a writable run executes against, for the repos surface's branch-context summary",
       "gitflow.branchContextRead",
     ),
     // The diff artifact both diff surfaces render. A MUTATION and not a read, which
@@ -48,16 +46,9 @@ export const GITFLOW_GROWTH_OPERATIONS: Readonly<Record<GitflowOperationId, Grow
       "gitflowDiffArtifactCreate",
       "gitflow-actions",
       "method",
-      "mint a diff artifact between two named states for one run or one workspace, so the diff pane and the inline diff card have a change set to render",
       "gitflow.diffArtifactCreate",
     ),
-    gitflowPrPrepare: op(
-      "gitflowPrPrepare",
-      "gitflow-actions",
-      "method",
-      "prepare a reviewable pull-request proposal from the recorded branch context, before any remote mutation",
-      "gitflow.prPrepare",
-    ),
+    gitflowPrPrepare: op("gitflowPrPrepare", "gitflow-actions", "method", "gitflow.prPrepare"),
     // The workspace's own execution context. NO EXPECTED WIRE METHOD, on the
     // identity-and-registry rows' rule rather than as an omission: the corpus registers
     // no read for this at all — the checkout root is a column on a daemon table and the
@@ -67,6 +58,5 @@ export const GITFLOW_GROWTH_OPERATIONS: Readonly<Record<GitflowOperationId, Grow
       "workspaceExecutionContextRead",
       "workspace-execution-context",
       "method",
-      "read the normalized checkout root a turn-boundary snapshot operates on and whether the workspace is executing under a substituted fallback mode, for the workspace card's three-path disclosure and its fallback badge",
     ),
   };
