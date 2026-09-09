@@ -160,11 +160,18 @@
 /* The axis popover's trigger. A control and not a chip: it is pressed rather than
    read, so its boundary is `edge-strong` like this composer's other buttons rather
    than the decorative `edge` hairline the chips and the frame wear, and it sits at
-   chip height so the rail stays one line. */
+   chip height so the rail stays one line.
+
+   Its label is `accent-text` and not `accent`, which is the same split the send
+   control above it makes: `accent` is a FILL hue and misses the text floor as ink on
+   this composer's ground — measured, `serious` from the accessibility tier's axe run
+   in the light scheme, where the trigger sits on the lightest ground the palette
+   has. `accent-text` is the token the palette declares for accent-coloured text on a
+   neutral ground and is measured against all four. */
 .meridian-composer__axes-trigger {
   padding: 0 var(--meridian-space-2);
   font: inherit;
-  color: var(--meridian-accent);
+  color: var(--meridian-accent-text);
   background: none;
   border: 1px solid var(--meridian-edge-strong);
   border-radius: var(--meridian-radius-sm);
