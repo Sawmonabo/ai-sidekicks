@@ -177,12 +177,17 @@
   outline-offset: 1px;
 }
 
-/* The prose, the button, and the outcome line each span both columns: none of them
-   is a field, and a control sitting in the value column would read as one. */
+/* The prose and the button each span both columns: neither is a field, and a control
+   sitting in the value column would read as one. The outcome line spans with them,
+   asked for through `settings/shared/settings-page.css`'s own door rather than by
+   declaring that sheet's class here. */
 .meridian-accounts__register > p,
-.meridian-accounts__register > button,
-.meridian-accounts__register > .meridian-settings-page__state {
+.meridian-accounts__register > button {
   grid-column: 1 / -1;
+}
+
+.meridian-accounts__register {
+  --meridian-settings-page-state-grid-column: 1 / -1;
 }
 
 .meridian-accounts__register > button {

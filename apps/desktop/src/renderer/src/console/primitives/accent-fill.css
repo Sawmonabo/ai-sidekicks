@@ -72,3 +72,8 @@
   border-color: var(--meridian-accent-ink);
   background: var(--meridian-accent-pressed);
 }
+
+.meridian-accent-fill:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}

@@ -72,13 +72,6 @@
   gap: var(--meridian-space-2);
 }
 
-.meridian-attach__definition-button {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  width: 100%;
-}
-
 .meridian-attach__definition-summary,
 .meridian-attach__incomplete {
   font-size: var(--meridian-text-xs);

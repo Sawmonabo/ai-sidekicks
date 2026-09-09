@@ -84,11 +84,17 @@
  * than this box's, so the two hosts a strip can stand in — this section and a pane
  * chrome's body — inset it identically.
  */
+/*
+ * The two doors below are this surface's public API. It sizes itself to its parent
+ * and scrolls internally, which is right when it IS the surface and wrong when
+ * something stands under it — so a composition that stands something under it unsets
+ * them on its OWN class rather than declaring `.meridian-workflow` in a second sheet.
+ */
 .meridian-workflow {
   display: flex;
   flex-direction: column;
-  block-size: 100%;
-  overflow-y: auto;
+  block-size: var(--meridian-workflow-block-size, 100%);
+  overflow-y: var(--meridian-workflow-overflow-y, auto);
 }
 
 /*

@@ -57,10 +57,10 @@ export interface InputAskSlotProps extends OwnerSlotProps<
  */
 export function InputAskSlot(props: InputAskSlotProps): React.JSX.Element {
   if (props.body !== undefined) {
-    return <div className="meridian-run-row__ask">{props.body({ runId: props.runId })}</div>;
+    return <div className="meridian-runs__ask">{props.body({ runId: props.runId })}</div>;
   }
   return (
-    <div className="meridian-run-row__ask">
+    <div className="meridian-runs__ask">
       <Nothing
         kind="not-checked"
         placement="inline"

@@ -24,28 +24,28 @@ export function StatusHistory(props: {
   readonly rows: readonly RunStatusRow[];
 }): React.JSX.Element {
   if (props.rows.length === 0) {
-    return <p className="meridian-run-row__no-history">No transition has been delivered yet.</p>;
+    return <p className="meridian-runs__no-history">No transition has been delivered yet.</p>;
   }
   return (
-    <ol className="meridian-run-row__history">
+    <ol className="meridian-runs__history">
       {props.rows.map((row, position) => {
         const traits = runStatusSubtypeTraits(row.subtype);
         return (
           <li
-            className="meridian-run-row__history-row"
+            className="meridian-runs__history-row"
             key={`${String(position)}:${String(row.runVersion)}`}
           >
-            <span className="meridian-run-row__history-mark">
+            <span className="meridian-runs__history-mark">
               <Glyph name={traits.glyph} size={HISTORY_MARK_SIZE} />
               {traits.label}
             </span>
             {row.previousState === undefined || row.currentState === undefined ? null : (
-              <span className="meridian-run-row__history-states">
+              <span className="meridian-runs__history-states">
                 <WireFigure value={row.previousState} /> → <WireFigure value={row.currentState} />
               </span>
             )}
             {row.targetPosition === undefined ? null : (
-              <span className="meridian-run-row__history-position">
+              <span className="meridian-runs__history-position">
                 position <WireFigure value={String(row.targetPosition)} />
               </span>
             )}

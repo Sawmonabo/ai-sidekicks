@@ -16,9 +16,15 @@
  * weight.
  */
 
+/*
+ * `--meridian-glyph-color` is this primitive's public door: a surface that draws the
+ * glyph in its own hue sets the property on the class it owns rather than declaring
+ * `.meridian-glyph` in a second sheet. Unset, the glyph takes the ink it sits in.
+ */
 .meridian-glyph {
   display: inline-block;
   flex: none;
+  color: var(--meridian-glyph-color, currentcolor);
   /* Optical, not layout: a 16 px square beside 14 px text sits a touch high on the
      baseline until it is nudged down by an eighth of the em. */
   vertical-align: -0.125em;
