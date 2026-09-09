@@ -1,37 +1,36 @@
 import { WireFigure, formatCount } from "../../primitives/index.js";
 import { TOOL_ALLOWLIST_NAMED_CAP } from "../../core/index.js";
+import { NAMELESS_TOOL_GRANT_WORDING, type AgentToolGrantPosition } from "./tool-grant.js";
+import { ToolGrantReading } from "./ToolGrantReading.js";
 
 /**
- * The tool allowlist as applied — presence first, emptiness second.
+ * The tool allowlist as applied: the names, or the reading its position carries.
  *
- * An ABSENT member is the daemon not reporting the axis. A PRESENT empty array is
- * the applied configuration "no tools at all", which is a restriction somebody chose
- * and the strictest posture this agent can have. Rendering them alike would be the
- * conflation the whole card exists to refuse. The empty case is a derived sentence
- * rather than a wire figure because there is no wire value to print.
+ * IT READS THE POSITION AND NEVER THE MEMBER. This row used to take
+ * `toolAllowlist` alone, which cannot tell a configuration that carried no allowlist
+ * from a reply that carried no configuration — so it answered "not reported" for a
+ * state the governance line three lines above called the driver's default set. One
+ * wire value now has one reading on this card, and `tool-grant.ts` holds it.
+ *
+ * IT SAYS NOTHING THE LINE ALREADY SAID. The position's sentence belongs to the line;
+ * what the disclosure adds is the NAMES, and where a position has none it states that
+ * position in the fewest words that are true.
  */
 export function ToolAllowlist(props: {
-  readonly allowlist: readonly string[] | undefined;
+  readonly position: AgentToolGrantPosition;
 }): React.JSX.Element {
-  const { allowlist } = props;
-  if (allowlist === undefined) {
-    return <span className="meridian-agent-card__axis-absent">not reported</span>;
+  const { position } = props;
+  if (position.kind !== "named") {
+    const wording = NAMELESS_TOOL_GRANT_WORDING[position.kind];
+    return <ToolGrantReading weight={wording.weight}>{wording.reading}</ToolGrantReading>;
   }
-  if (allowlist.length === 0) {
-    return (
-      <span className="meridian-agent-card__axis-derived">
-        No tools. This agent was attached with an empty allowlist.
-      </span>
-    );
-  }
+  const unnamedCount = position.toolNames.length - TOOL_ALLOWLIST_NAMED_CAP;
   return (
     <>
-      {allowlist.slice(0, TOOL_ALLOWLIST_NAMED_CAP).map((toolName) => (
+      {position.toolNames.slice(0, TOOL_ALLOWLIST_NAMED_CAP).map((toolName) => (
         <WireFigure key={toolName} value={toolName} />
       ))}
-      {allowlist.length > TOOL_ALLOWLIST_NAMED_CAP
-        ? ` and ${formatCount(allowlist.length - TOOL_ALLOWLIST_NAMED_CAP)} more`
-        : null}
+      {unnamedCount > 0 ? ` and ${formatCount(unnamedCount)} more` : null}
     </>
   );
 }

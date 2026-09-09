@@ -22,7 +22,15 @@
 // the daemon serves this agent — the browser's page tool set included — and a
 // governance ceiling a reader has to open a disclosure to find is a ceiling nobody
 // reads. `ToolGrantLine.tsx` states the split it keeps from the echo beside it, and
-// `tool-grant.ts` states why its populated arm carries a count and never the names.
+// `tool-grant.ts` states why the line carries a count and never the names.
+//
+// AND IT IS READ ONCE. The line and the echo's Tools row state one wire value, so the
+// position is resolved here and handed to both — the card is the only place that has
+// the whole roster row, and a second read inside the disclosure is how the two came to
+// disagree about a configuration that carried no allowlist. The NODE-WIDE half of that
+// governance rule is not on this card at all: `ToolGrantCeiling.tsx` states it once
+// beside the roster, because it is true of every agent and of agents nobody has
+// attached yet.
 //
 // TWO FIELDS ARE DELIBERATELY NOT RENDERED ANYWHERE: the admitting principal and the
 // interrupt-dispatch progress marker. Both live in the durable slot as recovery
@@ -84,6 +92,7 @@ export interface AgentCardProps {
 export function AgentCard(props: AgentCardProps): React.JSX.Element {
   const { agent } = props;
   const label = agent.name ?? agent.agentId;
+  const toolGrant = agentToolGrantPosition(agent);
   const mutatingReasonId = useId();
   const isMutating = props.isMutating === true;
 
@@ -123,7 +132,7 @@ export function AgentCard(props: AgentCardProps): React.JSX.Element {
 
       <ObservedOutputSpeed agent={agent} />
       <PendingSwitchLine pendingSwitch={agent.pendingSwitch} />
-      <ToolGrantLine position={agentToolGrantPosition(agent)} />
+      <ToolGrantLine position={toolGrant} />
 
       {agent.resolvedConfiguration === undefined ? null : (
         <details className="meridian-agent-card__disclosure">
@@ -135,6 +144,7 @@ export function AgentCard(props: AgentCardProps): React.JSX.Element {
           <ResolvedConfigurationEcho
             resolved={agent.resolvedConfiguration}
             definitionId={agent.resolvedFromDefinitionId}
+            toolGrant={toolGrant}
           />
         </details>
       )}

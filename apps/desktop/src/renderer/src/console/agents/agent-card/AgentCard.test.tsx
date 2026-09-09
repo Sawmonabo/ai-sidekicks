@@ -10,7 +10,6 @@ import { describe, expect, it } from "vitest";
 import { TOOL_ALLOWLIST_NAMED_CAP } from "../../core/index.js";
 import { formatCount } from "../../primitives/index.js";
 import { AgentCard } from "./AgentCard.js";
-import { AgentRosterEmpty } from "../AgentRosterEmpty.js";
 import type { AgentRosterEntry } from "../../bridge/index.js";
 
 const RUNNING: AgentRosterEntry = {
@@ -31,6 +30,24 @@ const FULLY_REPORTED = {
 
 function observedTextOf(container: HTMLElement): string {
   return container.querySelector(".meridian-agent-card__observed")?.textContent ?? "";
+}
+
+/**
+ * The echo's Tools row, addressed by its own term rather than by position.
+ *
+ * The `<dd>` carries no class of its own — every resolved row wears the same one — so
+ * a positional query would silently become a different row the day an axis is added
+ * above it.
+ */
+function toolsRowTextOf(container: HTMLElement): string {
+  const toolsRow = [...container.querySelectorAll(".meridian-agent-card__resolved-row")].find(
+    (row) => row.querySelector("dt")?.textContent === "Tools",
+  );
+  return toolsRow?.querySelector("dd")?.textContent ?? "";
+}
+
+function grantLineTextOf(container: HTMLElement): string {
+  return container.querySelector(".meridian-agent-card__tool-grant")?.textContent ?? "";
 }
 
 describe("agent card — the effective binding", () => {
@@ -240,21 +257,19 @@ describe("agent card — the attach echo", () => {
         agent={{ ...RUNNING, resolvedConfiguration: { ...FULLY_REPORTED, toolAllowlist: [] } }}
       />,
     );
-    const resolved = container.querySelector(".meridian-agent-card__resolved")?.textContent ?? "";
-    expect(resolved).toContain("No tools. This agent was attached with an empty allowlist.");
-    expect(resolved).not.toContain("not reported");
+    expect(toolsRowTextOf(container)).toContain("No tools");
+    expect(toolsRowTextOf(container)).not.toContain("not reported");
   });
 
-  it("negative control: an echo omitting the member still says nothing was reported", () => {
+  it("negative control: an echo omitting the member is not read as an empty one", () => {
     // Without this, the case above would pass over a card that reported an empty
     // allowlist for an axis the daemon never answered — the same conflation, in the
     // other direction.
     const { container } = render(
       <AgentCard agent={{ ...RUNNING, resolvedConfiguration: FULLY_REPORTED }} />,
     );
-    const resolved = container.querySelector(".meridian-agent-card__resolved")?.textContent ?? "";
-    expect(resolved).toContain("not reported");
-    expect(resolved).not.toContain("empty allowlist");
+    expect(toolsRowTextOf(container)).not.toContain("empty allowlist");
+    expect(toolsRowTextOf(container)).not.toContain("No tools");
   });
 
   it("keeps the snapshot note out of the definition list's content model", () => {
@@ -351,6 +366,48 @@ describe("agent card — the attach echo", () => {
   });
 });
 
+describe("agent card — one wire state, one reading of it", () => {
+  it("gives an echo with no allowlist member the same reading in both places", () => {
+    // The line read the grant projection and the Tools row read `toolAllowlist` for
+    // itself, so one wire state was "the driver's default tool set" on the line and
+    // "not reported" three lines below it — a card contradicting itself about the one
+    // axis its whole tool-governance section exists to state.
+    const { container } = render(
+      <AgentCard agent={{ ...RUNNING, resolvedConfiguration: FULLY_REPORTED }} />,
+    );
+
+    expect(grantLineTextOf(container)).toContain("default tool set");
+    expect(toolsRowTextOf(container)).toContain("driver's default set");
+    expect(grantLineTextOf(container)).not.toContain("reported");
+    expect(toolsRowTextOf(container)).not.toContain("reported");
+  });
+
+  it("negative control: a reply that reported NOTHING does say so, on the line", () => {
+    // Without this the case above would pass over a card that had stopped saying
+    // "not reported" anywhere at all — which loses the fourth position outright and
+    // is the same conflation the projection was built to refuse.
+    const { container } = render(<AgentCard agent={{ agentId: "agent-scout", state: "ready" }} />);
+
+    expect(grantLineTextOf(container)).toContain("Not reported");
+    expect(container.querySelector(".meridian-agent-card__resolved")).toBeNull();
+  });
+
+  it("says the empty-allowlist sentence once on the card, not once per surface", () => {
+    // Both renderers spelled the whole sentence, so the `no-tools` arm printed
+    // "No tools. This agent was attached with an empty allowlist." twice on one card.
+    // The line states the position; the disclosure adds only what the line left out.
+    const { container } = render(
+      <AgentCard
+        agent={{ ...RUNNING, resolvedConfiguration: { ...FULLY_REPORTED, toolAllowlist: [] } }}
+      />,
+    );
+    const wholeCard = container.textContent ?? "";
+
+    expect(wholeCard.split("attached with an empty allowlist")).toHaveLength(2);
+    expect(grantLineTextOf(container)).toContain("attached with an empty allowlist");
+  });
+});
+
 describe("agent card — actions are offered only where the caller supplied one", () => {
   it("draws each action it was handed", () => {
     const { container } = render(
@@ -362,19 +419,5 @@ describe("agent card — actions are offered only where the caller supplied one"
   it("negative control: a card handed none draws none", () => {
     const { container } = render(<AgentCard agent={RUNNING} />);
     expect(container.querySelectorAll(".meridian-agent-card__action").length).toBe(0);
-  });
-});
-
-describe("agent roster — the empty state", () => {
-  it("offers the one action there is", () => {
-    const { container } = render(<AgentRosterEmpty onAttach={() => {}} />);
-    expect(container.textContent ?? "").toContain("No agent is attached");
-    expect(container.querySelector(".meridian-agent-card__action")).not.toBeNull();
-  });
-
-  it("negative control: with no handler it states the absence and offers nothing", () => {
-    const { container } = render(<AgentRosterEmpty />);
-    expect(container.textContent ?? "").toContain("No agent is attached");
-    expect(container.querySelector(".meridian-agent-card__action")).toBeNull();
   });
 });
