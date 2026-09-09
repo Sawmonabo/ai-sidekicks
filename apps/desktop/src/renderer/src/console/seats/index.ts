@@ -587,10 +587,13 @@ export { groupSectionRows, groupedRowCount, normaliseFilterQuery } from "./secti
 // AND ALL THREE LEAVE THROUGH A LOADER, which is the one thing about this seat that is
 // not like the others. Every surface that draws a schema is itself a loader-backed body,
 // so a static line here would assign the whole kit to the STATIC chunk on the rule
-// `apps/desktop/AGENTS.md` §Module shape states — measured at thirty-one modules of that
-// directory, the JSON-Schema validator behind them, and its stylesheet, on the document
-// of every session that never opens a form. So what this door publishes is the mounts
-// and the chunk's loader; `schema-form-body.ts` is the chunk root they reach.
+// `apps/desktop/AGENTS.md` §Module shape states — every module of that directory, the
+// JSON-Schema validator behind them and the zod entry point it reaches, and its
+// stylesheet, on the document of every session that never opens a form. Count-free
+// deliberately: a number written here is a claim about a directory that goes stale the
+// next time the kit grows a field, and the one that stood here had. So what this door
+// publishes is the mounts and the chunk's loader; `schema-form-body.ts` is the chunk
+// root they reach.
 export {
   schemaFormAnswerMount,
   schemaFormChunk,
