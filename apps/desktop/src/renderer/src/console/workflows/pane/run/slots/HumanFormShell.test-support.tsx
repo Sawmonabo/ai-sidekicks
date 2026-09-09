@@ -29,30 +29,18 @@ import {
 import { WORKFLOWS_SCENARIO } from "../../../../bridge/scenarios/workflows.js";
 import { WORKFLOWS_PARKED_RUN } from "../../../../bridge/scenarios/workflow-fixture-runs.js";
 import type { WireErrorEnvelope } from "../../../../core/index.js";
-import { schemaFormAnswerMount } from "../../../../seats/index.js";
-// The seat's own wait for the schema compiler's chunk, by its own specifier: a fixture
-// helper has no door to leave through — `barrel-census` fails a door line no production
-// module reads — which is why `console-cross-family-deep-import` subtracts a
-// `.test-support` module on its source side. The alternative is a fourth copy of one await.
-import { resolveSchemaValidatorCompiler } from "../../../../seats/schema-form/containers/use-schema-form.test-support.js";
+// The seat's own wait for its two chunks, by its own specifier: a fixture helper has no
+// door to leave through — `barrel-census` fails a door line no production module reads —
+// which is why `console-cross-family-deep-import` subtracts a `.test-support` module on
+// its source side. The alternative is a fourth copy of one await.
+import { resolveSchemaFormChunks } from "../../../../seats/schema-form/containers/use-schema-form.test-support.js";
 import { settle } from "../../../../core/settle.test-support.js";
 import { humanFormPhaseFor } from "../human-form-selection.js";
 import { HumanFormSlot } from "./HumanFormSlot.js";
 import type { HumanFormBody, HumanFormPhase } from "./human-form-mount.js";
 
-/**
- * Resolve the schema form's chunk before a case renders a wait.
- *
- * The form arrives as its own chunk, so a mount that begins cold suspends for the turn
- * its module lands in and every synchronous query against the controls runs against the
- * reserved region instead. Awaited once per suite rather than settled per case: the
- * seat's loader memoises the load, so this is the same promise every mount in the file
- * would have joined — and a suite that waits here reads exactly what a person who has
- * already opened one form sees.
- */
-export async function loadSchemaFormBody(): Promise<void> {
-  await schemaFormAnswerMount.load();
-}
+// Re-exported, not re-documented — its JSDoc lives on the declaration imported above.
+export { resolveSchemaFormChunks };
 
 /** The refusal a daemon raises on a submission composed against a stale revision. */
 export const STALE_REVISION_REFUSAL: WireErrorEnvelope = {
@@ -244,19 +232,20 @@ export interface HumanFormSlotMounting {
  * switch a switch: a fresh bridge would re-address every subject-scoped holder in the
  * tree and reset the form for a reason that has nothing to do with the phase.
  *
- * AND IT RESOLVES BOTH CHUNKS, because the form opens in two steps. `loadSchemaFormBody`
- * above resolves the seat's own chunk; the schema COMPILER is a second one, fetched by the
- * form's own hook when it mounts, and the one act this shell offers is closed until it
- * lands — so a case that pressed submit straight after `render` would press a control the
- * form has deliberately not armed yet. A settle does not cover the second: it crosses one
- * macrotask, and a dynamic import that has not yet resolved needs more than one, so the
- * first mount in a file races that file's first `import()`. Each chunk is therefore waited
- * for by name, through the module that owns it.
+ * AND IT RESOLVES BOTH CHUNKS, because the form opens in two steps and this mount waits
+ * for both through `resolveSchemaFormChunks` above. A settle does not cover the second:
+ * it crosses one macrotask, and a dynamic import that has not yet resolved needs more
+ * than one, so the first mount in a file races that file's first `import()` — and the
+ * one act this shell offers is closed until that import lands, so a case that pressed
+ * straight after `render` would press a control the form has deliberately not armed yet.
+ * Waited for here as well as in a suite's own `beforeAll`, because a caller that has no
+ * such hook is exactly the caller that would race it, and a warm already taken costs an
+ * already-settled promise.
  */
 export async function renderSwitchableSlot(
   mounting: HumanFormSlotMounting,
 ): Promise<SwitchableSlot> {
-  await resolveSchemaValidatorCompiler();
+  await resolveSchemaFormChunks();
   const held = mounting.bridge ?? createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
   // Spread on the arm that carries one rather than passed as an explicit `undefined`,
   // which `exactOptionalPropertyTypes` refuses on an optional prop.
@@ -277,7 +266,34 @@ export async function renderSwitchableSlot(
   };
 }
 
-/** Press the one act the form offers. */
+/**
+ * Press the one act the form offers, refusing a control the form has not armed.
+ *
+ * THE CLOSED CONTROL IS THE FAILURE THAT USED TO BE SILENT. A press on a disabled button
+ * dispatches nothing, so a case that pressed before the schema compiler's chunk landed
+ * recorded no submission, advanced no round, put no re-read — and then failed several
+ * assertions later on a park-card count that names none of that. Read here, the press
+ * says what actually happened, and every suite that drives this button gets the same
+ * sentence rather than each one's own downstream symptom.
+ *
+ * AND THE NARROWING IS AN ASSERTION RATHER THAN A CONDITION. `getByRole` answers with an
+ * `HTMLElement`, so folding the instance check into the disabled test fails OPEN: an
+ * `<input type="submit">`, or this role grown onto another element, skips the guard
+ * silently and gets pressed anyway — which is the same silence the guard exists to end.
+ * Two throws, and each says only what it saw: the first what the role resolved to, the
+ * second what state that control was in.
+ */
 export function pressSubmit(): void {
-  fireEvent.click(screen.getByRole("button", { name: "Submit answer" }));
+  const submit = screen.getByRole("button", { name: "Submit answer" });
+  if (!(submit instanceof HTMLButtonElement)) {
+    throw new Error(
+      `the "Submit answer" role resolved to <${submit.tagName.toLowerCase()}>, which carries no disabled state to read`,
+    );
+  }
+  if (submit.disabled) {
+    throw new Error(
+      "the submit control is disabled at press time; the usual reason is a suite that never warmed the schema compiler's chunk",
+    );
+  }
+  fireEvent.click(submit);
 }

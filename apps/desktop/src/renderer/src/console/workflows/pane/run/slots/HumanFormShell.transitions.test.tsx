@@ -30,7 +30,7 @@ import {
   SECOND_WAIT_PHASE_RUN_ID,
   bridgeWatchingSubmits,
   fixtureWaitPhase,
-  loadSchemaFormBody,
+  resolveSchemaFormChunks,
   pressSubmit,
   renderSlot,
   renderSwitchableSlot,
@@ -41,10 +41,11 @@ afterEach(() => {
   cleanup();
 });
 
-// The schema form arrives as its own chunk. Resolved once here so every case below
-// renders the loaded form rather than the reserved region its mount would otherwise
-// suspend on — the loader memoises the load, so this is the state a second form opens in.
-beforeAll(loadSchemaFormBody);
+// The schema form opens in two chunks: its own body, and the compiler the one act stays
+// closed until. Both are resolved once here, so every case below renders a loaded form
+// whose submit is armed rather than the reserved region its mount would otherwise suspend
+// on — each loader memoises, so this is the state a second form opens in.
+beforeAll(resolveSchemaFormChunks);
 
 describe("a run that parks two waits at once", () => {
   it("carries no part of one branch's answer onto the other branch's form", async () => {
