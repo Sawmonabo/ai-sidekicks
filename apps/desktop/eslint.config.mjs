@@ -179,9 +179,10 @@ const RENDERER_RESTRICTED_PATTERNS = [
  * that keep wire parsing out of a surface.
  *
  * Hoisted because flat config replaces a rule's options at the LAST matching config
- * object, so every narrower block below that names a console file has to restate this
- * whole union — and a union spread from one const cannot drift from the block it was
- * copied out of.
+ * object, so any narrower block below that names a console file would have to restate
+ * this whole union — and a union spread from one const cannot drift from the block it
+ * was copied out of. One block spends it today; the hoist stays because the hazard is
+ * the rule's, not that block's, and a second narrower block is one edit away.
  */
 const CONSOLE_RESTRICTED_PATTERNS = [
   ...RENDERER_RESTRICTED_PATTERNS,
@@ -351,81 +352,6 @@ export default [
         {
           paths: RENDERER_RESTRICTED_PATHS,
           patterns: CONSOLE_RESTRICTED_PATTERNS,
-        },
-      ],
-    },
-  },
-  // --- The two stores, held apart ------------------------------------------------
-  //
-  // The console holds window state and session state in two stores on purpose — one
-  // per WINDOW, one per open SESSION — and the split is what keeps a session switch
-  // off the icon rail and gives an auxiliary window its own everything. A flag copied
-  // across that line is a second record of one fact, and the second record is the one
-  // the reconnect path cannot heal: the session store's degraded cause clears on a
-  // re-pull, and a copy of it on the window store clears when somebody remembers to.
-  //
-  // Neither store can read the other's state without importing something from it —
-  // there is no global handle to either — so the import edge IS the reach, and banning
-  // it is exact rather than a proxy. The composition ABOVE the stores reads both by
-  // design (the registry that opens session stores, the hooks, the schedulers), which
-  // is why the ban is scoped to the two store directories and not to `store/`.
-  //
-  // Both blocks restate the console union: flat config replaces a rule's options at
-  // the last matching config object, so a block that named only the isolation group
-  // would silently drop the renderer-untrusted boundary and the wire-parsing ban for
-  // exactly these files.
-  {
-    files: ["src/renderer/src/console/store/shell/**/*.{ts,tsx}"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          paths: RENDERER_RESTRICTED_PATHS,
-          patterns: [
-            ...CONSOLE_RESTRICTED_PATTERNS,
-            {
-              // Every spelling that reaches the session store's directory from here:
-              // the relative one a sibling writes and the rooted one a deeper module
-              // would. `no-restricted-imports` matches the specifier TEXT, so a form
-              // left off this list is a form the ban does not see.
-              group: [
-                "../session/*",
-                "../session/**",
-                "../../session/*",
-                "../../session/**",
-                "**/store/session/*",
-                "**/store/session/**",
-              ],
-              message:
-                "`apps/desktop/AGENTS.md` §State and views: the window store never holds a copy of anything the session store owns. A flag copied across that line is a second record of one fact, and it is the record the reconnect path cannot heal — read the session store through the registry or a hook above both, which is where composing them belongs.",
-            },
-          ],
-        },
-      ],
-    },
-  },
-  {
-    files: ["src/renderer/src/console/store/session/**/*.{ts,tsx}"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          paths: RENDERER_RESTRICTED_PATHS,
-          patterns: [
-            ...CONSOLE_RESTRICTED_PATTERNS,
-            {
-              group: [
-                "../shell/*",
-                "../shell/**",
-                "../../shell/*",
-                "../../shell/**",
-                "**/store/shell/*",
-                "**/store/shell/**",
-              ],
-              message:
-                "`apps/desktop/AGENTS.md` §State and views: the session store never holds a copy of anything the window store owns. A flag copied across that line is a second record of one fact — read the window store through a hook above both, which is where composing them belongs.",
-            },
-          ],
         },
       ],
     },

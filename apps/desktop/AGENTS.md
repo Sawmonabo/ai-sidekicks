@@ -89,7 +89,7 @@ There is exactly one shared layer. `src/renderer/src/shared/` is not created; a 
 - Stateful logic is an encapsulated class with private fields. Module-level `let` / `Map` / `Set` singletons are rejected.
 - React components are function components that render. Effects, subscriptions, derivations, and every store construction live in a class or a hook — never in a render body.
 - A closed set is declared once and every consumer derives from it — never a second union with a comment saying it mirrors the first.
-- **One store never holds another store's flag.** Window state and session state are two stores on purpose — one per window, one per open session — and a flag copied across that line is a second record of one fact, the one the reconnect path cannot heal. Neither store imports the other (`no-restricted-imports` in `eslint.config.mjs` refuses the edge in both directions); the registry, the hooks, and the schedulers above them are where the two are composed. No member name is declared by both store states.
+- **One store never holds another store's flag.** Window state and session state are two stores on purpose — one per window, one per open session — and a flag copied across that line is a second record of one fact, the one the reconnect path cannot heal. Neither store imports the other (`console-store-isolation` in `.dependency-cruiser.mjs` refuses the edge in both directions, at any depth — it resolves the specifier to a real path, where a `no-restricted-imports` group has to enumerate the relative spellings and stops at the depths that existed when it was written); the registry, the hooks, and the schedulers above them are where the two are composed. No member name is declared by both store states.
 
 ## Console design
 
