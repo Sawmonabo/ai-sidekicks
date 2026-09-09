@@ -50,14 +50,29 @@
 //     holding the key keeps it) or {@link ScheduledReading.supersedeAndClaimReadRound}
 //     (newest read wins), which is the difference the six already disagree about.
 //
-// THE FAILURE ARM IS FIXED HERE AND HAS NO HOOK. The scheduler needs an `onError` or
-// it re-throws, and a re-throw inside a timer callback reaches no `catch` a surface
-// could render. But there is exactly one place a reading can PUT a failure — its own
-// snapshot, through its own refusal vocabulary — and that place is inside
-// `performRead`, which is where five of the six already compose it. So a reading with
-// somewhere to put a defect catches there, and this arm exists only to keep a defect
-// in the publish from escaping into a timer. Two publish paths for one refusal is the
-// ambiguity this avoids, not a capability it drops.
+// THE FAILURE ARM IS COUNTED AND REPORTED, AND IT SETS NO STATE. The scheduler needs
+// an `onError` or it re-throws, and a re-throw inside a timer callback reaches no
+// `catch` a surface could render. There is exactly one place a reading can PUT a
+// failure — its own snapshot, through its own refusal vocabulary — and that place is
+// inside `performRead`, which is where five of the six already compose it. So a
+// reading with somewhere to put a defect catches there, and this arm exists only to
+// keep a defect in the PUBLISH from escaping into a timer. Two publish paths for one
+// refusal is the ambiguity this avoids.
+//
+// What it must not do is what it did: `onError: () => undefined`, with no counter and
+// no sink. Sixteen readings sit on this base, and a subclass whose fold throws froze
+// at its previous snapshot with nothing on screen saying so and nothing in
+// diagnostics either — the silent failure `apply-queue.ts` beside it already refuses,
+// which keeps its batch, counts the failure, and tells a sink. This takes the same
+// posture: {@link ScheduledReading.failedReadCount} and
+// {@link ScheduledReadingOptions.onReadError}.
+//
+// AND IT SETS NO REFUSAL ARM, because this base has none to set. The snapshot type is
+// the subclass's parameter and its refusal vocabulary is the subclass's too — a base
+// that installed a refusal would have to require a `refusal` member of readings that
+// have none, which is the same widening the fold section above refuses for `revision`.
+// The reading that wants a defect ON SCREEN catches inside `performRead`, where the
+// vocabulary is; what this arm owes is that a defect it cannot spell is never silent.
 //
 // THE EMITTER CARRIES NO PAYLOAD, which is not a narrowing. Three copies typed theirs
 // `Emitter<TSnapshot>` and emitted the snapshot; every subscriber in the tree is a
@@ -103,6 +118,20 @@ export interface ScheduledReadingOptions<TSnapshot> {
    * difference between a debuggable failure and a stack trace in a `Set` loop.
    */
   readonly describeChange: string;
+  /**
+   * Called when a read rejects. The snapshot is left standing either way.
+   *
+   * `ApplyQueue.onDrainError`'s contract one seat over, and deliberately not
+   * `RefreshScheduler.onError`'s, whose absent arm RE-THROWS: a rejection re-thrown
+   * from inside the scheduler's timer callback reaches no `catch` any surface has, so
+   * this base always supplies that arm and this member is where a defect it cannot
+   * spell goes instead — the owner's diagnostics sink.
+   *
+   * OPTIONAL, AND ITS ABSENCE IS NOT SILENCE: {@link ScheduledReading.failedReadCount}
+   * counts the rejection whether or not anybody is listening, which is what a reading
+   * that froze at its previous snapshot can be ASKED about afterwards.
+   */
+  readonly onReadError?: (error: unknown) => void;
 }
 
 /**
@@ -128,22 +157,30 @@ export abstract class ScheduledReading<TSnapshot> implements ReadTriggerTarget {
   readonly #changes: Emitter<void>;
   readonly #rounds = new GenerationLatch();
   readonly #scheduler: RefreshScheduler;
+  readonly #onReadError: ((error: unknown) => void) | undefined;
   #snapshot: TSnapshot;
+  #failedReadCount = 0;
   #hasStarted = false;
   #isDisposed = false;
 
   protected constructor(options: ScheduledReadingOptions<TSnapshot>) {
     this.#snapshot = options.initialSnapshot;
     this.#changes = new Emitter<void>(options.describeChange);
+    this.#onReadError = options.onReadError;
     this.#scheduler = new RefreshScheduler({
       clock: options.clock,
       perform: async () => {
         await this.performRead();
       },
       // See the module header: `performRead` settles its own refusal, so anything
-      // reaching here is a defect in the publish. Swallowed rather than re-thrown
-      // because a re-throw inside a timer callback reaches no `catch` a surface has.
-      onError: () => undefined,
+      // reaching here is a defect in the publish. Counted and reported rather than
+      // re-thrown, because a re-throw inside a timer callback reaches no `catch` a
+      // surface has — and rather than swallowed, because a reading frozen at its
+      // previous snapshot is otherwise indistinguishable from one nothing changed.
+      onError: (error: unknown) => {
+        this.#failedReadCount += 1;
+        this.#onReadError?.(error);
+      },
     });
   }
 
@@ -172,15 +209,34 @@ export abstract class ScheduledReading<TSnapshot> implements ReadTriggerTarget {
   }
 
   /**
+   * Reads that rejected and left the snapshot standing.
+   *
+   * Counted rather than merely reported, on `ApplyQueue.failedDrainCount`'s posture:
+   * holding the previous snapshot is the correct response — there is nothing else to
+   * show — but a `performRead` that rejects is a defect in a subclass's publish, and a
+   * count is how a reading that stopped moving can be asked WHY without an exception
+   * that would cost the clock's whole pass.
+   */
+  public get failedReadCount(): number {
+    return this.#failedReadCount;
+  }
+
+  /**
    * Read once, on arrival. Idempotent: strict mode mounts an effect twice.
    *
    * For the readings whose own mount opens them. A reading wired by
    * `useWindowReadTriggers` or `useReadTriggers` never calls this — those hooks put
    * the `subscribe` reason in themselves — and the two paths are the same reason
    * reaching the same scheduler, which coalesces a pair into one read.
+   *
+   * THE ONE SHOT IS SPENT ON ADMISSION AND NOT ON THE CALL. Latching first meant a
+   * `start()` made before the reading had a subject consumed it: {@link isReadable}
+   * refused the reason inside {@link requestRead}, no read was asked for, and the
+   * `#hasStarted` flag then refused every later `start()` — a page opened without a
+   * session id read nothing at all, for the life of the mount.
    */
   public start(): void {
-    if (this.#hasStarted || this.#isDisposed) {
+    if (this.#hasStarted || !this.#admitsRead()) {
       return;
     }
     this.#hasStarted = true;
@@ -197,7 +253,7 @@ export abstract class ScheduledReading<TSnapshot> implements ReadTriggerTarget {
    * outstanding at once.
    */
   public requestRead(reason: RefreshReason): void {
-    if (this.#isDisposed || !this.isReadable()) {
+    if (!this.#admitsRead()) {
       return;
     }
     this.#scheduler.request(reason);
@@ -272,5 +328,17 @@ export abstract class ScheduledReading<TSnapshot> implements ReadTriggerTarget {
    */
   protected supersedeAndClaimReadRound(): GenerationClaim {
     return this.#rounds.supersedeAndClaim(this, SCHEDULED_READ_KEY);
+  }
+
+  /**
+   * Whether a reason may reach the scheduler at all: the two guards, in one place.
+   *
+   * ONE PREDICATE AND NOT TWO CONDITIONS, because {@link start} spends a one-shot on
+   * exactly this answer and {@link requestRead} refuses on exactly this answer. Two
+   * copies is how they came apart in the first place — the latch was written against
+   * the disposal half alone, and the readable half was consulted one call later.
+   */
+  #admitsRead(): boolean {
+    return !this.#isDisposed && this.isReadable();
   }
 }

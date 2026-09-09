@@ -14,6 +14,7 @@
 import { describe, expect, it } from "vitest";
 
 import { lossyStringify, ManualClock } from "../../core/index.js";
+import type { GenerationClaim } from "./generation-latch.js";
 import { NO_TRIGGERING_EVENT_KINDS } from "./read-triggers.js";
 import { ScheduledReading } from "./scheduled-reading.js";
 import { settleMicrotasks } from "../session-store-registry.test-support.js";
@@ -38,6 +39,16 @@ interface ProbeOptions {
   readonly isReadable?: boolean;
   /** Whether each read supersedes the one before it, as three real readings do. */
   readonly supersedes?: boolean;
+  /**
+   * Whether this probe's PUBLISH throws — the one defect the base's failure arm is for.
+   *
+   * A rejecting `read` is settled inside `performRead` as the refusal arm, which is the
+   * contract. A fold that throws escapes `performRead` itself, which is what reaches the
+   * scheduler's `onError` and what used to vanish there.
+   */
+  readonly publishThrows?: boolean;
+  /** The owner's diagnostics sink, as a real reading's holder wires it. */
+  readonly onReadError?: (error: unknown) => void;
 }
 
 /**
@@ -53,19 +64,43 @@ class ProbeReading extends ScheduledReading<ProbeSnapshot> {
   /** Every read this probe entered, so a suppressed publish is separable from none. */
   public readonly readsEntered: string[] = [];
   readonly #read: () => Promise<string>;
-  readonly #isReadable: boolean;
   readonly #supersedes: boolean;
+  readonly #publishThrows: boolean;
+  /** Mutable, because a subject ARRIVING is what a settings address does mid-mount. */
+  #isReadable: boolean;
 
   public constructor(options: ProbeOptions) {
-    super({ clock: options.clock, initialSnapshot: NOTHING_READ, describeChange: "probe read" });
+    super({
+      clock: options.clock,
+      initialSnapshot: NOTHING_READ,
+      describeChange: "probe read",
+      ...(options.onReadError === undefined ? {} : { onReadError: options.onReadError }),
+    });
     this.#read = options.read;
     this.#isReadable = options.isReadable ?? true;
     this.#supersedes = options.supersedes ?? false;
+    this.#publishThrows = options.publishThrows ?? false;
   }
 
   /** The out-of-band supersede three real readings perform after a write. */
   public supersedeInFlightRead(): void {
     this.supersedeAndClaimReadRound().release();
+  }
+
+  /**
+   * The out-of-band act that HOLDS the key: a write this reading itself started.
+   *
+   * The case `currentReadRound` exists for. The claim is kept — not released — so a
+   * read taken while it is outstanding either joins that round or revokes it, which is
+   * the whole difference between the two round-taking members.
+   */
+  public beginOutOfBandWrite(): GenerationClaim {
+    return this.supersedeAndClaimReadRound();
+  }
+
+  /** The subject arriving after the mount — a settings address that gained a session. */
+  public becomeReadable(): void {
+    this.#isReadable = true;
   }
 
   protected override isReadable(): boolean {
@@ -81,6 +116,13 @@ class ProbeReading extends ScheduledReading<ProbeSnapshot> {
         this.#publishChanges({ reading: { kind: "answered", value } });
       });
     } catch (rejection: unknown) {
+      if (this.#publishThrows) {
+        // A fold that cannot build a snapshot cannot build the REFUSAL snapshot
+        // either, so a reading in this state has nowhere of its own left to put the
+        // defect and it escapes `performRead` — the one path that reaches the
+        // scheduler's failure arm, and the one the base owes a count and a sink.
+        throw rejection;
+      }
       round.settle(() => {
         // Through the console's total stringifier, never `String(rejection)`: a caught
         // value has nothing established about it, and this probe is held to the same
@@ -91,6 +133,9 @@ class ProbeReading extends ScheduledReading<ProbeSnapshot> {
   }
 
   #publishChanges(changes: Partial<Omit<ProbeSnapshot, "revision">>): void {
+    if (this.#publishThrows) {
+      throw new Error("the fold could not build a snapshot");
+    }
     const current = this.snapshot();
     this.publish({ ...current, ...changes, revision: current.revision + 1 });
   }
@@ -216,6 +261,98 @@ describe("ScheduledReading — a scheduled read published to subscribers", () =>
     expect(clock.pendingCount).toBe(0);
   });
 
+  it("counts a read whose fold threw, tells the sink, and keeps rendering the last snapshot", async () => {
+    const clock = new ManualClock(0);
+    const reported: unknown[] = [];
+    const reading = new ProbeReading({
+      clock,
+      publishThrows: true,
+      onReadError: (error) => {
+        reported.push(error);
+      },
+      read: () => Promise.reject(new Error("the port did not answer")),
+    });
+
+    reading.requestRead("participant-request");
+    clock.advance(PAST_DEBOUNCE_MS);
+    await settleMicrotasks();
+
+    // The defect is COUNTED and REPORTED rather than swallowed. A base that answered
+    // the scheduler with `() => undefined` left a reading frozen at its previous
+    // snapshot with nothing on screen and nothing in diagnostics saying why.
+    expect(reading.failedReadCount).toBe(1);
+    expect(reported).toHaveLength(1);
+    expect(lossyStringify(reported[0])).toBe("Error: the port did not answer");
+    // And the read still ran, the snapshot still stands, and nothing was re-thrown
+    // into the timer callback — which the clock holding no pending work attests.
+    expect(reading.readsEntered).toHaveLength(1);
+    expect(reading.performCount).toBe(1);
+    expect(reading.snapshot()).toStrictEqual(NOTHING_READ);
+    expect(clock.pendingCount).toBe(0);
+  });
+
+  it("negative control: a read whose fold holds counts no failure and tells no sink", async () => {
+    // The same script with the throwing fold removed, so the case above is a claim
+    // about the failure arm rather than about any read that mentions a rejection.
+    const clock = new ManualClock(0);
+    const reported: unknown[] = [];
+    const reading = new ProbeReading({
+      clock,
+      onReadError: (error) => {
+        reported.push(error);
+      },
+      read: () => Promise.reject(new Error("the port did not answer")),
+    });
+
+    reading.requestRead("participant-request");
+    clock.advance(PAST_DEBOUNCE_MS);
+    await settleMicrotasks();
+
+    expect(reading.failedReadCount).toBe(0);
+    expect(reported).toStrictEqual([]);
+    expect(reading.snapshot().refusal).toBe("Error: the port did not answer");
+  });
+
+  it("counts a failed read with no sink wired, so an absent hook is not silence", async () => {
+    const clock = new ManualClock(0);
+    const reading = new ProbeReading({
+      clock,
+      publishThrows: true,
+      read: () => Promise.reject(new Error("the port did not answer")),
+    });
+
+    reading.requestRead("participant-request");
+    clock.advance(PAST_DEBOUNCE_MS);
+    await settleMicrotasks();
+
+    expect(reading.failedReadCount).toBe(1);
+  });
+
+  it("spends the one shot on admission, so a start with no subject does not consume it", async () => {
+    const clock = new ManualClock(0);
+    const reading = new ProbeReading({
+      clock,
+      isReadable: false,
+      read: () => Promise.resolve("served"),
+    });
+
+    // A mount that arrives before the subject does. The reason is refused, and the
+    // one-shot latch must be refused with it — latching first left the reading unable
+    // to ever read, because every later `start()` was answered by the flag.
+    reading.start();
+    clock.advance(PAST_DEBOUNCE_MS);
+    await settleMicrotasks();
+    expect(reading.performCount).toBe(0);
+
+    reading.becomeReadable();
+    reading.start();
+    clock.advance(PAST_DEBOUNCE_MS);
+    await settleMicrotasks();
+
+    expect(reading.performCount).toBe(1);
+    expect(reading.snapshot().reading).toStrictEqual({ kind: "answered", value: "served" });
+  });
+
   it("stops the scheduler and releases the latch on dispose", async () => {
     const clock = new ManualClock(0);
     let releaseRead: ((value: string) => void) | undefined;
@@ -269,34 +406,55 @@ describe("ScheduledReading — a scheduled read published to subscribers", () =>
     expect(reading.snapshot()).toStrictEqual(NOTHING_READ);
   });
 
-  it("supersedes the read before it where a reading declares that rule", async () => {
-    const clock = new ManualClock(0);
-    const resolvers: ((value: string) => void)[] = [];
-    const reading = new ProbeReading({
-      clock,
-      supersedes: true,
-      read: () =>
-        new Promise<string>((resolve) => {
-          resolvers.push(resolve);
-        }),
-    });
+  it.each([
+    // The two modes on ONE script, and the expectation is the whole difference between
+    // them. Two reads in sequence cannot separate them — the scheduler serializes, so
+    // the second read is opened after the first has settled and both modes install it
+    // — which is what the case here used to assert, with the flag flipped changing
+    // nothing. What separates them is a key an OUT-OF-BAND act is holding: a
+    // mint-and-settle read JOINS that write's round and leaves it live, and a
+    // supersede-and-claim read revokes it.
+    ["mints and settles inside the write's round", false, true],
+    ["takes the key, abandoning the write's round", true, false],
+  ] as const)(
+    "%s where a reading declares that rule",
+    async (_rule, supersedes, writeStillSettles) => {
+      const clock = new ManualClock(0);
+      let releaseRead: ((value: string) => void) | undefined;
+      const reading = new ProbeReading({
+        clock,
+        supersedes,
+        read: () =>
+          new Promise<string>((resolve) => {
+            releaseRead = resolve;
+          }),
+      });
 
-    reading.requestRead("subscribe");
-    clock.advance(PAST_DEBOUNCE_MS);
-    await settleMicrotasks();
-    // The scheduler serializes, so a second reason raised now becomes the NEXT read
-    // rather than a parallel one — which is why the first has to be let go first.
-    resolvers[0]?.("first");
-    await settleMicrotasks();
+      // The act a real reading performs around a durable write: the key is taken and
+      // HELD until that write settles, so the read below overlaps it.
+      const write = reading.beginOutOfBandWrite();
 
-    reading.requestRead("participant-request");
-    clock.advance(PAST_DEBOUNCE_MS);
-    await settleMicrotasks();
-    resolvers[1]?.("second");
-    await settleMicrotasks();
+      reading.requestRead("participant-request");
+      clock.advance(PAST_DEBOUNCE_MS);
+      await settleMicrotasks();
+      expect(reading.readsEntered).toHaveLength(1);
+      releaseRead?.("read answer");
+      await settleMicrotasks();
 
-    expect(reading.readsEntered).toHaveLength(2);
-    expect(reading.snapshot().reading).toStrictEqual({ kind: "answered", value: "second" });
-    expect(reading.snapshot().revision).toBe(2);
-  });
+      // Both modes install the read itself, which is why the reply alone can never
+      // tell them apart.
+      expect(reading.snapshot().reading).toStrictEqual({ kind: "answered", value: "read answer" });
+
+      // And then the write settles. Whether its settlement still installs is the rule
+      // the reading declared: `currentReadRound` promised not to revoke a key an
+      // out-of-band act is holding, and `supersedeAndClaimReadRound` promised the
+      // newest read wins.
+      const writeSettlements: string[] = [];
+      const settled = write.settle(() => {
+        writeSettlements.push("write settled");
+      });
+      expect(settled).toBe(writeStillSettles);
+      expect(writeSettlements).toHaveLength(writeStillSettles ? 1 : 0);
+    },
+  );
 });
