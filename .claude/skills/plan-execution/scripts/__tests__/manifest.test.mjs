@@ -660,6 +660,75 @@ test("serializeEntry: notes block scalar emits | with 6-space indent", () => {
   assert.equal(lines[notesIdx + 2], "      second line");
 });
 
+// ---------- serializeEntry round-trip (PR #478 defect) ----------
+
+// A 7-character squash sha that is all digits (`9353895`, `9445133`,
+// `5905581` — three of the 33 rows on Plan-023, two of them written by this
+// serializer) used to be emitted bare, and `parseInlineScalar` coerced the
+// digit-only scalar to a Number. Preflight Gate 3 then halted on
+// `sha must be a hex string of 7-40 chars`.
+function planWithSerializedEntry(entry) {
+  return [
+    "# Plan-001: Foo",
+    "",
+    "### Shipment Manifest",
+    "",
+    "```yaml",
+    "manifest_schema_version: 1",
+    "shipped:",
+    ...serializeEntry(entry),
+    "```",
+    "",
+  ].join("\n");
+}
+
+function roundTripEntry(entry) {
+  const parsed = parseManifestBlock(planWithSerializedEntry(entry));
+  assert.ok(parsed.ok, `parse failed: ${parsed.reason}`);
+  assert.equal(parsed.shipped.length, 1);
+  return parsed.shipped[0];
+}
+
+test("serializeEntry: an all-digit sha round-trips as the same string", () => {
+  const lines = serializeEntry({ ...OK_ENTRY, sha: "9353895" });
+  assert.equal(lines[3], `    sha: "9353895"`);
+  const shipped = roundTripEntry({ ...OK_ENTRY, sha: "9353895" });
+  assert.equal(typeof shipped.sha, "string");
+  assert.equal(shipped.sha, "9353895");
+  assert.deepEqual(validateEntry(shipped), { ok: true });
+});
+
+test("serializeEntry: an ordinary hex sha stays unquoted (no corpus churn)", () => {
+  const lines = serializeEntry({ ...OK_ENTRY, sha: "9445133a" });
+  assert.equal(lines[3], "    sha: 9445133a");
+  assert.equal(roundTripEntry({ ...OK_ENTRY, sha: "9445133a" }).sha, "9445133a");
+});
+
+test("serializeEntry: coercible scalars in every string field round-trip", () => {
+  const coercible = {
+    ...OK_ENTRY,
+    task: ["12345", "true", "T5.1"],
+    sha: "5905581",
+    files: ["2026", "packages/runtime-daemon/src/a.ts"],
+    verifies_invariant: ["null", "I-001-1"],
+  };
+  const shipped = roundTripEntry(coercible);
+  assert.deepEqual(shipped.task, ["12345", "true", "T5.1"]);
+  assert.equal(shipped.sha, "5905581");
+  assert.deepEqual(shipped.files, ["2026", "packages/runtime-daemon/src/a.ts"]);
+  assert.deepEqual(shipped.verifies_invariant, ["null", "I-001-1"]);
+  assert.deepEqual(validateEntry(shipped), { ok: true });
+});
+
+test("serializeEntry: non-coercible scalars are written bare in every field", () => {
+  const lines = serializeEntry(OK_ENTRY);
+  assert.equal(lines[1], "    task: T5.1");
+  assert.equal(lines[3], "    sha: 7e4ae47");
+  assert.equal(lines[4], "    merged_at: 2026-05-05");
+  assert.equal(lines[6], "      - a.ts");
+  assert.equal(lines[7], "    verifies_invariant: [I-001-1]");
+});
+
 test("MANIFEST_SCHEMA_VERSION constant equals 1", () => {
   assert.equal(MANIFEST_SCHEMA_VERSION, 1);
 });
