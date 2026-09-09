@@ -6,10 +6,9 @@
 // and no others, and silence is not an outage.
 //
 // WHICH METHODS ARE MUTATING IS ASSERTED TWICE, on purpose and against two different
-// things. The tuple is pinned here, where a reader meets it; and
-// `test/console/architecture/daemon-mutating-registrations.test.ts` holds it against
-// the daemon's own `mutating: true` registrations, which is the half a literal in a
-// test cannot check — it would just be the same claim written down again.
+// things. The tuple is pinned here, where a reader meets it; holding it against the
+// daemon's own `mutating: true` registrations is review's half, and it is the half a
+// literal in a test cannot check — it would just be the same claim written down again.
 
 import { describe, expect, it } from "vitest";
 

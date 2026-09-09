@@ -24,11 +24,9 @@ import type { GrowthSlateRowId } from "./growth-slate-row.js";
 /**
  * The surface each row's wire is owed to, in the plan table's own words.
  *
- * Prose, and deliberately so: `test/console/architecture/slate-row-consumers.test.ts`
- * states why the CHECK is made against the operation ledger rather than against these
- * sentences — a surface is proved to reach for a row by a module calling that row's
- * operation, never by a string naming it. What this table is for is the person reading
- * the plan, and what the compiler holds is that every row has one.
+ * Prose, and deliberately so: a surface is proved to reach for a row by a module
+ * calling that row's operation, never by a string naming it. What this table is for is
+ * the person reading the plan, and what the compiler holds is that every row has one.
  */
 export const GROWTH_SLATE_CONSUMING_SURFACES: Readonly<Record<GrowthSlateRowId, string>> = {
   "browser-pane-namespace": "browser pane",

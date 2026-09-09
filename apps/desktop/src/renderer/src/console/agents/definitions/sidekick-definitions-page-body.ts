@@ -15,8 +15,8 @@
 // THE PAGE'S SHEET ENTERS HERE, for the same reason and measured the same way. It sat at
 // the family door, which put the rules for a settings section on every session's initial
 // document — `agents/index.ts` records the state it was in. The move is admitted by the
-// collision census (`test/console/architecture/stylesheet-selector-owners.test.ts`): no
-// other family declares a class this sheet declares, so deferring it changes no surface
+// collision rule in `apps/desktop/AGENTS.md` §Module shape: no other family declares a
+// class this sheet declares, so deferring it changes no surface
 // but this page's own. This is the only root that reaches the page, so the sheet is named
 // once rather than from a pair of roots the way the agent console's seven are.
 //

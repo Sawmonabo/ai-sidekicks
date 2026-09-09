@@ -58,8 +58,8 @@
 // the cascade there is settled by specificity rather than by order — the partial-read
 // rule is `.meridian-partial-read .meridian-refusal--inline` — the adjacency also keeps
 // the document order the sibling edge used to produce. Measured rather than assumed: holding all sixteen here
-// reported eleven misowned sheets in
-// `test/console/architecture/stylesheet-edges.test.ts`. No sheet moved onto a chunk
+// left eleven sheets misowned under `apps/desktop/AGENTS.md` §Module shape's
+// nearest-barrel rule. No sheet moved onto a chunk
 // root and no class name changed, so no capture in the screenshot tier moves — the only
 // cascade this rearranges is inside this family, and every class two of its sheets
 // declare is settled by specificity, by disjoint properties, or by an identical
@@ -325,11 +325,11 @@ export {
 //
 // The eight door lines that had carried `@consumedBy T-023p-1C-5` alongside these four
 // named a consumer that has now shipped without importing any of them, so they were
-// door lines with no production reader — the class
-// `test/console/architecture/barrel-census.test.ts` owns and the dead-code gate cannot
-// see, since the tag legitimately suppressed the finding. They are deleted rather than
-// re-tagged; the co-located tests that do exercise those symbols read the module that
-// declares them, which is what the census rule asks.
+// door lines with no production reader — the class `apps/desktop/AGENTS.md` §Module
+// shape rejects and the dead-code gate cannot see, since the tag legitimately suppressed
+// the finding. They are deleted rather than re-tagged; the co-located tests that do
+// exercise those symbols read the module that declares them, which is what that rule
+// asks.
 //
 // AND THE SAME RULE WAS THEN APPLIED TO THE REST OF THAT TASK'S CLAIMS. The eight
 // lines above went first; every other claim naming that task — on this door, on `core/`, and
@@ -446,7 +446,7 @@ export type { FileRestoreDisclosureProps } from "./restore/FileRestoreDisclosure
 // (`overlay/modal-airspace.ts`, off this door — its only callers are those two), and
 // the hook is published for the surface that IS airspace and mounts no popup. Reaching
 // it is registering AT the door; 12.3's Never bullet forbids registering AROUND one,
-// which is a hand `register` on the accessor and is what the architecture tier gates.
+// which is a hand `register` on the accessor and is what review rejects.
 export { useAirspaceRegistration } from "./airspace-registration.js";
 export { OverlayAlertDialogPopup } from "./overlay/OverlayAlertDialogPopup.js";
 export { OverlayComboboxPopup } from "./overlay/OverlayComboboxPopup.js";

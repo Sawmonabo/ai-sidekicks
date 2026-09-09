@@ -129,7 +129,7 @@ export class BoundedCleanup {
     // race rather than waiting the budget out. A bare `.catch(() => undefined)`
     // used to sit here claiming to be that mechanism; it was a second handler on
     // an already-handled promise. The claim is made where it can fail instead,
-    // in `architecture/bounded-cleanup.test.ts`.
+    // in `test/helpers/bounded-cleanup.test.ts`.
     let raced: "closed" | "expired" | "rejected";
     let closeRejection: unknown;
     try {
@@ -255,7 +255,7 @@ export class BoundedCleanup {
    * figure, so this loop's whole deadline sat outside it and vitest could fire
    * before the `unterminable` verdict or the removal existed. `CLEANUP_PHASES`
    * in `launch-deadline.ts` is where that count lives, and
-   * `architecture/cleanup-slice-derivation.test.ts` measures this class's own
+   * `test/helpers/cleanup-slice-derivation.test.ts` measures this class's own
    * end-to-end spend against it rather than trusting the two to agree. Giving up
    * an ask never gives up the removal: `close()` above removes the profile on
    * every settlement this returns into.

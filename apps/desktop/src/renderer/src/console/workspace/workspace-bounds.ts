@@ -1,6 +1,6 @@
 // The workspace's named figures that are not ceilings.
 //
-// THE CEILINGS ARE NOT HERE. `test/console/architecture/cap-constant-home.test.ts`
+// THE CEILINGS ARE NOT HERE. `apps/desktop/AGENTS.md` §Config single-sourcing
 // names `core/constants/` the one DIRECTORY a bound may be DECLARED in, so the
 // restored-pane cap and the sidebar's width ceiling are declared there and read
 // through the core door — the ceiling by this module too, since the deck's own floor

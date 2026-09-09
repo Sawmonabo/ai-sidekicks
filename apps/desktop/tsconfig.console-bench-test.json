@@ -3,7 +3,7 @@
   // Typechecks the console BENCHMARK ledger.
   //
   // Same shape, same reasoning, and the same answer as
-  // `tsconfig.console-architecture-test.json`: a Node driver that pulls renderer
+  // `tsconfig.console-electron-test.json`: a Node driver that pulls renderer
   // modules into its program. `streaming-layer.bench.ts` imports the markdown
   // segmenter and parse, `fan-out.bench.ts` imports the store's entity kinds, and
   // both do it deliberately — a benchmark that timed a local copy of the module

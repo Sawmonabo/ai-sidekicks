@@ -136,8 +136,8 @@ export type WireMutation<TRequest, TResponse> = (
  * The DISPATCH stays at the surface that names one method, and that placement is the
  * gate's rule rather than this family's taste: a binder generic over several methods
  * puts one door call in the source for a read and a write at once, which is precisely
- * the shape `test/console/architecture/read-signal-chokepoint.test.ts` reports — a
- * forgotten cancellation signal and a deliberate absence become the same line. One
+ * the shape a reviewer cannot separate — a forgotten cancellation signal and a
+ * deliberate absence become the same line. One
  * method per call site is what keeps the deliberate absence below legible as one.
  */
 export type CollaborationMutation<MethodName extends CollaborationMutationMethod> = WireMutation<

@@ -1,8 +1,8 @@
 // The fixtures and the mock bridge the ParticipantRoster suites share.
 //
 // Its own module because scaffolding is not a claim: one file was carrying a hundred
-// lines of it beside seven lifecycle cases, four failure cases, and a source-text
-// tripwire, which is four jobs and four seams rather than one file over a line count.
+// lines of it beside seven lifecycle cases and four failure cases, which is three jobs
+// and three seams rather than one file over a line count.
 // What lives here is the part none of those jobs owns — the branded-id fixtures, the
 // presence snapshots they compose, the deferred the out-of-order guard needs, and the
 // install / remove pair every case runs its bridge through. The shape is `runtime-node-attach/__tests__`' own

@@ -57,9 +57,7 @@
 // queue kinds through it would make this predicate refuse every scenario that scripts
 // a queue beat without also scripting that reply, which is a claim about a scenario's
 // replies rather than about a beat. The beat-scoped half of the queue rule is the
-// queue leg here; the row-read half is the delivery tier's
-// (`test/console/architecture/scenario-delivery-shape.test.ts`), where a scenario is
-// actually played.
+// queue leg here; the row-read half belongs where a scenario is actually played.
 
 import { RunIdSchema, SessionIdSchema } from "@ai-sidekicks/contracts";
 import type { SessionEventType } from "@ai-sidekicks/contracts";

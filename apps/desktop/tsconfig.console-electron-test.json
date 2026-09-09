@@ -1,7 +1,9 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   // Typechecks the two Electron-driving console tiers — `console-e2e` and
-  // `console-endurance`.
+  // `console-endurance` — and the cross-process scaffolding suites under
+  // `test/helpers/` that drive the same launcher, cleanup, and process-tree
+  // machinery those tiers run on.
   //
   // These files are genuinely BOTH contexts at once, which is why neither of the
   // existing test configs fits. The driver code is Node — `node:fs`,
@@ -50,6 +52,12 @@
   "include": [
     "test/console/e2e/**/*",
     "test/console/endurance/**/*",
+    // The scaffolding's own suites, for the header's reason: two of them reach the
+    // launcher and the palette door below, which hand `page.evaluate` browser
+    // callbacks, so a Node-lib program cannot hold them.
+    "test/helpers/**/*.test.ts",
+    "test/helpers/**/*.test-support.ts",
+    "test/helpers/deferred-rejection.ts",
     "test/console/electron-harness.ts",
     "test/console/launch-readiness.ts",
     // The palette door both launching tiers open through. It sits beside them

@@ -46,7 +46,6 @@ export const IDENTIFIER_MAX_LENGTH = 128;
  * memory and never persisted, so the ceiling is what keeps a long session's
  * abandoned text from growing without limit. It is supplied to `DraftStore` by the
  * frame rather than defaulted inside it, because that module imports nothing at all
- * — `draft-non-persistence.test.ts` asserts the zero, since acquiring anything there
- * is the first move of persisting a draft.
+ * and must not: acquiring anything there is the first move of persisting a draft.
  */
 export const MAXIMUM_LIVE_DRAFT_COUNT = 64;

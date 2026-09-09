@@ -8,8 +8,7 @@
 // never rediscovered per handler."
 //
 // So it is stated here, in one function, and `TabStrip.tsx` is the only module that
-// calls it — which `test/console/architecture/tab-reorder-single-site.test.ts` holds
-// rather than leaving to review. The two facts that make the subtraction necessary
+// calls it. The two facts that make the subtraction necessary
 // are worth writing down, because a reader who has only one of them will delete it:
 //
 //   • A DROP SLOT is a position among the tabs AS DRAWN. There are `n + 1` of them

@@ -14,7 +14,7 @@
 // two were one file until the seam `apps/desktop/AGENTS.md` §Module shape splits on
 // was drawn between them, and that seam is exactly this one — WHAT a scenario
 // is, against HOW it is played. The split is load-bearing rather than tidy: a seat
-// board, the scenario manifest, and the architecture tier that holds every scenario
+// board, the scenario manifest, and the wire-truth predicate that holds every scenario
 // to the wire's own truth all DESCRIBE scenarios and play none, so they stop here
 // and never reach the engine's teardown rules or its held-reply queue.
 //

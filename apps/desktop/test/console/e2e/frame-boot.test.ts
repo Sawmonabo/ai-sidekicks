@@ -37,9 +37,8 @@
 // poll's own message ("the scheme did not change") with the generic body-overrun
 // sentence. So every bounded wait below is handed
 // `bodyAllowance.boundedMs(<its own bound>)` — the smaller of the two — which is
-// what makes the FIRST wait that cannot fit fail saying which step it was.
-// `architecture/body-allowance-consumption.test.ts` reads this file and fails on
-// a wait that names no allowance.
+// what makes the FIRST wait that cannot fit fail saying which step it was. A wait
+// that names no allowance is a review rejection.
 
 import type { Page } from "@playwright/test";
 import { describe, expect, it } from "vitest";

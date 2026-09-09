@@ -1,10 +1,9 @@
 // The ledger's scroll chokepoint — the one module in the console that writes a
 // scroll offset.
 //
-// `Spec-023 §Console Test Tiers` puts two of the architecture tier's tripwires here —
-// "no `scrollTop` write outside the chokepoint, no `scrollIntoView`" — and
-// `test/console/architecture/scroll-chokepoint.test.ts` is what makes them a fact rather
-// than an intention: it reads every console module and fails on a second writer. THE
+// `Spec-023 §Console Test Tiers` puts two static tripwires here — "no `scrollTop` write
+// outside the chokepoint, no `scrollIntoView`" — and `apps/desktop/AGENTS.md` is where
+// they are stated, with review the reader that rejects a second writer. THE
 // REST IS THIS MODULE'S, because no committed document states it: one scroll controller
 // per timeline pane, every caller a member of a closed caller union and named in the
 // write, and glides replacing `scrollIntoView` everywhere.

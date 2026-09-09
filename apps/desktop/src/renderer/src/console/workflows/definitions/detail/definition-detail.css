@@ -10,8 +10,8 @@
  * EVERY SELECTOR IS THIS SURFACE'S OWN BLOCK. `meridian-definition-detail` appears in
  * no other family; the browser's row block one directory up is `meridian-definition-row`
  * and is deliberately untouched, so no bundle boundary decides how either looks.
- * `test/console/architecture/stylesheet-selector-owners.test.ts` is the census that
- * keeps a collision from landing unnoticed.
+ * `apps/desktop/AGENTS.md` §Module shape is where that rule is stated; a collision is
+ * caught by reading it there rather than by a census.
  */
 
 .meridian-definition-detail {

@@ -101,8 +101,8 @@ export function registerWindowOverlaySeat(owner: string, render: WindowOverlayRe
  * Test scaffolding, and reachable only from this directory: the seat is module-scope,
  * so a case that filled it would leak into the next one. Nothing in the shipped tree
  * unfills a seat, which is why it is deliberately absent from the family door — a
- * door line no production module reads is what `architecture/barrel-census.test.ts`
- * fails.
+ * door line no production module reads is what `apps/desktop/AGENTS.md` §Module shape
+ * rejects.
  */
 export function unregisterWindowOverlaySeat(): void {
   windowOverlaySeat.unregister();

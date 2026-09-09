@@ -44,10 +44,9 @@ import type { ShellState } from "./shell-state.js";
  *
  * So the authority is the CORPUS registration — `api-payload-contracts.md`, per
  * namespace — of which the shipped handlers are the subset that has landed.
- * `test/console/architecture/daemon-mutating-registrations.test.ts` holds the tuple to
- * that subset in the one direction a census can support: every shipped
- * `mutating: true` registration is named here, and nothing named here is shipped
- * `mutating: false`. What the gate cannot answer — a corpus-registered verb whose
+ * Review holds the tuple to that subset in the one direction a check can support: every
+ * shipped `mutating: true` registration is named here, and nothing named here is shipped
+ * `mutating: false`. What that cannot answer — a corpus-registered verb whose
  * handler has not landed — is what the paragraph above is for.
  *
  * AND A VERB THE DAEMON PROXIES IS STILL THIS CONSOLE'S WRITE. `membership.update` and

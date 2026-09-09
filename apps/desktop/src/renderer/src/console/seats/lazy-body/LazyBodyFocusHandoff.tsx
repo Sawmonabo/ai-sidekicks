@@ -36,9 +36,9 @@ export interface LazyBodyFocusHandoffProps {
  *
  * It renders an EMPTY FRAGMENT rather than `null`, which is the one shape that is both
  * true and legible: this is a component, it draws nothing, and a fragment says so in the
- * language the tree already reads — `one-component-per-module.test.ts` resolves a
- * component by the markup it renders or the element type it returns, and a module that
- * resolved neither would score clean against a rule that had never been applied to it.
+ * language the tree already reads — a reader resolves a component by the markup it
+ * renders or the element type it returns, and a module that resolved neither would read
+ * as clean against a rule that had never been applied to it.
  */
 export function LazyBodyFocusHandoff(props: LazyBodyFocusHandoffProps): React.JSX.Element {
   const { handoff, phase } = props;

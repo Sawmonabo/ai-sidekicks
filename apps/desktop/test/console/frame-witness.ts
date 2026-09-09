@@ -32,7 +32,7 @@
 // The class exists so that interval can be tested without an Electron process:
 // the frame source is a constructor argument, so a stub that resolves late and a
 // stub that never resolves are both one object literal
-// (`architecture/frame-witness.test.ts`).
+// (`test/helpers/frame-witness.test.ts`).
 
 import { FRAME_WITNESS_TIMEOUT_MS } from "./launch-budgets.js";
 
@@ -62,7 +62,7 @@ export interface RendererFrameSource {
  * argument with a default, so a caller that interpolated the module constant
  * into its sentence would be describing a bound the witness may never have
  * applied — wrong by a factor of 75 against the 200 ms every case in
- * `architecture/frame-witness.test.ts` injects. It is the same rule
+ * `test/helpers/frame-witness.test.ts` injects. It is the same rule
  * `CleanupOutcome.budgetMs` states for the close: there is one figure, produced
  * where the bound is computed.
  */
@@ -92,7 +92,7 @@ export type FrameWitnessOutcome = FramesWitnessed | FramesMissing;
  * milliseconds — the slowest of the twenty launches described above.
  *
  * Exported rather than left in prose because a number in a comment is not a
- * gate: `architecture/frame-witness.test.ts` holds the budget against it, so
+ * gate: `test/helpers/frame-witness.test.ts` holds the budget against it, so
  * shrinking the bound back toward the measured cost fails a test that says why
  * rather than passing quietly and flaking a month later.
  *
@@ -143,7 +143,7 @@ export class FrameWitness {
     // for the rest of its life. A bare `framesDelivered.catch(() => undefined)`
     // used to sit here claiming to be the mechanism, and it was a second handler
     // on an already-handled promise — removing it changes nothing, which is how
-    // it was found. The claim lives in `architecture/frame-witness.test.ts`
+    // it was found. The claim lives in `test/helpers/frame-witness.test.ts`
     // instead, where an abandoned probe is rejected and the process is asserted
     // never to have been told: that case fails if this stops being a race.
     //

@@ -45,7 +45,7 @@
  * waits for and would load BEFORE the sheet it overrides, so the library's fallback
  * palette would paint. Both sheets enter through a barrel like every other sheet in
  * the console — the chunk's rather than the family's — which is the rule
- * `test/console/architecture/stylesheet-edges.test.ts` holds every module to.
+ * `no-restricted-syntax` in `apps/desktop/eslint.config.mjs` holds every module to.
  *
  * WHAT STAYS HERE. What every workflows body stands in — the state strip's column,
  * the reserved-slot box, and the one action treatment the destination's controls and

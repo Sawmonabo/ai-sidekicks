@@ -140,8 +140,7 @@ export interface ConsoleMount {
  * grows one link deeper stops being waited for, silently, in the direction where the
  * case then reports the ABSENCE of an answer still in flight. `crossMacrotaskBoundary`
  * resolves on a macrotask boundary, so every pending chain has run whatever its
- * depth; `test/console/architecture/act-settling.test.ts` is the gate that holds
- * this file and every other to it.
+ * depth; review is what holds this file and every other settle to it.
  *
  * It waits on the CLOCK for nothing, which is the other half of settling and is not
  * this function's: a surface built over a fixture scenario schedules its reads on that

@@ -36,17 +36,6 @@
 // door (`growth-port.ts`), which refuses by name and says who owes the wire. The two
 // seams and the line between them are described in `daemon-reply.ts`'s header.
 //
-// WHAT ELSE THE METHOD SET CARRIES LIVES ONE MODULE OVER. Two properties of a method
-// are asked about often enough to have an answer rather than a convention — whether
-// calling it CHANGES A RUN, and whether it ANSWERS A READING — and both are total maps
-// over this table's own key set, so a landing family that adds a row and forgets to
-// answer does not compile. They are `daemon-method-classification.ts`' subject rather
-// than this file's: two of them is a subject of its own, and this module is already at
-// the package's ceiling on the one it has. What matters is that the maps are keyed by
-// `ConsoleDaemonMethod` and derived from `CONSOLE_DAEMON_METHODS` below, which is what
-// keeps them from being a second list of method strings — the shape that goes stale in
-// silence.
-//
 // WHAT IS NOT IN THE SET. Subscriptions. `daemon.subscribe` names a stream rather
 // than a call and answers with an unsubscribe handle, so it has no reply to bind;
 // which names are streams and what each carries is `session-event-streams.ts`'s

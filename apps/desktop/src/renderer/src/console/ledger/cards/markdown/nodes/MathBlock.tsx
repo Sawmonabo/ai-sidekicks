@@ -1,10 +1,9 @@
 // The math block — the console's ONE `dangerouslySetInnerHTML` site.
 //
-// `Spec-023 §Console Test Tiers` names, among the architecture tier's static tripwires,
-// "no `dangerouslySetInnerHTML` outside the math-owned node". This is that node, and the
-// tripwire is what keeps the count at one:
-// `test/console/architecture/ledger-card-chokepoints.test.ts` reads the console tree and
-// fails on a second occurrence.
+// `Spec-023 §Console Test Tiers` names, among the console's static tripwires, "no
+// `dangerouslySetInnerHTML` outside the math-owned node". This is that node, and
+// `apps/desktop/AGENTS.md` is where the rule lives: a second occurrence anywhere under
+// `console/` is a review rejection.
 //
 // WHY THE EXCEPTION IS HERE AND NOWHERE ELSE. KaTeX's whole interface is a string of
 // markup; there is no token stream to build spans from, and re-implementing a TeX
@@ -71,9 +70,8 @@ export function MathBlock(props: MathBlockProps): React.JSX.Element {
     return (
       <span
         className={props.isDisplayMode ? "meridian-math meridian-math--display" : "meridian-math"}
-        // THE ONE SITE. The markup is KaTeX's MathML output over `trust: false`, and the
-        // architecture tier fails the build on a second occurrence anywhere under
-        // `console/`.
+        // THE ONE SITE. The markup is KaTeX's MathML output over `trust: false`, and a
+        // second occurrence anywhere under `console/` is a review rejection.
         dangerouslySetInnerHTML={{ __html: state.mathMarkup }}
       />
     );

@@ -23,7 +23,7 @@
 // runtime in this test surface.
 //
 // Plan-023 Phase 1C (T-023p-1C-1) registers the console's test tiers
-// (`Spec-023 §Console Test Tiers`). All NINE of them are Vitest projects,
+// (`Spec-023 §Console Test Tiers`). All of them are Vitest projects,
 // declared in `vitest/console-projects.ts` and spread below — there is no
 // `playwright.config.ts` anywhere in this repository, and the two tiers that
 // need a real Electron window do not want one: `console-e2e` and
@@ -78,11 +78,11 @@ export default defineConfig({
           // double-discovered here in a node environment that would fail them
           // for the wrong reason.
           //
-          // The count is held by `vitest-project-globs.test.ts` rather than
-          // stated here and read never. A pure unit that landed at this address
-          // paid the whole tier for two `process.kill(pid, 0)` assertions — the
-          // Electron download, the smoke bundle, and the serialized queue below
-          // — so a fourth file here is now a red check rather than a slow one.
+          // NOTHING CHECKS THE COUNT — a reviewer does, on the diff that adds
+          // a file here. A pure unit that landed at this address paid the whole
+          // tier for two `process.kill(pid, 0)` assertions: the Electron
+          // download, the smoke bundle, and the serialized queue below. A file
+          // that does not spawn Electron belongs in `main-unit`.
           include: ["test/*.test.ts"],
           // Two files under this glob each spawn a full Electron/Chromium
           // process tree — `launch.smoke.test.ts` and `lifecycle.gc.test.ts`.
@@ -165,12 +165,17 @@ export default defineConfig({
           // and their units are co-located beside the executable exactly as
           // `src/main/**`'s are; both are spawned as commands from a node
           // environment, which is this project's.
+          // `test/helpers/**` joins them for the same reason: those suites drive
+          // the cross-process scaffolding — the managed Electron child, the
+          // process-tree readers, the bounded cleanup, the launch deadline — which
+          // is Node code with no DOM and no build behind it.
           include: [
             "src/main/**/*.test.ts",
             "src/preload/**/*.test.ts",
             "src/shared/**/*.test.ts",
             "build/**/*.test.ts",
             "scripts/**/*.test.ts",
+            "test/helpers/**/*.test.ts",
           ],
         },
       },

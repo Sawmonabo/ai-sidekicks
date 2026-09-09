@@ -8,8 +8,7 @@
 //
 // WHY IT LIVES IN THE FAMILY AND NOT AT THE DAG FLOOR. The CAPS are at the floor —
 // `core/constants/browser-caps.ts` holds this family's, which is what
-// `apps/desktop/AGENTS.md` §Config single-sourcing requires and what
-// `test/console/architecture/cap-constant-home.test.ts` enforces. This module is not
+// `apps/desktop/AGENTS.md` §Config single-sourcing requires. This module is not
 // that. What sat in `core/` beside the caps was not a set of ceilings: it was a
 // bound TAXONOMY, a unit tuple, a byte-qualifier dispatch table, two constructor
 // functions, and a twenty-row table of prose derivations, none of which anything

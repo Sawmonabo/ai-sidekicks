@@ -351,9 +351,8 @@ export { earliestFutureDeadline, useDeadlineWake } from "./subject-scoped/deadli
 // `store/subject-scoped/subject-scoped-holder.ts` holds the rule and `store/subject-scoped/subject-scoped-state.ts` is its
 // React half, which together answer what a surface RENDERS for the subject it is
 // bound to; `store/read/generation-latch.ts` answers whether an act may be dispatched at all,
-// which a handler settles inside its own tick. `test/console/architecture/
-// subject-state-chokepoint.test.ts` fails the build on a second implementation of
-// either, which is why reaching them is a door line and not a deep import.
+// which a handler settles inside its own tick. A second implementation of either is a
+// review rejection, which is why reaching them is a door line and not a deep import.
 //
 // The `@consumedBy` tags are the dead-code gate's one exemption, on this package's
 // terms: they name the task that imports the symbol, and they are deleted in the PR

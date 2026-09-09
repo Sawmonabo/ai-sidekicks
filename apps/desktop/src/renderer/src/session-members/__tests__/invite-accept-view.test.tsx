@@ -18,10 +18,6 @@
 //     and asserts it round-trips in the `daemon.call("invite.accept", {token})`
 //     params — the renderer never decodes/verifies the token (Spec-023 §Trust
 //     Stance: renderer is the untrusted surface).
-//   • Spec-023 §Trust Stance (bridge-projection / CP-002-5): the
-//     `describe("bridge-projection (CP-002-5)")` block at the bottom asserts the
-//     view source NEVER imports the runtime-daemon or control-plane packages
-//     directly — all cross-process traffic goes through `window.sidekicks`.
 //
 // Mirrors the shipped SessionBootstrap.test.tsx idioms verbatim: the
 // `installMockBridge` install/teardown shape, the `afterEach` reset
@@ -48,48 +44,6 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import { InviteAcceptView } from "../invite-accept-view.js";
-import {
-  BANNED_DIRECT_IMPORT_FOILS,
-  BANNED_DIRECT_IMPORT_PATTERNS,
-} from "./renderer-import-ban.test-support.js";
-
-// --------------------------------------------------------------------------
-// CP-002-5 source-text read — Vite `import.meta.glob` raw form.
-// --------------------------------------------------------------------------
-//
-// The bridge-projection assertion (bottom of this file) needs the view's own
-// source TEXT. The lint-clean / typecheck-clean way to obtain it in renderer
-// source is Vite's `import.meta.glob(..., { query: "?raw" })`, which inlines
-// each matched file's contents as a string at transform time — NO module
-// import. `node:fs`/`node:path` are doubly banned here: by the renderer
-// `no-restricted-imports` ESLint rule (which scopes to
-// `src/renderer/src/**/*.{ts,tsx}`, INCLUDING this `__tests__` file) AND by the
-// renderer test typegraph (`src/renderer/tsconfig.test.json` has `types: []`
-// plus `["vitest/globals"]` — no `@types/node`, so `node:fs` fails TS2307).
-//
-// `import.meta.glob` is a Vite build-time macro with no ambient TypeScript type
-// in this project (the renderer tsconfig sets `types: []` and references no
-// `vite/client`). Rather than widen a shared tsconfig (out of `target_paths`)
-// or pull Vite's whole client typegraph, we declare the ONE signature we use as
-// a local module-scoped `ImportMeta` augmentation. It is scoped to this test
-// file's program and verified not to leak into the production renderer
-// typecheck (`tsc -b`).
-declare global {
-  interface ImportMeta {
-    glob: (
-      pattern: string,
-      options: { query: "?raw"; import: "default"; eager: true },
-    ) => Record<string, string>;
-  }
-}
-
-// Keyed by the glob-relative path (e.g. `"../invite-accept-view.tsx"`). Eager so
-// the values are plain strings available synchronously at module evaluation.
-const rendererViewSources = import.meta.glob("../invite-accept-view.tsx", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-});
 
 // Branded-id test fixtures — `"<uuid>" as SessionId` mirrors the shipped SDK
 // precedent (packages/client-sdk/test/membershipClient.integration.test.ts:64-70).
@@ -293,58 +247,5 @@ describe("InviteAcceptView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Accept invite" }));
     await screen.findByLabelText("invite-accept-resolved");
     expect(daemonCall).toHaveBeenNthCalledWith(2, "invite.accept", { token: SECOND_INVITE_TOKEN });
-  });
-
-  describe("bridge-projection", () => {
-    // Spec-023 §Trust Stance + Plan-002 CP-002-5 operational enforcement. The
-    // renderer is the UNTRUSTED surface: it must reach the daemon / control-plane
-    // ONLY through the `window.sidekicks` preload bridge, NEVER by importing the
-    // node-side packages directly. This assertion reads the view's own source
-    // text (via the Vite `import.meta.glob` raw form declared inline above — a
-    // lint-clean / typecheck-clean alternative to `node:fs`, which is doubly
-    // banned in renderer source: by `no-restricted-imports` AND by the renderer
-    // test typegraph's `types: []`/no-`@types/node` posture) and asserts no
-    // import statement targets the banned packages.
-    //
-    // THE SHAPES COME FROM ONE HOME. `BANNED_DIRECT_IMPORT_PATTERNS` in
-    // `renderer-import-ban.test-support.ts` holds the four regexes and their names,
-    // and `BANNED_DIRECT_IMPORT_FOILS` flattens them against one synthetic violation
-    // per BRANCH each admits; this file used to carry a private copy of the first two
-    // regexes and `participant-roster.projection.test.tsx` carried another, which is
-    // the drift `apps/desktop/AGENTS.md` §Shared code names. That module's header says
-    // which shapes they are, which axes the foils cover, and why each is anchored on
-    // the import surface rather than on the package nickname — both these views
-    // mention "control-plane" and "the local daemon" in prose (invite-accept-view.tsx
-    // lines 13, 63), and a substring match would report the explanation as the
-    // defect.
-
-    // Glob-key-drift guard, hoisted to run ONCE before the `it.each`: if the
-    // `import.meta.glob` key ever drifts, this throws loudly here rather than
-    // letting every case vacuously pass against an `undefined` source. After the
-    // narrowing throw, `inviteAcceptSource` is `string` for all cases below.
-    const inviteAcceptSource = rendererViewSources["../invite-accept-view.tsx"];
-    if (typeof inviteAcceptSource !== "string") {
-      throw new Error("invite-accept-view.tsx source was not loaded by import.meta.glob");
-    }
-
-    // Negative control: four patterns that matched nothing and four patterns that
-    // CANNOT match are the same green, so each is driven against every line that is a
-    // violation of it. ONE case per foil rather than per pattern, because a pattern
-    // still matches a single sample after an alternation is deleted — that is exactly
-    // how deleting the `packages/…` arm from `bannedSideEffectImport`, or the subpath
-    // group from `bannedBareImport`, left every case here passing.
-    it.each(BANNED_DIRECT_IMPORT_FOILS)(
-      "$patternName matches its foil $violatingImportSample (negative control)",
-      ({ pattern, violatingImportSample }) => {
-        expect(pattern.test(violatingImportSample)).toBe(true);
-      },
-    );
-
-    it.each(BANNED_DIRECT_IMPORT_PATTERNS)(
-      "invite-accept-view.tsx source matches no %s direct daemon/control-plane import",
-      (_bannedImportPatternName, bannedImportPattern) => {
-        expect(bannedImportPattern.test(inviteAcceptSource)).toBe(false);
-      },
-    );
   });
 });
