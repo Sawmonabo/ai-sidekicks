@@ -21,11 +21,14 @@
 import { describe, expect, it } from "vitest";
 
 import { ConsoleRefusalError, refuse } from "../../core/index.js";
+import { GROWTH_OPERATIONS } from "../growth-operations/index.js";
+import type { GrowthOperationId } from "./growth-entry.js";
 import {
   growthScriptedReplyUnavailable,
   growthUnavailable,
   growthUnavailableFromRejection,
 } from "./growth-refusals.js";
+import { growthSlateRow } from "./growth-slate.js";
 
 /** The dotted code a JSON-RPC envelope carries at `data.type`. */
 const DAEMON_REFUSAL_CODE = "session.list_unavailable";
@@ -50,6 +53,37 @@ describe("the growth port's refusal builders", () => {
     // sentence a person reads.
     expect(refusal.owningDocument.length).toBeGreaterThan(0);
     expect(refusal.detail).not.toContain(refusal.owningDocument);
+  });
+
+  it("composes the unregistered sentence byte for byte, for every operation", () => {
+    // WHAT A PARTICIPANT READS, PINNED — over the whole table rather than one row,
+    // because the sentence is the same frame 145 times and the interesting failure is a
+    // single row composing a different one. The wire is read off the slate rather than
+    // spelled here: this pins the FRAME the builder wraps a wire in, and a copy of the
+    // ledger's prose in a test would be the second authoring surface the slate exists
+    // to prevent.
+    //
+    // It is the case that would have failed had the sentences' move out of the row
+    // changed what the row carries. `slateRow` is the only member a refusal reads, and
+    // this holds every one of them to the sentence it composed before.
+    for (const operationId of Object.keys(GROWTH_OPERATIONS) as GrowthOperationId[]) {
+      const { wire } = growthSlateRow(GROWTH_OPERATIONS[operationId].slateRow);
+
+      expect(growthUnavailable(operationId).detail, operationId).toBe(
+        `Not checked — ${wire} is not registered on this build yet.`,
+      );
+    }
+  });
+
+  it("negative control: a sentence composed from another row is reported", () => {
+    // The pin above is an equality, so its control is a value that ought to fail it: the
+    // same frame around a DIFFERENT row's wire. Without this, a frame that had stopped
+    // interpolating at all would pass the loop for a table of one.
+    const wrongWire = growthSlateRow("terminal-pane").wire;
+
+    expect(growthUnavailable("sessionList").detail).not.toBe(
+      `Not checked — ${wrongWire} is not registered on this build yet.`,
+    );
   });
 
   it("carries the seam's own diagnosis when a scripted reply never came", () => {

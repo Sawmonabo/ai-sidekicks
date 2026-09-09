@@ -48,11 +48,29 @@
 // package's own stylesheet rule rather than a build flag, and the sweep below is what
 // keeps the sheet from drifting back onto an ungated root.
 //
+// THE FOURTH SUBJECT: THE GROWTH LEDGER'S SENTENCES (2026-09-09). Not a fixture this
+// time, and that is what makes it a different failure. `GROWTH_OPERATIONS` is release
+// code — `growth-refusals.ts` reads a row's `slateRow` to attribute every refusal a
+// release build hands back — so no `define` gates it and no `moduleSideEffects`
+// declaration can drop it. What is NOT release code is the sentence describing each
+// operation: 145 of them, written for a reader of `Plan-023 §Console growth slate`,
+// read by nothing a running console evaluates, and until this sweep landed they were
+// carried on the row and therefore on the initial import graph. They now live in each
+// plane's own `<PLANE>_GROWTH_OPERATION_SUMMARIES`, which the release build drops
+// because nothing references it — a property of that arrangement rather than of a
+// flag, and one a later diff undoes by putting a sentence back on a row, by giving the
+// composition a module-level `const` initializer, or by having a shipped surface render
+// one. Each of those is a real decision; none of them announces itself in a diff, and
+// all three land here.
+//
 // THE MARKERS ARE READ FROM THE CORPUS, never written here, so a scenario a later
 // family adds is swept the day it lands and no roster in this file goes stale. They are
 // read from the corpus's SOURCE rather than imported from it, because this project's lib
 // is Node's and a scenario module reaches the DOM — the same constraint the fixture-global
-// import below is already written around.
+// import below is already written around. The growth ledger is the one subject IMPORTED
+// rather than read: its modules reach types and a row constructor and nothing else, so
+// this project compiles them, and the composition function is the same one the ledger's
+// own pairing test drives.
 //
 // AND THAT READ IS WHY THE BUILT TREE IS WALKED NEXT DOOR. Reading the corpus means
 // reaching renderer SOURCE, and a module which does that may not also walk a directory
@@ -67,6 +85,7 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import { FIXTURE_GLOBAL_NAMES } from "../../../src/renderer/src/console/core/fixture-globals.js";
+import { growthOperationSummaries } from "../../../src/renderer/src/console/bridge/growth-operations/index.js";
 import { readBuiltTextOrFailLoudly, type BuiltFile } from "./built-renderer-tree.js";
 import {
   CONSOLE_DIRECTORY,
@@ -266,6 +285,36 @@ function ownerSlotShellClassRoots(): readonly string[] {
 const OWNER_SLOT_SHELL_CLASS_ROOTS: readonly string[] = ownerSlotShellClassRoots();
 
 /**
+ * Every sentence the growth ledger carries, read through the composition itself.
+ *
+ * The one subject here obtained by IMPORT. A sentence is prose written for a reader of
+ * the plan, so the values are the markers with no derivation in between — and reading
+ * them through `growthOperationSummaries()` is what keeps the set from going stale in
+ * the direction nothing else would report: a plane a later family adds is swept the day
+ * its rows land, because that composition is annotated over the whole operation id
+ * union and would not compile without them.
+ */
+const GROWTH_LEDGER_SENTENCES: readonly string[] = Object.values(growthOperationSummaries());
+
+/**
+ * Which sentences a built tree carries, and where.
+ *
+ * ONE PASS REPORTING EVERY LEAK rather than a case per sentence. The subject is a
+ * property of the arrangement — a sentence is back on a row, or the composition became
+ * a module-level `const`, or a surface renders one — and each of those puts the whole
+ * ledger back at once, so 145 red cases would say one thing 145 times. What a reader
+ * needs is which sentences and which chunk, which is what this returns.
+ */
+function ledgerSentenceCarriers(
+  sentences: readonly string[],
+  files: readonly BuiltFile[],
+): readonly string[] {
+  return sentences.flatMap((sentence) =>
+    carriersOf(sentence, files).map((relativePath) => `${relativePath}: ${sentence.slice(0, 60)}…`),
+  );
+}
+
+/**
  * Which built files carry a marker.
  *
  * A named function rather than a filter written twice, because the planted negative
@@ -360,6 +409,48 @@ describe("release bundle — the fixture surface is absent, not merely unreachab
     ];
 
     expect(carriersOf(plantedMarker ?? "", plantedFiles)).toStrictEqual(["assets/planted.js"]);
+  });
+
+  it("positive control: the ledger sweep has sentences to look for", () => {
+    // The markers are composed rather than listed, so an empty composition would make
+    // the case below vacuous without failing it. This is the assertion that catches a
+    // ledger that stopped carrying sentences rather than a build that stopped shipping
+    // them, and it is the one that fires if the composition is ever narrowed.
+    expect(GROWTH_LEDGER_SENTENCES.length).toBeGreaterThan(0);
+  });
+
+  it("does not ship the growth ledger's sentences", () => {
+    expect(
+      ledgerSentenceCarriers(GROWTH_LEDGER_SENTENCES, builtFiles),
+      "a release renderer carries the growth ledger's operation sentences, which no " +
+        "running console reads. Either `out/renderer` currently holds a fixtures build " +
+        "— `pnpm build:fixtures` and `pnpm build` write the same directory — or a " +
+        "sentence has moved back onto the row `growth-refusals.ts` reads, or " +
+        "`growthOperationSummaries` became a module-level `const` whose initializer the " +
+        "bundler cannot prove pure, or a shipped surface began rendering one. The first " +
+        "three put the whole ledger back on the initial graph; the last is a decision " +
+        "to make deliberately, and to record beside the table.",
+    ).toStrictEqual([]);
+  });
+
+  it("negative control: the ledger sweep reports a carrier when one is planted", () => {
+    // The absence claim above is worth exactly what its search is worth, and this drives
+    // the same `carriersOf` through the same reading. A predicate that had stopped
+    // matching — a composition returning nothing, a read that returned no text — is
+    // reported here instead of being read as a clean release build.
+    const [plantedSentence] = GROWTH_LEDGER_SENTENCES;
+    expect(plantedSentence).toBeDefined();
+    const plantedFiles: readonly BuiltFile[] = [
+      { relativePath: "assets/clean.js", text: "export const nothingToSeeHere=1;" },
+      {
+        relativePath: "assets/planted.js",
+        text: `const row={summary:"${plantedSentence ?? ""}"};`,
+      },
+    ];
+
+    expect(ledgerSentenceCarriers([plantedSentence ?? ""], plantedFiles)).toStrictEqual([
+      `assets/planted.js: ${(plantedSentence ?? "").slice(0, 60)}…`,
+    ]);
   });
 
   it("negative control: a marker needs both fields co-declared on one literal", () => {
