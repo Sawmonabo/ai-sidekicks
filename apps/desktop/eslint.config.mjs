@@ -187,19 +187,30 @@ const RENDERER_RESTRICTED_PATTERNS = [
  * reader is a second idea of when the bridge exists, what it does before it does, and
  * which fixture stands in for it under test.
  *
- * Three arms, because one spelling of the read is one identifier away from useless:
+ * Five arms, because one spelling of the read is one identifier away from useless:
  * `window.sidekicks`, `globalThis.sidekicks`, and the cast form a typed reach needs —
  * `(window as { sidekicks?: SidekicksBridge }).sidekicks`, whose object is a
- * `TSAsExpression` rather than an identifier, so the first two arms walk straight past
+ * `TSAsExpression` rather than an identifier, so the first three arms walk straight past
  * it. The cast arm keys on the cast alone rather than on what it wraps: a nested
  * `as unknown as` is a second `TSAsExpression`, and any `(x as T).sidekicks` at all is
  * a bridge reach whatever `x` is.
+ *
+ * The last two are the spellings the first three were measured to walk past. A COMPUTED
+ * key — `globalThis["sidekicks"]` — is the same read with the property written as a
+ * string, and it is keyed on the property alone rather than on the object, because a
+ * computed `.sidekicks` off anything at all is a bridge reach. A DESTRUCTURE —
+ * `const { sidekicks } = window;` — performs no member read at all: it names the global
+ * as an initialiser and takes the binding straight off it.
+ *
+ * ONE SPELLING IS NOT CLOSABLE BY A SELECTOR and is stated in `apps/desktop/AGENTS.md`
+ * beside the rule instead: an ALIAS — `const w = window; w.sidekicks` — needs the
+ * selector to know what `w` holds, which esquery cannot answer.
  */
 const BRIDGE_GLOBAL_READ = {
   selector:
-    ':matches(MemberExpression[object.name="window"][property.name="sidekicks"], MemberExpression[object.name="globalThis"][property.name="sidekicks"], MemberExpression[object.type="TSAsExpression"][property.name="sidekicks"])',
+    ':matches(MemberExpression[object.name="window"][property.name="sidekicks"], MemberExpression[object.name="globalThis"][property.name="sidekicks"], MemberExpression[object.type="TSAsExpression"][property.name="sidekicks"], MemberExpression[computed=true][property.value="sidekicks"], VariableDeclarator[init.name=/^(?:window|globalThis)$/] > ObjectPattern > Property[key.name="sidekicks"])',
   message:
-    "`apps/desktop/AGENTS.md` §Import boundaries: console code reaches the bridge only through `console/bridge/live-bridge.ts`, and every surface above it takes the bridge from `BridgeProvider`'s context. A second reader is a second idea of when the bridge exists and what stands in for it under test.",
+    "`apps/desktop/AGENTS.md` §Import boundaries: renderer code reaches the bridge only through `console/bridge/live-bridge.ts`, and every surface above it takes the bridge from `BridgeProvider`'s context. A second reader is a second idea of when the bridge exists and what stands in for it under test.",
 };
 
 /**
@@ -209,9 +220,15 @@ const BRIDGE_GLOBAL_READ = {
  * two things and a rename reaches neither. The tools that load a config by default export
  * — `*.config.{ts,mjs}` and `.dependency-cruiser.mjs` — live at the package root, which is
  * outside every scope this rule is composed into.
+ *
+ * BOTH SPELLINGS. `export { x as default }` — and its `… from "./other.js"` re-export
+ * form — parses as an `ExportSpecifier` and not an `ExportDefaultDeclaration`, so the
+ * first arm walks past it while it publishes exactly the nameless symbol this ban is
+ * about. `export { default as Thing } from …` is untouched: that one IMPORTS a default
+ * and republishes it under a name, which is the remedy rather than the defect.
  */
 const EXPORT_DEFAULT_DECLARATION = {
-  selector: "ExportDefaultDeclaration",
+  selector: ':matches(ExportDefaultDeclaration, ExportSpecifier[exported.name="default"])',
   message:
     "`apps/desktop/AGENTS.md` §Module shape: named exports only. `export default` is for tool configuration at the package root — `*.config.{ts,mjs}` and `.dependency-cruiser.mjs`, which their tools load by default export — and nowhere else: a default export has no name at the import site, so two importers can call one symbol two things and a rename reaches neither.",
 };
@@ -223,9 +240,16 @@ const EXPORT_DEFAULT_DECLARATION = {
  * `beforeEach` is the standard vitest shape and holds no shared runtime state, so the
  * unions composed for `*.test.*` and `*.test-support.*` drop this selector rather than
  * exempting a growing list of files.
+ *
+ * THE EXPORTED FORM TOO, which is the strongest spelling of the hazard rather than an
+ * edge of it: `export let` parses as `Program > ExportNamedDeclaration >
+ * VariableDeclaration`, so a bare child combinator walks straight past the one spelling
+ * where every importer also observes the live binding directly. A `let` nested inside a
+ * module-level block is left alone — it is not a realistic accident, and `no-var`
+ * already covers the module-level `var`.
  */
 const MODULE_LEVEL_LET = {
-  selector: 'Program > VariableDeclaration[kind="let"]',
+  selector: ':matches(Program, ExportNamedDeclaration) > VariableDeclaration[kind="let"]',
   message:
     "`apps/desktop/AGENTS.md` §State and views: stateful logic is an encapsulated class with private fields. A module-level `let` is a singleton every importer in the window shares and any of them can reassign — put it in a class, a hook, or a controller the caller constructs.",
 };
@@ -259,7 +283,10 @@ const CHILD_PROCESS_DYNAMIC_REACH = [
  * marker, which is why every capture goes through it.
  */
 const SCREENSHOT_MATCHER_REACH = {
-  selector: 'MemberExpression[property.name="toMatchScreenshot"]',
+  // The computed arm is the same reach with the matcher named as a string —
+  // `expect(page)["toMatchScreenshot"]()` — which the property-name arm cannot see.
+  selector:
+    ':matches(MemberExpression[property.name="toMatchScreenshot"], MemberExpression[computed=true][property.value="toMatchScreenshot"])',
   message:
     "`apps/desktop/AGENTS.md` §Tests: a screenshot is taken through `test/console/screenshot/settled-capture.ts` and no other way. A capture taken straight after a mount photographs the region a loader-backed body has not filled yet — stable, green, and a picture of a pane that had not finished loading.",
 };
@@ -269,9 +296,16 @@ const SCREENSHOT_MATCHER_REACH = {
  *
  * Relative specifiers only: the rule is about the sheets this tree owns, and a vendor
  * sheet reached by package specifier has no owning directory here to enter through.
+ *
+ * A TRAILING QUERY IS STILL THE SHEET. `./x.css?inline` and `./x.css?raw` are bundler
+ * spellings of the same import, and an `$`-anchored `.css` match walks straight past
+ * them. And the DYNAMIC form carries the sheet exactly as the static one does — the
+ * chunk it lands on is the chunk the component is on — so both declarations are named.
  */
+const RELATIVE_STYLESHEET_SPECIFIER = "^[.][.]?[/].*[.]css(?:[?].*)?$";
+
 const STYLESHEET_THROUGH_OWNER = {
-  selector: "ImportDeclaration[source.value=/^[.][.]?[/].*[.]css$/]",
+  selector: `:matches(ImportDeclaration[source.value=/${RELATIVE_STYLESHEET_SPECIFIER}/], ImportExpression[source.value=/${RELATIVE_STYLESHEET_SPECIFIER}/])`,
   message:
     "`apps/desktop/AGENTS.md` §Module shape: a stylesheet enters through the barrel of the directory that OWNS it — that directory's `index.ts`, or the root of the chunk a lazily-loaded body arrives on (`*-body.ts`) — and through no component. A component that pulls a sheet in puts that surface's rules on the initial document for every session that never opens it.",
 };
@@ -282,10 +316,14 @@ const STYLESHEET_THROUGH_OWNER = {
  * The literal has to carry a `*`: a raw read of ONE named module is a different act from
  * a walk that decides its own membership. A walk under `src/` is a second source of truth
  * for what the tree holds, and it is silently wrong the moment a file moves.
+ *
+ * The array arm is the multi-pattern spelling the API also accepts —
+ * `import.meta.glob(["./views/*.ts"])` — where the literal is a grandchild of the call
+ * rather than its direct child, so the first arm walks past it.
  */
 const DIRECTORY_SOURCE_GLOB = {
   selector:
-    'CallExpression[callee.object.type="MetaProperty"][callee.property.name="glob"] > Literal[value=/[*]/]',
+    ':matches(CallExpression[callee.object.type="MetaProperty"][callee.property.name="glob"] > Literal[value=/[*]/], CallExpression[callee.object.type="MetaProperty"][callee.property.name="glob"] > ArrayExpression > Literal[value=/[*]/])',
   message:
     "A directory `import.meta.glob` under `src/` is a second source of truth for what the tree holds, and it decides its own membership — so it is silently wrong the moment a file moves and reports nothing. Name the modules, or let the bundler's own entry graph decide.",
 };
@@ -305,12 +343,17 @@ const RENDERER_SYNTAX_BANS = [
   DIRECTORY_SOURCE_GLOB,
   MODULE_LEVEL_LET,
   STYLESHEET_THROUGH_OWNER,
+  // Renderer-wide rather than console-scoped, because the hazard is the renderer's and
+  // not the console's: a surface that reads the bridge off the global with no existence
+  // check throws inside a render under a preload that failed to install. Four legacy
+  // modules outside `console/` do read it that way today; they are exempted BY NAME in
+  // their own block below, so the count is frozen and a fifth cannot land unnoticed.
+  BRIDGE_GLOBAL_READ,
 ];
 
 /** The same, plus what only the console and the shell subtree it composes seats for carry. */
 const CONSOLE_SYNTAX_BANS = [
   ...RENDERER_SYNTAX_BANS,
-  BRIDGE_GLOBAL_READ,
   ...CONSOLE_TIME_READING_SELECTORS,
   EXPORTED_COLLECTION_SELECTOR,
 ];
@@ -322,8 +365,18 @@ const TEST_SYNTAX_BANS = [
   ...CHILD_PROCESS_DYNAMIC_REACH,
 ];
 
-/** The console tiers, which read the same wire stamps the console does. */
-const CONSOLE_TIER_SYNTAX_BANS = [...TEST_SYNTAX_BANS, ...CONSOLE_TIME_READING_SELECTORS];
+/**
+ * The console tiers, which read the same wire stamps the console does.
+ *
+ * The exported-collection ban is here for the same reason it is in the console union: a
+ * tier module that publishes a `Set` publishes one object every suite in the project
+ * shares, and a suite that grows it changes what a later suite measures.
+ */
+const CONSOLE_TIER_SYNTAX_BANS = [
+  ...TEST_SYNTAX_BANS,
+  ...CONSOLE_TIME_READING_SELECTORS,
+  EXPORTED_COLLECTION_SELECTOR,
+];
 
 /**
  * A union minus the selectors one file class is excused from, matched by IDENTITY.
@@ -619,11 +672,16 @@ export default [
     // Suites and their scaffolding. A module-level `let` reassigned in `beforeEach` is
     // the standard vitest shape and holds no state anything else can reach, so the ban
     // on shared runtime singletons is lifted here and every other selector restated.
+    //
+    // The bridge-global ban comes off for the same reason the console tests' does: a
+    // renderer suite INSTALLS a fixture bridge on the global and deletes it again in
+    // `afterEach`, and that installation is the substitution seam the ban exists to
+    // protect rather than a second reader of it.
     files: rendererFiles("**", RENDERER_TEST_FILES),
     rules: {
       "no-restricted-syntax": [
         "error",
-        ...withoutSelectors(RENDERER_SYNTAX_BANS, MODULE_LEVEL_LET),
+        ...withoutSelectors(RENDERER_SYNTAX_BANS, MODULE_LEVEL_LET, BRIDGE_GLOBAL_READ),
       ],
     },
   },
@@ -667,6 +725,37 @@ export default [
       "no-restricted-syntax": [
         "error",
         ...withoutSelectors(CONSOLE_SYNTAX_BANS, BRIDGE_GLOBAL_READ),
+      ],
+    },
+  },
+  {
+    // The four LEGACY renderer modules that read the bridge off the global directly,
+    // exempted by NAME rather than by leaving the rule scoped to two subtrees. The
+    // difference is the whole point: a named exemption freezes the count at four and
+    // makes a fifth reader a lint failure in the diff that adds it, where a subtree
+    // scope would admit one silently.
+    //
+    // Three of them read `window.sidekicks.daemon` with NO existence check at all,
+    // where `readInstalledBridge` (`console/bridge/live-bridge.ts`) answers `undefined`
+    // for both the absent and the misshapen global — so under a preload that failed to
+    // install they throw inside a render. The migration is to take the bridge from
+    // `BridgeProvider`'s context as every console surface does; it is a real layering
+    // change (the provider lives under `console/`) and belongs in its own diff, which
+    // is why the state is recorded here rather than papered over.
+    //
+    // Every other selector is restated: this block replaces the renderer union for
+    // these files, and dropping one would lift it for exactly the files least able to
+    // afford it.
+    files: [
+      "src/renderer/src/session-members/participant-roster.tsx",
+      "src/renderer/src/session-members/invite-accept-view.tsx",
+      "src/renderer/src/session-bootstrap/SessionBootstrap.tsx",
+      "src/renderer/src/runtime-node-attach/attach-request.ts",
+    ],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...withoutSelectors(RENDERER_SYNTAX_BANS, BRIDGE_GLOBAL_READ),
       ],
     },
   },
