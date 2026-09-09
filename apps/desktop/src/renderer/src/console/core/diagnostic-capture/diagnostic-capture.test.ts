@@ -138,6 +138,33 @@ describe("the I-am-blind marker", () => {
     );
   });
 
+  it("counts refused probes exactly, and never its own forward seam", () => {
+    // NO forwarder, deliberately. The case above installs one so the auto-flush at the
+    // batch bound cannot spend a refusal on the capture's own forward seam; this is the
+    // case that drives exactly that. `record` flushes at every batch boundary, a flush
+    // with no forwarder marks `DIAGNOSTIC_BAND_FORWARD_PROBE` blind, and once the set is
+    // full that marking is itself refused — so a count that included it would report how
+    // often the capture flushed rather than how many probes went blind past the bound.
+    const capture = new DiagnosticCapture();
+    for (let index = 0; index < DIAGNOSTIC_CAPTURE_BOUNDS.blindProbeCount; index += 1) {
+      capture.markBlind(`probe-${index}`, "unsupported", AT);
+    }
+    expect(capture.blindProbes()).toHaveLength(DIAGNOSTIC_CAPTURE_BOUNDS.blindProbeCount);
+    expect(capture.refusedBlindProbeCount).toBe(0);
+
+    capture.markBlind("probe-past-the-bound", "unsupported", AT);
+    capture.flush();
+    capture.flush();
+    capture.markBlind("another-probe-past-the-bound", "unsupported", AT);
+
+    // TWO, and the number is the whole assertion: two operator probes were refused, and
+    // the flushes around them refused the forward seam repeatedly without moving it. The
+    // second half is its own negative control — a fix that simply stopped counting would
+    // read zero here, and a fix that counted the seam would read more than two.
+    expect(capture.refusedBlindProbeCount).toBe(2);
+    expect(capture.isBlind(DIAGNOSTIC_BAND_FORWARD_PROBE)).toBe(false);
+  });
+
   it("a throwing forwarder loses no record and becomes a blind seam", () => {
     const capture = new DiagnosticCapture();
     capture.installForwarder(() => {

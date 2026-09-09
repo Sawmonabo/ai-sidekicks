@@ -40,7 +40,9 @@ export const DIAGNOSTIC_CAPTURE_BOUNDS = {
    * 32 rather than one-at-a-time because the forward crosses a process boundary and
    * a per-record crossing during a cascade is the cascade's own amplifier; 32 rather
    * than the whole pending buffer because a batch that could carry 512 records is a
-   * 500,000-byte message built at the moment memory is scarce.
+   * roughly 1,048,576-byte message built at the moment memory is scarce — the same
+   * 512 × 1,024 UTF-16 reading the pending bound above is stated in, and not the
+   * 524,000 a byte-per-character reading gives.
    */
   batchRecordCount: 32,
 

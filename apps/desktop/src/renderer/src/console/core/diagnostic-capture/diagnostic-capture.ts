@@ -1,11 +1,20 @@
 // The console's always-on error capture.
 //
-// `Spec-023 §Console Design (Meridian)` asks for three things together, and they are
-// three because each one alone is a capture that lies: JSONL batching under named
-// caps, a POSITIVE marker whenever a probe cannot be read, and a forward to the
-// daemon's diagnostic band. Batching without the marker reports an empty stream from
-// a blind console exactly as it reports one from a healthy console; the marker
-// without the forward leaves the finding in the window that is about to be closed.
+// Three things together, and they are three because each one alone is a capture that
+// lies: JSONL batching under named caps, a POSITIVE marker whenever a probe cannot be
+// read, and a forward that carries a batch out of the window. Batching without the
+// marker reports an empty stream from a blind console exactly as it reports one from a
+// healthy console; the marker without the forward leaves the finding in the window
+// that is about to be closed.
+//
+// THE MARKER IS THE PART THE CORPUS ASKS FOR BY NAME, and the other two are this
+// module's own shape for delivering it. `Spec-023 §Console Design (Meridian)` rule 8,
+// "Kinds of nothing", holds _not checked_ and _empty_ to be different absences and
+// closes with "A renderer that collapses two of these into one is wrong" — and a probe
+// the console cannot read is _not checked_, which is a value and not a gap in a
+// stream. That rule is about what a SURFACE renders; carrying the distinction off the
+// machine at all is what this module adds, and the batching and the forward are not
+// stated anywhere in that spec.
 //
 // ALWAYS ON, IN EVERY BUILD. This is the one observability module the fixture define
 // does not fold: the perf meters next door measure a console an author is watching,
@@ -180,15 +189,25 @@ export class DiagnosticCapture {
    * registry does with its own refused series. A capture that dropped the
    * thirty-third blind probe in silence would be a module whose whole purpose is
    * telling an operator it cannot see, going quiet at exactly the cascade that filled
-   * it. The count is incremented BEFORE the record is captured, so the re-entrant
-   * `markBlind` that a batch-boundary flush performs sees a second refusal and does
-   * not emit again.
+   * it. The count is incremented BEFORE the record is captured, so a re-entrant
+   * `markBlind` reaching this arm sees a second refusal and does not emit again.
+   *
+   * THE CAPTURE'S OWN FORWARD SEAM IS EXCLUDED FROM THE COUNT. `flush` marks it blind
+   * whenever no forwarder is installed, and `record` flushes at every batch boundary,
+   * so a full set turns one operator probe into a refusal of that seam per flush —
+   * the number an operator reads as "how many probes went blind past the bound" would
+   * instead be a measure of how often the capture ran. Nothing is lost by leaving it
+   * out: this probe is the capture describing itself rather than a subsystem
+   * reporting a reading it could not take.
    */
   public markBlind(probe: string, reason: string, at: string): void {
     if (this.#blindProbes.has(probe)) {
       return;
     }
     if (this.#blindProbes.size >= DIAGNOSTIC_CAPTURE_BOUNDS.blindProbeCount) {
+      if (probe === DIAGNOSTIC_BAND_FORWARD_PROBE) {
+        return;
+      }
       this.#refusedBlindProbeCount += 1;
       if (this.#refusedBlindProbeCount === 1) {
         this.record({
@@ -286,7 +305,8 @@ export class DiagnosticCapture {
    *
    * A count rather than a wider set, on `PerfMeterRegistry.refusedSeriesCount`'
    * reasoning: the number IS the finding, and it says the console went blind in more
-   * places than a bounded set can name.
+   * places than a bounded set can name. Places OTHER THAN THIS MODULE'S OWN FORWARD
+   * SEAM, which `markBlind` excludes for the reason stated there.
    */
   public get refusedBlindProbeCount(): number {
     return this.#refusedBlindProbeCount;
