@@ -9,13 +9,29 @@
 // THE DRIVERS ARE DELIBERATELY MIXED. A fixture whose whole cast runs one provider
 // cannot show an axis control what a two-provider session looks like.
 
-import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import {
+  DRIVER_CAPABILITY_FLAGS,
+  ParticipantIdSchema,
+  SessionIdSchema,
+  type DriverCapabilityFlag,
+  type ParticipantId,
+  type SessionId,
+} from "@ai-sidekicks/contracts";
 
 // Wire identifiers, spelled as the wire spells them — UUID v7 values whose leading
 // bytes are this scenario's own start instant, so a rendered id still tells one
 // fixture apart from another.
-export const SESSION_ID = "019b7952-5ec0-75e5-8510-ada11a5a44a5";
-export const PARTICIPANT_YOU = "019b7952-5ec0-79a4-8110-cca0117a0440";
+//
+// MINTED THROUGH THE REGISTERED SCHEMAS RATHER THAN `as`-CAST. A scenario constant is
+// where a fixture chooses the bytes, and a cast asserts a brand without checking it —
+// so a malformed id surfaced at the first `.strict()` reply that carried it, which
+// takes the whole reply down and names the reply rather than the value. Parsing at
+// declaration fails the module instead, naming the constant. `AGENT_*` stays
+// unbranded: the corpus registers no `AgentId` brand to mint one through.
+export const SESSION_ID: SessionId = SessionIdSchema.parse("019b7952-5ec0-75e5-8510-ada11a5a44a5");
+export const PARTICIPANT_YOU: ParticipantId = ParticipantIdSchema.parse(
+  "019b7952-5ec0-79a4-8110-cca0117a0440",
+);
 export const AGENT_ARCHITECT = "019b7952-5ec0-7a6e-8110-d1a4c1150041";
 export const AGENT_IMPLEMENTER = "019b7952-5ec0-7a6e-8120-d1a4c1150042";
 export const PENDING_SWITCH_ID = "019b7952-5ec0-7b90-8110-d1a4c1150051";

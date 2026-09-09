@@ -18,33 +18,75 @@
 // Legibility moves to the NAMES, which is where a failing assertion reads them; what
 // reaches the screen is what the daemon would actually send.
 
-export const SESSION_ID: string = "9f2c4a10-0000-4000-8000-000000000001";
-export const NODE_ID: string = "9f2c4a10-0000-4000-8000-000000000002";
-export const GIT_MOUNT_ID: string = "9f2c4a10-0000-4000-8000-000000000003";
-export const PLAIN_MOUNT_ID: string = "9f2c4a10-0000-4000-8000-000000000004";
-export const GIT_WORKSPACE_ID: string = "9f2c4a10-0000-4000-8000-000000000005";
-export const PLAIN_WORKSPACE_ID: string = "9f2c4a10-0000-4000-8000-000000000006";
+import {
+  NodeIdSchema,
+  ParticipantIdSchema,
+  RepoMountIdSchema,
+  RunIdSchema,
+  SessionIdSchema,
+  WorkspaceIdSchema,
+  type NodeId,
+  type ParticipantId,
+  type RepoMountId,
+  type RunId,
+  type SessionId,
+  type WorkspaceId,
+} from "@ai-sidekicks/contracts";
+
+// BRANDED WHERE THE CORPUS REGISTERS A BRAND FOR THE AXIS, `: string` WHERE IT DOES
+// NOT, AND MINTED THROUGH THE SCHEMA RATHER THAN `as`-CAST. A scenario constant is
+// where a fixture chooses the bytes, and a cast asserts a brand without checking it —
+// so a malformed id surfaced at the first `.strict()` reply that carried it, which
+// takes the whole reply down and names the reply rather than the value. Parsing at
+// declaration fails the module instead, naming the constant. The worktree, clone,
+// branch-context, artifact, attachment, and manifest ids below carry no registered
+// brand, so they keep the explicit `: string` — a brand invented here would be a
+// second vocabulary for one the corpus has not minted.
+export const SESSION_ID: SessionId = SessionIdSchema.parse("9f2c4a10-0000-4000-8000-000000000001");
+export const NODE_ID: NodeId = NodeIdSchema.parse("9f2c4a10-0000-4000-8000-000000000002");
+export const GIT_MOUNT_ID: RepoMountId = RepoMountIdSchema.parse(
+  "9f2c4a10-0000-4000-8000-000000000003",
+);
+export const PLAIN_MOUNT_ID: RepoMountId = RepoMountIdSchema.parse(
+  "9f2c4a10-0000-4000-8000-000000000004",
+);
+export const GIT_WORKSPACE_ID: WorkspaceId = WorkspaceIdSchema.parse(
+  "9f2c4a10-0000-4000-8000-000000000005",
+);
+export const PLAIN_WORKSPACE_ID: WorkspaceId = WorkspaceIdSchema.parse(
+  "9f2c4a10-0000-4000-8000-000000000006",
+);
 // The THIRD mount and its default workspace — a git checkout whose root still
 // resolves and is no longer the repository it was attached as. It is a mount of its
 // own rather than a re-verdicting of one of the two above, because the health verdict
 // it carries is reachable from neither: `identity_mismatch` requires a persisted
 // identity anchor, which the plain-directory mount has none of, and the git mount
 // above is the one healthy row the section's ordinary state is drawn from.
-export const DRIFTED_MOUNT_ID: string = "9f2c4a10-0000-4000-8000-000000000007";
-export const DRIFTED_WORKSPACE_ID: string = "9f2c4a10-0000-4000-8000-000000000008";
+export const DRIFTED_MOUNT_ID: RepoMountId = RepoMountIdSchema.parse(
+  "9f2c4a10-0000-4000-8000-000000000007",
+);
+export const DRIFTED_WORKSPACE_ID: WorkspaceId = WorkspaceIdSchema.parse(
+  "9f2c4a10-0000-4000-8000-000000000008",
+);
 // The FOURTH mount and its default workspace, and the only pair no read answers for
 // until an act has been sent: they are what `repo.attach` mints. Declared here beside
 // the three the session opens with rather than in the mutation table, because they are
 // identifiers of the same cast — an id the attach reply names and the workspace card
 // then reads is one entity, and two spellings of it would be exactly the drift this
 // module exists to prevent. Nothing renders them until the dialog has been used.
-export const ATTACHED_MOUNT_ID: string = "9f2c4a10-0000-4000-8000-000000000009";
-export const ATTACHED_WORKSPACE_ID: string = "9f2c4a10-0000-4000-8000-00000000000a";
+export const ATTACHED_MOUNT_ID: RepoMountId = RepoMountIdSchema.parse(
+  "9f2c4a10-0000-4000-8000-000000000009",
+);
+export const ATTACHED_WORKSPACE_ID: WorkspaceId = WorkspaceIdSchema.parse(
+  "9f2c4a10-0000-4000-8000-00000000000a",
+);
 // The people and agents in the session. Wire-declared UUIDs rather than readable
 // placeholders: the wire-truth predicate presents each beat to the strict contract
 // layer as the whole envelope it claims to be, and a beat whose actor is not the
 // UUID the contract declares is a beat no daemon could emit.
-export const PARTICIPANT_YOU: string = "9f2c4a10-0000-4000-8000-000000000010";
+export const PARTICIPANT_YOU: ParticipantId = ParticipantIdSchema.parse(
+  "9f2c4a10-0000-4000-8000-000000000010",
+);
 export const AGENT_IMPLEMENTER: string = "9f2c4a10-0000-4000-8000-000000000011";
 export const AGENT_REVIEWER: string = "9f2c4a10-0000-4000-8000-000000000012";
 // One execution root per agent, which is what makes the worktree surface a list rather
@@ -68,7 +110,7 @@ export const RECLAIMED_CLONE_ID: string = "9f2c4a10-0000-4000-8000-000000000023"
 // reuse, which is the one distinction the reuse-check control exists to draw.
 export const PREPARED_WORKTREE_ID: string = "9f2c4a10-0000-4000-8000-000000000024";
 export const PREPARED_CLONE_ID: string = "9f2c4a10-0000-4000-8000-000000000025";
-export const IMPLEMENTER_RUN_ID: string = "9f2c4a10-0000-4000-8000-000000000030";
+export const IMPLEMENTER_RUN_ID: RunId = RunIdSchema.parse("9f2c4a10-0000-4000-8000-000000000030");
 // One branch context per worktree, because `branch_contexts` upserts a row per
 // `(workspace, worktree)` binding: two roots in one workspace are two contexts, and a
 // fixture answering both with one would let a gate render the other root's branch.
