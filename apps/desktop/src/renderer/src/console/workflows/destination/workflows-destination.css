@@ -45,13 +45,14 @@
 
 /*
  * The surface sizes itself to 100% of its parent and scrolls internally, which is
- * right when it IS the surface and wrong when something stands under it. Scoped to
- * this composition rather than changed in the family sheet: mounted alone — which is
- * what its own suite does — the surface still owns its scroll.
+ * right when it IS the surface and wrong when this destination stands its own rail
+ * under it. Asked for through the surface's own doors, and scoped to this composition
+ * rather than changed in the family sheet: mounted alone — which is what its own suite
+ * does — the surface still owns its scroll.
  */
-.meridian-workflows-destination > .meridian-workflow {
-  block-size: auto;
-  overflow-y: visible;
+.meridian-workflows-destination {
+  --meridian-workflow-block-size: auto;
+  --meridian-workflow-overflow-y: visible;
 }
 
 /*

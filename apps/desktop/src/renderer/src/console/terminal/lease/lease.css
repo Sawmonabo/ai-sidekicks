@@ -128,6 +128,11 @@
 }
 
 /* Secondary, and quiet: rule 7 puts the history one click away, not beside. */
+.meridian-lease-line__claim:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
 .meridian-lease-line__disclosure {
   font: inherit;
   display: inline-flex;
@@ -168,4 +173,9 @@
   overflow-y: auto;
   padding-block-start: var(--meridian-space-2);
   border-block-start: 1px solid var(--meridian-edge);
+}
+
+.meridian-lease-line__disclosure:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
 }

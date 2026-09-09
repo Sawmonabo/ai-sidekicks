@@ -52,14 +52,14 @@
 //
 // THREE SHEETS STAY, AND ONE REASON DOES NOT COVER ALL THREE.
 //
-// `runs/run-list.css` stays because its position in the cascade is not this family's to
-// decide. It declares `.meridian-run-row__failure` and so does `runs/pane/runs.css` — two
-// families, one class name, different declarations — so which of the two the browser sees
-// LAST decides how a failed run's line reads in both. Deferring this one would make that
-// answer depend on whether a workflows chunk had happened to load, which is a bundle
-// boundary deciding how another family's surface looks. It stays on the initial document
-// until that collision is settled the way the run-controls one was, by giving the class
-// one owner and regenerating the references that show it.
+// `runs/run-list.css` stayed because its position in the cascade was not this family's to
+// decide: it declares `.meridian-run-row__failure` and `runs/pane/runs.css` declared the
+// same name for a different shape, so which of the two the browser saw LAST decided how a
+// failed run's line read in both families. THAT COLLISION IS SETTLED — the runs pane's
+// line is `.meridian-runs__failure` now, prefixed for the block its own sheet declares —
+// and this sheet's placement is no longer holding it. It stays on the initial document
+// only until a change that measures the deferral takes it off, which is a bundle question
+// rather than a cascade one and belongs to whoever moves it.
 //
 // `parks/park-badge.css` and `channel-progress/channel-progress.css` stay because the
 // pinned region below is drawn on the first paint. That registration is a `render` and

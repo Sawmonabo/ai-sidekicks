@@ -154,10 +154,10 @@ export function RunRow(props: RunRowProps): React.JSX.Element {
         <p className="meridian-run-row__clean-close">{RUN_CLEAN_CLOSE_SENTENCE}</p>
       ) : null}
       {run.failureCategory === undefined ? null : (
-        <p className="meridian-run-row__failure">
+        <p className="meridian-runs__failure">
           <WireFigure value={run.failureCategory} />
           {run.providerFailureDetail === undefined ? null : (
-            <span className="meridian-run-row__failure-detail">
+            <span className="meridian-runs__failure-detail">
               <WireFigure value={run.providerFailureDetail} />
             </span>
           )}

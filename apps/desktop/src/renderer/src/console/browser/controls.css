@@ -39,8 +39,23 @@
 
 /* ------------------------------------------------------------------ button */
 
+/*
+ * THE THREE DOORS BELOW ARE THIS BUTTON'S PUBLIC API. A bar that composes it into one
+ * centred row sets them on the bar's own class; every other caller leaves them unset
+ * and takes the stacked card shape. They exist because the chrome bar used to declare
+ * `.meridian-browser-action` in its own sheet, and a class two sheets declare at equal
+ * specificity is resolved by whichever sheet the session loaded first.
+ *
+ * `align-items` and `gap` are stated unconditionally: both are inert on a box that is
+ * not a flex or grid container, so they cost the callers who leave `display` alone
+ * nothing and save two more doors.
+ */
 .meridian-browser-action {
-  align-self: flex-start;
+  align-self: var(--meridian-browser-action-align-self, flex-start);
+  display: var(--meridian-browser-action-display, revert);
+  align-items: center;
+  gap: var(--meridian-space-1);
+  white-space: var(--meridian-browser-action-white-space, revert);
   padding: var(--meridian-space-1) var(--meridian-space-3);
   border: 1px solid var(--meridian-edge-strong);
   border-radius: var(--meridian-radius-md);

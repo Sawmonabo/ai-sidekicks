@@ -21,14 +21,15 @@
 // place this family departs from the rule the other loader-backed panes follow, and
 // the departure is measured rather than cautious.
 //
-// `pane/runs.css` declares `.meridian-run-row__failure`, and so does
-// `workflows/runs/run-list.css` — two families, two different components, one class
-// name. While both sheets are on the document the later one decides how the WORKFLOWS
-// run list draws a failed run's line, and which is later is a property of the import
-// graph rather than of either sheet. Moving these sheets onto the chunk root would take
-// this one off the document for any session that never opens a runs pane, which is the
-// whole point of the boundary — and it would silently change a surface belonging to
-// another family, with nothing in the diff naming either sheet.
+// `pane/runs.css` used to declare `.meridian-run-row__failure`, which
+// `workflows/runs/run-list.css` also declares — two families, two different components,
+// one class name — so while both sheets were on the document the later one decided how
+// the WORKFLOWS run list drew a failed run's line, and which was later was a property of
+// the import graph rather than of either sheet. THE COLLISION IS SETTLED: this pane's
+// line is `.meridian-runs__failure`, prefixed for `.meridian-runs`, the block this
+// sheet's own file declares. Deferring these sheets onto the chunk root can no longer
+// change a surface another family owns, so what remains is an ordinary bundle
+// measurement rather than a cascade one.
 //
 // The `.meridian-run-controls` half of that coupling is GONE: the workflows run pane's
 // block carries its family's prefix now, so this sheet's `flex-direction: column` styles

@@ -43,3 +43,8 @@
   inline-size: 100%;
   font-family: var(--meridian-font-mono);
 }
+
+.meridian-terminal-host__surface:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}

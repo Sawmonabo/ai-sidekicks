@@ -71,8 +71,5 @@
   color: var(--meridian-text-muted);
 }
 
-.meridian-root-card :focus-visible,
-.meridian-artifacts :focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
+/* The focus rings for the root card and the artifacts region are in the sheets that
+   declare those regions — `mounts/root-cards.css` and `artifacts/artifacts.css`. */

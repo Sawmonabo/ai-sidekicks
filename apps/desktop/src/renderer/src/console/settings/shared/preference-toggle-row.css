@@ -23,9 +23,17 @@
   max-width: 56ch;
 }
 
+/*
+ * The two doors below are this label's public API. A page whose label IS a wire value
+ * asks for the provenance face through them; every other page leaves them unset and
+ * takes the sans face at the row's own size. They exist because a page that declared
+ * `.meridian-settings-row__label` in its own sheet would be a second sheet declaring
+ * this class, and load order would decide which of the two a session read.
+ */
 .meridian-settings-row__label {
   color: var(--meridian-text);
-  font-size: var(--meridian-text-sm);
+  font-family: var(--meridian-settings-row-label-font, inherit);
+  font-size: var(--meridian-settings-row-label-size, var(--meridian-text-sm));
   font-weight: 500;
   cursor: pointer;
 }

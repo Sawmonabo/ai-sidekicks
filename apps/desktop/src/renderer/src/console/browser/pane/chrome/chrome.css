@@ -16,11 +16,8 @@
  * `.meridian-browser-picker*` by `PagePicker.tsx`; and the overflow disclosure with
  * its body by `PaneOverflow.tsx`.
  *
- * TWO SELECTORS NAME A SHAPE DRESSED NEXT DOOR, and both are the split's rule rather
- * than leftovers from it. `.meridian-browser-chrome .meridian-browser-action` is here
- * because its SUBJECT is `ChromeControl.tsx`'s button, which is this directory's; the
- * bar it is qualified by is `BrowserPane.tsx`'s and is dressed in `../pane.css`. And
- * `.meridian-browser-pane__overflow` carries the pane's block prefix while
+ * ONE SELECTOR NAMES A SHAPE DRESSED NEXT DOOR, and it is the split's rule rather
+ * than a leftover from it. `.meridian-browser-pane__overflow` carries the pane's block prefix while
  * `PaneOverflow.tsx` is what draws it — the split follows the DRAWER and not the
  * prefix, because the drawer is the half a reader can check. The pane's own
  * `__ceiling` twin stays next door for the same reason read the other way.
@@ -38,20 +35,6 @@
  */
 
 /* ------------------------------------------------------------ chrome bar */
-
-/*
- * The shared action button carries `align-self: flex-start` for the card's stacked
- * context. A chrome bar is one centred row, so the container that owns the
- * alignment restates it here rather than the button growing a modifier for the
- * second place it is used.
- */
-.meridian-browser-chrome .meridian-browser-action {
-  align-self: center;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--meridian-space-1);
-  white-space: nowrap;
-}
 
 /* --------------------------------------------------------------- tab strip */
 

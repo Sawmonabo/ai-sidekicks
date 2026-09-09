@@ -167,7 +167,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
         <Glyph name="repo" size={GLYPH_SIZE_CHROME} />
         {/* The resolved root, verbatim and recoverable: the title carries the whole
             string the stylesheet truncates, and the copy control carries it out. */}
-        <WireFigure value={mount.canonicalRoot} title={mount.canonicalRoot} />
+        <WireFigure value={mount.canonicalRoot} title={mount.canonicalRoot} truncate />
         <button
           type="button"
           className="meridian-mount-card__copy"

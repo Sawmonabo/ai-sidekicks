@@ -66,16 +66,15 @@
   color: var(--meridian-text-muted);
 }
 
-.meridian-linkage__refusal-list {
-  max-height: 22rem;
-  overflow-y: auto;
-  margin-block-start: var(--meridian-space-2);
-}
-
 .meridian-linkage__refusal {
   display: flex;
   flex-wrap: wrap;
   gap: var(--meridian-space-1);
   align-items: baseline;
   padding-block: var(--meridian-space-1);
+}
+
+.meridian-linkage__refusals-summary:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
 }

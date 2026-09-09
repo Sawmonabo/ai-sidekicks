@@ -120,7 +120,12 @@
   font-size: var(--meridian-text-xs);
 }
 
-.meridian-run-row__failure {
+/* The failed run's category and its provider detail, as a strip of figures at the
+   row's own density. Prefixed for this pane's block and not for `meridian-run-row`:
+   that block is `workflows/runs/run-list.css`'s, `RunRow.tsx` renders inside a
+   `LedgerRow` and never inside one, and the two sheets paint different things — a
+   strip of figures here, a red prose paragraph there. */
+.meridian-runs__failure {
   display: flex;
   flex-wrap: wrap;
   gap: var(--meridian-space-2);
@@ -129,7 +134,7 @@
   font-size: var(--meridian-text-xs);
 }
 
-.meridian-run-row__failure-detail {
+.meridian-runs__failure-detail {
   color: var(--meridian-text-muted);
 }
 
