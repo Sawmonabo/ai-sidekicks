@@ -107,16 +107,25 @@
 
 /*
  * Focus is visible on every control these surfaces ship, in one rule rather than one
- * per class, so a control added later cannot arrive without it.
+ * per class, so a control added later cannot arrive without it. The regions whose box
+ * is declared elsewhere ring themselves there — `attach/attach.css` for the reattach
+ * surface and `roots/roots.css` for the two root surfaces — so no class is declared
+ * by two sheets and left to load order.
+ *
+ * The attach trigger was qualified by `.meridian-repo-section >`, which is a class
+ * `mounts.css` owns. It is unqualified now, which rings a trigger drawn outside a
+ * repo section too — a keyboard-reachable control with no ring is what the
+ * `console-accessibility` tier reads as a WCAG 2.2 SC 2.4.7 failure, so the qualifier
+ * was withholding one. `Spec-023 §Console Design (Meridian)` rule 3 governs the ring's
+ * CONTRAST once it exists (≥ 3:1 against adjacent colours) and says nothing about
+ * whether one is drawn; it is the wrong citation for a widening and the right one for
+ * the treatment.
  */
 .meridian-repo-attach__dialog :focus-visible,
 .meridian-bind__dialog :focus-visible,
-.meridian-reattach :focus-visible,
 .meridian-reattach__dialog :focus-visible,
-.meridian-prepare-root :focus-visible,
-.meridian-root-disposal :focus-visible,
 .meridian-root-disposal__dialog :focus-visible,
-.meridian-repo-section > .meridian-repo-attach__trigger:focus-visible,
+.meridian-repo-attach__trigger:focus-visible,
 .meridian-open-diff:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;

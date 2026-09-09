@@ -61,6 +61,16 @@
   line-height: 1.5;
 }
 
+/*
+ * A page that lays its own form out as a grid places this line through this door
+ * rather than declaring the class in its own sheet. `grid-column` applies only to a
+ * grid item, so the property inheriting past the form's own children changes nothing
+ * deeper; unset, the line is placed by the grid's ordinary flow.
+ */
+.meridian-settings-page__state {
+  grid-column: var(--meridian-settings-page-state-grid-column, auto);
+}
+
 .meridian-settings-page__state--failed {
   color: var(--meridian-red-text);
 }

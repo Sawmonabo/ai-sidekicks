@@ -566,24 +566,29 @@ function injectEntry(yamlLines, entry) {
   ];
 }
 
+// `phase` and `pr` are written bare because the validator requires them to be
+// integers — the parser coercing them back to Numbers is the contract. Every
+// other field is a string, so each goes through `quoteIfNeeded`.
 export function serializeEntry(entry) {
   const out = [];
   out.push(`  - phase: ${entry.phase}`);
   if (Array.isArray(entry.task)) {
-    out.push(`    task: [${entry.task.join(", ")}]`);
+    out.push(`    task: [${entry.task.map(quoteIfNeeded).join(", ")}]`);
   } else {
-    out.push(`    task: ${entry.task}`);
+    out.push(`    task: ${quoteIfNeeded(entry.task)}`);
   }
   out.push(`    pr: ${entry.pr}`);
-  out.push(`    sha: ${entry.sha}`);
-  out.push(`    merged_at: ${entry.merged_at}`);
+  out.push(`    sha: ${quoteIfNeeded(entry.sha)}`);
+  out.push(`    merged_at: ${quoteIfNeeded(entry.merged_at)}`);
   if (entry.files.length === 0) {
     out.push(`    files: []`);
   } else {
     out.push(`    files:`);
-    for (const f of entry.files) out.push(`      - ${f}`);
+    for (const f of entry.files) out.push(`      - ${quoteIfNeeded(f)}`);
   }
-  out.push(`    verifies_invariant: [${(entry.verifies_invariant ?? []).join(", ")}]`);
+  out.push(
+    `    verifies_invariant: [${(entry.verifies_invariant ?? []).map(quoteIfNeeded).join(", ")}]`,
+  );
   out.push(`    spec_coverage: [${(entry.spec_coverage ?? []).map(quoteIfNeeded).join(", ")}]`);
   if (entry.notes && entry.notes.trim() !== "") {
     out.push(`    notes: |`);
@@ -604,10 +609,29 @@ export function serializeNonShipmentPrs(nonShipmentPrs) {
   return `non_shipment_prs: [${nonShipmentPrs.join(", ")}]`;
 }
 
-function quoteIfNeeded(s) {
-  // Spec-coverage values like "Spec-NNN row 4" contain spaces. Wrap such
-  // values in double quotes when written as flow-array elements so the
-  // re-parser can split-by-comma without losing the space-bearing token.
-  if (/[\s,[\]{}]/.test(s)) return `"${s}"`;
-  return s;
+// Every string scalar the serializer writes must survive `parseInlineScalar`
+// as the identical string. A 7-character squash sha that happens to be all
+// digits (`9353895` — three of the 33 rows on Plan-023) came back a Number,
+// and preflight Gate 3 then halted on `sha must be a hex string of 7-40
+// chars`; PR #478 hand-quoted those three scalars, this is the durable fix.
+// Quote exactly the values that would not survive and nothing else, so
+// re-serializing the on-disk corpus produces a zero delta.
+//
+// Known limit, neither introduced nor removed here: `parseInlineScalar`
+// recognizes no escape sequences, so a value containing a double quote is not
+// representable in this dialect quoted or bare.
+function quoteIfNeeded(value) {
+  const raw = String(value);
+  // A bare empty scalar is `key:` with nothing after it — write it explicitly
+  // rather than relying on the field regex to hand back an empty string.
+  if (raw === "") return `""`;
+  // Structural characters are consumed by the flow-array splitter and the
+  // trailing-comment stripper before `parseInlineScalar` ever sees the token.
+  // Spec-coverage values like "Spec-NNN row 4" are the standing case.
+  if (/[\s,[\]{}]/.test(raw)) return `"${raw}"`;
+  // Self-proving predicate for the coercion classes — integers, decimals,
+  // `true` / `false` / `null` / `~`, an already-quoted string: anything the
+  // parser hands back as a different value has to be quoted to round-trip.
+  if (parseInlineScalar(raw) !== raw) return `"${raw}"`;
+  return raw;
 }

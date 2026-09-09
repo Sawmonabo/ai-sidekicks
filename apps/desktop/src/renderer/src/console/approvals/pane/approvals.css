@@ -302,8 +302,7 @@
 .meridian-goal__cancel:focus-visible,
 .meridian-approval-card__disclosure-trigger:focus-visible,
 .meridian-approval-card__scope-trigger:focus-visible,
-.meridian-callback-tools__schema-trigger:focus-visible,
-.meridian-goal__field:focus-visible {
+.meridian-callback-tools__schema-trigger:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 1px;
 }

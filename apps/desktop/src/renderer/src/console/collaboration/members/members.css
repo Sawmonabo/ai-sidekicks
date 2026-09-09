@@ -247,11 +247,6 @@
   gap: var(--meridian-space-2);
 }
 
-.meridian-members__revoke {
-  color: var(--meridian-red-text);
-  border-color: var(--meridian-red-mark);
-}
-
 .meridian-members__menu-positioner {
   z-index: 1;
 }
@@ -276,4 +271,13 @@
 
 .meridian-members__menu-item[data-highlighted] {
   background: var(--meridian-surface-sunken);
+}
+
+/* Focus is visible on every control this region ships, in one rule rather than one
+   per class, so a control added later cannot arrive without it. The menu is listed
+   beside the roster because it is positioned out of that subtree. */
+.meridian-members :focus-visible,
+.meridian-members__menu :focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
 }

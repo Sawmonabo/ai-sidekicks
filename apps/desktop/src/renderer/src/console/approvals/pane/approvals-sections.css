@@ -232,3 +232,10 @@
   color: var(--meridian-amber-text);
   font-size: var(--meridian-text-xs);
 }
+
+/* The goal field's ring, beside the field's own box: `approvals.css` carries the
+   rings for the controls it declares, and this one is declared here. */
+.meridian-goal__field:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
