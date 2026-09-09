@@ -21,7 +21,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   bridgeWatchingSubmits,
   fixtureWaitPhase,
-  loadSchemaFormBody,
+  resolveSchemaFormChunks,
   pressSubmit,
   renderSlot,
 } from "./slots/HumanFormShell.test-support.js";
@@ -68,10 +68,11 @@ async function submitAnswered(
   return probe;
 }
 
-// The schema form arrives as its own chunk. Resolved once here so every case below
-// renders the loaded form rather than the reserved region its mount would otherwise
-// suspend on — the loader memoises the load, so this is the state a second form opens in.
-beforeAll(loadSchemaFormBody);
+// The schema form opens in two chunks: its own body, and the compiler the one act stays
+// closed until. Both are resolved once here, so every case below renders a loaded form
+// whose submit is armed rather than the reserved region its mount would otherwise suspend
+// on — each loader memoises, so this is the state a second form opens in.
+beforeAll(resolveSchemaFormChunks);
 
 describe("the submitted request carries artifact answers through the attachment carrier", () => {
   it("lists the answered artifact and keeps its keyed value in the fields", async () => {

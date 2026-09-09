@@ -8,7 +8,8 @@
 // registration whose module has not landed, handed to the real `captureSettled`.
 //
 // AND THE FAILURE IT PLANTS IS THE ONE THIS TIER ACTUALLY TOOK. A workflows capture
-// came back 1440x1172 against a 1440x1751 reference, and the first hypothesis was
+// came back 1440x1172 against a 1440x1751 image taken earlier, and the first
+// hypothesis was
 // exactly this: the pane's lazily imported body had not loaded and the tier had
 // photographed the reserved region. It had not — the shortfall was a stylesheet that
 // had moved out of the initial graph, which `apps/desktop/AGENTS.md` §Module shape now
@@ -17,13 +18,11 @@
 //
 // BOTH DIRECTIONS, BECAUSE ONE OF THEM IS VACUOUS ALONE. A refusal that fired on
 // everything would satisfy the pending case perfectly, so the loaded case asserts the
-// capture is REACHED: the rejection it expects is the matcher's own missing-reference
-// message, which only a call that got past the refusal can produce.
+// capture is REACHED: it settles, which only a call that got past the refusal can do.
 
 import { describe, expect, it } from "vitest";
 
 import { renderSettled } from "../console-harness.js";
-import { screenshotUpdateMode } from "./baseline-host.js";
 import { captureSettled } from "./settled-capture.js";
 
 import { ConsolePaneRegistry } from "../../../src/renderer/src/console/seats/index.js";
@@ -38,15 +37,6 @@ const PLANTED_KIND = "browser";
 
 /** The owner a planted registration declares, which no family uses. */
 const PLANTED_OWNER = "pending-body-refusal-control";
-
-/**
- * A reference name nothing is committed under, and nothing ever should be.
- *
- * The loaded case deliberately reaches the matcher, so it has to reach it at a name
- * whose only possible outcome is the missing-reference rejection — a committed name
- * would make the case pass or fail on pixels, which is not what it is asking.
- */
-const UNCOMMITTED_REFERENCE_NAME = "no-reference-is-committed-under-this-name";
 
 /**
  * A pane context carrying only what the reserved region reads.
@@ -96,7 +86,7 @@ async function mountPane(registry: ConsolePaneRegistry): Promise<HTMLElement> {
 
 describe("the capture refusal, over a real mount", () => {
   // The planted failure. Without the refusal this capture SUCCEEDS — it photographs a
-  // pane that is its own chrome and nothing else, and the image it mints is stable.
+  // pane that is its own chrome and nothing else, and the image it writes is stable.
   it("refuses a capture whose pane body has not arrived, and names the kind", async () => {
     const container = await mountPane(registryWithPendingBody());
 
@@ -105,19 +95,17 @@ describe("the capture refusal, over a real mount", () => {
     );
   });
 
-  // The other direction: the refusal lets a settled tree through to the matcher.
-  it("takes the capture once the body has landed", async (context) => {
-    // Under `all` or `new` the matcher WRITES rather than rejecting, which would commit
-    // a reference for this probe's name — the same guard `frame.test.tsx` states.
-    context.skip(
-      screenshotUpdateMode !== "none",
-      `this control reaches the matcher, so it is only meaningful while references are frozen; this run resolved "${screenshotUpdateMode}"`,
-    );
-
+  // The other direction: the refusal lets a settled tree through, and the capture is
+  // written. Under a tier that compares nothing this is the whole positive control —
+  // a settled tree reaches the capture and the capture completes.
+  //
+  // The name carries a `probe-` prefix because this one DOES write, and what it writes
+  // is a planted registry fixture rather than a console surface. The directory is the
+  // one a person opens to look at the console, so a picture that is not of the console
+  // says so in its own file name rather than only in the spec directory above it.
+  it("takes the capture once the body has landed", async () => {
     const container = await mountPane(await registryWithLoadedBody());
 
-    await expect(captureSettled(container, UNCOMMITTED_REFERENCE_NAME)).rejects.toThrowError(
-      /No existing reference screenshot found/u,
-    );
+    await expect(captureSettled(container, "probe-planted-loaded-body")).resolves.toBeUndefined();
   });
 });

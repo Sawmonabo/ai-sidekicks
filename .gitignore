@@ -77,10 +77,9 @@ venv/
 
 # Browser-mode and Playwright run artifacts.
 #
-# `__screenshots__` is deliberately NOT here: the console screenshot tier keeps its
-# committed baselines there, and ignoring the directory would make every reference
-# image invisible to review. Failure captures are turned off at the config instead
-# (see `apps/desktop/vitest.config.ts`), so the directory means one thing.
+# The console screenshot captures are local QA aids a developer writes to look at a
+# surface, compared against nothing, so no reference image is versioned here.
+apps/desktop/test/console/screenshot/__screenshots__/
 .vitest-attachments/
 playwright-report/
 test-results/

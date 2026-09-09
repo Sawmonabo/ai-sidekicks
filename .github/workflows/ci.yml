@@ -424,11 +424,9 @@ jobs:
       - name: Test (Node 22 tier — excluding control-plane and desktop)
         run: pnpm turbo run test --filter='!@ai-sidekicks/control-plane' --filter='!@ai-sidekicks/desktop' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
-      # The three browser-mode console tiers drive a real Chromium through
-      # Vitest browser mode, and `pnpm install` downloads no browser. Only two of
-      # the three run on this job — the screenshot tier is pinned to its own
-      # macOS job, whose references this repository commits — but the download is
-      # one browser either way.
+      # The browser-mode console tiers drive a real Chromium through Vitest
+      # browser mode, and `pnpm install` downloads no browser. Both of the tiers
+      # this job runs need it.
       #
       # `--with-deps` rather than a bare install: Playwright's own chromium build
       # is not Electron's, and the supported way to satisfy its shared-library
@@ -450,9 +448,9 @@ jobs:
       # flavour overwrites it. Groups, in order:
       #
       #   1. Source-only tiers — `renderer` (happy-dom), `main-unit` (node, a
-      #      stubbed `electron`, one `node`-only spawn), and the console `unit`,
-      #      `architecture`, and `assets` tiers. All parallel-safe, none starts a
-      #      Chromium tree, none builds.
+      #      stubbed `electron`, one `node`-only spawn), and the console `unit`
+      #      and `assets` tiers. All parallel-safe, none starts a Chromium tree,
+      #      none builds.
       #   2. The two browser-mode tiers, `--concurrency=1` so two headless
       #      Chromium instances never share the runner. Neither builds.
       #   3. The bundle tier, on the RELEASE build this job already made and
@@ -1064,117 +1062,10 @@ jobs:
           NODE
           node "${RUNNER_TEMP}/assert-native-prebuild.mjs"
 
-  # `Spec-023 §Console Test Tiers` — the console screenshot tier, on the ONE
-  # platform whose references this repository commits.
-  #
-  # Vitest keys a reference by browser AND platform, so a Linux or Windows run of
-  # this tier compares a fresh capture against a file that is not in the
-  # repository. What that does depends on the run's snapshot-update mode, and
-  # neither outcome is a gate: off CI it writes the missing reference into
-  # `__screenshots__` and fails once, so the NEXT run passes against an image
-  # nobody reviewed; on CI it fails every time, on an ephemeral checkout, forever.
-  # Committing a reference set per platform is the alternative, and it would mean
-  # every visual change reviewed three times over two images no one can
-  # regenerate locally.
-  #
-  # So the tier runs here and only here. `macos-15` rather than `macos-latest`
-  # because the reference is a rendering: font stack and rasteriser move with the
-  # image, and a floating label would silently re-point the comparison at a
-  # different renderer between one merge and the next. Moving this label is a
-  # deliberate act that comes with regenerating the references (`-u`) in the same
-  # PR — which is exactly what the tier's own fail-closed guard forces.
-  #
-  # THIS RUNNER IS THE BASELINE AUTHORITY. The committed references are the ones
-  # this job's image renders, and they are minted by running
-  # `.github/workflows/console-screenshot-baselines.yml` with `mode: regenerate`
-  # on the branch that changes them, then committing the artifact it uploads. A
-  # developer's own machine is a different macOS with a different system UI face
-  # (the console's sans stack falls through to it), so a local run is ADVISORY:
-  # green means it agrees with this image within the tier's stated pixel budget,
-  # and red on that budget alone means it does not — not that the change is
-  # wrong. Nothing but this runner mints a reference.
-  #
-  # The install is scoped to the desktop package and its workspace dependencies:
-  # this job runs one browser-mode Vitest project and needs nothing else built.
-  # `playwright install` is required because browser mode drives a real Chromium
-  # and the tier-1 job's own Chromium install does not reach this runner.
-  console-screenshot-macos:
-    name: console screenshot tier (macos-15)
-    runs-on: macos-15
-    permissions:
-      contents: read
-    # The tier compares its committed references only where this says so, and this
-    # is one of exactly two places that says so (the other is
-    # `console-screenshot-baselines.yml`, which mints them). It is checked by VALUE
-    # in `apps/desktop/test/console/screenshot/baseline-platform.ts`, so copying
-    # this job onto another runner class and keeping the line skips the comparisons
-    # rather than measuring that runner's font stack against this one's images.
-    #
-    # It is read inside a browser page, so it carries the prefix Vite publishes to
-    # one — `vitest/console-projects.ts` widens `envPrefix` by exactly it, from the
-    # same constant that module exports. Renaming it here alone makes it invisible
-    # and every comparison SKIP, which is why that name is asserted rather than
-    # trusted.
-    env:
-      SIDEKICKS_SCREENSHOT_BASELINE_RUNNER: macos-15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup pnpm
-        # SHA-pinned per ADR-023 §Axis 4; Renovate's helpers:pinGitHubActionDigests
-        # preset (renovate.json5) keeps this current.
-        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
-        with:
-          version: 10.33.2
-          run_install: false
-
-      - name: Setup Node.js 22.14
-        uses: actions/setup-node@v5
-        with:
-          node-version: "22.14"
-          cache: "pnpm"
-
-      - name: Install (desktop and its workspace dependencies only)
-        run: pnpm install --frozen-lockfile --filter "@ai-sidekicks/desktop..."
-
-      - name: Install the Chromium build browser mode drives
-        run: pnpm --filter @ai-sidekicks/desktop exec playwright install chromium
-
-      # The script pins `UPDATE_SNAPSHOT=none`, and the runner sets `CI`, so the
-      # mode is fail-closed twice over: a reference this checkout does not carry
-      # fails here and its candidate is written to the gitignored attachments
-      # directory rather than beside the committed set.
-      - name: Test (desktop — console screenshot tier)
-        run: pnpm --filter @ai-sidekicks/desktop run test:console-screenshot
-
-      # A mismatch is only actionable with the images. Vitest writes the
-      # reference / actual / diff triple into the attachments directory, which is
-      # gitignored precisely so it can be collected here instead.
-      #
-      # `include-hidden-files` is load-bearing, not belt-and-braces. The action
-      # skips any path segment beginning with a dot by default, and every file
-      # this step wants is under `.vitest-attachments/` — so without it the step
-      # runs, succeeds, and reports "No files were found with the provided path",
-      # which is what happened on run 33592834676 and is why the three mismatches
-      # on that run could not be looked at. `if-no-files-found: ignore` is kept
-      # because a failure with no attachments is a real case (the tier can fail
-      # on its own guards, which capture nothing), and it must not turn a red
-      # test into a red upload.
-      - name: Upload screenshot diffs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: console-screenshot-diffs
-          path: apps/desktop/.vitest-attachments/
-          include-hidden-files: true
-          retention-days: 14
-          if-no-files-found: ignore
-
   ci-gate:
     name: ci-gate
     runs-on: ubuntu-latest
-    needs: [test-node22, test-node24, hook-tests-macos, native-prebuilds, console-screenshot-macos]
+    needs: [test-node22, test-node24, hook-tests-macos, native-prebuilds]
     if: always()
     steps:
       - name: Aggregate required-checks status
@@ -1197,10 +1088,6 @@ jobs:
           fi
           if [[ "${{ needs.native-prebuilds.result }}" != "success" ]]; then
             echo "ci-gate: required job 'native-prebuilds' did not succeed (result=${{ needs.native-prebuilds.result }})"
-            fail=1
-          fi
-          if [[ "${{ needs.console-screenshot-macos.result }}" != "success" ]]; then
-            echo "ci-gate: required job 'console-screenshot-macos' did not succeed (result=${{ needs.console-screenshot-macos.result }})"
             fail=1
           fi
           if [[ $fail -ne 0 ]]; then

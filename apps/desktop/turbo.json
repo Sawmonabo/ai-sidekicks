@@ -330,10 +330,9 @@
       // fixtures each with its own consumers.
       //
       // Two projects are deliberately absent, each with its reason:
-      // `console-screenshot`, whose
-      // references are committed per platform and which runs in the pinned
-      // `console-screenshot-macos` job, and `console-bench`, which records
-      // timings into a ledger and gates nothing.
+      // `console-screenshot`, which compares nothing and writes local capture
+      // aids a person looks at, and `console-bench`, which records timings into
+      // a ledger and gates nothing.
       //
       // No `dependsOn` of its own: every enumerated task declares the build edge
       // it needs, and an aggregate-level edge would run a build outside the
