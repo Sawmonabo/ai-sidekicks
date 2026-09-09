@@ -74,7 +74,7 @@
 // meter drawn from real readings and what arrives later replaces the shell rather than
 // filling a hole.
 
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   readRefusalOf,
   readingForDriver,
@@ -82,6 +82,8 @@ import {
   useProviderQuotas,
   useQueueFeed,
 } from "../../../console/bridge/index.js";
+import { useAttachmentCarrier } from "../../../console/repos/index.js";
+import type { ComposerArtifactAttachment } from "../../../console/seats/index.js";
 import { RealClock, parseInstant } from "../../../console/core/index.js";
 import {
   PartialRead,
@@ -96,6 +98,8 @@ import {
   type SessionStoreState,
 } from "../../../console/store/index.js";
 import { useComposerAddress } from "../composer-address.js";
+import { ComposerAttachmentBar } from "./attachments/ComposerAttachmentBar.js";
+import { useAttachmentDropTarget } from "./attachments/use-attachment-drop.js";
 import { CompactionSlot, COMPACTION_SLOT_CONTRACT } from "./compaction/CompactionSlot.js";
 import { ContextMeterSlot, CONTEXT_METER_SLOT_CONTRACT } from "./context-meter/ContextMeterSlot.js";
 import { EditResendSlot, EDIT_RESEND_SLOT_CONTRACT } from "./EditResendSlot.js";
@@ -127,8 +131,49 @@ const selectTimeline = (state: SessionStoreState): readonly ConsoleSessionEvent[
  */
 const HOST_CLOCK = new RealClock();
 
-export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Element {
+export interface ComposerAccessoryRailProps extends ComposerSeatProps {
+  /**
+   * The composer region, from the host that owns it.
+   *
+   * Drop and paste are bound to the WHOLE composer rather than to a strip inside it —
+   * a target a person has to aim at is a target they miss — and the region is the
+   * host's to hand out, exactly as it is for the discovery popover. Taking one here
+   * rather than reaching for `closest()` keeps the rail out of the business of
+   * recognising its own container by class name.
+   */
+  readonly region: React.RefObject<HTMLElement | null>;
+}
+
+export function ComposerAccessoryRail(props: ComposerAccessoryRailProps): React.JSX.Element {
   const timeline = useSessionStore(props.sessionStore, selectTimeline);
+  // One carrier per composer, opened on the session it is addressed within. The repos
+  // family owns the ingest client's whole lifecycle behind this binding; the rail
+  // holds no stream of its own and disposes nothing by hand.
+  const attachmentCarrier = useAttachmentCarrier(props.bridge, props.sessionStore.sessionId);
+  // Artifacts a view family put on this message. Held here rather than on the carrier
+  // because they never went through this carrier: they were minted inside the owning
+  // family's own pipeline and arrive already settled, so the ledger has nothing to
+  // track for them and a fake entry would be a second source of ingest truth.
+  const [familyAttachments, setFamilyAttachments] = useState<readonly ComposerArtifactAttachment[]>(
+    [],
+  );
+  const recordFamilyAttachment = useCallback((attachment: ComposerArtifactAttachment) => {
+    setFamilyAttachments((held) =>
+      // Attaching the same page twice is one attachment: the reference is a list of
+      // artifact ids and a repeated id would send the same bytes to the same turn.
+      held.some((candidate) => candidate.artifactId === attachment.artifactId)
+        ? held
+        : [...held, attachment],
+    );
+  }, []);
+  const forgetFamilyAttachment = useCallback((artifactId: string) => {
+    setFamilyAttachments((held) => held.filter((candidate) => candidate.artifactId !== artifactId));
+  }, []);
+  const { attachFiles } = attachmentCarrier;
+  const isDraggingFiles = useAttachmentDropTarget({
+    region: props.region,
+    onFilesChosen: attachFiles,
+  });
   // Node-scoped and therefore keyed to the BRIDGE rather than to this session: the
   // registry these readings come from is the machine's, and two sessions open in one
   // window are served by one read and one tail.
@@ -200,9 +245,18 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
 
   return (
     <div className="meridian-composer__rail">
+      {/* First in the rail, so what a message is carrying sits directly under the line
+          it is being written on rather than below the meters. */}
+      <ComposerAttachmentBar
+        carrier={attachmentCarrier}
+        familyAttachments={familyAttachments}
+        onForgetFamilyAttachment={forgetFamilyAttachment}
+        isDraggingFiles={isDraggingFiles}
+      />
       <QueueShelf
         items={waitingItems}
         snapshotRead={queueFeed}
+        runBindings={queueFeed}
         pendingCancelIds={queueFeed.pendingCancelIds}
         cancelRefusalByItemId={queueFeed.cancelRefusalByItemId}
         onCancel={queueFeed.cancelItem}
@@ -251,6 +305,9 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
           <PlusMenu
             bridge={props.bridge}
             sessionId={props.sessionStore.sessionId}
+            focusedPaneId={props.focusedPaneId}
+            onFilesChosen={attachFiles}
+            onFamilyAttached={recordFamilyAttachment}
             workflowStartBody={
               <WorkflowStartSeat
                 growth={props.bridge.growth}

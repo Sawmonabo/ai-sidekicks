@@ -20,7 +20,7 @@ import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 
 import { refuse, type ConsoleRefusal } from "../../../../console/core/index.js";
 import { QueueShelf } from "./QueueShelf.js";
-import { fixtureQueueItemId, queueRow } from "./queue-rows.test-support.js";
+import { NO_RUN_BINDINGS, fixtureQueueItemId, queueRow } from "./queue-rows.test-support.js";
 
 const FIRST_ITEM = fixtureQueueItemId("1a2b3c4d-5e6f-4071-8283-94a5b6c7d8e9");
 const SECOND_ITEM = fixtureQueueItemId("2b3c4d5e-6f70-4182-9394-a5b6c7d8e9f0");
@@ -41,6 +41,7 @@ function shelfWith(options: {
       pendingCancelIds={options.pendingCancelIds ?? new Set<string>()}
       cancelRefusalByItemId={options.cancelRefusalByItemId ?? new Map<string, ConsoleRefusal>()}
       onCancel={() => undefined}
+      runBindings={NO_RUN_BINDINGS}
     />,
   );
   const buttons = [...container.querySelectorAll(".meridian-queue-shelf__cancel")];
@@ -94,6 +95,7 @@ describe("the queue shelf says when part of its stream could not be read", () =>
         pendingCancelIds={new Set<string>()}
         cancelRefusalByItemId={new Map<string, ConsoleRefusal>()}
         onCancel={() => undefined}
+        runBindings={NO_RUN_BINDINGS}
         unreadableDeliveryCount={options.unreadableDeliveryCount}
         unreadableRefusal={options.unreadableRefusal}
       />,
@@ -181,6 +183,7 @@ describe("the queue shelf says when the snapshot itself could not be read", () =
         pendingCancelIds={new Set<string>()}
         cancelRefusalByItemId={new Map<string, ConsoleRefusal>()}
         onCancel={() => undefined}
+        runBindings={NO_RUN_BINDINGS}
       />,
     );
     return container;

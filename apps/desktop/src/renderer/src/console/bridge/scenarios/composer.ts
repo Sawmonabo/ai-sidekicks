@@ -37,12 +37,14 @@
 // accessories dispatch — `run.pause` from the step-in control and
 // `driver.compactContext` from the compaction control — plus
 // `driver.listProviderCommands`, which the command zone's discovery popover issues
-// for the addressed agent, and `run.queueList`, the queue shelf's opening read,
-// served as an empty queue: the shelf says when a snapshot could not be read, so
-// leaving the read unscripted would pin a refusal notice into every composer
-// reference for a queue the scenario never meant to refuse. The approval
-// reads are deliberately NOT scripted: this scenario is what makes the approvals
-// pane's refusal arm reachable.
+// for the addressed agent, the target chip's own three — `driver.listModels` and
+// `driver.listCapabilities`, the catalog the chip rail arms on every mount, and
+// `agent.configUpdate`, which its axis popover submits — and `run.queueList`, the
+// queue shelf's opening read, served as an empty queue: the shelf says when a
+// snapshot could not be read, so leaving the read unscripted would pin a refusal
+// notice into every composer reference for a queue the scenario never meant to
+// refuse. The approval reads are deliberately NOT scripted: this scenario is what
+// makes the approvals pane's refusal arm reachable.
 //
 // ONE REPLY PER CALL NAME, so the refusing-target half of the enumeration is not
 // reachable from here: `replyFor` matches on the method name alone and the fixture

@@ -25,5 +25,9 @@
 // sheet rather than one per component.
 
 import "./accessories.css";
+// `attachments/` carries no door, so this directory owns its sheet and imports it
+// here — after the zone's own, which is where the shared control shape those rules
+// extend is declared.
+import "./attachments/composer-attachments.css";
 
 export { ComposerAccessoryRail } from "./ComposerAccessoryRail.js";

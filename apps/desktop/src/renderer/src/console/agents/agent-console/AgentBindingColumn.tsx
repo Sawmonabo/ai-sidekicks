@@ -47,6 +47,7 @@ import { AttachSidekick } from "../attach/AttachSidekick.js";
 import { useAttachHandoffClaim } from "../attach/attach-handoff/index.js";
 import { AttachSidekickForm } from "../attach/attach-model.js";
 import { ProviderSwitch } from "../provider-switch/ProviderSwitch.js";
+import { AGENT_MUTATION_ORIGIN } from "../provider-switch/provider-switch-host.js";
 import { type AgentConsoleModels } from "../run-console/agent-console-model.js";
 import type { AgentAttachReading, AgentSwitchSettlement } from "../../bridge/index.js";
 import { usePushDrivenRead } from "../../seats/index.js";
@@ -57,9 +58,6 @@ import {
   IDLE_MUTATION_ATTEMPT,
   useAgentMutationControl,
 } from "./mutation-control.js";
-
-/** Names a mutation's failure where the thrown value carried no refusal of its own. */
-const AGENT_MUTATION_ORIGIN = "agent-mutation";
 
 /**
  * One submitted binding move: which agent it is about, and through which control.
@@ -352,7 +350,9 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
             applySwitch(soleAgent.agentId, axes, interruptAndSwitch);
           }}
           isSubmitting={isBindingMutating}
-          settlement={shownBinding.status === "settled" ? shownBinding.settlement : undefined}
+          round={
+            shownBinding.status === "settled" ? { settlement: shownBinding.settlement } : undefined
+          }
           refusal={switchRefusal}
         />
       )}

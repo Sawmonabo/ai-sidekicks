@@ -63,8 +63,9 @@ import {
   useProviderSwitchDraft,
   type AxisDraft,
 } from "./provider-switch-draft.js";
+import type { AgentSwitchRound } from "./provider-switch-host.js";
 import { SwitchSettlementLine } from "./SwitchSettlementLine.js";
-import type { AgentRosterEntry, AgentSwitchSettlement } from "../../bridge/index.js";
+import type { AgentRosterEntry } from "../../bridge/index.js";
 
 export interface ProviderSwitchProps {
   readonly agent: AgentRosterEntry;
@@ -90,8 +91,15 @@ export interface ProviderSwitchProps {
    * one is not being taken.
    */
   readonly isSubmitting?: boolean | undefined;
-  /** The reply's `switch` member. Its presence is the wire's switch discriminator. */
-  readonly settlement?: AgentSwitchSettlement | undefined;
+  /**
+   * The round the daemon has answered, or `undefined` while none has been.
+   *
+   * A ROUND AND NOT THE REPLY'S `switch` MEMBER, because that member is optional and its
+   * absence is a real answer: the daemon accepted the update and minted no switch. This
+   * form took the member bare and rendered nothing for it, so a press whose reply left it
+   * out reported nothing at all — the participant's own act, answered and unreported.
+   */
+  readonly round?: AgentSwitchRound | undefined;
   readonly refusal?: ConsoleRefusal | undefined;
   readonly overlayContainer?: HTMLElement | null | undefined;
 }
@@ -264,14 +272,35 @@ export function ProviderSwitch(props: ProviderSwitchProps): React.JSX.Element {
       ) : null}
 
       {props.refusal === undefined ? null : <RefusalCard {...props.refusal} />}
-      {props.settlement === undefined ? null : (
-        <SwitchSettlementLine
-          settlement={props.settlement}
-          agentLabel={agent.name ?? agent.agentId}
-        />
-      )}
+      {renderAnsweredRound(props.round, agent.name ?? agent.agentId)}
     </section>
   );
+}
+
+/**
+ * What the form says about the round the daemon answered, or nothing where none has.
+ *
+ * TWO ARMS AND NOT ONE, because a settled round carrying no `switch` member is an
+ * answer: the daemon took the update and minted no switch, so nothing is waiting on a
+ * boundary. It said nothing at all before, and a press that reports nothing is
+ * indistinguishable from a press that never happened.
+ */
+function renderAnsweredRound(
+  round: AgentSwitchRound | undefined,
+  agentLabel: string,
+): React.ReactNode {
+  if (round === undefined) {
+    return null;
+  }
+  if (round.settlement === undefined) {
+    return (
+      <p className="meridian-switch__no-switch">
+        The daemon answered and named no switch, so nothing is waiting on a boundary. The binding
+        above is re-read from the roster.
+      </p>
+    );
+  }
+  return <SwitchSettlementLine settlement={round.settlement} agentLabel={agentLabel} />;
 }
 
 /**

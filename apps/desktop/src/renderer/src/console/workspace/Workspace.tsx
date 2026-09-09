@@ -343,6 +343,10 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
             draftStore: props.draftStore,
             route: props.route,
             focusedPane,
+            // The handle beside the address, off the same deck reading the address is
+            // derived from — so a `+` menu row that addresses a pane and a send that
+            // addresses a target are talking about the same pane.
+            focusedPaneId: deckState.focusedPaneId,
           })}
         </div>
       )}

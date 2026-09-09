@@ -22,6 +22,7 @@ import {
   AGENT_IMPLEMENTER,
   AGENT_REVIEWER,
 } from "../../../console/bridge/scenarios/composer.identifiers.js";
+import type { AgentSwitchRound } from "../../../console/agents/index.js";
 import { useAgentBindingReading } from "./agent-binding-read.js";
 
 const AGENT_ID = "agent-implementer";
@@ -256,5 +257,121 @@ describe("useAgentBindingReading — every fact comes from the wire that carries
     expect(result.current.phase).toBe("read");
     expect(result.current.refusal).toBeUndefined();
     expect(result.current.isProviderDefaultAccount).toBe(false);
+  });
+});
+
+// A surface composing a form over this binding — the target chip's axis popover — needs
+// the row itself and not the three facts the chip renders. The claim worth a case is
+// the one a projection could not make: what arrives is what the daemon sent, and it
+// arrives on exactly the arm where the daemon named it.
+describe("useAgentBindingReading — the roster row travels whole", () => {
+  it("carries the served row verbatim rather than a projection of it", async () => {
+    const bridge = bridgeServingRoster({
+      status: "served",
+      value: [rosterRow({ driverName: "claude", modelId: "claude-sonnet", state: "ready" })],
+    });
+
+    const { result } = await readBinding(bridge, AGENT_ID);
+
+    expect(result.current.agent?.agentId).toBe(AGENT_ID);
+    // Axes no member of this reading projects, which is the point: a consumer composing
+    // a switch over the binding reads them here rather than taking a second roster read.
+    expect(result.current.agent?.driverName).toBe("claude");
+    expect(result.current.agent?.modelId).toBe("claude-sonnet");
+    expect(result.current.agent?.state).toBe("ready");
+  });
+
+  it("names no row where the roster served and holds no such agent", async () => {
+    // The served-but-absent arm is a READ, so the phase alone cannot tell a consumer
+    // whether there is a row — which is why the member is what it branches on.
+    const bridge = bridgeServingRoster({
+      status: "served",
+      value: [rosterRow({ agentId: "agent-reviewer" })],
+    });
+
+    const { result } = await readBinding(bridge, AGENT_ID);
+
+    expect(result.current.phase).toBe("read");
+    expect(result.current.agent).toBeUndefined();
+  });
+
+  it("negative control: names no row where the read was refused", async () => {
+    // Without this the cases above would pass over a reading that carried a row from
+    // some earlier state through a refusal, which is a form composed over a binding
+    // nothing currently vouches for.
+    const bridge = bridgeServingRoster(growthUnavailable("agentList"));
+
+    const { result } = await readBinding(bridge, AGENT_ID);
+
+    expect(result.current.phase).toBe("refused");
+    expect(result.current.agent).toBeUndefined();
+  });
+});
+
+describe("useAgentBindingReading — a settled round is the fifth reason to re-read", () => {
+  /**
+   * One bridge whose roster reads are counted, so a re-read is observable.
+   *
+   * Counted at the growth port rather than at the transport, because that is where
+   * the roster read this hook owns actually lands.
+   */
+  function bridgeCountingRosterReads(): {
+    readonly bridge: ConsoleBridge;
+    readonly reads: () => number;
+  } {
+    const fixture = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
+    let reads = 0;
+    const bridge: ConsoleBridge = {
+      ...fixture,
+      growth: {
+        ...fixture.growth,
+        agentList: async () => {
+          reads += 1;
+          return await Promise.resolve({ status: "served", value: { agents: [rosterRow()] } });
+        },
+      },
+    };
+    return { bridge, reads: () => reads };
+  }
+
+  it("re-reads on a round the daemon answered without naming a switch", async () => {
+    // The effect keyed on the reply's `switch` member, which is OPTIONAL — absent on
+    // a pure rename or rebind — so exactly those replies left the chip showing the
+    // pre-switch axes until some unrelated trigger happened to fire.
+    const { bridge, reads } = bridgeCountingRosterReads();
+    const sessionStore = composerSessionStore();
+    const rendered = renderHook(
+      ({ round }: { readonly round: AgentSwitchRound | undefined }) =>
+        useAgentBindingReading(bridge, sessionStore, AGENT_ID, round),
+      { initialProps: { round: undefined as AgentSwitchRound | undefined } },
+    );
+    await settleScheduledRead(bridge);
+    const beforeTheRound = reads();
+
+    rendered.rerender({ round: { settlement: undefined } });
+    await settleScheduledRead(bridge);
+
+    expect(beforeTheRound).toBeGreaterThan(0);
+    expect(reads()).toBe(beforeTheRound + 1);
+  });
+
+  it("negative control: a render that carries no new round asks nothing", async () => {
+    // Without this the case above would pass over an effect that re-read on every
+    // pass, which would put a roster read behind every keystroke in the form.
+    const { bridge, reads } = bridgeCountingRosterReads();
+    const sessionStore = composerSessionStore();
+    const round: AgentSwitchRound = { settlement: undefined };
+    const rendered = renderHook(
+      ({ carried }: { readonly carried: AgentSwitchRound }) =>
+        useAgentBindingReading(bridge, sessionStore, AGENT_ID, carried),
+      { initialProps: { carried: round } },
+    );
+    await settleScheduledRead(bridge);
+    const afterFirstRound = reads();
+
+    rendered.rerender({ carried: round });
+    await settleScheduledRead(bridge);
+
+    expect(reads()).toBe(afterFirstRound);
   });
 });
