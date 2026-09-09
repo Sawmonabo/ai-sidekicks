@@ -43,7 +43,7 @@
 // then ASSERTED rather than assumed — see {@link requireNoReadInFlight} — because a
 // capture of a skeleton is a green case in both tiers.
 
-import { act } from "@testing-library/react";
+import { act, waitFor } from "@testing-library/react";
 import type { FunctionComponent, ReactElement } from "react";
 
 import { renderSettled } from "../console-harness.js";
@@ -318,14 +318,43 @@ async function dropFilesOnComposer(region: HTMLElement, files: readonly File[]):
   await act(async () => {
     region.dispatchEvent(drop);
   });
-  // The trio is three round trips through the fixture's own spool, each settling on
-  // a microtask the dispatch above does not reach. A settle is a boundary, never a
-  // count: one macrotask boundary drains every queued microtask, however many legs
-  // the spool takes, where a counted flush would silently fall short on a fourth.
+  // The trio is three round trips through the fixture's own spool, and each leg
+  // starts with a file read the browser settles on its own task — so no fixed number
+  // of settles is the right number on every host. Waited on the CONDITION instead: a
+  // chip still carrying its progress bar is an ingest still in flight, and the drop
+  // has landed only when every dropped name is on the strip and no bar remains.
   await act(async () => {
     await crossMacrotaskBoundary();
   });
+  await waitFor(
+    () => {
+      const strip = region.querySelector(".meridian-composer-attachments");
+      if (strip === null) {
+        throw new Error("the drop has not reached the attachment strip yet");
+      }
+      const text = strip.textContent ?? "";
+      const missing = files.filter((file) => !text.includes(file.name));
+      if (missing.length > 0) {
+        throw new Error(
+          `the strip does not yet name: ${missing.map((file) => file.name).join(", ")}`,
+        );
+      }
+      if (strip.querySelector(".meridian-composer-attachment__progress") !== null) {
+        throw new Error("an ingest is still in flight");
+      }
+    },
+    { timeout: ATTACHMENT_INGEST_SETTLE_TIMEOUT_MS },
+  );
 }
+
+/**
+ * How long a dropped file may take to settle through the fixture spool.
+ *
+ * Bounded by the tier's patience rather than the product's — the three legs run on
+ * the browser's own file-read tasks, which a loaded runner stretches — and generous
+ * enough that only a spool that stopped answering reaches it.
+ */
+const ATTACHMENT_INGEST_SETTLE_TIMEOUT_MS = 5_000;
 
 /**
  * A store OPENED at one scenario's own beat range and fed every beat in it.
