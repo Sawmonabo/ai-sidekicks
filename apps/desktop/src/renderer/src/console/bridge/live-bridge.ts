@@ -21,6 +21,7 @@ import { isWireRecord } from "../core/index.js";
 import { createShellAuxiliaryWindowPort } from "./auxiliary-window-port.js";
 import { SIDEKICKS_BRIDGE_NAMESPACES } from "./bridge-shape.js";
 import type { ConsoleBridge } from "./console-bridge.js";
+import { ShellConditionGate } from "./daemon/shell-condition-gate.js";
 import { createRefusingGrowthPort } from "./growth-port/index.js";
 import {
   readRuntimeNodeRosterOverControlPlane,
@@ -83,6 +84,10 @@ export function createLiveBridge(sidekicks: SidekicksBridge): ConsoleBridge {
     // would make two windows in one process share a transport reading only one of
     // them observed.
     transportReconnect: new TransportReconnectSignal(),
+    // Minted here and BOUND by the frame, on the reconnect signal's own rule beside
+    // it: one gate per window, so two windows in one process never share a supervisor
+    // reading only one of them was told about.
+    shellCondition: new ShellConditionGate(),
     source: "live",
     scenarioEngine: undefined,
   };

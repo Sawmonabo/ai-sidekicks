@@ -59,8 +59,7 @@ import type { ConsoleRefusal } from "../../core/index.js";
 import {
   currentShellBlock,
   isShellBlockRefusal,
-  shellBlockForMethod,
-  useShellState,
+  useShellBlockFor,
   type FrameStore,
   type ShellMutationBlock,
 } from "../../store/index.js";
@@ -171,7 +170,7 @@ export function useInviteMintAct(options: InviteMintActOptions): InviteMintAct {
   // SUBSCRIBED, so a supervisor going down or coming back moves the control without
   // waiting for some other read to settle, and asked per METHOD through the one seam
   // that knows which calls an outage closes.
-  const block = shellBlockForMethod(useShellState(frameStore), INVITE_CREATE_METHOD);
+  const block = useShellBlockFor(frameStore, INVITE_CREATE_METHOD);
 
   useEffect(() => {
     // Superseded rather than dropped: an unsettled call whose caller has gone would

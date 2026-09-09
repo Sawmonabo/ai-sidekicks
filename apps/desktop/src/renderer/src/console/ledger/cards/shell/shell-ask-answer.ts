@@ -46,9 +46,8 @@ import { callDaemon, useConsoleBridge } from "../../../bridge/index.js";
 import type { RunId } from "@ai-sidekicks/contracts";
 import {
   currentShellBlock,
-  shellBlockForMethod,
+  useShellBlockFor,
   shellBlockRefusal,
-  useShellState,
   type FrameStore,
   type MutatingDaemonMethod,
   type ShellMutationBlock,
@@ -110,7 +109,7 @@ export function useDriverAskAnswer(
   // SUBSCRIBED, so a supervisor going down or coming back moves the controls without
   // waiting for a press, and asked per METHOD through the one seam that knows which
   // calls an outage closes.
-  const block = shellBlockForMethod(useShellState(frameStore), ASK_ANSWER_METHOD);
+  const block = useShellBlockFor(frameStore, ASK_ANSWER_METHOD);
   const answer = useCallback(
     (response: string) => {
       // BOTH GUARDS ARE FAIL-CLOSED AND NEITHER IS A CONVENIENCE. A row with no run

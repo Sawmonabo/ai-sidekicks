@@ -44,7 +44,7 @@ import { sessionListDegradation } from "../session-list-degradation.js";
  *
  * The dispatch guard is method-scoped where the render-time sentence is
  * whole-destination, and the two agree by construction rather than by coincidence:
- * `session.create` is a member of `MUTATING_DAEMON_METHODS`, so `shellBlockForMethod`
+ * `session.create` is a member of `MUTATING_DAEMON_METHODS`, so `currentShellBlock`
  * on it and `shellMutationBlock` over the same state are the same value. The `satisfies`
  * is what keeps that true — a method dropped from that tuple fails here.
  *

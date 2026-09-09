@@ -16,7 +16,8 @@
 import type { ParticipantId } from "@ai-sidekicks/contracts";
 
 import { isConsoleRefusal } from "../../core/index.js";
-import { callDaemon, DAEMON_REPLY_REFUSAL_ORIGIN, describeFailingPaths } from "./daemon-reply.js";
+import { callDaemon, DAEMON_REPLY_REFUSAL_ORIGIN } from "./daemon-reply.js";
+import { describeFailingPaths } from "./failing-member-paths.js";
 import { refusalOf, SESSION_ID } from "./daemon-reply.test-support.js";
 import { bridgeAnswering } from "../fixture/call-plane/bridge.test-support.js";
 

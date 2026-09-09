@@ -76,7 +76,7 @@ import { callDaemon } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal } from "../../primitives/index.js";
 import type { SidebarSectionContext } from "../../seats/index.js";
-import { currentShellBlock, shellBlockForMethod, useShellState } from "../../store/index.js";
+import { currentShellBlock, useShellBlockFor } from "../../store/index.js";
 import type { MembershipRow } from "./members-model.js";
 import {
   WireMutationCoordinator,
@@ -145,10 +145,7 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
   // it rides them as their disabled reason, and it is the sentence below. Whether a
   // press is admitted is asked again at the dispatch site, off the store, because this
   // one is as old as the last committed render.
-  const updateBlock = shellBlockForMethod(
-    useShellState(context.frameStore),
-    MEMBERSHIP_UPDATE_METHOD,
-  );
+  const updateBlock = useShellBlockFor(context.frameStore, MEMBERSHIP_UPDATE_METHOD);
 
   return (
     <section className="meridian-members" aria-label="Memberships">

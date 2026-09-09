@@ -137,23 +137,33 @@ export type {
 // rather than inside it: a block is derived from a state and a method name, and the
 // two halves have different readers — see `store/shell/shell-mutation-block.ts`'s own header.
 //
-// `currentShellBlock` ships beside `shellBlockForMethod` because a dispatching surface
-// needs both and they answer different questions: the rendered block draws the control,
+// `currentShellBlock` ships beside `useShellBlockFor` because a dispatching surface
+// needs both and they answer different questions: the subscribed block draws the control,
 // and the current one decides whether the call is put. Six surfaces take it — the
 // membership ledger, the sent-invite ledger, the invitation mint, the sessions
 // destination's act block, the onboarding step's re-check, and the ledger's answer to a
 // provider-raised ask — and a family that could not reach it through this door would spell
 // `getState().shellState` for itself, which is the second reading of which cell carries
 // the shell condition.
+//
+// `shellBlockForMethod` itself is deliberately HELD OFF this door: every surface above
+// takes the subscribed reading through the hook, and a raw derivation published here is
+// one a render body can call without memoising it — which is how four families came to
+// re-render a control on every supervisor heartbeat.
 export {
   MUTATING_DAEMON_METHODS,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-5 — the run controls and the composer's send. */
+  // Both taken by the bidirectional pairing suite in `bridge/daemon/`, which holds this
+  // roster equal to the registry's own record set in each direction. The tag that used
+  // to hold this line is gone with the reader that now names it.
   isMutatingDaemonMethod,
-  shellBlockForMethod,
   // The same question asked where the call is PUT rather than where the control was
   // drawn. A dispatching surface reads it in its handler, because a block that lands
   // between the render and the press leaves a render-captured one fail-open.
   currentShellBlock,
+  // The same reading with no method rule applied, for the ONE caller that has already
+  // decided the method puts a record: the call door, which classifies from the
+  // registry's own table in `bridge/daemon/daemon-method-classification.ts`.
+  currentShellMutationBlock,
   shellBlocksAreEqual,
   shellMutationBlock,
 } from "./shell/shell-mutation-block.js";
@@ -164,7 +174,12 @@ export {
 // exist to keep from being spelled twice.
 export { isShellBlockRefusal, shellBlockRefusal } from "./shell/shell-mutation-block.js";
 export type { MutatingDaemonMethod, ShellMutationBlock } from "./shell/shell-mutation-block.js";
-export { useRailAttentionCount, useShellState } from "./shell/frame-hooks.js";
+// The subscribed per-method reading every dispatching surface draws its DISABLED
+// state and its refusal line from. One hook rather than the same three lines in each
+// family: a surface that wrote them itself would be free to subscribe to the whole
+// frame state, or to derive the block in a render body, and both re-render the
+// control on every heartbeat.
+export { useRailAttentionCount, useShellBlockFor, useShellState } from "./shell/frame-hooks.js";
 // Every open session's projection as one signal, and the one fold the frame takes
 // over it. Published because the two callers sit on opposite sides of the console
 // DAG — a view family and `frame/` — so the mechanism can only be shared from here.

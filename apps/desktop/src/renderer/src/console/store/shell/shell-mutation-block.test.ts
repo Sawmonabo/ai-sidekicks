@@ -22,28 +22,42 @@ import {
 import { REPORTED_CONNECTIONS, stateWith } from "./shell-state.test-support.js";
 
 describe("the mutating method set", () => {
-  it("is exactly the ten the corpus registers mutating", () => {
-    // Six of them are the handlers the daemon has shipped. The other four are
-    // registered mutating by their own plane's contract and have no handler yet —
-    // which is why the set is not a census of what has landed: an unregistered verb
-    // the console can already call is unregistered, never read-only.
+  it("is exactly the record methods the registry binds", () => {
+    // NOT A CENSUS OF SHIPPED HANDLERS, and never was: a verb the console can call
+    // before the daemon carries a handler for it is unregistered, never read-only.
+    // The authority is the corpus registration — every registered method's own
+    // `query` / `mutation` cell — mirrored on the bridge side by
+    // `bridge/daemon/daemon-method-classification.ts`, which the call door refuses
+    // on. This literal is the render side's copy, because `store/` sits below
+    // `bridge/` on the console DAG and cannot import it; the two are held equal in
+    // both directions by that module's own suite.
     //
-    // `membership.update`, `invite.create` and `invite.revoke` are three of those four,
-    // and they are here because they are durable acts the daemon PROXIES to the control
-    // plane. The
-    // reply registry's `CHANGES_A_RUN` table answers a different question about them —
-    // whether a call moves a run — and says so in its own words while calling them
-    // "mutations all the same" that "change the session's own roster".
+    // `membership.update`, `invite.create` and `invite.revoke` are durable acts the
+    // daemon PROXIES to the control plane. The reply registry's `CHANGES_A_RUN` table
+    // answers a different question about them — whether a call moves a run — and says
+    // so in its own words while calling them "mutations all the same" that "change
+    // the session's own roster".
     expect([...MUTATING_DAEMON_METHODS]).toEqual([
+      "run.queueCreate",
+      "run.queueCancel",
+      "run.pause",
+      "run.resume",
+      "run.intervene",
+      "driver.interruptRun",
+      "driver.compactContext",
+      "driver.respondToRequest",
+      "repo.attach",
+      "repo.workspaceBind",
+      "repo.executionModeSelect",
+      "repo.executionRootPrepare",
+      "repo.ephemeralClonePrepare",
+      "repo.ephemeralCloneDispose",
+      "repo.worktreeRetire",
       "session.create",
       "session.join",
       "membership.update",
       "invite.create",
       "invite.revoke",
-      "driver.interruptRun",
-      "driver.applyIntervention",
-      "driver.respondToRequest",
-      "driver.compactContext",
       "providerAccount.probe",
     ]);
   });
@@ -66,6 +80,13 @@ describe("the mutating method set", () => {
       "providerAccount.list",
       // The collaboration plane's read, beside the membership update that is not one.
       "channel.list",
+      // The repo plane's four reads, beside the seven writes that are not.
+      "repo.mountRead",
+      "repo.workspaceList",
+      "repo.worktreeReuseCheck",
+      "repo.worktreeStatusRead",
+      // The queue's read, beside the create and the cancel that are not.
+      "run.queueList",
     ]) {
       expect(isMutatingDaemonMethod(method), method).toBe(false);
     }
