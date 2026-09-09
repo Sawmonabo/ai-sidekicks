@@ -17,8 +17,8 @@
 // pattern behind produces two answers to one question, which is the drift the
 // walk itself was hoisted to end and is invisible from either side: a module one
 // list admits and the other refuses is simply absent from one set, so no claim
-// made over that set can report it. The size claim is therefore the smaller half
-// here; the substantive one is that the walk asks rather than decides.
+// made over that set can report it. That is the substantive claim this file
+// makes: the walk asks rather than decides.
 //
 // AND THE LEAF STAYS A LEAF. What lets a gate that wants only the name test take
 // it — the spawn chokepoint's declaration control, the body-allowance census's
