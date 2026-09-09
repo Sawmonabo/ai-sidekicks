@@ -18,9 +18,9 @@
 // this turns any recording into a playable one. The instance is the recording plus the
 // session it belongs to; the machinery that joins them is the runtime's.
 
-import { readConsoleSessionEvent } from "../daemon/session-event-payload.js";
+import { readConsoleSessionEvent } from "../../daemon/session-event-payload.js";
 import type { IncidentRecording } from "./incident-recording.js";
-import type { ConsoleScenario, ScenarioBeat } from "./scenario.js";
+import type { ConsoleScenario, ScenarioBeat } from "../scenario.js";
 
 /** One recorded frame the console cannot read back, and why. */
 export interface IncidentReplayRefusal {

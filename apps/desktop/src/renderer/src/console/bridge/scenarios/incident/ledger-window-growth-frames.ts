@@ -2,7 +2,7 @@
 //
 // EVERY LINE BELOW IS A RECORDING and not an authored beat, which is why they are
 // spelled as JSON text rather than as the `ConsoleSessionEvent` literals every other
-// scenario in this tree is written in. `scenario-runtime/incident-recording.ts` carries
+// scenario in this tree is written in. `scenario-runtime/incident/incident-recording.ts` carries
 // the reasoning; the consequence here is the house rule for this file: **nothing in it
 // is edited to make a test pass.** A frame the console can no longer read is the finding.
 //

@@ -14,7 +14,7 @@ import {
   LEDGER_WINDOW_GROWTH_INCIDENT_SCENARIO_ID,
   LEDGER_WINDOW_GROWTH_RECORDING,
 } from "./ledger-window-growth.js";
-import { IncidentPlayer } from "../../scenario-runtime/incident-replay.js";
+import { IncidentPlayer } from "../../scenario-runtime/incident/incident-replay.js";
 import { frozenTicksFor } from "../../scenario-runtime/frozen-tick-registry.js";
 
 /** The recorded row count the defect needed: 51 rows against a one-screen window. */

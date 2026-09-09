@@ -3,7 +3,7 @@
 // The first member of the `incident` class `Spec-023 §Console Design (Meridian)`
 // §The fixture bridge names — a scenario whose script is a RECORDING rather than an
 // authored beat list. What the recording is and why it is bytes lives beside the frames
-// in `ledger-window-growth-frames.ts` and in `scenario-runtime/incident-recording.ts`;
+// in `ledger-window-growth-frames.ts` and in `scenario-runtime/incident/incident-recording.ts`;
 // what is here is the session those frames belong to, which a recording of a wire
 // cannot carry: who was in it, what its reads answer, and where the frame worth pinning
 // falls.

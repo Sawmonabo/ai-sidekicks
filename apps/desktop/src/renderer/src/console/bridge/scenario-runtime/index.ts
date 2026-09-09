@@ -48,14 +48,17 @@ export type {
 
 export { ScenarioEngine } from "./scenario-engine.js";
 
-// The `incident` class's two seams, from the modules that DECLARE them. `scenarios/`
-// holds the instances and takes exactly these: the recorded shape its frames are written
-// in, and the composer that turns a recording into a scenario. The RECORDER and the
-// PLAYER stay off this door on the rule above — a door publishes what a sibling takes,
-// and their only readers are inside this directory and its own suites.
-export type { IncidentRecording, IncidentWireDelta } from "./incident-recording.js";
+// The `incident` class's two seams, from the modules that DECLARE them. The pair lives
+// in the `incident/` sub-module — a directory grouping and not a sub-module DOOR, since
+// no sibling of `incident/` inside this directory reads it and the family door has to
+// re-export from the declaring module regardless. `scenarios/` holds the instances and
+// takes exactly these: the recorded shape its frames are written in, and the composer
+// that turns a recording into a scenario. The RECORDER and the PLAYER stay off this door
+// on the rule above — a door publishes what a sibling takes, and their only readers are
+// inside `incident/` and its own suites.
+export type { IncidentRecording, IncidentWireDelta } from "./incident/incident-recording.js";
 
-export { composeIncidentScenario } from "./incident-replay.js";
+export { composeIncidentScenario } from "./incident/incident-replay.js";
 
 export { composeScenarioEventEnvelope } from "./scenario-envelope.js";
 
