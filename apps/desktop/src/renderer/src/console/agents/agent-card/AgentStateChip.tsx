@@ -1,5 +1,5 @@
-import { Chip, WireFigure } from "../primitives/index.js";
-import { AGENT_STATES, isKnownMember } from "./agent-wire.js";
+import { Chip, WireFigure } from "../../primitives/index.js";
+import { AGENT_STATES, isKnownMember } from "../agent-wire.js";
 
 /**
  * The state, with the one degraded reading named as a reason rather than a fault.

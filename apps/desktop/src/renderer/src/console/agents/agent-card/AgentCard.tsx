@@ -17,6 +17,21 @@
 // registry row may already have moved — and an echo naming NO definition is never
 // attributed to one, because an inline attach resolves a configuration too.
 //
+// THE TOOL GRANT IS A LINE OF ITS OWN, above the resolved-configuration disclosure
+// rather than inside it. The allowlist is the per-agent control over every tool source
+// the daemon serves this agent — the browser's page tool set included — and a
+// governance ceiling a reader has to open a disclosure to find is a ceiling nobody
+// reads. `ToolGrantLine.tsx` states the split it keeps from the echo beside it, and
+// `tool-grant.ts` states why the line carries a count and never the names.
+//
+// AND IT IS READ ONCE. The line and the echo's Tools row state one wire value, so the
+// position is resolved here and handed to both — the card is the only place that has
+// the whole roster row, and a second read inside the disclosure is how the two came to
+// disagree about a configuration that carried no allowlist. The NODE-WIDE half of that
+// governance rule is not on this card at all: `ToolGrantCeiling.tsx` states it once
+// beside the roster, because it is true of every agent and of agents nobody has
+// attached yet.
+//
 // TWO FIELDS ARE DELIBERATELY NOT RENDERED ANYWHERE: the admitting principal and the
 // interrupt-dispatch progress marker. Both live in the durable slot as recovery
 // inputs and reach no caller at all.
@@ -32,14 +47,16 @@
 // was created and says nothing about how it came to be.
 
 import { useId } from "react";
-import { type ConsoleRefusal } from "../core/index.js";
-import { InlineRefusal, WireFigure, formatDateTime } from "../primitives/index.js";
-import { type AgentRosterEntry } from "../bridge/index.js";
+import { type ConsoleRefusal } from "../../core/index.js";
+import { InlineRefusal, WireFigure, formatDateTime } from "../../primitives/index.js";
+import { type AgentRosterEntry } from "../../bridge/index.js";
 import { ResolvedConfigurationEcho } from "./ResolvedConfigurationEcho.js";
 import { BindingAxis } from "./BindingAxis.js";
 import { AgentStateChip } from "./AgentStateChip.js";
 import { ObservedOutputSpeed } from "./ObservedOutputSpeed.js";
 import { PendingSwitchLine } from "./PendingSwitchLine.js";
+import { ToolGrantLine } from "./ToolGrantLine.js";
+import { agentToolGrantPosition } from "./tool-grant.js";
 
 export interface AgentCardProps {
   readonly agent: AgentRosterEntry;
@@ -75,6 +92,7 @@ export interface AgentCardProps {
 export function AgentCard(props: AgentCardProps): React.JSX.Element {
   const { agent } = props;
   const label = agent.name ?? agent.agentId;
+  const toolGrant = agentToolGrantPosition(agent);
   const mutatingReasonId = useId();
   const isMutating = props.isMutating === true;
 
@@ -114,6 +132,7 @@ export function AgentCard(props: AgentCardProps): React.JSX.Element {
 
       <ObservedOutputSpeed agent={agent} />
       <PendingSwitchLine pendingSwitch={agent.pendingSwitch} />
+      <ToolGrantLine position={toolGrant} />
 
       {agent.resolvedConfiguration === undefined ? null : (
         <details className="meridian-agent-card__disclosure">
@@ -125,6 +144,7 @@ export function AgentCard(props: AgentCardProps): React.JSX.Element {
           <ResolvedConfigurationEcho
             resolved={agent.resolvedConfiguration}
             definitionId={agent.resolvedFromDefinitionId}
+            toolGrant={toolGrant}
           />
         </details>
       )}
