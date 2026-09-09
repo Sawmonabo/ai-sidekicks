@@ -91,6 +91,8 @@
      class is never declared outside the sheet that owns it. */
   --meridian-browser-action-align-self: center;
   --meridian-browser-action-display: inline-flex;
+  --meridian-browser-action-align-items: center;
+  --meridian-browser-action-gap: var(--meridian-space-1);
   --meridian-browser-action-white-space: nowrap;
 }
 
