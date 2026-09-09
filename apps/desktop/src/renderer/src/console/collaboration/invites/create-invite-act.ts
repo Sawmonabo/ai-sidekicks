@@ -4,8 +4,14 @@
 // SPLIT FROM `CreateInvite.tsx`, which owns the FORM — the two choices a person makes,
 // the one-time reveal, and where each refusal renders. This owns the ACT, and they are
 // two jobs with two audiences: the form is read by somebody asking what the surface
-// looks like, and this by somebody asking what a press costs. Together they were one
-// file past the package's ceiling.
+// looks like, and this by somebody asking what a press costs. THE SEAM IS THE WHOLE
+// REASON, and the size of the file the two once made is none of it — a split taken on a
+// line count puts the next thing anybody adds on whichever side has room, which is how
+// two files come to hold one job. What is here is the ORDERING a press runs in and
+// nothing that renders: the supervisor guard, the control-plane host read, the mint, the
+// ledger write, and the second guard after the await. `CreateInvite.tsx` states none of
+// that ordering and reaches all of it through `useInviteMintAct` below, so the two never
+// have to be read together — which is what a seam is for and what a page count is not.
 //
 // AND THE LINK IS COMPOSED FROM A SECOND READ, TAKEN INSIDE THE SAME ACT
 //
