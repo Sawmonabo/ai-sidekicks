@@ -32,7 +32,7 @@ import type { WireErrorEnvelope } from "../../../core/index.js";
 import { settle } from "../../workflows-probe.test-support.js";
 import {
   STALE_REVISION_REFUSAL,
-  loadSchemaFormBody,
+  resolveSchemaFormChunks,
   pressSubmit,
 } from "./slots/HumanFormShell.test-support.js";
 import {
@@ -109,10 +109,11 @@ async function paneShowingTheParkedRun(bridge: ConsoleBridge): Promise<HTMLEleme
   return section;
 }
 
-// The schema form arrives as its own chunk. Resolved once here so every case below
-// renders the loaded form rather than the reserved region its mount would otherwise
-// suspend on — the loader memoises the load, so this is the state a second form opens in.
-beforeAll(loadSchemaFormBody);
+// The schema form opens in two chunks: its own body, and the compiler the one act stays
+// closed until. Both are resolved once here, so every case below renders a loaded form
+// whose submit is armed rather than the reserved region its mount would otherwise suspend
+// on — each loader memoises, so this is the state a second form opens in.
+beforeAll(resolveSchemaFormChunks);
 
 describe("workflow run pane — the run moves because a parked phase was answered", () => {
   it("re-reads the run once when the daemon records the form's answer", async () => {
