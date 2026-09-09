@@ -31,35 +31,111 @@
 // an ordinary eager door line; deferring it would have bought nothing and made a control's
 // React key wait on a chunk.
 //
-// NO MEMO IS KEPT BESIDE IT, for `workflow-definition-file-codec.ts`'s reason: the module
-// map is already the memo, and a second cache here would be a class written for a caller
-// that has none. WHAT a compiled validator's lifetime is stays the caller's — one per
-// schema per mount, held by `use-schema-form.ts`, which is where the schema identity that
-// keys it lives.
+// THE PROMISE IS MEMOISED, AND "THE MODULE MAP IS ALREADY THE MEMO" IS WHY IT HAD TO BE.
+// This module carried that sentence, borrowed from `workflow-definition-file-codec.ts`,
+// and it is true about the MODULE and false about the wait: an `import()` of a module the
+// map already holds still hands back a FRESH promise that settles on a later turn, and the
+// caller here is a hook that starts its load inside a mount. Every consumer therefore paid
+// a turn per call that no amount of warming could remove, and three of them were measured
+// paying it — the accessibility tier audited a form whose validator still read `compiling`
+// (no verdict, so no findings and no `aria-invalid` on the raw arm), and three console-unit
+// supports raced their file's first `import()` on its first mount. One held promise is what
+// makes a second call synchronous-to-settle rather than merely cheap.
+//
+// A CLASS WITH A PRIVATE FIELD, never a module-level `let` — `apps/desktop/AGENTS.md`
+// §State and views, and `SchemaFormChunk` is the same shape one family up for the same
+// job. The instance below is this renderer's; a test builds its own, which is what keeps
+// the memo out of the shared state a module-level promise would be.
+//
+// WHAT A COMPILED VALIDATOR'S LIFETIME IS STAYS THE CALLER'S — one per schema per mount,
+// held by `use-schema-form.ts`, where the schema identity that keys it lives. This memo is
+// about the CHUNK and says nothing about a compile.
 //
 // THE ONLY WAY THIS REJECTS is a chunk that did not load, which is a fact about the
 // install rather than about the schema — so it travels as a rejection rather than as a
-// sentence about a definition that is fine. WHERE IT SETTLES is named, because a rejection
-// with no named consumer is one nobody attaches to: `seats/schema-form/containers/
-// use-schema-form.ts` takes it on the rejecting arm of the one `then` it puts here, inside
-// its own compile round, and turns it into that hook's `checker-unavailable` validator arm
-// — which opens the raw editor and arms the act. Nothing about the failure reaches a
-// person from HERE; what a fetch raises is about the transport, and the sentence somebody
-// reads is the arm's.
+// sentence about a definition that is fine, and the memo is DROPPED on that arm so a later
+// call reaches a live loader rather than a cached failure. WHERE IT SETTLES is named,
+// because a rejection with no named consumer is one nobody attaches to:
+// `seats/schema-form/containers/use-schema-form.ts` takes it on the rejecting arm of the
+// one `then` it puts here, inside its own compile round, and turns it into that hook's
+// `checker-unavailable` validator arm — which opens the raw editor and arms the act. That
+// arm is a settlement rather than a retry, so nothing re-asks until a schema moves or a
+// form is opened again; dropping the memo is what makes those two reach a live fetch.
+// Nothing about the failure reaches a person from HERE; what a fetch raises is about the
+// transport, and the sentence somebody reads is the arm's.
 
 import type { SchemaValidator } from "./json-schema-check.js";
 
 /**
- * Fetch the schema compiler, and hand back the compiler itself.
+ * What the door hands back: the compiler, not a compiled validator.
  *
- * The FUNCTION and not a compiled validator, because compiling is synchronous once the
- * module is here and the schema is the caller's: a wrapper taking the schema would put one
- * `import()` on the door per compile and would hide, from the one module that has to know
- * it, when the compile actually happened.
+ * The FUNCTION, because compiling is synchronous once the module is here and the schema is
+ * the caller's: a wrapper taking the schema would put one `import()` on the door per
+ * compile and would hide, from the one module that has to know it, when the compile
+ * actually happened.
  */
-export async function loadSchemaValidatorCompiler(): Promise<
-  (inputSchema: unknown) => SchemaValidator
-> {
+export type SchemaValidatorCompiler = (inputSchema: unknown) => SchemaValidator;
+
+/**
+ * How the chunk is reached. Injected so the failing arm is reachable from a test at all.
+ *
+ * `SchemaFormChunk` beside this one takes no seam and its rejection path is asserted by
+ * nothing as a result — a memo that quietly cached a failure would pass every case that
+ * module has. The default is the real `import()` and no caller passes anything else, so
+ * the seam costs one parameter and buys the one case that matters.
+ */
+export type SchemaValidatorCompilerFetch = () => Promise<SchemaValidatorCompiler>;
+
+/** The compiler's chunk, fetched once per instance however many forms ask. */
+export class SchemaValidatorCompilerChunk {
+  readonly #fetchCompiler: SchemaValidatorCompilerFetch;
+  #compilerPromise: Promise<SchemaValidatorCompiler> | undefined;
+
+  public constructor(fetchCompiler: SchemaValidatorCompilerFetch = importSchemaValidatorCompiler) {
+    this.#fetchCompiler = fetchCompiler;
+  }
+
+  /**
+   * The compiler, fetched once. Every later call gets the SAME promise, which is the
+   * property a caller inside a render round depends on — see the header.
+   */
+  public load(): Promise<SchemaValidatorCompiler> {
+    this.#compilerPromise ??= this.#loadOnce();
+    return this.#compilerPromise;
+  }
+
+  async #loadOnce(): Promise<SchemaValidatorCompiler> {
+    try {
+      return await this.#fetchCompiler();
+    } catch (loadError) {
+      // A chunk that did not arrive is not a chunk that cannot: the fetch fails
+      // transiently. Memoising the rejection would leave every later form for the life of
+      // the window holding a failure a second request would not have reproduced — and the
+      // hook's own arm for it is `checker-unavailable`, which is a settlement rather than
+      // a retry, so a form opened again is the only thing that re-asks and this is what
+      // lets it. `SchemaFormChunk`'s memo drops on the same terms and for the same reason.
+      this.#compilerPromise = undefined;
+      throw loadError;
+    }
+  }
+}
+
+/** The real edge into the chunk, and the one place the specifier is written. */
+async function importSchemaValidatorCompiler(): Promise<SchemaValidatorCompiler> {
   const { compileSchemaValidator } = await import("./json-schema-check.js");
   return compileSchemaValidator;
+}
+
+/** The renderer's loader. A test builds its own; nothing else does. */
+const schemaValidatorCompilerChunk: SchemaValidatorCompilerChunk =
+  new SchemaValidatorCompilerChunk();
+
+/**
+ * Fetch the schema compiler, and hand back the compiler itself.
+ *
+ * The door's shape is unchanged — one call, one promise of the compiler — so the hook and
+ * the three test supports that already reach it need no edit. What moved is behind it.
+ */
+export function loadSchemaValidatorCompiler(): Promise<SchemaValidatorCompiler> {
+  return schemaValidatorCompilerChunk.load();
 }
