@@ -16,25 +16,7 @@ type McpOperationId = Extract<GrowthOperationId, "mcpList" | "mcpSetEnabled" | "
 
 /** The governance rows, reads first, in the registered registry's own order. */
 export const MCP_GROWTH_OPERATIONS: Readonly<Record<McpOperationId, GrowthOperationEntry>> = {
-  mcpList: op(
-    "mcpList",
-    "mcp-governance-plane",
-    "method",
-    "read the unified server inventory — one row per scope-qualified binding, each carrying the daemon's own aggregate status, its live legs, its redacted configuration read-back, and its tool overrides",
-    "mcp.list",
-  ),
-  mcpSetEnabled: op(
-    "mcpSetEnabled",
-    "mcp-governance-plane",
-    "method",
-    "enable or disable one binding, answering with the row as it now stands, where the change took effect, and what happened on each live leg",
-    "mcp.setEnabled",
-  ),
-  mcpSetTrust: op(
-    "mcpSetTrust",
-    "mcp-governance-plane",
-    "method",
-    "grant or revoke trust for one binding, which binds to that binding's current base-config hash",
-    "mcp.setTrust",
-  ),
+  mcpList: op("mcpList", "mcp-governance-plane", "method", "mcp.list"),
+  mcpSetEnabled: op("mcpSetEnabled", "mcp-governance-plane", "method", "mcp.setEnabled"),
+  mcpSetTrust: op("mcpSetTrust", "mcp-governance-plane", "method", "mcp.setTrust"),
 };

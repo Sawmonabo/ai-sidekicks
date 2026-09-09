@@ -28,40 +28,15 @@ type AgentOperationId = Extract<
 /** The agent rows, in the order the single table carried them. */
 export const AGENT_GROWTH_OPERATIONS: Readonly<Record<AgentOperationId, GrowthOperationEntry>> = {
   // agent plane — the four verbs, in the order a surface meets them.
-  agentList: op(
-    "agentList",
-    "agent-snapshot-axes",
-    "method",
-    "read every agent attached to one session, with its effective provider binding and any switch the daemon has accepted and not yet applied — the roster a cast bar and an agent console both render",
-    "agent.list",
-  ),
-  agentAttach: op(
-    "agentAttach",
-    "agent-snapshot-axes",
-    "method",
-    "put a configured sidekick into a session, by definition reference or inline, and echo back the configuration the attach resolved to — zero-residue on refusal, so nothing is pre-created and nothing is cleaned up",
-    "agent.attach",
-  ),
-  agentConfigUpdate: op(
-    "agentConfigUpdate",
-    "agent-snapshot-axes",
-    "method",
-    "move a running agent's provider axes, answering with the boundary the switch resolved to rather than with a settlement — the mutation and the application are two moments and only the immediate arm collapses them",
-    "agent.configUpdate",
-  ),
-  agentDetach: op(
-    "agentDetach",
-    "agent-snapshot-axes",
-    "method",
-    "move an agent to `disabled`, reversible by re-attaching — never a delete, so its runs stay in the session's history",
-    "agent.detach",
-  ),
+  agentList: op("agentList", "agent-snapshot-axes", "method", "agent.list"),
+  agentAttach: op("agentAttach", "agent-snapshot-axes", "method", "agent.attach"),
+  agentConfigUpdate: op("agentConfigUpdate", "agent-snapshot-axes", "method", "agent.configUpdate"),
+  agentDetach: op("agentDetach", "agent-snapshot-axes", "method", "agent.detach"),
   // orchestration — the one read that makes refused work visible at all.
   orchestrationChildRunLinkRead: op(
     "orchestrationChildRunLinkRead",
     "child-run-linkage",
     "method",
-    "read one parent run's child-run links and the fold of the creates that were refused — a refusal is zero-residue, so this fold is the only path by which work that was asked for and denied is visible",
     "orchestration.childRunLinkRead",
   ),
 };

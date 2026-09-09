@@ -23,14 +23,10 @@ export const RUN_RECORD_GROWTH_OPERATIONS: Readonly<
     "runRecordInterventionHistoryRead",
     "intervention-history-read",
     "method",
-    "read every durable intervention raised against one run — its origin discriminator, the admitting principal on the participant arm, the queue item it admitted, and the decrypted directive where the authoring participant's key still opens it",
-    undefined,
   ),
   runRecordQueueRunBindingRead: op(
     "runRecordQueueRunBindingRead",
     "queue-item-run-binding",
     "method",
-    "read the run each queued item in a session is bound to, the projection of `queue_items.target_run_id` that the registered `QueueItemSummary` carries no member for",
-    undefined,
   ),
 };
