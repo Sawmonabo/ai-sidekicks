@@ -34,7 +34,7 @@
 // pins the single scheme it stands for.
 
 import { formatOklch } from "./color.js";
-import { CHROME_SETTLE_SPRING, MOTION_DURATIONS_MS, sampleSpringEasing } from "./motion.js";
+import { CHROME_SETTLE_EASING, MOTION_DURATIONS_MS } from "./motion.js";
 import {
   ATTRIBUTION_EDGE_WIDTH_PX,
   BOUNDED_ENUMERATION_HEIGHT_REM,
@@ -118,13 +118,16 @@ function invariantBlock(): string {
     lines.push(declaration(tokenName, `${durationMs}ms`));
   }
   // ONE settle easing, and it is the spring `Spec-023 §Console Libraries`' motion row
-  // asks for — sampled ONCE, here, while the sheet is being built, so nothing
-  // computes a spring while anything is on screen and the compositor runs the
-  // emitted `linear()` under the platform's own timing. It is emitted under the name
-  // every stylesheet already reads: a second token holding the sampled curve left
-  // the hand-written cubic answering `var(--meridian-ease-settle)` everywhere while
-  // the spring the rule asks for was declared under a name no sheet spent.
-  lines.push(declaration("ease-settle", sampleSpringEasing(CHROME_SETTLE_SPRING)));
+  // asks for — sampled at BUILD time rather than here, because both of the sampler's
+  // inputs are constants and a pure function of constants is one: `motion.ts` carries
+  // the emitted `linear()` and `motion.test.ts` holds it to the sampler, which no
+  // longer ships. So nothing computes a spring while anything is on screen, and the
+  // compositor runs the emitted curve under the platform's own timing. It is emitted
+  // under the name every stylesheet already reads: a second token holding the sampled
+  // curve left the hand-written cubic answering `var(--meridian-ease-settle)`
+  // everywhere while the spring the rule asks for was declared under a name no sheet
+  // spent.
+  lines.push(declaration("ease-settle", CHROME_SETTLE_EASING));
 
   return lines.join("\n");
 }

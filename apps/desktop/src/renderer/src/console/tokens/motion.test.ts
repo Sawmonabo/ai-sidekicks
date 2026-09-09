@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { CHROME_SETTLE_SPRING, MOTION_DURATIONS_MS, sampleSpringEasing } from "./motion.js";
+import { CHROME_SETTLE_EASING, MOTION_DURATIONS_MS } from "./motion.js";
+import { CHROME_SETTLE_SPRING, sampleSpringEasing } from "./spring-sampler.test-support.js";
 
 /** Read a `linear(...)` string back into the numbers it carries. */
 function samplesOf(easing: string): readonly number[] {
@@ -8,11 +9,16 @@ function samplesOf(easing: string): readonly number[] {
   return inner.split(", ").map((sample) => Number(sample));
 }
 
-// The sampler is the module's whole public surface, so every claim below is made
-// about the string it emits. That is deliberate rather than a narrowing forced on
-// the suite: the closed-form solution and the sample count are private, and a test
-// that reached them would be checking the sampler against the very function it
-// samples — which passes over any sampler that calls it, correctly or not.
+// The sampler is `spring-sampler.test-support.ts`'s whole public surface, so every
+// claim below is made about the string it emits. That is deliberate rather than a
+// narrowing forced on the suite: the closed-form solution and the sample count are
+// private, and a test that reached them would be checking the sampler against the
+// very function it samples — which passes over any sampler that calls it, correctly
+// or not.
+//
+// AND THIS SUITE IS WHAT LETS THE SAMPLER LEAVE THE BUNDLE. The console ships the
+// sampled string rather than the sampler, so the last case below re-derives that
+// constant here — the one place the two are held together.
 describe("the sampled linear() easing", () => {
   const easing = sampleSpringEasing(CHROME_SETTLE_SPRING);
 
@@ -73,6 +79,15 @@ describe("the sampled linear() easing", () => {
 
   it("is deterministic, so the sheet it is emitted into is", () => {
     expect(sampleSpringEasing(CHROME_SETTLE_SPRING)).toBe(easing);
+  });
+
+  it("is exactly what `motion.ts` ships, so the shipped curve cannot drift from it", () => {
+    // The sampler does not reach the renderer any more — the token sheet spends the
+    // string, and this is the assertion that makes that safe. Editing a spring
+    // constant, the sample count, or the emitted precision without re-deriving
+    // `CHROME_SETTLE_EASING` fails here rather than leaving the sheet quietly
+    // describing a spring the design never chose.
+    expect(CHROME_SETTLE_EASING).toBe(easing);
   });
 });
 

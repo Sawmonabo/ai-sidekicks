@@ -207,6 +207,11 @@ describe("assets — the generated token sheet", () => {
     // easings — a hand-written cubic beside the sampled spring — meant every one of
     // the stylesheets reading `--meridian-ease-settle` got the cubic while the spring
     // the rule asks for was emitted under a name no sheet read.
+    //
+    // The sampler runs at BUILD time now — `tokens/motion.ts` carries what it
+    // answered and `tokens/motion.test.ts` re-derives that constant against it — so
+    // this case asserts the emitted SHAPE, which is the property a stylesheet reads,
+    // and the value's provenance is asserted where the two modules meet.
     const css = generateMeridianCss();
     expect(css).toContain(`${tokenVariableName("ease-settle")}: linear(`);
     expect(css).not.toContain(tokenVariableName("ease-spring"));
