@@ -62,6 +62,65 @@ export interface PaneDropIndicator {
   readonly edge: PaneDropEdge;
 }
 
+/** What a settled drop is said out loud as, and in which of the two lanes. */
+export interface PaneDropAnnouncement {
+  readonly message: string;
+  readonly politeness: AnnouncementPoliteness;
+}
+
+/**
+ * The deck's live drag state: what is in the air, and where it would land.
+ *
+ * One instance per deck. Every mutation publishes, and publishes only on a real
+ * change, so a pointer crossing a pane without crossing its midpoint costs no
+ * render at all — the budget the row's "no per-frame renders" constraint states.
+ */
+export class DeckDragCoordinator {
+  readonly #changes = new Emitter<PaneDropIndicator | undefined>("deck drag change");
+  #indicator: PaneDropIndicator | undefined;
+  #draggedPaneId: string | undefined;
+
+  /** The indicator to draw, or `undefined` when nothing is being dragged. */
+  public snapshot(): PaneDropIndicator | undefined {
+    return this.#indicator;
+  }
+
+  /** The pane currently in the air, so its own frame can show it has left. */
+  public get draggedPaneId(): string | undefined {
+    return this.#draggedPaneId;
+  }
+
+  public subscribe(listener: (indicator: PaneDropIndicator | undefined) => void): Unsubscribe {
+    return this.#changes.subscribe(listener);
+  }
+
+  public startDrag(paneId: string): void {
+    this.#draggedPaneId = paneId;
+  }
+
+  /** Move the indicator. A move onto the position it already holds publishes nothing. */
+  public hover(indicator: PaneDropIndicator): void {
+    if (
+      this.#indicator?.overPaneId === indicator.overPaneId &&
+      this.#indicator.edge === indicator.edge
+    ) {
+      return;
+    }
+    this.#indicator = indicator;
+    this.#changes.emit(this.#indicator);
+  }
+
+  /** Clear the indicator — a drag that left every target, or one that ended. */
+  public clear(): void {
+    this.#draggedPaneId = undefined;
+    if (this.#indicator === undefined) {
+      return;
+    }
+    this.#indicator = undefined;
+    this.#changes.emit(undefined);
+  }
+}
+
 /** Read a pane id off a drag payload, or `undefined` for a drag that is not ours. */
 export function paneIdFromDragData(data: Record<string, unknown>): string | undefined {
   const paneId = data[DECK_PANE_DRAG_KEY];
@@ -102,12 +161,6 @@ export function dropPosition(
   }
   const insertion = edge === "before" ? over : over + 1;
   return insertion > from ? insertion - 1 : insertion;
-}
-
-/** What a settled drop is said out loud as, and in which of the two lanes. */
-export interface PaneDropAnnouncement {
-  readonly message: string;
-  readonly politeness: AnnouncementPoliteness;
 }
 
 /**
@@ -200,59 +253,6 @@ export function commitPaneDrop(
     after.length,
   );
   announce(announcement.message, announcement.politeness);
-}
-
-/**
- * The deck's live drag state: what is in the air, and where it would land.
- *
- * One instance per deck. Every mutation publishes, and publishes only on a real
- * change, so a pointer crossing a pane without crossing its midpoint costs no
- * render at all — the budget the row's "no per-frame renders" constraint states.
- */
-export class DeckDragCoordinator {
-  readonly #changes = new Emitter<PaneDropIndicator | undefined>("deck drag change");
-  #indicator: PaneDropIndicator | undefined;
-  #draggedPaneId: string | undefined;
-
-  /** The indicator to draw, or `undefined` when nothing is being dragged. */
-  public snapshot(): PaneDropIndicator | undefined {
-    return this.#indicator;
-  }
-
-  /** The pane currently in the air, so its own frame can show it has left. */
-  public get draggedPaneId(): string | undefined {
-    return this.#draggedPaneId;
-  }
-
-  public subscribe(listener: (indicator: PaneDropIndicator | undefined) => void): Unsubscribe {
-    return this.#changes.subscribe(listener);
-  }
-
-  public startDrag(paneId: string): void {
-    this.#draggedPaneId = paneId;
-  }
-
-  /** Move the indicator. A move onto the position it already holds publishes nothing. */
-  public hover(indicator: PaneDropIndicator): void {
-    if (
-      this.#indicator?.overPaneId === indicator.overPaneId &&
-      this.#indicator.edge === indicator.edge
-    ) {
-      return;
-    }
-    this.#indicator = indicator;
-    this.#changes.emit(this.#indicator);
-  }
-
-  /** Clear the indicator — a drag that left every target, or one that ended. */
-  public clear(): void {
-    this.#draggedPaneId = undefined;
-    if (this.#indicator === undefined) {
-      return;
-    }
-    this.#indicator = undefined;
-    this.#changes.emit(undefined);
-  }
 }
 
 /** Hold one coordinator for the lifetime of the deck that owns it. */

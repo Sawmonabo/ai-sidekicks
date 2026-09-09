@@ -222,24 +222,6 @@ export class ApprovalsReader implements ReadTriggerTarget {
     );
   }
 
-  /** One resolve call ended. The card stops waiting, and a re-read is asked for. */
-  #settleResolve(approvalRequestId: string, refusal: ConsoleRefusal | undefined): void {
-    this.#clearResolving(approvalRequestId);
-    if (refusal !== undefined) {
-      this.#update({
-        resolveRefusalByApprovalId: withEntry(
-          this.#snapshot.resolveRefusalByApprovalId,
-          approvalRequestId,
-          refusal,
-        ),
-      });
-    }
-    // A concurrent resolver's `approval.already_resolved` drops the card on the
-    // next signal re-read, so the surface asks for one on EVERY arm rather than
-    // leaving a stale pending card beside a refusal that explains why it is stale.
-    this.requestRead("terminal-event");
-  }
-
   /** Revoke one standing permission. Fired only by a confirming click. */
   public revokeRule(ruleId: string): void {
     if (this.#disposed || this.#snapshot.revokingRuleIds.has(ruleId)) {
@@ -259,6 +241,31 @@ export class ApprovalsReader implements ReadTriggerTarget {
     );
   }
 
+  /** Terminal. The scheduler is dropped, so no read can outlive the pane. */
+  public dispose(): void {
+    this.#disposed = true;
+    this.#scheduler.dispose();
+    this.#changes.clear();
+  }
+
+  /** One resolve call ended. The card stops waiting, and a re-read is asked for. */
+  #settleResolve(approvalRequestId: string, refusal: ConsoleRefusal | undefined): void {
+    this.#clearResolving(approvalRequestId);
+    if (refusal !== undefined) {
+      this.#update({
+        resolveRefusalByApprovalId: withEntry(
+          this.#snapshot.resolveRefusalByApprovalId,
+          approvalRequestId,
+          refusal,
+        ),
+      });
+    }
+    // A concurrent resolver's `approval.already_resolved` drops the card on the
+    // next signal re-read, so the surface asks for one on EVERY arm rather than
+    // leaving a stale pending card beside a refusal that explains why it is stale.
+    this.requestRead("terminal-event");
+  }
+
   /** One revoke call ended, on the same terms a resolve does. */
   #settleRevoke(ruleId: string, refusal: ConsoleRefusal | undefined): void {
     this.#clearRevoking(ruleId);
@@ -268,13 +275,6 @@ export class ApprovalsReader implements ReadTriggerTarget {
       });
     }
     this.requestRead("terminal-event");
-  }
-
-  /** Terminal. The scheduler is dropped, so no read can outlive the pane. */
-  public dispose(): void {
-    this.#disposed = true;
-    this.#scheduler.dispose();
-    this.#changes.clear();
   }
 
   async #performReads(): Promise<void> {

@@ -74,12 +74,6 @@ export interface CoalescingLayoutWriterOptions<TRecord extends PersistedLayoutRe
   readonly onFailed: (error: unknown) => void;
 }
 
-/** One arrangement, and the session it belongs to. The two travel together. */
-interface PendingLayoutWrite<TRecord extends PersistedLayoutRecord> {
-  readonly partition: string;
-  readonly snapshot: TRecord;
-}
-
 export class CoalescingLayoutWriter<TRecord extends PersistedLayoutRecord> {
   readonly #write: (partition: string, snapshot: TRecord) => Promise<void>;
   readonly #onFailed: (error: unknown) => void;
@@ -167,6 +161,12 @@ export class CoalescingLayoutWriter<TRecord extends PersistedLayoutRecord> {
         this.#pump();
       });
   }
+}
+
+/** One arrangement, and the session it belongs to. The two travel together. */
+interface PendingLayoutWrite<TRecord extends PersistedLayoutRecord> {
+  readonly partition: string;
+  readonly snapshot: TRecord;
 }
 
 function flushAndCloseWriter(writer: CoalescingLayoutWriter<PersistedLayoutRecord>): void {

@@ -101,11 +101,6 @@ class RecordingBoard implements LazyBodyBoard<string> {
   public readonly preloaded: string[] = [];
   readonly #rejectingKeys: ReadonlySet<string>;
 
-  public constructor(unloaded: readonly string[], rejectingKeys: readonly string[] = []) {
-    this.#unloaded = [...unloaded];
-    this.#rejectingKeys = new Set(rejectingKeys);
-  }
-
   public readonly unloadedKeys = (): readonly string[] => this.#unloaded;
 
   public readonly preload = async (key: string): Promise<void> => {
@@ -121,6 +116,11 @@ class RecordingBoard implements LazyBodyBoard<string> {
       throw new Error(`chunk for ${key} could not be fetched`);
     }
   };
+
+  public constructor(unloaded: readonly string[], rejectingKeys: readonly string[] = []) {
+    this.#unloaded = [...unloaded];
+    this.#rejectingKeys = new Set(rejectingKeys);
+  }
 
   /** A family registering late, mid-walk. */
   public addUnloaded(key: string): void {

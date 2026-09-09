@@ -24,20 +24,6 @@ export interface LoadHairlineProps {
   readonly progress: number | null;
 }
 
-/**
- * A reported fraction, clamped into range, or `undefined` where none was reported.
- *
- * Clamping rather than trusting: the fraction crosses a boundary this window does not
- * own, and a value outside the range would paint a fill wider than its track and
- * hand an assistive technology a percentage above a hundred.
- */
-function clampedProgress(progress: number | null): number | undefined {
-  if (progress === null || !Number.isFinite(progress)) {
-    return undefined;
-  }
-  return Math.min(LOAD_PROGRESS_MAX, Math.max(LOAD_PROGRESS_MIN, progress));
-}
-
 export function LoadHairline(props: LoadHairlineProps): React.JSX.Element | null {
   if (!props.isLoading) {
     return null;
@@ -66,4 +52,18 @@ export function LoadHairline(props: LoadHairlineProps): React.JSX.Element | null
       />
     </div>
   );
+}
+
+/**
+ * A reported fraction, clamped into range, or `undefined` where none was reported.
+ *
+ * Clamping rather than trusting: the fraction crosses a boundary this window does not
+ * own, and a value outside the range would paint a fill wider than its track and
+ * hand an assistive technology a percentage above a hundred.
+ */
+function clampedProgress(progress: number | null): number | undefined {
+  if (progress === null || !Number.isFinite(progress)) {
+    return undefined;
+  }
+  return Math.min(LOAD_PROGRESS_MAX, Math.max(LOAD_PROGRESS_MIN, progress));
 }

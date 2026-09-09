@@ -41,31 +41,11 @@ export type SessionPinMap = Readonly<Record<string, SessionPinTier>>;
 
 const NO_PINS: SessionPinMap = {};
 
-function isSessionPinTier(candidate: unknown): candidate is SessionPinTier {
-  return (
-    typeof candidate === "string" && (SESSION_PIN_TIERS as readonly string[]).includes(candidate)
-  );
-}
-
-/**
- * Narrow a stored record back into a pin map, dropping entries that do not survive.
- *
- * Per ENTRY rather than per record: a single unrecognised tier — an older build's
- * vocabulary, or a hand-edited store — discards that session's pin and keeps
- * everyone else's, where refusing the whole record would silently un-pin a list a
- * person had arranged.
- */
-export function narrowSessionPinMap(raw: unknown): SessionPinMap | undefined {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    return undefined;
-  }
-  const narrowed: Record<string, SessionPinTier> = {};
-  for (const [sessionId, tier] of Object.entries(raw as Readonly<Record<string, unknown>>)) {
-    if (isSessionPinTier(tier)) {
-      narrowed[sessionId] = tier;
-    }
-  }
-  return narrowed;
+/** What a surface holds: the map, the refusal, and the one act that changes it. */
+export interface SessionPinBinding {
+  readonly tiers: SessionPinMap;
+  readonly lastRefusal: ConsoleRefusal | undefined;
+  readonly setTier: (sessionId: string, tier: SessionPinTier) => void;
 }
 
 /** The pin map, durable. One per window; the surface builds it once and holds it. */
@@ -127,11 +107,31 @@ export class SessionPinStore {
   }
 }
 
-/** What a surface holds: the map, the refusal, and the one act that changes it. */
-export interface SessionPinBinding {
-  readonly tiers: SessionPinMap;
-  readonly lastRefusal: ConsoleRefusal | undefined;
-  readonly setTier: (sessionId: string, tier: SessionPinTier) => void;
+/**
+ * Narrow a stored record back into a pin map, dropping entries that do not survive.
+ *
+ * Per ENTRY rather than per record: a single unrecognised tier — an older build's
+ * vocabulary, or a hand-edited store — discards that session's pin and keeps
+ * everyone else's, where refusing the whole record would silently un-pin a list a
+ * person had arranged.
+ */
+export function narrowSessionPinMap(raw: unknown): SessionPinMap | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return undefined;
+  }
+  const narrowed: Record<string, SessionPinTier> = {};
+  for (const [sessionId, tier] of Object.entries(raw as Readonly<Record<string, unknown>>)) {
+    if (isSessionPinTier(tier)) {
+      narrowed[sessionId] = tier;
+    }
+  }
+  return narrowed;
+}
+
+function isSessionPinTier(candidate: unknown): candidate is SessionPinTier {
+  return (
+    typeof candidate === "string" && (SESSION_PIN_TIERS as readonly string[]).includes(candidate)
+  );
 }
 
 /** How a pin store is minted. Module-level, because the holder reads it once. */
@@ -182,25 +182,6 @@ export function pinSessionToFrontTier(sessionId: string): void {
 }
 
 /**
- * The pin act, bound to whatever store the acquirer is holding when it is pressed.
- *
- * Module-level and taking the acquirer rather than written inline in the hook, so the
- * act's own two arguments — the row it is about and the tier it moves to — are its
- * parameters and nothing else. Written inside the hook it read as a value keyed on a
- * session, which is the one shape a surface must not hold by hand.
- */
-function setTierThrough(
-  acquire: () => SessionPinStore,
-): (sessionId: string, tier: SessionPinTier) => void {
-  return (sessionId, tier) => {
-    // Not awaited, and the rejection cannot escape: `setTier` declares its failure
-    // as a recorded refusal rather than as a rejection, so there is nothing here for
-    // a caller to catch.
-    void acquire().setTier(sessionId, tier);
-  };
-}
-
-/**
  * Bind the pin map into a component.
  *
  * KEYED ON THE STORE'S IDENTITY, through this window's one pin holder. It was built
@@ -230,4 +211,23 @@ export function useSessionPins(store: UiStateStore): SessionPinBinding {
   // memoised row would re-render.
   const setTier = useCallback(setTierThrough(acquire), [acquire]);
   return { tiers, lastRefusal: binding?.lastRefusal, setTier };
+}
+
+/**
+ * The pin act, bound to whatever store the acquirer is holding when it is pressed.
+ *
+ * Module-level and taking the acquirer rather than written inline in the hook, so the
+ * act's own two arguments — the row it is about and the tier it moves to — are its
+ * parameters and nothing else. Written inside the hook it read as a value keyed on a
+ * session, which is the one shape a surface must not hold by hand.
+ */
+function setTierThrough(
+  acquire: () => SessionPinStore,
+): (sessionId: string, tier: SessionPinTier) => void {
+  return (sessionId, tier) => {
+    // Not awaited, and the rejection cannot escape: `setTier` declares its failure
+    // as a recorded refusal rather than as a rejection, so there is nothing here for
+    // a caller to catch.
+    void acquire().setTier(sessionId, tier);
+  };
 }

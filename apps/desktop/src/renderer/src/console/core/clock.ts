@@ -44,12 +44,6 @@ interface FrameScheduling {
 
 const frameScheduling = globalThis as unknown as FrameScheduling;
 
-/** One armed piece of work, and which platform call has to be told to drop it. */
-interface ArmedWork {
-  readonly isFrame: boolean;
-  readonly platformHandle: number;
-}
-
 /**
  * The real clock. `requestAnimationFrame` where the document has one and a
  * zero-delay timeout where it does not — a `node`-environment test project has no
@@ -125,13 +119,6 @@ export class RealClock implements ConsoleClock {
     this.#nextHandle += 1;
     return handle;
   }
-}
-
-interface ScheduledEntry {
-  readonly handle: ScheduledHandle;
-  readonly dueAt: number;
-  readonly callback: () => void;
-  readonly isFrame: boolean;
 }
 
 /**
@@ -224,4 +211,17 @@ export class ManualClock implements ConsoleClock {
     this.#entries.push({ handle, dueAt: this.#currentTime + delayMs, callback, isFrame });
     return handle;
   }
+}
+
+/** One armed piece of work, and which platform call has to be told to drop it. */
+interface ArmedWork {
+  readonly isFrame: boolean;
+  readonly platformHandle: number;
+}
+
+interface ScheduledEntry {
+  readonly handle: ScheduledHandle;
+  readonly dueAt: number;
+  readonly callback: () => void;
+  readonly isFrame: boolean;
 }

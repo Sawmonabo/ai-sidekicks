@@ -49,11 +49,6 @@ export interface LedgerFilter {
 /** The filter that narrows nothing. */
 export const UNFILTERED_LEDGER: LedgerFilter = { participantIds: [], categories: [] };
 
-/** Whether a filter narrows anything at all. Drives the "clear filters" affordance. */
-export function isLedgerFiltered(filter: LedgerFilter): boolean {
-  return filter.participantIds.length > 0 || filter.categories.length > 0;
-}
-
 /** One filterable value and how many rows in the window carry it. */
 export interface LedgerFacet<TValue> {
   readonly value: TValue;
@@ -69,6 +64,11 @@ export interface LedgerFacet<TValue> {
 export interface LedgerFacets {
   readonly participants: readonly LedgerFacet<string>[];
   readonly categories: readonly LedgerFacet<EventCategory>[];
+}
+
+/** Whether a filter narrows anything at all. Drives the "clear filters" affordance. */
+export function isLedgerFiltered(filter: LedgerFilter): boolean {
+  return filter.participantIds.length > 0 || filter.categories.length > 0;
 }
 
 /** Every value the window offers to filter on, in first-appearance order. */

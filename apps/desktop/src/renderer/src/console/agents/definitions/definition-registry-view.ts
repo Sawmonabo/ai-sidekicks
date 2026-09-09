@@ -287,34 +287,6 @@ export class SidekickRegistryView implements ReadTriggerTarget {
 }
 
 /**
- * Why this view declined a delete it never sent.
- *
- * Two sentences under one code, because what a person does next differs: their own
- * row is already on its way out, and another row's delete is in front of theirs.
- * Neither names the record in the way, which would say nothing they can act on.
- */
-function deleteAlreadyRunning(isTheSameRecord: boolean): ConsoleRefusal {
-  return refuse(
-    SIDEKICK_REGISTRY_REFUSAL_ORIGIN,
-    "delete-already-running",
-    isTheSameRecord
-      ? "This sidekick is already being deleted. It is asked once, and the row changes when the registry answers."
-      : "Another sidekick is being deleted. Wait for that one to settle, then press Delete again.",
-  );
-}
-
-/** Close a seat open on a record that has just been deleted; leave any other. */
-function subjectSurviving(
-  subject: SidekickDefinitionEditorSubject | undefined,
-  deletedDefinitionId: string,
-): SidekickDefinitionEditorSubject | undefined {
-  if (subject?.kind === "stored" && subject.definitionId === deletedDefinitionId) {
-    return undefined;
-  }
-  return subject;
-}
-
-/**
  * Build the view and let it read.
  *
  * Constructed in a memo and STARTED in an effect, the split
@@ -364,4 +336,32 @@ export function useDefinitionSettlementAnnouncement(reading: SidekickDefinitionR
   useSettlementAnnouncement(
     reading.kind === "not-loaded" ? undefined : describeDefinitionSettlement(reading),
   );
+}
+
+/**
+ * Why this view declined a delete it never sent.
+ *
+ * Two sentences under one code, because what a person does next differs: their own
+ * row is already on its way out, and another row's delete is in front of theirs.
+ * Neither names the record in the way, which would say nothing they can act on.
+ */
+function deleteAlreadyRunning(isTheSameRecord: boolean): ConsoleRefusal {
+  return refuse(
+    SIDEKICK_REGISTRY_REFUSAL_ORIGIN,
+    "delete-already-running",
+    isTheSameRecord
+      ? "This sidekick is already being deleted. It is asked once, and the row changes when the registry answers."
+      : "Another sidekick is being deleted. Wait for that one to settle, then press Delete again.",
+  );
+}
+
+/** Close a seat open on a record that has just been deleted; leave any other. */
+function subjectSurviving(
+  subject: SidekickDefinitionEditorSubject | undefined,
+  deletedDefinitionId: string,
+): SidekickDefinitionEditorSubject | undefined {
+  if (subject?.kind === "stored" && subject.definitionId === deletedDefinitionId) {
+    return undefined;
+  }
+  return subject;
 }

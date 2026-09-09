@@ -72,6 +72,37 @@ export const TERMINAL_HOST_NODE_ATTACHED_AT_MS = 160;
  */
 export const TERMINAL_HOST_NODE_LAST_HEARTBEAT_AT_MS = 3_780;
 
+/** What one beat says beyond the envelope this module stamps. */
+export interface TerminalScenarioBeatInput {
+  /** The tick this beat is due at, measured from scenario start. */
+  readonly atMs: number;
+  readonly sequence: number;
+  /** Wire-verbatim event type. Held to the registered taxonomy by `scenarios.test.ts`. */
+  readonly kind: string;
+  /** Who the log attributes the event to. Omitted where the daemon acted alone. */
+  readonly actorId?: string;
+  readonly payload: Readonly<Record<string, unknown>>;
+}
+
+/** What one lease transition says. The payload members are `Spec-006`'s own. */
+export interface TerminalLeaseTransitionBeatInput {
+  readonly atMs: number;
+  readonly sequence: number;
+  /**
+   * Who holds it after this transition.
+   *
+   * `null` is the free lease, and it is written as an explicit null rather than an
+   * omitted member because `Spec-023 §Console Design (Meridian)` 8.8 makes an unheld
+   * lease an explicit state that reads differently from a suppressed one.
+   */
+  readonly holderParticipantId: string | null;
+  readonly previousHolderParticipantId: string | null;
+  /** One of the five reasons `Spec-006` closes the set at. */
+  readonly reason: string;
+  /** Omitted for a take the daemon's own lease authority performed. */
+  readonly actorId?: string;
+}
+
 /**
  * The instant a tick lands on, in the frozen clock's own wall time.
  *
@@ -95,18 +126,6 @@ export function terminalScenarioEventId(sequence: number): string {
   return `${TERMINAL_EVENT_ID_PREFIX}${String(sequence).padStart(4, "0")}`;
 }
 
-/** What one beat says beyond the envelope this module stamps. */
-export interface TerminalScenarioBeatInput {
-  /** The tick this beat is due at, measured from scenario start. */
-  readonly atMs: number;
-  readonly sequence: number;
-  /** Wire-verbatim event type. Held to the registered taxonomy by `scenarios.test.ts`. */
-  readonly kind: string;
-  /** Who the log attributes the event to. Omitted where the daemon acted alone. */
-  readonly actorId?: string;
-  readonly payload: Readonly<Record<string, unknown>>;
-}
-
 /**
  * One scripted beat of this session, with its id, its session id, and its instant
  * stamped.
@@ -128,25 +147,6 @@ export function terminalScenarioBeat(beat: TerminalScenarioBeatInput): ScenarioB
       payload: beat.payload,
     },
   };
-}
-
-/** What one lease transition says. The payload members are `Spec-006`'s own. */
-export interface TerminalLeaseTransitionBeatInput {
-  readonly atMs: number;
-  readonly sequence: number;
-  /**
-   * Who holds it after this transition.
-   *
-   * `null` is the free lease, and it is written as an explicit null rather than an
-   * omitted member because `Spec-023 §Console Design (Meridian)` 8.8 makes an unheld
-   * lease an explicit state that reads differently from a suppressed one.
-   */
-  readonly holderParticipantId: string | null;
-  readonly previousHolderParticipantId: string | null;
-  /** One of the five reasons `Spec-006` closes the set at. */
-  readonly reason: string;
-  /** Omitted for a take the daemon's own lease authority performed. */
-  readonly actorId?: string;
 }
 
 /**

@@ -26,16 +26,6 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 
 import { RowSelectionGuard, type SelectionDocument } from "./selection-preservation.js";
 
-/**
- * The document this row lives in.
- *
- * Reached through the element rather than a module-scope binding, so no module-level
- * value is minted and a test drives the same code path with a document it controls.
- */
-function ownerDocumentOf(element: HTMLElement): SelectionDocument | undefined {
-  return (element.ownerDocument ?? undefined) as SelectionDocument | undefined;
-}
-
 /** What a row attaches: a ref callback, and nothing it has to remember to call. */
 export type RowSelectionAttach = (element: HTMLElement | null) => void;
 
@@ -84,4 +74,14 @@ export function useRowSelectionPreservation(): RowSelectionAttach {
     guard.observe(element);
     guardRef.current = guard;
   }, []);
+}
+
+/**
+ * The document this row lives in.
+ *
+ * Reached through the element rather than a module-scope binding, so no module-level
+ * value is minted and a test drives the same code path with a document it controls.
+ */
+function ownerDocumentOf(element: HTMLElement): SelectionDocument | undefined {
+  return (element.ownerDocument ?? undefined) as SelectionDocument | undefined;
 }

@@ -52,6 +52,24 @@ const BRANCHING_ARM_LISTS = ["oneOf", "anyOf", "allOf"] as const;
  */
 const BRANCHING_ARM_SCHEMAS = ["if", "then", "else"] as const;
 
+/**
+ * Every member name one object schema's own constraints can require, in the order met.
+ *
+ * Ordered because the caller names ONE member in the sentence it shows a person, and the
+ * first undrawn name met walking the schema as written is the one an author reading their
+ * own document would look for first.
+ *
+ * The names are the object's OWN keys, unqualified — this walk knows nothing about where
+ * in the form that object sits, and the caller that does supplies the path.
+ */
+export function membersConstraintsCanRequire(
+  schema: Readonly<Record<string, unknown>>,
+): readonly string[] {
+  const collected = new Set<string>();
+  collectFromSchema(schema, collected, new Set());
+  return [...collected];
+}
+
 /** Collect from a value that may or may not be a subschema at all. */
 function collectFromArm(
   arm: unknown,
@@ -113,22 +131,4 @@ function collectFromSchema(
   for (const keyword of BRANCHING_ARM_SCHEMAS) {
     collectFromArm(schema[keyword], collected, visited);
   }
-}
-
-/**
- * Every member name one object schema's own constraints can require, in the order met.
- *
- * Ordered because the caller names ONE member in the sentence it shows a person, and the
- * first undrawn name met walking the schema as written is the one an author reading their
- * own document would look for first.
- *
- * The names are the object's OWN keys, unqualified — this walk knows nothing about where
- * in the form that object sits, and the caller that does supplies the path.
- */
-export function membersConstraintsCanRequire(
-  schema: Readonly<Record<string, unknown>>,
-): readonly string[] {
-  const collected = new Set<string>();
-  collectFromSchema(schema, collected, new Set());
-  return [...collected];
 }

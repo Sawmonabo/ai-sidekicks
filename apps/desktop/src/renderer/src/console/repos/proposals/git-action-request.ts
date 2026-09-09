@@ -71,6 +71,23 @@ const GIT_ACTION_PARAM_SOURCES: Readonly<
   push: ["branchContextId", "headBranch", "upstreamRef"],
 };
 
+/** Everything a caller must know to name an act, beyond the act and the context. */
+export interface GitActionCausation {
+  /** The mount the registered request names. The subject's, never re-derived here. */
+  readonly repoMountId: string;
+  /**
+   * Which participant pressed the control, where the caller identity read answered.
+   *
+   * ATTRIBUTION AND NOT AUTHORITY, which is why an unread identity is not an error:
+   * the member is optional on the registered request and the daemon resolves the
+   * principal an act actually runs under from the transport. So a refused identity
+   * read omits the member and the act still goes, rather than the console blocking a
+   * press over a fact the daemon does not take from it — and it is never filled with a
+   * placeholder, which would be a claim about who acted.
+   */
+  readonly causationParticipantId?: string | undefined;
+}
+
 /**
  * The parameters one act carries, read off the context it is being sent against.
  *
@@ -91,23 +108,6 @@ export function gitActionParams(
     }
   }
   return params;
-}
-
-/** Everything a caller must know to name an act, beyond the act and the context. */
-export interface GitActionCausation {
-  /** The mount the registered request names. The subject's, never re-derived here. */
-  readonly repoMountId: string;
-  /**
-   * Which participant pressed the control, where the caller identity read answered.
-   *
-   * ATTRIBUTION AND NOT AUTHORITY, which is why an unread identity is not an error:
-   * the member is optional on the registered request and the daemon resolves the
-   * principal an act actually runs under from the transport. So a refused identity
-   * read omits the member and the act still goes, rather than the console blocking a
-   * press over a fact the daemon does not take from it — and it is never filled with a
-   * placeholder, which would be a claim about who acted.
-   */
-  readonly causationParticipantId?: string | undefined;
 }
 
 /**

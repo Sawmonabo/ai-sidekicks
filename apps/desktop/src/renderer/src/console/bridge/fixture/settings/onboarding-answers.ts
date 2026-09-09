@@ -60,9 +60,6 @@ export const FIXTURE_SERVED_ONBOARDING_OPERATION_IDS = [
 export type FixtureServedOnboardingOperationId =
   (typeof FIXTURE_SERVED_ONBOARDING_OPERATION_IDS)[number];
 
-/** What the state read answers with, from the signature table rather than retyped. */
-type OnboardingStateReading = GrowthOperationSignatures["onboardingStateRead"]["value"];
-
 /**
  * What this port's caller has recorded since the scenario started playing.
  *
@@ -208,3 +205,6 @@ export function fixtureOnboardingAnswers(
       ),
   };
 }
+
+/** What the state read answers with, from the signature table rather than retyped. */
+type OnboardingStateReading = GrowthOperationSignatures["onboardingStateRead"]["value"];

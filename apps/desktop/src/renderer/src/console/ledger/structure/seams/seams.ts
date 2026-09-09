@@ -72,52 +72,6 @@ export interface LedgerSeam {
   readonly blockedOn: string | undefined;
 }
 
-function readString(payload: Readonly<Record<string, unknown>>, key: string): string | undefined {
-  const value = payload[key];
-  return typeof value === "string" ? value : undefined;
-}
-
-/**
- * The declared losses a `'memo'` switch names, verbatim.
- *
- * Every entry is kept as the string the wire sent — the vocabulary is closed on
- * the wire and widened by amendment, so a renderer that mapped unknown members
- * onto a fallback phrase would silently stop reporting the newest kind of loss.
- */
-function readDeclaredLosses(payload: Readonly<Record<string, unknown>>): readonly string[] {
-  const value = payload["declaredLosses"];
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.filter((entry): entry is string => typeof entry === "string");
-}
-
-/**
- * The rollback boundary's payload, which the contract types rather than leaves
- * open.
- *
- * Read through the arm's own narrowing so the rewind cutoff never reaches a
- * consumer through a cast — the property `Spec-013` I-013-5 exists to guarantee.
- */
-function rollbackSeamOf(row: Extract<TimelineRow, { kind: "rollback_boundary" }>): LedgerSeam {
-  return {
-    kind: "rollback",
-    rowId: row.id,
-    sequence: row.sequence,
-    timestamp: row.timestamp,
-    runId: row.runId,
-    actorId: row.actor,
-    wireType: row.type,
-    wireRegistration: "registered",
-    boundaryPosition: row.payload.targetPosition,
-    epoch: row.epoch,
-    continuity: undefined,
-    declaredLosses: [],
-    reason: undefined,
-    blockedOn: undefined,
-  };
-}
-
 /**
  * The seam classifier and the registered-census reader.
  *
@@ -228,4 +182,50 @@ export class LedgerSeamIndex {
     }
     return seams;
   }
+}
+
+function readString(payload: Readonly<Record<string, unknown>>, key: string): string | undefined {
+  const value = payload[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * The declared losses a `'memo'` switch names, verbatim.
+ *
+ * Every entry is kept as the string the wire sent — the vocabulary is closed on
+ * the wire and widened by amendment, so a renderer that mapped unknown members
+ * onto a fallback phrase would silently stop reporting the newest kind of loss.
+ */
+function readDeclaredLosses(payload: Readonly<Record<string, unknown>>): readonly string[] {
+  const value = payload["declaredLosses"];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((entry): entry is string => typeof entry === "string");
+}
+
+/**
+ * The rollback boundary's payload, which the contract types rather than leaves
+ * open.
+ *
+ * Read through the arm's own narrowing so the rewind cutoff never reaches a
+ * consumer through a cast — the property `Spec-013` I-013-5 exists to guarantee.
+ */
+function rollbackSeamOf(row: Extract<TimelineRow, { kind: "rollback_boundary" }>): LedgerSeam {
+  return {
+    kind: "rollback",
+    rowId: row.id,
+    sequence: row.sequence,
+    timestamp: row.timestamp,
+    runId: row.runId,
+    actorId: row.actor,
+    wireType: row.type,
+    wireRegistration: "registered",
+    boundaryPosition: row.payload.targetPosition,
+    epoch: row.epoch,
+    continuity: undefined,
+    declaredLosses: [],
+    reason: undefined,
+    blockedOn: undefined,
+  };
 }

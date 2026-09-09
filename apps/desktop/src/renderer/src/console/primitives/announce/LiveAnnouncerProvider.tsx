@@ -96,18 +96,6 @@ export function LiveAnnouncerProvider(props: LiveAnnouncerProviderProps): React.
 }
 
 /**
- * The window's announcer, on the clock it was given.
- *
- * The absent arm passes no `clock` member at all rather than an explicit
- * `undefined`: `LiveAnnouncerOptions` declares the member optional under
- * `exactOptionalPropertyTypes`, so the two are different types and only one of
- * them reaches the constructor's own `RealClock` default.
- */
-function mintAnnouncer(clock: ConsoleClock | undefined): LiveAnnouncer {
-  return new LiveAnnouncer(clock === undefined ? {} : { clock });
-}
-
-/**
  * How a surface says something. Throws outside the provider rather than returning a
  * no-op: a component announcing into nothing is a wiring bug that is invisible to
  * everyone who can see the screen, which is the one class of defect this primitive
@@ -119,4 +107,16 @@ export function useAnnounce(): Announce {
     throw new Error(OUTSIDE_PROVIDER);
   }
   return announcer.announce;
+}
+
+/**
+ * The window's announcer, on the clock it was given.
+ *
+ * The absent arm passes no `clock` member at all rather than an explicit
+ * `undefined`: `LiveAnnouncerOptions` declares the member optional under
+ * `exactOptionalPropertyTypes`, so the two are different types and only one of
+ * them reaches the constructor's own `RealClock` default.
+ */
+function mintAnnouncer(clock: ConsoleClock | undefined): LiveAnnouncer {
+  return new LiveAnnouncer(clock === undefined ? {} : { clock });
 }

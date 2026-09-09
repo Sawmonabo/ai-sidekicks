@@ -142,69 +142,6 @@ const CHANNEL_CREATED = "019b7904-8ce0-7c11-8140-cca0117a0398";
 const CHANNEL_CREATED_AT = "2026-01-01T10:06:00.000Z";
 
 /**
- * The devices behind one person's aggregate, from their roster row at this instant.
- *
- * Built from the ROW rather than from the roster table, so the aggregate a detail card
- * shows can never disagree with the row it opened from — at the instant it opened,
- * which is the half a table could not carry. The fan-out is keyed on that state and so
- * moves with it: an idle member on two devices is the reading the card exists for, and
- * an offline member on NO device is the empty state a card that only ever listed rows
- * would never draw. Both are reached by PLAYING this room's presence beats, and before
- * they play the same person is on the one device their join brought.
- */
-function presenceDetailFor(row: PresenceReadResponseParticipant): unknown {
-  const devices =
-    row.state === "offline"
-      ? []
-      : row.state === "idle"
-        ? [
-            { deviceId: `${row.participantId}:desk`, state: row.state, lastSeen: row.lastSeen },
-            { deviceId: `${row.participantId}:phone`, state: "offline", lastSeen: row.lastSeen },
-          ]
-        : [{ deviceId: `${row.participantId}:desk`, state: row.state, lastSeen: row.lastSeen }];
-  return { participantId: row.participantId, devices, aggregateState: row.state };
-}
-
-/** The channel roster: what each channel is FOR, in the shape the growth read carries. */
-function channelRosterEntries(script: CollaborationGrowthScript): unknown {
-  return [
-    {
-      id: script.channelIds.review,
-      name: "review",
-      kind: "general",
-      config: {
-        // A round-robin channel with a moderation gate and a per-agent cap, which is
-        // the fullest configuration a channel can carry: a fixture whose every channel
-        // was free-form would leave the other four members of `ChannelConfig` drawn by
-        // nothing.
-        turnPolicy: "round-robin",
-        turnsPerAgent: 2,
-        moderation: { preTurnGate: true, postTurnReview: false },
-        audience: "participants",
-      },
-    },
-    {
-      id: script.channelIds.handoff,
-      name: "handoff",
-      kind: "general",
-      // The archived row, and the one channel this session's agents never read. Both
-      // facts on one row on purpose: an audience badge has to stay legible under the
-      // archived row's own reduced weight.
-      config: { turnPolicy: "free-form", audience: "humans-only" },
-    },
-    {
-      id: script.channelIds.direct,
-      // No name. A direct channel is labelled by the other human in its pair, and a
-      // fixture that gave one a name would let the row render without ever reaching
-      // the pair — which is the whole of what makes the row different.
-      kind: "direct",
-      memberPair: script.directChannelPair,
-      config: { audience: "humans-only" },
-    },
-  ];
-}
-
-/**
  * Every growth-served reply this room answers, in one array the scenario spreads.
  *
  * One function rather than a constant, because three of the eight answers are computed
@@ -276,6 +213,69 @@ export function collaborationGrowthReplies(
     {
       call: "channel.archive",
       resultFor: (request) => lifecycleReceipt(request, "archived", roomChannelIds),
+    },
+  ];
+}
+
+/**
+ * The devices behind one person's aggregate, from their roster row at this instant.
+ *
+ * Built from the ROW rather than from the roster table, so the aggregate a detail card
+ * shows can never disagree with the row it opened from — at the instant it opened,
+ * which is the half a table could not carry. The fan-out is keyed on that state and so
+ * moves with it: an idle member on two devices is the reading the card exists for, and
+ * an offline member on NO device is the empty state a card that only ever listed rows
+ * would never draw. Both are reached by PLAYING this room's presence beats, and before
+ * they play the same person is on the one device their join brought.
+ */
+function presenceDetailFor(row: PresenceReadResponseParticipant): unknown {
+  const devices =
+    row.state === "offline"
+      ? []
+      : row.state === "idle"
+        ? [
+            { deviceId: `${row.participantId}:desk`, state: row.state, lastSeen: row.lastSeen },
+            { deviceId: `${row.participantId}:phone`, state: "offline", lastSeen: row.lastSeen },
+          ]
+        : [{ deviceId: `${row.participantId}:desk`, state: row.state, lastSeen: row.lastSeen }];
+  return { participantId: row.participantId, devices, aggregateState: row.state };
+}
+
+/** The channel roster: what each channel is FOR, in the shape the growth read carries. */
+function channelRosterEntries(script: CollaborationGrowthScript): unknown {
+  return [
+    {
+      id: script.channelIds.review,
+      name: "review",
+      kind: "general",
+      config: {
+        // A round-robin channel with a moderation gate and a per-agent cap, which is
+        // the fullest configuration a channel can carry: a fixture whose every channel
+        // was free-form would leave the other four members of `ChannelConfig` drawn by
+        // nothing.
+        turnPolicy: "round-robin",
+        turnsPerAgent: 2,
+        moderation: { preTurnGate: true, postTurnReview: false },
+        audience: "participants",
+      },
+    },
+    {
+      id: script.channelIds.handoff,
+      name: "handoff",
+      kind: "general",
+      // The archived row, and the one channel this session's agents never read. Both
+      // facts on one row on purpose: an audience badge has to stay legible under the
+      // archived row's own reduced weight.
+      config: { turnPolicy: "free-form", audience: "humans-only" },
+    },
+    {
+      id: script.channelIds.direct,
+      // No name. A direct channel is labelled by the other human in its pair, and a
+      // fixture that gave one a name would let the row render without ever reaching
+      // the pair — which is the whole of what makes the row different.
+      kind: "direct",
+      memberPair: script.directChannelPair,
+      config: { audience: "humans-only" },
     },
   ];
 }

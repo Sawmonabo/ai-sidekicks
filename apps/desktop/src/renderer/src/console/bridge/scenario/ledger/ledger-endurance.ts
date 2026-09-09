@@ -121,97 +121,6 @@ export interface LedgerEnduranceScenarioOptions {
 /** The default chapter count: enough that no fold, cap, or index sees one run. */
 const DEFAULT_ENDURANCE_RUN_COUNT = 24;
 
-/** A generated run's identifier, a function of its index and nothing else. */
-function enduranceRunId(runIndex: number): string {
-  return `${ENDURANCE_ID_PREFIX}-740e-8110-${runIndex.toString(16).padStart(12, "0")}`;
-}
-
-/** One body beat, chosen from the cycle by its position within the run. */
-function enduranceBodyEntry(atMs: number, runId: string, bodyIndex: number): LedgerScriptEntry {
-  const callId = `call-endurance-${String(bodyIndex)}`;
-  switch (bodyIndex % ENDURANCE_BODY_CYCLE_LENGTH) {
-    case 0:
-      return assistantOutputEntry({
-        atMs,
-        sessionId: SESSION_ID,
-        runId,
-        kind: "assistant.thinking_update",
-        contentType: "text/plain",
-        contentLength: 256 + (bodyIndex % 64),
-      });
-    case 1:
-    case 4:
-      return assistantOutputEntry({
-        atMs,
-        sessionId: SESSION_ID,
-        runId,
-        kind: "assistant.message",
-        contentType: "text/markdown",
-        contentLength: 512 + (bodyIndex % 512),
-      });
-    case 2:
-    case 5:
-      return toolActivityEntry({
-        atMs,
-        sessionId: SESSION_ID,
-        runId,
-        kind: "tool.invoked",
-        toolName: "edit_file",
-        toolCallId: callId,
-      });
-    case 3:
-      return toolActivityEntry({
-        atMs,
-        sessionId: SESSION_ID,
-        runId,
-        kind: "tool.result",
-        toolName: "edit_file",
-        toolCallId: `call-endurance-${String(bodyIndex - 1)}`,
-        durationMs: 40 + (bodyIndex % 200),
-        contentLength: 128 + (bodyIndex % 1_024),
-      });
-    case 6:
-      return toolActivityEntry({
-        atMs,
-        sessionId: SESSION_ID,
-        runId,
-        kind: "tool.error",
-        toolName: "edit_file",
-        toolCallId: `call-endurance-${String(bodyIndex - 1)}`,
-        durationMs: 20 + (bodyIndex % 80),
-        contentLength: 96,
-      });
-    default:
-      return {
-        atMs,
-        kind: "usage.context_compacted",
-        // The two members every run-scoped payload in the corpus carries. The
-        // boundary position a compaction seam would render is named nowhere in
-        // `packages/contracts`, so this beat does not claim one.
-        payload: { sessionId: SESSION_ID, runId },
-      };
-  }
-}
-
-/** How many body beats each run gets, and how many the last run absorbs. */
-function planRunBodies(
-  rowCount: number,
-  runCount: number,
-): { readonly bodyPerRun: number; readonly lastRunExtraBody: number } {
-  const bodyBudget = rowCount - OPENING_BEAT_COUNT - runCount * RUN_LIFECYCLE_BEAT_COUNT;
-  const minimumRowCount = rowCount - bodyBudget + runCount;
-  if (bodyBudget < runCount) {
-    throw new RangeError(
-      `a ledger endurance scenario of ${String(runCount)} runs needs at least ` +
-        `${String(minimumRowCount)} rows — ${String(OPENING_BEAT_COUNT)} to open the session, ` +
-        `${String(RUN_LIFECYCLE_BEAT_COUNT)} per run for its lifecycle, and one body row each. ` +
-        `Received ${String(rowCount)}.`,
-    );
-  }
-  const bodyPerRun = Math.floor(bodyBudget / runCount);
-  return { bodyPerRun, lastRunExtraBody: bodyBudget - bodyPerRun * runCount };
-}
-
 /**
  * A generated session of exactly `rowCount` beats, spread over `runCount` chapters.
  *
@@ -370,4 +279,95 @@ export function createLedgerEnduranceScenario(
       },
     ],
   };
+}
+
+/** A generated run's identifier, a function of its index and nothing else. */
+function enduranceRunId(runIndex: number): string {
+  return `${ENDURANCE_ID_PREFIX}-740e-8110-${runIndex.toString(16).padStart(12, "0")}`;
+}
+
+/** One body beat, chosen from the cycle by its position within the run. */
+function enduranceBodyEntry(atMs: number, runId: string, bodyIndex: number): LedgerScriptEntry {
+  const callId = `call-endurance-${String(bodyIndex)}`;
+  switch (bodyIndex % ENDURANCE_BODY_CYCLE_LENGTH) {
+    case 0:
+      return assistantOutputEntry({
+        atMs,
+        sessionId: SESSION_ID,
+        runId,
+        kind: "assistant.thinking_update",
+        contentType: "text/plain",
+        contentLength: 256 + (bodyIndex % 64),
+      });
+    case 1:
+    case 4:
+      return assistantOutputEntry({
+        atMs,
+        sessionId: SESSION_ID,
+        runId,
+        kind: "assistant.message",
+        contentType: "text/markdown",
+        contentLength: 512 + (bodyIndex % 512),
+      });
+    case 2:
+    case 5:
+      return toolActivityEntry({
+        atMs,
+        sessionId: SESSION_ID,
+        runId,
+        kind: "tool.invoked",
+        toolName: "edit_file",
+        toolCallId: callId,
+      });
+    case 3:
+      return toolActivityEntry({
+        atMs,
+        sessionId: SESSION_ID,
+        runId,
+        kind: "tool.result",
+        toolName: "edit_file",
+        toolCallId: `call-endurance-${String(bodyIndex - 1)}`,
+        durationMs: 40 + (bodyIndex % 200),
+        contentLength: 128 + (bodyIndex % 1_024),
+      });
+    case 6:
+      return toolActivityEntry({
+        atMs,
+        sessionId: SESSION_ID,
+        runId,
+        kind: "tool.error",
+        toolName: "edit_file",
+        toolCallId: `call-endurance-${String(bodyIndex - 1)}`,
+        durationMs: 20 + (bodyIndex % 80),
+        contentLength: 96,
+      });
+    default:
+      return {
+        atMs,
+        kind: "usage.context_compacted",
+        // The two members every run-scoped payload in the corpus carries. The
+        // boundary position a compaction seam would render is named nowhere in
+        // `packages/contracts`, so this beat does not claim one.
+        payload: { sessionId: SESSION_ID, runId },
+      };
+  }
+}
+
+/** How many body beats each run gets, and how many the last run absorbs. */
+function planRunBodies(
+  rowCount: number,
+  runCount: number,
+): { readonly bodyPerRun: number; readonly lastRunExtraBody: number } {
+  const bodyBudget = rowCount - OPENING_BEAT_COUNT - runCount * RUN_LIFECYCLE_BEAT_COUNT;
+  const minimumRowCount = rowCount - bodyBudget + runCount;
+  if (bodyBudget < runCount) {
+    throw new RangeError(
+      `a ledger endurance scenario of ${String(runCount)} runs needs at least ` +
+        `${String(minimumRowCount)} rows — ${String(OPENING_BEAT_COUNT)} to open the session, ` +
+        `${String(RUN_LIFECYCLE_BEAT_COUNT)} per run for its lifecycle, and one body row each. ` +
+        `Received ${String(rowCount)}.`,
+    );
+  }
+  const bodyPerRun = Math.floor(bodyBudget / runCount);
+  return { bodyPerRun, lastRunExtraBody: bodyBudget - bodyPerRun * runCount };
 }

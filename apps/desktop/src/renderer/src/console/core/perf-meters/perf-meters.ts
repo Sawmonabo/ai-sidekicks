@@ -72,76 +72,6 @@ export interface PerfMeterReading {
 }
 
 /**
- * One bounded sample series.
- *
- * A fixed-length backing array written round-robin rather than an array that is
- * pushed and shifted: `shift` is O(n) per sample at the exact moment the console is
- * already behind, and the meter must not be the reason a slow frame is slower.
- */
-class BoundedSampleSeries {
-  readonly #samples = new Float64Array(PERF_METER_BOUNDS.seriesSampleCount);
-  #writeIndex = 0;
-  #retainedCount = 0;
-  #recordedCount = 0;
-
-  public record(sample: number): void {
-    this.#samples[this.#writeIndex] = sample;
-    this.#writeIndex = (this.#writeIndex + 1) % PERF_METER_BOUNDS.seriesSampleCount;
-    this.#recordedCount += 1;
-    if (this.#retainedCount < PERF_METER_BOUNDS.seriesSampleCount) {
-      this.#retainedCount += 1;
-    }
-  }
-
-  public get recordedCount(): number {
-    return this.#recordedCount;
-  }
-
-  public get retainedCount(): number {
-    return this.#retainedCount;
-  }
-
-  /** The most recent sample, or zero when nothing has been recorded. */
-  public get latest(): number {
-    if (this.#retainedCount === 0) {
-      return 0;
-    }
-    const latestIndex =
-      (this.#writeIndex + PERF_METER_BOUNDS.seriesSampleCount - 1) %
-      PERF_METER_BOUNDS.seriesSampleCount;
-    return this.#samples[latestIndex] ?? 0;
-  }
-
-  /**
-   * The retained samples, ascending.
-   *
-   * Sorted on READ and never on write, because a reader is an author looking at a
-   * panel and a writer is the frame the panel is measuring.
-   */
-  public sortedSamples(): readonly number[] {
-    const retained = Array.from(this.#samples.slice(0, this.#retainedCount));
-    return retained.sort((left, right) => left - right);
-  }
-}
-
-/**
- * Where a percentile falls in an ascending sample list.
- *
- * Nearest-rank, which is the definition that needs no interpolation and therefore
- * always reports a sample the console actually observed. An interpolated p95 is a
- * number no frame ever cost, and the reading is used to decide whether a real frame
- * blew the budget.
- */
-function nearestRankSample(sortedSamples: readonly number[], percentile: number): number {
-  if (sortedSamples.length === 0) {
-    return 0;
-  }
-  const rank = Math.ceil((percentile / 100) * sortedSamples.length);
-  const index = Math.min(Math.max(rank, 1), sortedSamples.length) - 1;
-  return sortedSamples[index] ?? 0;
-}
-
-/**
  * The console's perf-meter registry.
  *
  * A class rather than module-level maps so a test constructs one, drives it, and
@@ -283,6 +213,76 @@ export class PerfMeterRegistry {
     this.#openSeriesCount = 0;
     this.#refusedSeriesCount = 0;
   }
+}
+
+/**
+ * One bounded sample series.
+ *
+ * A fixed-length backing array written round-robin rather than an array that is
+ * pushed and shifted: `shift` is O(n) per sample at the exact moment the console is
+ * already behind, and the meter must not be the reason a slow frame is slower.
+ */
+class BoundedSampleSeries {
+  readonly #samples = new Float64Array(PERF_METER_BOUNDS.seriesSampleCount);
+  #writeIndex = 0;
+  #retainedCount = 0;
+  #recordedCount = 0;
+
+  public record(sample: number): void {
+    this.#samples[this.#writeIndex] = sample;
+    this.#writeIndex = (this.#writeIndex + 1) % PERF_METER_BOUNDS.seriesSampleCount;
+    this.#recordedCount += 1;
+    if (this.#retainedCount < PERF_METER_BOUNDS.seriesSampleCount) {
+      this.#retainedCount += 1;
+    }
+  }
+
+  public get recordedCount(): number {
+    return this.#recordedCount;
+  }
+
+  public get retainedCount(): number {
+    return this.#retainedCount;
+  }
+
+  /** The most recent sample, or zero when nothing has been recorded. */
+  public get latest(): number {
+    if (this.#retainedCount === 0) {
+      return 0;
+    }
+    const latestIndex =
+      (this.#writeIndex + PERF_METER_BOUNDS.seriesSampleCount - 1) %
+      PERF_METER_BOUNDS.seriesSampleCount;
+    return this.#samples[latestIndex] ?? 0;
+  }
+
+  /**
+   * The retained samples, ascending.
+   *
+   * Sorted on READ and never on write, because a reader is an author looking at a
+   * panel and a writer is the frame the panel is measuring.
+   */
+  public sortedSamples(): readonly number[] {
+    const retained = Array.from(this.#samples.slice(0, this.#retainedCount));
+    return retained.sort((left, right) => left - right);
+  }
+}
+
+/**
+ * Where a percentile falls in an ascending sample list.
+ *
+ * Nearest-rank, which is the definition that needs no interpolation and therefore
+ * always reports a sample the console actually observed. An interpolated p95 is a
+ * number no frame ever cost, and the reading is used to decide whether a real frame
+ * blew the budget.
+ */
+function nearestRankSample(sortedSamples: readonly number[], percentile: number): number {
+  if (sortedSamples.length === 0) {
+    return 0;
+  }
+  const rank = Math.ceil((percentile / 100) * sortedSamples.length);
+  const index = Math.min(Math.max(rank, 1), sortedSamples.length) - 1;
+  return sortedSamples[index] ?? 0;
 }
 
 /**

@@ -250,29 +250,6 @@ const LEDGER_JUMP_ACTS = {
 } satisfies Readonly<Record<LedgerJumpAbsence, LedgerJumpAct>>;
 
 /**
- * One offer that opens the folds holding a row and then jumps to it.
- *
- * The two folded arms differ in their WORDS and in nothing else — both open whichever
- * folds are holding the row, because a row can be inside a shut chapter, inside a folded
- * band, or inside both, and an act that opened one of two would scroll the ledger to a
- * row still folded away. Writing the body twice would let the second copy drift into
- * opening only its own fold.
- */
-function openFoldsAct(
-  label: string,
-  row: TimelineRow,
-  context: LedgerJumpActContext,
-): LedgerJumpReach {
-  return {
-    label,
-    perform: () => {
-      context.openFoldsHoldingRow(row);
-      context.requestJump(row.id);
-    },
-  };
-}
-
-/**
  * The act this ledger offers for one outcome, or `undefined` where it offers none.
  *
  * The two non-absence arms answer before the table is consulted, and each for its
@@ -347,4 +324,27 @@ export function chapterRunIdInWindow(
     return undefined;
   }
   return foldedWindow.chapterByHeaderKey.has(runId) ? runId : undefined;
+}
+
+/**
+ * One offer that opens the folds holding a row and then jumps to it.
+ *
+ * The two folded arms differ in their WORDS and in nothing else — both open whichever
+ * folds are holding the row, because a row can be inside a shut chapter, inside a folded
+ * band, or inside both, and an act that opened one of two would scroll the ledger to a
+ * row still folded away. Writing the body twice would let the second copy drift into
+ * opening only its own fold.
+ */
+function openFoldsAct(
+  label: string,
+  row: TimelineRow,
+  context: LedgerJumpActContext,
+): LedgerJumpReach {
+  return {
+    label,
+    perform: () => {
+      context.openFoldsHoldingRow(row);
+      context.requestJump(row.id);
+    },
+  };
 }

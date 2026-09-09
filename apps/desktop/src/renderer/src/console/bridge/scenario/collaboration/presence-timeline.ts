@@ -49,12 +49,6 @@ import type {
 const FIRST_TRANSITION_MS = 380;
 const TRANSITION_STEP_MS = 20;
 
-/** The people this room moves through a `presence.*` transition. Never the opener. */
-type CollaborationPresenceMover = Exclude<
-  CollaborationParticipant,
-  { presenceState: typeof PRESENCE_STATE_AT_JOIN }
->;
-
 /** One scheduled move: who, when, into which state, and the stamp it leaves behind. */
 export interface CollaborationPresenceTransition {
   readonly participantId: ParticipantId;
@@ -66,6 +60,12 @@ export interface CollaborationPresenceTransition {
   /** What `lastSeen` reads once the move is due, and the frame's own `occurredAt`. */
   readonly lastSeenIso: string;
 }
+
+/** The people this room moves through a `presence.*` transition. Never the opener. */
+type CollaborationPresenceMover = Exclude<
+  CollaborationParticipant,
+  { presenceState: typeof PRESENCE_STATE_AT_JOIN }
+>;
 
 /** The roster's joiner arm, narrowed by the one state no transition announces. */
 const COLLABORATION_PRESENCE_MOVERS: readonly CollaborationPresenceMover[] =
@@ -108,16 +108,6 @@ export const COLLABORATION_PRESENCE_TRANSITIONS: readonly CollaborationPresenceT
  */
 const SESSION_START_EPOCH_MS: number = readSessionStartEpochMilliseconds();
 
-function readSessionStartEpochMilliseconds(): number {
-  const start = parseInstant(SESSION_STARTED_AT_ISO);
-  if (start.kind !== "instant") {
-    throw new Error(
-      `the collaboration room declares a start instant nothing can read: ${SESSION_STARTED_AT_ISO}`,
-    );
-  }
-  return start.epochMilliseconds;
-}
-
 /**
  * What `presence.read` answers at one instant on the scenario's frozen clock.
  *
@@ -153,4 +143,14 @@ export function collaborationPresenceRowsAt(
           lastSeen: moved.lastSeenIso,
         };
   });
+}
+
+function readSessionStartEpochMilliseconds(): number {
+  const start = parseInstant(SESSION_STARTED_AT_ISO);
+  if (start.kind !== "instant") {
+    throw new Error(
+      `the collaboration room declares a start instant nothing can read: ${SESSION_STARTED_AT_ISO}`,
+    );
+  }
+  return start.epochMilliseconds;
 }

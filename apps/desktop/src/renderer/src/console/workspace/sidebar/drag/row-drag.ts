@@ -86,6 +86,57 @@ export function sidebarRowTargetFromDragData(
  */
 export const SIDEBAR_ROW_DECK_DROP_KEY = "sidebar.deckDropTarget";
 
+/**
+ * Every row's bound drag source, one per row that is on screen.
+ *
+ * A CLASS holding the binders, because a ref callback rebuilt on every render is a
+ * `draggable()` torn down and rebound on every keystroke in the filter field. The
+ * binder is cached per row id and the cache is bounded by the rows themselves: the ref
+ * callback is called with `null` when the row unmounts, and that is where the entry is
+ * dropped. There is no cap to choose, because nothing accumulates.
+ */
+export class SidebarRowDragSources {
+  readonly #bindersByNodeId = new Map<string, (element: HTMLElement | null) => void>();
+  readonly #cleanupsByNodeId = new Map<string, () => void>();
+
+  /** The ref callback one row binds its element through. Stable for that row's id. */
+  public binderFor(target: SidebarRowDragTarget): (element: HTMLElement | null) => void {
+    const bound = this.#bindersByNodeId.get(target.nodeId);
+    if (bound !== undefined) {
+      return bound;
+    }
+    const binder = (element: HTMLElement | null): void => {
+      this.#cleanupsByNodeId.get(target.nodeId)?.();
+      this.#cleanupsByNodeId.delete(target.nodeId);
+      if (element === null) {
+        this.#bindersByNodeId.delete(target.nodeId);
+        return;
+      }
+      this.#cleanupsByNodeId.set(
+        target.nodeId,
+        draggable({
+          element,
+          // Read at drag start rather than captured at bind time: a row keeps its id
+          // while its label and its address move under it, and a payload frozen at
+          // mount would open the pane the row used to name.
+          getInitialData: () => ({ [SIDEBAR_ROW_DRAG_KEY]: target }),
+        }),
+      );
+    };
+    this.#bindersByNodeId.set(target.nodeId, binder);
+    return binder;
+  }
+
+  /** Unbind everything. Called when the column that owns these rows goes away. */
+  public dispose(): void {
+    for (const cleanup of this.#cleanupsByNodeId.values()) {
+      cleanup();
+    }
+    this.#cleanupsByNodeId.clear();
+    this.#bindersByNodeId.clear();
+  }
+}
+
 /** Whether one of the drop targets a gesture settled over is the deck's. */
 export function isSidebarRowDeckDropTarget(data: Record<string | symbol, unknown>): boolean {
   return data[SIDEBAR_ROW_DECK_DROP_KEY] === true;
@@ -154,57 +205,6 @@ export function commitSidebarRowDrop(
   }
   openPane(target.opens);
   announce(`Opened ${target.label} in the deck.`, "polite");
-}
-
-/**
- * Every row's bound drag source, one per row that is on screen.
- *
- * A CLASS holding the binders, because a ref callback rebuilt on every render is a
- * `draggable()` torn down and rebound on every keystroke in the filter field. The
- * binder is cached per row id and the cache is bounded by the rows themselves: the ref
- * callback is called with `null` when the row unmounts, and that is where the entry is
- * dropped. There is no cap to choose, because nothing accumulates.
- */
-export class SidebarRowDragSources {
-  readonly #bindersByNodeId = new Map<string, (element: HTMLElement | null) => void>();
-  readonly #cleanupsByNodeId = new Map<string, () => void>();
-
-  /** The ref callback one row binds its element through. Stable for that row's id. */
-  public binderFor(target: SidebarRowDragTarget): (element: HTMLElement | null) => void {
-    const bound = this.#bindersByNodeId.get(target.nodeId);
-    if (bound !== undefined) {
-      return bound;
-    }
-    const binder = (element: HTMLElement | null): void => {
-      this.#cleanupsByNodeId.get(target.nodeId)?.();
-      this.#cleanupsByNodeId.delete(target.nodeId);
-      if (element === null) {
-        this.#bindersByNodeId.delete(target.nodeId);
-        return;
-      }
-      this.#cleanupsByNodeId.set(
-        target.nodeId,
-        draggable({
-          element,
-          // Read at drag start rather than captured at bind time: a row keeps its id
-          // while its label and its address move under it, and a payload frozen at
-          // mount would open the pane the row used to name.
-          getInitialData: () => ({ [SIDEBAR_ROW_DRAG_KEY]: target }),
-        }),
-      );
-    };
-    this.#bindersByNodeId.set(target.nodeId, binder);
-    return binder;
-  }
-
-  /** Unbind everything. Called when the column that owns these rows goes away. */
-  public dispose(): void {
-    for (const cleanup of this.#cleanupsByNodeId.values()) {
-      cleanup();
-    }
-    this.#cleanupsByNodeId.clear();
-    this.#bindersByNodeId.clear();
-  }
 }
 
 /** Hold one set of row sources for the lifetime of the column that owns them. */

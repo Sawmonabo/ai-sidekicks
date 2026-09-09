@@ -46,15 +46,6 @@ import { answeredScalar, UNANSWERED_SCALAR } from "../answer/schema-draft.js";
  */
 const UNANSWERED_OPTION_VALUE = "";
 
-/** Where a held value sits among the options, or nothing where it is not one of them. */
-function selectedIndexOf(
-  options: readonly SchemaChoiceOption[],
-  value: unknown,
-): number | undefined {
-  const found = options.findIndex((option) => option.memberValue === value);
-  return found < 0 ? undefined : found;
-}
-
 /** One of the answers this member has, or none yet. */
 export function SchemaChoiceField(props: SchemaFieldControlProps): React.JSX.Element {
   const options = choiceOptionsFor(props.field);
@@ -86,4 +77,13 @@ export function SchemaChoiceField(props: SchemaFieldControlProps): React.JSX.Ele
       ))}
     </select>
   );
+}
+
+/** Where a held value sits among the options, or nothing where it is not one of them. */
+function selectedIndexOf(
+  options: readonly SchemaChoiceOption[],
+  value: unknown,
+): number | undefined {
+  const found = options.findIndex((option) => option.memberValue === value);
+  return found < 0 ? undefined : found;
 }

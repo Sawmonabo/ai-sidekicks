@@ -77,6 +77,26 @@ export interface RosterRow {
 }
 
 /**
+ * One settled roster read: who was there, and WHEN the console heard it.
+ *
+ * The stamp rides the reading rather than being sampled where the rows are drawn.
+ * A relative age is measured against an instant, and a render body that read the
+ * clock for one produced a figure that depended on when the tree last happened to
+ * re-render: a participant idle since 10:00 went on reading "a few seconds ago" at
+ * 10:45 and then jumped straight to "45 minutes ago" the moment something unrelated
+ * moved. Stamped at the read, the instant is a fact about the read; advancing it is
+ * `useDeadlineWake`'s job and nobody else's.
+ */
+export interface PresenceReading {
+  readonly participants: readonly PresenceReadResponseParticipant[];
+  /** When this read settled, off the console's one clock. */
+  readonly readAtMilliseconds: number;
+}
+
+/** The read the roster is built on, with its refresh already bound. */
+export type PresenceRoster = PushDrivenRead<PresenceReading>;
+
+/**
  * Order the read's participants for the eye and attach each one's hue.
  *
  * Pure, and separated from the model for the reason the channel ordering is: the
@@ -114,26 +134,6 @@ export function rosterRowsFrom(
       isSelf: participant.participantId === selfParticipantId,
     }));
 }
-
-/**
- * One settled roster read: who was there, and WHEN the console heard it.
- *
- * The stamp rides the reading rather than being sampled where the rows are drawn.
- * A relative age is measured against an instant, and a render body that read the
- * clock for one produced a figure that depended on when the tree last happened to
- * re-render: a participant idle since 10:00 went on reading "a few seconds ago" at
- * 10:45 and then jumped straight to "45 minutes ago" the moment something unrelated
- * moved. Stamped at the read, the instant is a fact about the read; advancing it is
- * `useDeadlineWake`'s job and nobody else's.
- */
-export interface PresenceReading {
-  readonly participants: readonly PresenceReadResponseParticipant[];
-  /** When this read settled, off the console's one clock. */
-  readonly readAtMilliseconds: number;
-}
-
-/** The read the roster is built on, with its refresh already bound. */
-export type PresenceRoster = PushDrivenRead<PresenceReading>;
 
 /**
  * The instants at which a row's rendered age changes, for every row.

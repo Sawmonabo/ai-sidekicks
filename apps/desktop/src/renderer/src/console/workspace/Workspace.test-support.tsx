@@ -53,29 +53,10 @@ export const SCENARIO: ConsoleScenario = {
   replies: [],
 };
 
-/**
- * A body that says which kind it is, and offers the host's own detach control.
- *
- * The control is read off `PaneControlsContext`, which is the seam
- * `seats/ConsolePaneChrome` reads it from — so a case that presses it drives the
- * workspace through the same path a person does, rather than through a callback the
- * test invented. Through the context itself rather than the `usePaneControls` hook
- * beside it, because the hook is not a door line and a deep cross-family import is
- * one this file is not exempt from: the layering cruise excludes `*.test.*` and a
- * `.test-support` module is not one.
- */
-function TestPaneBody(props: { readonly kind: string }): React.JSX.Element {
-  const controls = useContext(PaneControlsContext);
-  return (
-    <p data-body={props.kind}>
-      {props.kind} body
-      {controls?.onOpenInWindow === undefined ? null : (
-        <button type="button" data-detach={props.kind} onClick={controls.onOpenInWindow}>
-          Open in a window
-        </button>
-      )}
-    </p>
-  );
+/** One session the workspace can be pointed at, with the store it renders. */
+export interface WorkspaceSession {
+  readonly sessionId: string;
+  readonly store: SessionStore;
 }
 
 /** A registry whose bodies say which kind they are, so a pane is identifiable. */
@@ -105,13 +86,98 @@ export function sessionStore(sessionId: string = SESSION_ID): SessionStore {
   return store;
 }
 
-/** One session the workspace can be pointed at, with the store it renders. */
-export interface WorkspaceSession {
-  readonly sessionId: string;
-  readonly store: SessionStore;
+/**
+ * A body that says which kind it is, and offers the host's own detach control.
+ *
+ * The control is read off `PaneControlsContext`, which is the seam
+ * `seats/ConsolePaneChrome` reads it from — so a case that presses it drives the
+ * workspace through the same path a person does, rather than through a callback the
+ * test invented. Through the context itself rather than the `usePaneControls` hook
+ * beside it, because the hook is not a door line and a deep cross-family import is
+ * one this file is not exempt from: the layering cruise excludes `*.test.*` and a
+ * `.test-support` module is not one.
+ */
+function TestPaneBody(props: { readonly kind: string }): React.JSX.Element {
+  const controls = useContext(PaneControlsContext);
+  return (
+    <p data-body={props.kind}>
+      {props.kind} body
+      {controls?.onOpenInWindow === undefined ? null : (
+        <button type="button" data-detach={props.kind} onClick={controls.onOpenInWindow}>
+          Open in a window
+        </button>
+      )}
+    </p>
+  );
 }
 
 export const SESSION_B_ID = "session-workspace-b";
+
+/** One gate a test opens and closes. Open by default, so nothing waits by accident. */
+class SettlementGate {
+  #held: Promise<void> | undefined;
+  #open: (() => void) | undefined;
+
+  public close(): void {
+    this.#held = new Promise<void>((resolve) => {
+      this.#open = resolve;
+    });
+  }
+
+  public open(): void {
+    this.#open?.();
+    this.#open = undefined;
+    this.#held = undefined;
+  }
+
+  public async passed(): Promise<void> {
+    await this.#held;
+  }
+}
+
+/**
+ * The memory adapter, plus a gate a test closes and a ledger of what was asked.
+ *
+ * Two things the plain adapter cannot give. The GATE holds a write open, which is
+ * what puts a second arrangement in the writer's pending slot — the state a coalescing
+ * writer spends a whole resize drag in, and the only state in which the partition it
+ * files under can disagree with the one that asked. The LEDGER records the partition
+ * every write NAMED, so the assertion is about where an arrangement was filed rather
+ * than about which record happened to be written last.
+ */
+export class GatedPersistenceAdapter extends MemoryPersistenceAdapter {
+  readonly asked: { readonly partition: string; readonly value: unknown }[] = [];
+  #writeGate = new SettlementGate();
+  #readGate = new SettlementGate();
+
+  public holdWrites(): void {
+    this.#writeGate.close();
+  }
+
+  public releaseWrites(): void {
+    this.#writeGate.open();
+  }
+
+  /** Holds the arriving session's restore open, so the ordering is decided here. */
+  public holdReads(): void {
+    this.#readGate.close();
+  }
+
+  public releaseReads(): void {
+    this.#readGate.open();
+  }
+
+  public override async read(partition: string, key: string): Promise<StoredRecord | undefined> {
+    await this.#readGate.passed();
+    return super.read(partition, key);
+  }
+
+  public override async write(record: StoredRecord): Promise<void> {
+    this.asked.push({ partition: record.partition, value: record.value });
+    await this.#writeGate.passed();
+    await super.write(record);
+  }
+}
 
 /**
  * The workspace under the window's announcer, which is where `AppFrame` mounts it.
@@ -141,6 +207,10 @@ export function otherSession(): WorkspaceSession {
   store.initialise({ cursor: 0, entities: [], participantJoinLog: ["participant-you"] });
   return { sessionId: SESSION_B_ID, store };
 }
+
+// The three scaffolding pieces below are shared rather than declared per suite: the
+// store-swap suite drives the same gated adapter the navigation suite does, and a
+// second copy of a write ledger is two ledgers that can disagree about what was asked.
 
 /** The workspace for one session, in the shape `AppFrame` mounts it in. */
 export function workspaceFor(
@@ -205,76 +275,6 @@ export function underWindowProviders(
       </LiveAnnouncerProvider>
     </SidekicksBridgeProvider>
   );
-}
-
-// The three scaffolding pieces below are shared rather than declared per suite: the
-// store-swap suite drives the same gated adapter the navigation suite does, and a
-// second copy of a write ledger is two ledgers that can disagree about what was asked.
-
-/**
- * The memory adapter, plus a gate a test closes and a ledger of what was asked.
- *
- * Two things the plain adapter cannot give. The GATE holds a write open, which is
- * what puts a second arrangement in the writer's pending slot — the state a coalescing
- * writer spends a whole resize drag in, and the only state in which the partition it
- * files under can disagree with the one that asked. The LEDGER records the partition
- * every write NAMED, so the assertion is about where an arrangement was filed rather
- * than about which record happened to be written last.
- */
-export class GatedPersistenceAdapter extends MemoryPersistenceAdapter {
-  readonly asked: { readonly partition: string; readonly value: unknown }[] = [];
-  #writeGate = new SettlementGate();
-  #readGate = new SettlementGate();
-
-  public holdWrites(): void {
-    this.#writeGate.close();
-  }
-
-  public releaseWrites(): void {
-    this.#writeGate.open();
-  }
-
-  /** Holds the arriving session's restore open, so the ordering is decided here. */
-  public holdReads(): void {
-    this.#readGate.close();
-  }
-
-  public releaseReads(): void {
-    this.#readGate.open();
-  }
-
-  public override async read(partition: string, key: string): Promise<StoredRecord | undefined> {
-    await this.#readGate.passed();
-    return super.read(partition, key);
-  }
-
-  public override async write(record: StoredRecord): Promise<void> {
-    this.asked.push({ partition: record.partition, value: record.value });
-    await this.#writeGate.passed();
-    await super.write(record);
-  }
-}
-
-/** One gate a test opens and closes. Open by default, so nothing waits by accident. */
-class SettlementGate {
-  #held: Promise<void> | undefined;
-  #open: (() => void) | undefined;
-
-  public close(): void {
-    this.#held = new Promise<void>((resolve) => {
-      this.#open = resolve;
-    });
-  }
-
-  public open(): void {
-    this.#open?.();
-    this.#open = undefined;
-    this.#held = undefined;
-  }
-
-  public async passed(): Promise<void> {
-    await this.#held;
-  }
 }
 
 /** A saved arrangement for one session, written by the grammar that reads it back. */

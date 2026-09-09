@@ -125,28 +125,6 @@ export interface LedgerComposition {
 }
 
 /**
- * What the workspace slot hands its body.
- *
- * Derived from the surface context rather than restated, so a member added there is
- * carried here without a second declaration to keep in step. `sessionStoreRegistry` is
- * subtracted because the workspace renders ONE session — a surface that has to offer
- * sessions reads the registry, and this one is handed the session it is a view of.
- */
-type WorkspaceMountProps = Omit<ConsoleSurfaceContext, "sessionStoreRegistry">;
-
-/** The two slots this family claims, given the body the root composed in. */
-function ledgerSurfaces(composition: LedgerComposition): readonly ConsoleSurfaceRegistration[] {
-  return [
-    {
-      slot: "workspace",
-      owner: LEDGER_SURFACE_OWNER,
-      render: (context) => mountWorkspace(context, composition.workspace),
-    },
-    { slot: "timeline", owner: LEDGER_SURFACE_OWNER, render: mountLedgerPane },
-  ];
-}
-
-/**
  * Claim the two surfaces the ledger mounts.
  *
  * Takes the registry rather than reaching for the module-scope singleton, for
@@ -207,6 +185,28 @@ export function registerLedgerPanes(registry: ConsolePaneRegistry): void {
     // while the module is in flight.
     body: () => import("./pane/timeline-pane-body.js"),
   });
+}
+
+/**
+ * What the workspace slot hands its body.
+ *
+ * Derived from the surface context rather than restated, so a member added there is
+ * carried here without a second declaration to keep in step. `sessionStoreRegistry` is
+ * subtracted because the workspace renders ONE session — a surface that has to offer
+ * sessions reads the registry, and this one is handed the session it is a view of.
+ */
+type WorkspaceMountProps = Omit<ConsoleSurfaceContext, "sessionStoreRegistry">;
+
+/** The two slots this family claims, given the body the root composed in. */
+function ledgerSurfaces(composition: LedgerComposition): readonly ConsoleSurfaceRegistration[] {
+  return [
+    {
+      slot: "workspace",
+      owner: LEDGER_SURFACE_OWNER,
+      render: (context) => mountWorkspace(context, composition.workspace),
+    },
+    { slot: "timeline", owner: LEDGER_SURFACE_OWNER, render: mountLedgerPane },
+  ];
 }
 
 /**

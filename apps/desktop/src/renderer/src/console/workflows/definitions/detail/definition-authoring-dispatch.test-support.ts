@@ -30,6 +30,20 @@ import {
   type WorkflowDetailRefusalCode,
 } from "./definition-authoring.js";
 
+/** The two seams an act reaches, each replaceable and each optional. */
+export interface BridgeParts {
+  /** Replaces the port's create arm. Absent leaves the refusing one in place. */
+  readonly create?: GrowthPort["workflowDefinitionCreate"];
+  /** Replaces the host's clipboard write. Absent accepts every write. */
+  readonly copyToClipboard?: (file: string) => Promise<void>;
+}
+
+/** One mounted hook: what it reads now, and a way to press it and let answers land. */
+export interface MountedAuthoring {
+  readonly current: () => WorkflowDefinitionAuthoring;
+  readonly press: (pressed: () => void) => Promise<void>;
+}
+
 /**
  * The body the fixture states for the definition every case is addressed at.
  *
@@ -49,14 +63,6 @@ export function scriptedBody(): WorkflowVersionBody {
   return body;
 }
 
-/** The two seams an act reaches, each replaceable and each optional. */
-export interface BridgeParts {
-  /** Replaces the port's create arm. Absent leaves the refusing one in place. */
-  readonly create?: GrowthPort["workflowDefinitionCreate"];
-  /** Replaces the host's clipboard write. Absent accepts every write. */
-  readonly copyToClipboard?: (file: string) => Promise<void>;
-}
-
 /** A bridge carrying exactly the two seams an act reaches: the port and the clipboard. */
 export function authoringBridge(parts: BridgeParts = {}): ConsoleBridge {
   const refusing = createRefusingGrowthPort();
@@ -69,12 +75,6 @@ export function authoringBridge(parts: BridgeParts = {}): ConsoleBridge {
     growth,
     sidekicks: { native: { copyToClipboard } },
   } as unknown as ConsoleBridge;
-}
-
-/** One mounted hook: what it reads now, and a way to press it and let answers land. */
-export interface MountedAuthoring {
-  readonly current: () => WorkflowDefinitionAuthoring;
-  readonly press: (pressed: () => void) => Promise<void>;
 }
 
 /**

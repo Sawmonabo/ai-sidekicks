@@ -81,20 +81,6 @@ export interface EntityFacet {
   readonly value: EntityFacetValue;
 }
 
-/**
- * The sentence an absent member carries.
- *
- * One generator rather than thirty hand-written strings: the fact is the same
- * every time — the record the console holds does not carry this member — and a
- * fact restated thirty times drifts into thirty slightly different claims.
- */
-function unrecorded(memberName: string): EntityFacetValue {
-  return {
-    form: "unrecorded",
-    detail: `The record the console holds carries no ${memberName}. A member that has not been projected is not a member that is empty.`,
-  };
-}
-
 /** Read one member of an entity's kind-specific body. `undefined` where absent. */
 export function readBodyMember(entity: ConsoleEntity | undefined, memberName: string): unknown {
   return entity?.body?.[memberName];
@@ -192,4 +178,18 @@ export function countAttributedTo(
   participantId: string,
 ): number {
   return Object.values(entities).filter((entity) => entity.attributedTo === participantId).length;
+}
+
+/**
+ * The sentence an absent member carries.
+ *
+ * One generator rather than thirty hand-written strings: the fact is the same
+ * every time — the record the console holds does not carry this member — and a
+ * fact restated thirty times drifts into thirty slightly different claims.
+ */
+function unrecorded(memberName: string): EntityFacetValue {
+  return {
+    form: "unrecorded",
+    detail: `The record the console holds carries no ${memberName}. A member that has not been projected is not a member that is empty.`,
+  };
 }

@@ -39,26 +39,6 @@ export const REPORTED_PAGE: NavigationEvent = {
   loadProgress: null,
 };
 
-interface DeferredSubscriptionOptions {
-  readonly events?: readonly NavigationEvent[];
-  /** Thrown by the iterator once the events are drained — a producer that died. */
-  readonly failsAfterEventsWith?: unknown;
-  /**
-   * Hold the iterator open after the events, until the test says the producer is
-   * finished — which is what a live subscription does.
-   *
-   * A generator that returns as soon as its script runs out is a producer that has
-   * ALREADY ended, so a case about the moment a subscription ends, or about what the
-   * pane does while one is live, needs that moment to be the test's to choose.
-   */
-  readonly staysOpen?: boolean;
-}
-
-interface SubscriptionSettlement {
-  readonly resolve: (outcome: SubscribeOutcome) => void;
-  readonly reject: (failure: unknown) => void;
-}
-
 /**
  * A bridge whose navigation subscription settles when the TEST says so, and a stream
  * that records its own close. The pending promise is the whole subject: the fixture
@@ -115,4 +95,24 @@ export function deferredSubscription(options: DeferredSubscriptionOptions = {}):
       },
     },
   };
+}
+
+interface DeferredSubscriptionOptions {
+  readonly events?: readonly NavigationEvent[];
+  /** Thrown by the iterator once the events are drained — a producer that died. */
+  readonly failsAfterEventsWith?: unknown;
+  /**
+   * Hold the iterator open after the events, until the test says the producer is
+   * finished — which is what a live subscription does.
+   *
+   * A generator that returns as soon as its script runs out is a producer that has
+   * ALREADY ended, so a case about the moment a subscription ends, or about what the
+   * pane does while one is live, needs that moment to be the test's to choose.
+   */
+  readonly staysOpen?: boolean;
+}
+
+interface SubscriptionSettlement {
+  readonly resolve: (outcome: SubscribeOutcome) => void;
+  readonly reject: (failure: unknown) => void;
 }

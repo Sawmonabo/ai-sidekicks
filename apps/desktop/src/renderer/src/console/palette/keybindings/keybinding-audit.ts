@@ -86,35 +86,20 @@ const RESERVED_CHORDS_BY_PLATFORM: Readonly<Record<ChordPlatform, readonly Reser
   ],
 };
 
-/**
- * The one comparison key for a chord, or `undefined` when it does not parse.
- *
- * The service's own normalisation, so a menu accelerator and a binding that name one
- * keystroke in two spellings collide here exactly as two bindings would.
- */
-function chordComparisonKey(chord: string): string | undefined {
-  const parsed = parseChord(chord);
-  return parsed.ok ? normalizePressForComparison(parsed.press) : undefined;
+/** A binding the keybinding service refused to install, with its own reason. */
+export interface DroppedBinding {
+  readonly commandId: string;
+  readonly chord: string;
+  readonly reason: string;
 }
 
-/**
- * The reason the menu bar takes this chord, or `undefined`.
- *
- * A linear scan over a two-entry list rather than a held index: the accelerators are
- * a closed record over the route set, and a module-level cache would be state this
- * module has no other reason to own.
- */
-function menuAcceleratorReason(chord: string): string | undefined {
-  const candidateKey = chordComparisonKey(chord);
-  if (candidateKey === undefined) {
-    return undefined;
-  }
-  const taken = AUXILIARY_MENU_CHORD_LIST.some(
-    (menuChord) => chordComparisonKey(menuChord) === candidateKey,
-  );
-  return taken
-    ? "This application's own menu bar takes this chord before the page sees it."
-    : undefined;
+/** Two commands that can be live on one chord, as the service reports the pair. */
+export type KeybindingConflict = ReturnType<typeof KeyBindingTable.conflictsIn>[number];
+
+/** Everything the service can say about a binding set without installing it. */
+export interface KeybindingAudit {
+  readonly conflicts: readonly KeybindingConflict[];
+  readonly dropped: readonly DroppedBinding[];
 }
 
 /**
@@ -131,22 +116,6 @@ export function reservedChordReason(
     (reserved) => reserved.chord.toLowerCase() === chord.toLowerCase(),
   )?.reason;
   return platformReason ?? menuAcceleratorReason(chord);
-}
-
-/** A binding the keybinding service refused to install, with its own reason. */
-export interface DroppedBinding {
-  readonly commandId: string;
-  readonly chord: string;
-  readonly reason: string;
-}
-
-/** Two commands that can be live on one chord, as the service reports the pair. */
-export type KeybindingConflict = ReturnType<typeof KeyBindingTable.conflictsIn>[number];
-
-/** Everything the service can say about a binding set without installing it. */
-export interface KeybindingAudit {
-  readonly conflicts: readonly KeybindingConflict[];
-  readonly dropped: readonly DroppedBinding[];
 }
 
 /**
@@ -179,4 +148,35 @@ export function auditKeybindings(bindings: readonly KeyBinding[]): KeybindingAud
     }
   }
   return { conflicts: KeyBindingTable.conflictsIn(bindings), dropped };
+}
+
+/**
+ * The one comparison key for a chord, or `undefined` when it does not parse.
+ *
+ * The service's own normalisation, so a menu accelerator and a binding that name one
+ * keystroke in two spellings collide here exactly as two bindings would.
+ */
+function chordComparisonKey(chord: string): string | undefined {
+  const parsed = parseChord(chord);
+  return parsed.ok ? normalizePressForComparison(parsed.press) : undefined;
+}
+
+/**
+ * The reason the menu bar takes this chord, or `undefined`.
+ *
+ * A linear scan over a two-entry list rather than a held index: the accelerators are
+ * a closed record over the route set, and a module-level cache would be state this
+ * module has no other reason to own.
+ */
+function menuAcceleratorReason(chord: string): string | undefined {
+  const candidateKey = chordComparisonKey(chord);
+  if (candidateKey === undefined) {
+    return undefined;
+  }
+  const taken = AUXILIARY_MENU_CHORD_LIST.some(
+    (menuChord) => chordComparisonKey(menuChord) === candidateKey,
+  );
+  return taken
+    ? "This application's own menu bar takes this chord before the page sees it."
+    : undefined;
 }

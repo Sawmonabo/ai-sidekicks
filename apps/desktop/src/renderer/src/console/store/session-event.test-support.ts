@@ -29,20 +29,6 @@
 import type { ConsoleSessionEvent } from "./entities/entities.js";
 
 /**
- * The instant an event at `sequence` occurred, one second apart and clamped to the day.
- *
- * Derived rather than fixed so a suite applying a burst gets events that can be
- * ORDERED — a shared literal makes every comparison a tie, which is the one reading a
- * timestamp exists to give. Clamped because a suite reaching for a large or unsafe
- * sequence wants an event, not an `Invalid Date` that fails somewhere else entirely.
- */
-function occurredAtFor(sequence: number): string {
-  const startOfDay = Date.UTC(2026, 0, 1);
-  const secondsIntoDay = Number.isSafeInteger(sequence) ? Math.min(Math.abs(sequence), 86_399) : 0;
-  return new Date(startOfDay + secondsIntoDay * 1000).toISOString();
-}
-
-/**
  * One admitted event of the given kind, numbered so a store's cursor moves.
  *
  * `sessionId` first and explicit rather than read off a store, because the suites that
@@ -64,4 +50,18 @@ export function eventOfKind(
     occurredAt: occurredAtFor(sequence),
     ...(payload === undefined ? {} : { payload }),
   };
+}
+
+/**
+ * The instant an event at `sequence` occurred, one second apart and clamped to the day.
+ *
+ * Derived rather than fixed so a suite applying a burst gets events that can be
+ * ORDERED — a shared literal makes every comparison a tie, which is the one reading a
+ * timestamp exists to give. Clamped because a suite reaching for a large or unsafe
+ * sequence wants an event, not an `Invalid Date` that fails somewhere else entirely.
+ */
+function occurredAtFor(sequence: number): string {
+  const startOfDay = Date.UTC(2026, 0, 1);
+  const secondsIntoDay = Number.isSafeInteger(sequence) ? Math.min(Math.abs(sequence), 86_399) : 0;
+  return new Date(startOfDay + secondsIntoDay * 1000).toISOString();
 }

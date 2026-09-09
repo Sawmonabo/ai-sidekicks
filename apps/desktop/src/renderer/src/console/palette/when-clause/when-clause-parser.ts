@@ -52,6 +52,15 @@ export type WhenClauseParseResult =
   | { readonly ok: true; readonly ast: WhenClauseNode }
   | { readonly ok: false; readonly error: WhenClauseParseError };
 
+/** Parse a clause. Never throws; a failure is the `ok: false` arm. */
+export function parseWhenClause(source: string): WhenClauseParseResult {
+  const tokenized = tokenizeWhenClause(source);
+  if (!tokenized.ok) {
+    return tokenized;
+  }
+  return new WhenClauseParser(source, tokenized.tokens).parse();
+}
+
 type WhenClauseTokenKind =
   | "identifier"
   | "not"
@@ -364,13 +373,4 @@ class WhenClauseParser {
       ),
     };
   }
-}
-
-/** Parse a clause. Never throws; a failure is the `ok: false` arm. */
-export function parseWhenClause(source: string): WhenClauseParseResult {
-  const tokenized = tokenizeWhenClause(source);
-  if (!tokenized.ok) {
-    return tokenized;
-  }
-  return new WhenClauseParser(source, tokenized.tokens).parse();
 }

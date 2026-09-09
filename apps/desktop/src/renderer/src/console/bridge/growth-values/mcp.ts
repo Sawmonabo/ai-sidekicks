@@ -166,23 +166,6 @@ export interface GrowthMcpToolOverride {
 }
 
 /**
- * What every inventory entry carries in both arms.
- *
- * Split out from the discriminated pair below so the trust-dependent half is stated
- * exactly once as the thing that is ABSENT in the degraded arm, rather than repeated
- * as optional members that a reader would then have to test twice.
- */
-interface GrowthMcpInventoryFacts {
-  readonly effectiveInRuns: boolean;
-  readonly config: GrowthMcpServerConfigView;
-  readonly status: GrowthMcpServerStatus;
-  readonly legs?: readonly GrowthMcpServerLegStatus[];
-  readonly observedAt?: string;
-  readonly requiredServer?: boolean;
-  readonly scopeRefDigest?: string;
-}
-
-/**
  * One inventory row: the binding, what is known about it, and the trust arm.
  *
  * A DISCRIMINATED PAIR on `trustUnavailable`, which is the registered shape and the
@@ -269,4 +252,21 @@ export function mcpBindingKeyOf(binding: GrowthMcpBindingRef): string {
       ? [binding.provider, binding.scope, binding.serverName]
       : [binding.provider, binding.scope, binding.scopeRef, binding.serverName],
   );
+}
+
+/**
+ * What every inventory entry carries in both arms.
+ *
+ * Split out from the discriminated pair below so the trust-dependent half is stated
+ * exactly once as the thing that is ABSENT in the degraded arm, rather than repeated
+ * as optional members that a reader would then have to test twice.
+ */
+interface GrowthMcpInventoryFacts {
+  readonly effectiveInRuns: boolean;
+  readonly config: GrowthMcpServerConfigView;
+  readonly status: GrowthMcpServerStatus;
+  readonly legs?: readonly GrowthMcpServerLegStatus[];
+  readonly observedAt?: string;
+  readonly requiredServer?: boolean;
+  readonly scopeRefDigest?: string;
 }

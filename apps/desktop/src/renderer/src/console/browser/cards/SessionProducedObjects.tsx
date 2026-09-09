@@ -30,11 +30,6 @@ import { useSessionStore, type SessionStore, type SessionStoreState } from "../.
 import { foldProducedArtifacts, type ProducedObjectCard } from "./produced-objects.js";
 import { ProducedObjects } from "./ProducedObjects.js";
 
-/** Declared once, so its identity never moves and the store never re-subscribes. */
-function selectTimeline(state: SessionStoreState): SessionStoreState["timeline"] {
-  return state.timeline;
-}
-
 export interface SessionProducedObjectsProps {
   readonly sessionStore: SessionStore;
   /**
@@ -60,4 +55,9 @@ export function SessionProducedObjects(props: SessionProducedObjectsProps): Reac
     [timeline, producedArtifactIds],
   );
   return <ProducedObjects artifacts={artifacts} cardsByArtifactId={cardsByArtifactId} />;
+}
+
+/** Declared once, so its identity never moves and the store never re-subscribes. */
+function selectTimeline(state: SessionStoreState): SessionStoreState["timeline"] {
+  return state.timeline;
 }

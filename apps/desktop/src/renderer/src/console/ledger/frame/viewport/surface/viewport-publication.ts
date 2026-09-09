@@ -39,22 +39,6 @@ export interface LedgerViewportPublicationOptions {
   readonly build: () => LedgerViewportSnapshot;
 }
 
-/** Whether two snapshots say the same thing to a render. See this file's header. */
-function sameViewportSnapshot(
-  left: LedgerViewportSnapshot,
-  right: LedgerViewportSnapshot,
-): boolean {
-  return (
-    left.rows === right.rows &&
-    left.rowKeys === right.rowKeys &&
-    left.keyProjection === right.keyProjection &&
-    left.lastPrune === right.lastPrune &&
-    left.reading.mode === right.reading.mode &&
-    left.reading.newRowCount === right.reading.newRowCount &&
-    left.reading.pinnedRootCursor === right.reading.pinnedRootCursor
-  );
-}
-
 export class LedgerViewportPublication {
   readonly #clock: ConsoleClock;
   readonly #build: () => LedgerViewportSnapshot;
@@ -109,4 +93,20 @@ export class LedgerViewportPublication {
     this.#changeEmitter.clear();
     this.#disposed = true;
   }
+}
+
+/** Whether two snapshots say the same thing to a render. See this file's header. */
+function sameViewportSnapshot(
+  left: LedgerViewportSnapshot,
+  right: LedgerViewportSnapshot,
+): boolean {
+  return (
+    left.rows === right.rows &&
+    left.rowKeys === right.rowKeys &&
+    left.keyProjection === right.keyProjection &&
+    left.lastPrune === right.lastPrune &&
+    left.reading.mode === right.reading.mode &&
+    left.reading.newRowCount === right.reading.newRowCount &&
+    left.reading.pinnedRootCursor === right.reading.pinnedRootCursor
+  );
 }

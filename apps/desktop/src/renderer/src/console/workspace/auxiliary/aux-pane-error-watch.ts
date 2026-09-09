@@ -21,6 +21,9 @@ import {
   type ConsoleAuxiliaryWindowPort,
 } from "./aux-window-signal-watch.js";
 
+/** The crashed-window signal, at the one type argument that makes it that signal. */
+export type PaneErrorWatch = AuxiliaryWindowSignalWatch<PaneErrorReport>;
+
 /**
  * The served value of the pane-error subscription, taken off the port rather than
  * imported.
@@ -38,9 +41,6 @@ type PaneErrorSignal = Extract<
 /** One crashed window, as the signal reports it: the pane it held, and why. */
 type PaneErrorReport =
   PaneErrorSignal["events"] extends AsyncIterable<infer TEvent> ? TEvent : never;
-
-/** The crashed-window signal, at the one type argument that makes it that signal. */
-export type PaneErrorWatch = AuxiliaryWindowSignalWatch<PaneErrorReport>;
 
 /**
  * The one key the pane-error watch is claimed under.

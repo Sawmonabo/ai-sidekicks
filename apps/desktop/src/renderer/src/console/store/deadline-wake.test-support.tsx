@@ -33,18 +33,18 @@ export class CountingManualClock extends ManualClock {
 
 export const MOUNTED_AT = 1_000;
 
+export interface MountedWake {
+  readonly instant: () => number;
+  readonly setDeadlines: (next: readonly number[]) => void;
+  readonly setClock: (next: ConsoleClock) => void;
+}
+
 export function WakingSurface(props: {
   readonly clock: ConsoleClock;
   readonly deadlines: readonly number[];
 }): React.JSX.Element {
   const nowMilliseconds = useDeadlineWake(props.clock, props.deadlines);
   return <output>{String(nowMilliseconds)}</output>;
-}
-
-export interface MountedWake {
-  readonly instant: () => number;
-  readonly setDeadlines: (next: readonly number[]) => void;
-  readonly setClock: (next: ConsoleClock) => void;
 }
 
 export function renderWake(clock: ConsoleClock, deadlines: readonly number[]): MountedWake {

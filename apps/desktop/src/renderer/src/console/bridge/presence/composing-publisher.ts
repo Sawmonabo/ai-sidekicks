@@ -91,26 +91,6 @@ export interface ComposingChannelTarget {
   readonly channelName: string | undefined;
 }
 
-/**
- * The channel this target may publish a composing indicator for, or `undefined`.
- *
- * Fail-closed and exported so the rule is drivable on its own rather than only
- * through a publisher holding a clock and a port. Two conjuncts, both required:
- *
- *   • an id, because `activity.typing` carries one and there is nothing to publish
- *     without it. A target with no id is the session's DEFAULT channel — an answer
- *     the wire supports for a send and not a channel this window can name — so it
- *     publishes nothing rather than guessing which channel that resolves to.
- *   • the canonical bootstrap NAME, because that channel is the one every member of
- *     the session is in by construction. Every other channel in the projection may
- *     be membership-restricted and the renderer has no member that would say.
- */
-export function publishableChannelId(target: ComposingChannelTarget): string | undefined {
-  return target.channelId !== undefined && target.channelName === MAIN_CHANNEL_NAME
-    ? target.channelId
-    : undefined;
-}
-
 /** What one publisher is built over. Constructed per addressed composer. */
 export interface ComposingPublisherOptions {
   readonly growth: GrowthPort;
@@ -328,4 +308,24 @@ export class ComposingPublisher {
     this.#publishedChannelId = undefined;
     this.#cancelStop();
   }
+}
+
+/**
+ * The channel this target may publish a composing indicator for, or `undefined`.
+ *
+ * Fail-closed and exported so the rule is drivable on its own rather than only
+ * through a publisher holding a clock and a port. Two conjuncts, both required:
+ *
+ *   • an id, because `activity.typing` carries one and there is nothing to publish
+ *     without it. A target with no id is the session's DEFAULT channel — an answer
+ *     the wire supports for a send and not a channel this window can name — so it
+ *     publishes nothing rather than guessing which channel that resolves to.
+ *   • the canonical bootstrap NAME, because that channel is the one every member of
+ *     the session is in by construction. Every other channel in the projection may
+ *     be membership-restricted and the renderer has no member that would say.
+ */
+export function publishableChannelId(target: ComposingChannelTarget): string | undefined {
+  return target.channelId !== undefined && target.channelName === MAIN_CHANNEL_NAME
+    ? target.channelId
+    : undefined;
 }

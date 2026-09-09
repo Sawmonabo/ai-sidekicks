@@ -43,16 +43,16 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { formatCount } from "../../primitives/index.js";
 
-/** What one `sidekickDefinitionList` call answers, derived off the port. */
-type SidekickDefinitionListOutcome = Awaited<
-  ReturnType<ConsoleBridge["growth"]["sidekickDefinitionList"]>
->;
-
 /** One saved definition, exactly as the registry serves it. */
 export type SidekickDefinitionRecord = Extract<
   SidekickDefinitionListOutcome,
   { readonly status: "served" }
 >["value"][number];
+
+/** What one `sidekickDefinitionList` call answers, derived off the port. */
+type SidekickDefinitionListOutcome = Awaited<
+  ReturnType<ConsoleBridge["growth"]["sidekickDefinitionList"]>
+>;
 
 /**
  * Where an axis's text came from. Declared once; the page derives its rendering.

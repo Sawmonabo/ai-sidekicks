@@ -241,11 +241,6 @@ export function withNodeAt(
   return { ...draft, [key]: node };
 }
 
-/** Whether this node is a group, which is the one arm that has members rather than a value. */
-function isGroupDraft(node: SchemaDraftNode | undefined): node is SchemaGroupDraft {
-  return node?.form === "group";
-}
-
 /** The group one root key names, or nothing where that key holds a leaf or nothing. */
 export function groupDraftAt(
   draft: SchemaFormDraft,
@@ -295,4 +290,9 @@ export function listDraftAt(
 ): SchemaListDraft | undefined {
   const leaf = leafDraftAt(draft, memberPath);
   return leaf?.form === "list" ? leaf : undefined;
+}
+
+/** Whether this node is a group, which is the one arm that has members rather than a value. */
+function isGroupDraft(node: SchemaDraftNode | undefined): node is SchemaGroupDraft {
+  return node?.form === "group";
 }

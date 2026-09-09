@@ -45,16 +45,8 @@ const PAGE_SUBSCRIPTION_FAILURE_FALLBACK: BrowserPaneRejectionFallback = {
     "The pages this session owns are no longer being reported to this window. Closing the pane and opening it again starts a new subscription.",
 };
 
-/** The subscription's own outcome type, and the shapes read out of it. */
-type PageListOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["browserSubscribePages"]>>;
-type PageListStream = Extract<PageListOutcome, { readonly status: "served" }>["value"];
-type PageListFrame = PageListStream extends { readonly events: AsyncIterable<infer Event> }
-  ? Event
-  : never;
-
 /** One page the session owns, as every surface in this family reads it. */
 export type BrowserPage = PageListFrame["pages"][number];
-
 /**
  * What the pane knows about the session's pages right now.
  *
@@ -69,6 +61,14 @@ export type PageListReading =
   | (Extract<ReadingState, { readonly kind: "served" }> & { readonly frame: PageListFrame })
   | Extract<ReadingState, { readonly kind: "refused" }>
   | { readonly kind: "ended" };
+/** The subscription's own outcome type, and the shapes read out of it. */
+type PageListOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["browserSubscribePages"]>>;
+
+type PageListStream = Extract<PageListOutcome, { readonly status: "served" }>["value"];
+
+type PageListFrame = PageListStream extends { readonly events: AsyncIterable<infer Event> }
+  ? Event
+  : never;
 
 /** The reading before any subject has been answered, and after one has changed. */
 const UNREAD_PAGE_LIST: PageListReading = { kind: "reading" };

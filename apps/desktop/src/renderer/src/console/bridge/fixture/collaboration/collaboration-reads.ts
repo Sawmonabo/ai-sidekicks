@@ -113,58 +113,6 @@ export const MEMBERSHIP_ROSTER_READ_CALL = "growth:membershipRosterRead";
 export const TERMINAL_CONTROL_HOLDER_READ_CALL = "growth:terminalControlHolderRead";
 
 /**
- * Whether a request names the session this scenario is playing.
- *
- * ONE GUARD FOR THE FIVE ANSWERS THAT CARRY A SESSION, and the reason it is one rather
- * than five is that the mistake it prevents is one mistake. `answerFromScriptedReply`
- * validates nothing about the request — a scripted reply that is flat is served to
- * whoever asks — so every handler here answered for ANY session id, and an experiment
- * addressed to one session could read another's channels, people, devices and lease,
- * or create a channel in it. Worse than the fabrication itself: a subject-scoping
- * regression on any surface above would look identical to the fixture working, because
- * the wrong session still got a full answer.
- *
- * The three lifecycle MOVES take no guard and that is the registered shape rather than
- * an omission: `GrowthChannelLifecycleRequest` is `{channelId}` and names no session,
- * so there is nothing here to check them against.
- *
- * `callerParticipantRead` next door already reads its request this way, and the
- * REFUSAL is the one difference between the two. That read's wire is unregistered on
- * this build, so it takes the unregistered refusal the live bridge takes; these eight
- * are SERVED, so a wrong-session request takes the scenario's own `reply-unscripted` —
- * this room scripts no answer about that session, and naming an unregistered wire
- * would send a reader to a document owing something the fixture already stands in for.
- */
-function namesPlayedSession(
-  engine: ScenarioEngine,
-  request: { readonly sessionId: string },
-): boolean {
-  return request.sessionId === engine.scenario.sessionId;
-}
-
-/**
- * One session-scoped READ: scoped, then answered from the script, then refused by name.
- *
- * The four reads differ only in which call they consult and which operation they
- * answer for, so they compose here rather than four times over — and the guard, the
- * scripted seam and the unscripted refusal stay in one order that no handler can get
- * half right.
- */
-async function answerSessionScopedRead<TOperationId extends FixtureServedCollaborationOperationId>(
-  engine: ScenarioEngine,
-  call: string,
-  operationId: TOperationId,
-  request: { readonly sessionId: string },
-): Promise<GrowthOutcome<GrowthOperationSignatures[TOperationId]["value"]>> {
-  if (!namesPlayedSession(engine, request)) {
-    return growthUnscriptedReply(operationId, call);
-  }
-  return await answerFromScriptedReply(engine, call, operationId, request, () =>
-    growthUnscriptedReply(operationId, call),
-  );
-}
-
-/**
  * The channel and membership answers for one running scenario.
  *
  * The lifecycle is HANDED IN rather than built here, because the same instance answers
@@ -220,4 +168,56 @@ export function fixtureCollaborationReads(
         request,
       ),
   };
+}
+
+/**
+ * Whether a request names the session this scenario is playing.
+ *
+ * ONE GUARD FOR THE FIVE ANSWERS THAT CARRY A SESSION, and the reason it is one rather
+ * than five is that the mistake it prevents is one mistake. `answerFromScriptedReply`
+ * validates nothing about the request — a scripted reply that is flat is served to
+ * whoever asks — so every handler here answered for ANY session id, and an experiment
+ * addressed to one session could read another's channels, people, devices and lease,
+ * or create a channel in it. Worse than the fabrication itself: a subject-scoping
+ * regression on any surface above would look identical to the fixture working, because
+ * the wrong session still got a full answer.
+ *
+ * The three lifecycle MOVES take no guard and that is the registered shape rather than
+ * an omission: `GrowthChannelLifecycleRequest` is `{channelId}` and names no session,
+ * so there is nothing here to check them against.
+ *
+ * `callerParticipantRead` next door already reads its request this way, and the
+ * REFUSAL is the one difference between the two. That read's wire is unregistered on
+ * this build, so it takes the unregistered refusal the live bridge takes; these eight
+ * are SERVED, so a wrong-session request takes the scenario's own `reply-unscripted` —
+ * this room scripts no answer about that session, and naming an unregistered wire
+ * would send a reader to a document owing something the fixture already stands in for.
+ */
+function namesPlayedSession(
+  engine: ScenarioEngine,
+  request: { readonly sessionId: string },
+): boolean {
+  return request.sessionId === engine.scenario.sessionId;
+}
+
+/**
+ * One session-scoped READ: scoped, then answered from the script, then refused by name.
+ *
+ * The four reads differ only in which call they consult and which operation they
+ * answer for, so they compose here rather than four times over — and the guard, the
+ * scripted seam and the unscripted refusal stay in one order that no handler can get
+ * half right.
+ */
+async function answerSessionScopedRead<TOperationId extends FixtureServedCollaborationOperationId>(
+  engine: ScenarioEngine,
+  call: string,
+  operationId: TOperationId,
+  request: { readonly sessionId: string },
+): Promise<GrowthOutcome<GrowthOperationSignatures[TOperationId]["value"]>> {
+  if (!namesPlayedSession(engine, request)) {
+    return growthUnscriptedReply(operationId, call);
+  }
+  return await answerFromScriptedReply(engine, call, operationId, request, () =>
+    growthUnscriptedReply(operationId, call),
+  );
 }

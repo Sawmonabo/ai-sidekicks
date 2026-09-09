@@ -41,55 +41,6 @@ import {
 } from "./hunk-row-layout.js";
 
 /**
- * Where one file's rows start, and which file of the MODEL they belong to.
- *
- * `fileIndex` is carried rather than implied by the span's own position, because
- * a narrowed index holds a span only for the file it shows while every row it
- * hands out still addresses the model. A file's index is what a gap expansion is
- * keyed by and what the pane resolves a hunk's available context from, so an
- * index that renumbered its files under a filter would key one file's expansion
- * against another file's context.
- */
-interface FileRowSpan {
-  readonly fileIndex: number;
-  readonly startRowIndex: number;
-  readonly rowCount: number;
-  /** This file's hunks, each with the rows it occupies. Built once, in the constructor. */
-  readonly hunkSpans: readonly HunkRowSpan[];
-}
-
-/**
- * Where one hunk's rows start within its file, and everything needed to address them.
- *
- * THE CACHE THE FINDING ASKED FOR, AND IT IS A CACHE OF THE CONSTRUCTOR'S OWN WALK
- * rather than a second structure beside it. The index already had to flatten every
- * hunk to know its row count; holding what that flattening produced costs nothing
- * extra and is what lets `rowAt` answer without rebuilding it. `rowAt` used to rebuild
- * a hunk's whole body layout for every hunk it walked past — so one five-thousand-line
- * hunk allocated five thousand row objects per rendered virtual row, and again on
- * every scroll render, which is virtualization paying the cost virtualization exists
- * to avoid.
- *
- * IMMUTABLE, AND SO IS ITS INVALIDATION. A `DiffRowIndex` is built per (model,
- * expansion, view mode) and never mutated, so a changed hunk set or a changed mode
- * produces a NEW index with new spans; there is no staleness question to answer and
- * no invalidation hook to forget to call.
- */
-interface HunkRowSpan {
-  readonly hunkIndex: number;
-  /** Rows before this hunk's first, counted from the file's own header at zero. */
-  readonly startRowIndex: number;
-  /** Lines the gap above this hunk still hides. A gap row exists only above zero. */
-  readonly hiddenLineCount: number;
-  /** Lines of that gap revealed so far, drawn between the gap row and the header. */
-  readonly revealedLineCount: number;
-  /** Where the revealed run starts in `precedingContext` — a gap is read outwards. */
-  readonly firstRevealedLineIndex: number;
-  readonly bodyLayout: HunkBodyLayout;
-  readonly rowCount: number;
-}
-
-/**
  * The flattened row index of one diff, under one expansion state, narrowed to at
  * most one of its files.
  *
@@ -277,17 +228,6 @@ export class DiffRowIndex {
     return this.#lineAt(row, row.pairedLineIndex);
   }
 
-  /** One line of the sequence a row's `source` names. */
-  #lineAt(row: DiffLineRow, lineIndex: number): DiffLine | undefined {
-    const hunk = this.#model.files[row.fileIndex]?.hunks[row.hunkIndex];
-    if (hunk === undefined) {
-      return undefined;
-    }
-    return row.source === "preceding-context"
-      ? hunk.precedingContext[lineIndex]
-      : hunk.lines[lineIndex];
-  }
-
   /**
    * The absolute row index a file's header sits at, or `undefined` where this
    * index does not show that file.
@@ -299,6 +239,66 @@ export class DiffRowIndex {
   public rowIndexOfFile(fileIndex: number): number | undefined {
     return this.#fileSpans.find((span) => span.fileIndex === fileIndex)?.startRowIndex;
   }
+
+  /** One line of the sequence a row's `source` names. */
+  #lineAt(row: DiffLineRow, lineIndex: number): DiffLine | undefined {
+    const hunk = this.#model.files[row.fileIndex]?.hunks[row.hunkIndex];
+    if (hunk === undefined) {
+      return undefined;
+    }
+    return row.source === "preceding-context"
+      ? hunk.precedingContext[lineIndex]
+      : hunk.lines[lineIndex];
+  }
+}
+
+/**
+ * Where one file's rows start, and which file of the MODEL they belong to.
+ *
+ * `fileIndex` is carried rather than implied by the span's own position, because
+ * a narrowed index holds a span only for the file it shows while every row it
+ * hands out still addresses the model. A file's index is what a gap expansion is
+ * keyed by and what the pane resolves a hunk's available context from, so an
+ * index that renumbered its files under a filter would key one file's expansion
+ * against another file's context.
+ */
+interface FileRowSpan {
+  readonly fileIndex: number;
+  readonly startRowIndex: number;
+  readonly rowCount: number;
+  /** This file's hunks, each with the rows it occupies. Built once, in the constructor. */
+  readonly hunkSpans: readonly HunkRowSpan[];
+}
+
+/**
+ * Where one hunk's rows start within its file, and everything needed to address them.
+ *
+ * THE CACHE THE FINDING ASKED FOR, AND IT IS A CACHE OF THE CONSTRUCTOR'S OWN WALK
+ * rather than a second structure beside it. The index already had to flatten every
+ * hunk to know its row count; holding what that flattening produced costs nothing
+ * extra and is what lets `rowAt` answer without rebuilding it. `rowAt` used to rebuild
+ * a hunk's whole body layout for every hunk it walked past — so one five-thousand-line
+ * hunk allocated five thousand row objects per rendered virtual row, and again on
+ * every scroll render, which is virtualization paying the cost virtualization exists
+ * to avoid.
+ *
+ * IMMUTABLE, AND SO IS ITS INVALIDATION. A `DiffRowIndex` is built per (model,
+ * expansion, view mode) and never mutated, so a changed hunk set or a changed mode
+ * produces a NEW index with new spans; there is no staleness question to answer and
+ * no invalidation hook to forget to call.
+ */
+interface HunkRowSpan {
+  readonly hunkIndex: number;
+  /** Rows before this hunk's first, counted from the file's own header at zero. */
+  readonly startRowIndex: number;
+  /** Lines the gap above this hunk still hides. A gap row exists only above zero. */
+  readonly hiddenLineCount: number;
+  /** Lines of that gap revealed so far, drawn between the gap row and the header. */
+  readonly revealedLineCount: number;
+  /** Where the revealed run starts in `precedingContext` — a gap is read outwards. */
+  readonly firstRevealedLineIndex: number;
+  readonly bodyLayout: HunkBodyLayout;
+  readonly rowCount: number;
 }
 
 /**

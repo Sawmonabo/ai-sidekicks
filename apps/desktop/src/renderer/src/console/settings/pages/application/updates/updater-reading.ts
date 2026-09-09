@@ -64,6 +64,14 @@ export type UpdateReading =
   | { readonly kind: "state"; readonly state: UpdateState }
   | { readonly kind: "unreachable"; readonly refusal: ConsoleRefusal };
 
+/** The held reading, rebuilt on every accepted observation and held by identity. */
+export interface UpdaterReadingSnapshot {
+  readonly reading: UpdateReading;
+  readonly source: UpdateReadingSource;
+  /** Monotonic across accepted observations, so a re-render sees a new identity. */
+  readonly sequence: number;
+}
+
 /**
  * Which side of the updater seam the held reading came from.
  *
@@ -73,14 +81,6 @@ export type UpdateReading =
  * race, and only the source tells the two apart.
  */
 type UpdateReadingSource = "none" | "opening" | "push";
-
-/** The held reading, rebuilt on every accepted observation and held by identity. */
-export interface UpdaterReadingSnapshot {
-  readonly reading: UpdateReading;
-  readonly source: UpdateReadingSource;
-  /** Monotonic across accepted observations, so a re-render sees a new identity. */
-  readonly sequence: number;
-}
 
 const NOTHING_READ: UpdaterReadingSnapshot = {
   reading: { kind: "not-read" },

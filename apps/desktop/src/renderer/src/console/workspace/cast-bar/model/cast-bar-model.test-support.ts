@@ -21,6 +21,18 @@ import { deriveCastBar, type CastBarInput, type CastBarModel } from "./cast-bar-
 /** The session every event in this family is built under. */
 const MODEL_SESSION_ID = "session-1";
 
+/** What a case says about the read that established the store the ledger comes from. */
+export interface LedgerOverOptions {
+  /**
+   * The position the read was performed FROM, where it submitted one.
+   *
+   * Present, the window opened partway through the log and the requests below its head
+   * were never delivered — which is the `earlier-unread` standing. Absent, the read
+   * opened at the beginning of the log, which is what every other case here assumes.
+   */
+  readonly readFromCursor?: string;
+}
+
 /** The join-log order every chip roster is derived in, as the allocator's own output. */
 export function wheelFor(participantIds: readonly string[]): ParticipantHueAllocator {
   const allocator = new ParticipantHueAllocator();
@@ -38,18 +50,6 @@ export function castEvent(sequence: number, actorId: string, kind: string): Cons
 /** The same event, carrying the run identity an ask's lifecycle correlates on. */
 export function withRun(base: ConsoleSessionEvent, runId: string): ConsoleSessionEvent {
   return { ...base, payload: { runId } };
-}
-
-/** What a case says about the read that established the store the ledger comes from. */
-export interface LedgerOverOptions {
-  /**
-   * The position the read was performed FROM, where it submitted one.
-   *
-   * Present, the window opened partway through the log and the requests below its head
-   * were never delivered — which is the `earlier-unread` standing. Absent, the read
-   * opened at the beginning of the log, which is what every other case here assumes.
-   */
-  readonly readFromCursor?: string;
 }
 
 /**

@@ -43,12 +43,6 @@ import { useLatestRef } from "../../primitives/index.js";
  */
 const ATTACHMENT_DRAG_DATA_KEY = "attachmentLocalId";
 
-/** The local id a drag is carrying, or `undefined` when the payload is not ours. */
-function draggedAttachmentLocalId(data: Record<string | symbol, unknown>): string | undefined {
-  const carried = data[ATTACHMENT_DRAG_DATA_KEY];
-  return typeof carried === "string" ? carried : undefined;
-}
-
 export interface CarrierRowDragOptions {
   /** The attachment this row stands for. */
   readonly localId: string;
@@ -121,4 +115,10 @@ export function useCarrierRowDrag(options: CarrierRowDragOptions): CarrierRowDra
   }, [localId, rowElement, handleElement, onDropOnto]);
 
   return { isDragging, isDropTarget };
+}
+
+/** The local id a drag is carrying, or `undefined` when the payload is not ours. */
+function draggedAttachmentLocalId(data: Record<string | symbol, unknown>): string | undefined {
+  const carried = data[ATTACHMENT_DRAG_DATA_KEY];
+  return typeof carried === "string" ? carried : undefined;
 }

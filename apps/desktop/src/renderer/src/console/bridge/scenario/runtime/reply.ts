@@ -17,22 +17,6 @@
 
 import type { WireErrorEnvelope } from "../../../core/index.js";
 
-/** What every canned reply carries, whichever way it settles. */
-interface ScenarioReplyBase {
-  /** The daemon method or control-plane procedure name, verbatim. */
-  readonly call: string;
-  /**
-   * Simulated latency, so a loading state is reachable in the fixture.
-   *
-   * Measured in scenario time, which only the caller moves: the reply stays
-   * pending until the engine has been advanced this far past the call. It bounds
-   * BOTH arms — a refusal a real transport takes 400 ms to deliver is a loading
-   * state before it is an error, and a fixture that refused instantly would let a
-   * surface ship without ever rendering that half.
-   */
-  readonly afterMs?: number;
-}
-
 /** A canned reply that answers with a value. */
 export interface ScenarioResolvingReply extends ScenarioReplyBase {
   readonly result: unknown;
@@ -153,3 +137,19 @@ export interface ScenarioComputedReply extends ScenarioReplyBase {
  * settles no way), which are the two shapes nothing can serve.
  */
 export type ScenarioReply = ScenarioResolvingReply | ScenarioRejectingReply | ScenarioComputedReply;
+
+/** What every canned reply carries, whichever way it settles. */
+interface ScenarioReplyBase {
+  /** The daemon method or control-plane procedure name, verbatim. */
+  readonly call: string;
+  /**
+   * Simulated latency, so a loading state is reachable in the fixture.
+   *
+   * Measured in scenario time, which only the caller moves: the reply stays
+   * pending until the engine has been advanced this far past the call. It bounds
+   * BOTH arms — a refusal a real transport takes 400 ms to deliver is a loading
+   * state before it is an error, and a fixture that refused instantly would let a
+   * surface ship without ever rendering that half.
+   */
+  readonly afterMs?: number;
+}

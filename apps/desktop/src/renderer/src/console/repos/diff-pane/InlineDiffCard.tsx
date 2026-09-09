@@ -76,29 +76,6 @@ export interface InlineDiffCardProps {
   readonly diff?: ConsoleDiffModel;
 }
 
-/**
- * The comparison the row named, or `undefined` where it named neither.
- *
- * BOTH OR NOTHING, checked here rather than at each reader: half a comparison names no
- * diff at all, so a base with no head is the same answer as no base — and a reader that
- * tested one member would draw a subject bar with a blank on one side of it.
- */
-function comparedStatesOf(card: DiffInlineCardProps): ComparedStates | undefined {
-  const { baseRef, headRef } = card;
-  if (baseRef === undefined || headRef === undefined) {
-    return undefined;
-  }
-  return { baseRef, headRef };
-}
-
-/** What the absence says about a comparison the row named but nothing has read. */
-function unreadDiffDetail(comparedStates: ComparedStates | undefined): string {
-  if (comparedStates === undefined) {
-    return "The diff is named on the turn that produced it, and its lines have not been read.";
-  }
-  return `This turn compared ${comparedStates.baseRef} to ${comparedStates.headRef}, and the lines of that comparison have not been read.`;
-}
-
 export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
   const headingId = useId();
   // Marks OFF by default here and ON in the pane — `DiffToolbar.tsx`'s density rule.
@@ -241,4 +218,27 @@ export function registerInlineDiffCardBody(seats: InlineCardSeatRegistry): void 
     owner: INLINE_DIFF_CARD_OWNER,
     render: (cardProps) => <InlineDiffCard card={cardProps} />,
   });
+}
+
+/**
+ * The comparison the row named, or `undefined` where it named neither.
+ *
+ * BOTH OR NOTHING, checked here rather than at each reader: half a comparison names no
+ * diff at all, so a base with no head is the same answer as no base — and a reader that
+ * tested one member would draw a subject bar with a blank on one side of it.
+ */
+function comparedStatesOf(card: DiffInlineCardProps): ComparedStates | undefined {
+  const { baseRef, headRef } = card;
+  if (baseRef === undefined || headRef === undefined) {
+    return undefined;
+  }
+  return { baseRef, headRef };
+}
+
+/** What the absence says about a comparison the row named but nothing has read. */
+function unreadDiffDetail(comparedStates: ComparedStates | undefined): string {
+  if (comparedStates === undefined) {
+    return "The diff is named on the turn that produced it, and its lines have not been read.";
+  }
+  return `This turn compared ${comparedStates.baseRef} to ${comparedStates.headRef}, and the lines of that comparison have not been read.`;
 }

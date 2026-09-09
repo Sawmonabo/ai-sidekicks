@@ -92,6 +92,21 @@ export const FIRST_TURN_REPLY: {
   createdAt: "2026-01-01T09:00:00.000Z",
 };
 
+/** A bridge whose `session.create` is held open, and the handle that lets it answer. */
+export interface HeldCreate {
+  readonly bridge: ConsoleBridge;
+  /** Lets the held `session.create` settle on the registered reply. */
+  readonly answer: () => void;
+}
+
+/** Several suspended creates at once, and the handle that answers them in order. */
+export interface QueuedCreates {
+  readonly bridge: ConsoleBridge;
+  /** Lets the OLDEST still-suspended create proceed to the fixture's reply. */
+  readonly answerOldest: () => void;
+  readonly pendingCount: () => number;
+}
+
 /**
  * A bridge whose `session.create` answers, or one whose does not, and whose first turn
  * is scripted only where a case needs a send to complete.
@@ -168,13 +183,6 @@ export function bridgeAnsweringCreateUnreadably(): ConsoleBridge {
   return bridge;
 }
 
-/** A bridge whose `session.create` is held open, and the handle that lets it answer. */
-export interface HeldCreate {
-  readonly bridge: ConsoleBridge;
-  /** Lets the held `session.create` settle on the registered reply. */
-  readonly answer: () => void;
-}
-
 /**
  * The fixture bridge with its `session.create` suspended until told to answer.
  *
@@ -212,14 +220,6 @@ export function bridgeHoldingCreate(
     },
   );
   return { bridge, answer };
-}
-
-/** Several suspended creates at once, and the handle that answers them in order. */
-export interface QueuedCreates {
-  readonly bridge: ConsoleBridge;
-  /** Lets the OLDEST still-suspended create proceed to the fixture's reply. */
-  readonly answerOldest: () => void;
-  readonly pendingCount: () => number;
 }
 
 /**

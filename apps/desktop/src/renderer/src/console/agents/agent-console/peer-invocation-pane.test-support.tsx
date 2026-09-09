@@ -50,21 +50,6 @@ export class PeerInvocationDaemon {
   #refusesNextReply: string | undefined = undefined;
   #callCount = 0;
 
-  /** Mutations this daemon was actually asked to perform. The latch's instrument. */
-  public get callCount(): number {
-    return this.#callCount;
-  }
-
-  /** Hold the next mutation open until one of the settle methods releases it. */
-  public holdNextReply(): void {
-    this.#holdsNextReply = true;
-  }
-
-  /** Refuse the next mutation, in the daemon's own words. */
-  public refuseNextReply(detail: string): void {
-    this.#refusesNextReply = detail;
-  }
-
   public readonly answer = async (method: string, params?: unknown): Promise<unknown> => {
     if (method !== "sidekick.peerInvocationSet") {
       // Every other read this pane performs refuses, exactly as the shipped fixture
@@ -86,6 +71,21 @@ export class PeerInvocationDaemon {
       this.#heldReplies.push(resolve);
     });
   };
+
+  /** Mutations this daemon was actually asked to perform. The latch's instrument. */
+  public get callCount(): number {
+    return this.#callCount;
+  }
+
+  /** Hold the next mutation open until one of the settle methods releases it. */
+  public holdNextReply(): void {
+    this.#holdsNextReply = true;
+  }
+
+  /** Refuse the next mutation, in the daemon's own words. */
+  public refuseNextReply(detail: string): void {
+    this.#refusesNextReply = detail;
+  }
 
   /** Settle the OLDEST held reply — the one a reversed order lands last. */
   public async settleHeldReply(enabled: boolean): Promise<void> {

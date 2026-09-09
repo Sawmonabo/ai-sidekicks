@@ -66,6 +66,13 @@ export interface FormattedByteQuantity {
   readonly text: string;
 }
 
+/** One member of a structured wire value, ready to render as a pair. */
+export interface WireDescriptorEntry {
+  readonly key: string;
+  /** The member's value, as it will be shown. Wire-verbatim for a string. */
+  readonly value: string;
+}
+
 /**
  * The one place in the console that scales a byte figure.
  *
@@ -113,13 +120,6 @@ export function formatWireString(value: string): string {
   return value;
 }
 
-/** One member of a structured wire value, ready to render as a pair. */
-export interface WireDescriptorEntry {
-  readonly key: string;
-  /** The member's value, as it will be shown. Wire-verbatim for a string. */
-  readonly value: string;
-}
-
 /**
  * A structured wire value — an approval's `resourceDescriptor`, and anything else
  * the wire types `Record<string, unknown>` — decomposed into renderable pairs.
@@ -152,13 +152,6 @@ export function formatWireDescriptor(
 
 /** What an `undefined` member reads as. Named, because it is copy and not a value. */
 const UNSET_DESCRIPTOR_MEMBER_TEXT = "(no value)";
-
-function formatDescriptorMember(value: unknown): string {
-  if (value === undefined) {
-    return UNSET_DESCRIPTOR_MEMBER_TEXT;
-  }
-  return typeof value === "string" ? value : JSON.stringify(value);
-}
 
 /** A count the console derived. Grouped per locale; never abbreviated. */
 export function formatCount(value: number, locale?: string): string {
@@ -394,6 +387,13 @@ export function formatMoney(amount: number, currency: string, locale?: string): 
     // the floor is the whole precision here.
     return `${new Intl.NumberFormat(locale, { minimumFractionDigits, maximumFractionDigits: floorFractionDigits }).format(amount)}\u00A0${currency}`;
   }
+}
+
+function formatDescriptorMember(value: unknown): string {
+  if (value === undefined) {
+    return UNSET_DESCRIPTOR_MEMBER_TEXT;
+  }
+  return typeof value === "string" ? value : JSON.stringify(value);
 }
 
 /**

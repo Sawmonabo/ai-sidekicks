@@ -39,6 +39,39 @@ import { SESSION_EVENT_CATEGORY_BY_TYPE, type SessionEventType } from "@ai-sidek
 import type { ScenarioBeat } from "./runtime/index.js";
 
 /**
+ * The most lanes this script has streaming at one time, within the given beat range.
+ *
+ * `fromIndex` / `toIndex` are delivered-beat counts — the two numbers the endurance
+ * tier's sampler reports at the edges of its window — so a caller measuring a window
+ * asks about exactly the beats that window contained. Over the whole script, pass
+ * `0` and `beats.length`.
+ *
+ * The range is half-open, and the peak is taken over the points INSIDE it: a lane
+ * that opened before `fromIndex` and is still mid-turn counts, because it is
+ * streaming through the window whether or not it started there.
+ */
+export function peakConcurrentStreamingRuns(
+  beats: readonly ScenarioBeat[],
+  fromIndex: number,
+  toIndex: number,
+): number {
+  const spans = collectRunningSpans(beats);
+  const firstIndex = Math.max(0, fromIndex);
+  const lastIndex = Math.min(beats.length, toIndex);
+  let peak = 0;
+  for (let beatIndex = firstIndex; beatIndex < lastIndex; beatIndex += 1) {
+    let concurrent = 0;
+    for (const span of spans) {
+      if (isStreamingAt(span, beatIndex)) {
+        concurrent += 1;
+      }
+    }
+    peak = Math.max(peak, concurrent);
+  }
+  return peak;
+}
+
+/**
  * One unbroken span of one run being `running`, and what it said inside it.
  *
  * Spans rather than a per-beat state map: a run can enter and leave `running`
@@ -120,37 +153,4 @@ function isStreamingAt(span: RunningSpan, beatIndex: number): boolean {
     beatIndex < span.endIndex &&
     span.outputIndices.some((outputIndex) => outputIndex > beatIndex)
   );
-}
-
-/**
- * The most lanes this script has streaming at one time, within the given beat range.
- *
- * `fromIndex` / `toIndex` are delivered-beat counts — the two numbers the endurance
- * tier's sampler reports at the edges of its window — so a caller measuring a window
- * asks about exactly the beats that window contained. Over the whole script, pass
- * `0` and `beats.length`.
- *
- * The range is half-open, and the peak is taken over the points INSIDE it: a lane
- * that opened before `fromIndex` and is still mid-turn counts, because it is
- * streaming through the window whether or not it started there.
- */
-export function peakConcurrentStreamingRuns(
-  beats: readonly ScenarioBeat[],
-  fromIndex: number,
-  toIndex: number,
-): number {
-  const spans = collectRunningSpans(beats);
-  const firstIndex = Math.max(0, fromIndex);
-  const lastIndex = Math.min(beats.length, toIndex);
-  let peak = 0;
-  for (let beatIndex = firstIndex; beatIndex < lastIndex; beatIndex += 1) {
-    let concurrent = 0;
-    for (const span of spans) {
-      if (isStreamingAt(span, beatIndex)) {
-        concurrent += 1;
-      }
-    }
-    peak = Math.max(peak, concurrent);
-  }
-  return peak;
 }

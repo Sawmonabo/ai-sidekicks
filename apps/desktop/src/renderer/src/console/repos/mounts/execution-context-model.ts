@@ -220,6 +220,14 @@ export interface ExecutionRootsDisclosure {
   readonly derivedAtWorkspaceState: WorkspaceState;
 }
 
+/** The badge a substituted execution mode wears, and the sentence beside it. */
+export interface FallbackBadge {
+  /** What the chip says. Names the mode that was ASKED FOR, which is the surprising half. */
+  readonly label: string;
+  /** Why the mode in force is not the mode requested, in the console's own words. */
+  readonly sentence: string;
+}
+
 /**
  * How the disclosure opens: expanded exactly while the workspace arrives `stale`.
  *
@@ -286,14 +294,6 @@ export function toggledExecutionRootsDisclosure(
   isOpen: boolean,
 ): ExecutionRootsDisclosure {
   return disclosure.isOpen === isOpen ? disclosure : { ...disclosure, isOpen };
-}
-
-/** The badge a substituted execution mode wears, and the sentence beside it. */
-export interface FallbackBadge {
-  /** What the chip says. Names the mode that was ASKED FOR, which is the surprising half. */
-  readonly label: string;
-  /** Why the mode in force is not the mode requested, in the console's own words. */
-  readonly sentence: string;
 }
 
 /**

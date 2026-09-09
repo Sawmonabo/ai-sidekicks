@@ -128,6 +128,13 @@ export const GIT_ACTION_PROPOSAL_ACTIONS = ["commit", "push"] as const;
  */
 export type GitActionProposalAction = (typeof GIT_ACTION_PROPOSAL_ACTIONS)[number];
 
+/** What each action is called on screen and what pressing it does. */
+export interface ProposalActionPresentation {
+  readonly label: string;
+  /** What the act does, in one sentence. Shown before the act, never after it. */
+  readonly consequence: string;
+}
+
 /**
  * Whether one act reaches the git action, narrowing it where it does.
  *
@@ -139,13 +146,6 @@ export type GitActionProposalAction = (typeof GIT_ACTION_PROPOSAL_ACTIONS)[numbe
 export function reachesGitAction(action: ProposalAction): action is GitActionProposalAction {
   const gitActions: readonly ProposalAction[] = GIT_ACTION_PROPOSAL_ACTIONS;
   return gitActions.includes(action);
-}
-
-/** What each action is called on screen and what pressing it does. */
-export interface ProposalActionPresentation {
-  readonly label: string;
-  /** What the act does, in one sentence. Shown before the act, never after it. */
-  readonly consequence: string;
 }
 
 /**

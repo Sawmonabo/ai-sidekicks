@@ -113,6 +113,22 @@ export function revokeCommandRows(input: RevokeCommandInput): readonly RevokeCom
   }));
 }
 
+/**
+ * Arm one rule's confirmation, if the list is still offering to.
+ *
+ * Re-read at invoke time rather than trusted from contribution time: a rule the reply
+ * no longer carries, one somebody else revoked, and one whose own revocation started
+ * in the gap all leave the list offering nothing, and arming a confirmation for a rule
+ * with no control on screen would leave a person confirming into empty space.
+ */
+export function askToRevokeFromCommand(row: RevokeCommandRow, input: RevokeCommandInput): void {
+  const live = input.rules.find((candidate) => candidate.ruleId === row.ruleId);
+  if (live === undefined || !offersRevoke(live, input.revokingRuleIds)) {
+    return;
+  }
+  input.onAskToRevoke(live.ruleId);
+}
+
 /** One command, reading everything that moves through the ref at invoke time. */
 function buildRevokeCommand(
   row: RevokeCommandRow,
@@ -128,20 +144,4 @@ function buildRevokeCommand(
       askToRevokeFromCommand(row, inputRef.current);
     },
   };
-}
-
-/**
- * Arm one rule's confirmation, if the list is still offering to.
- *
- * Re-read at invoke time rather than trusted from contribution time: a rule the reply
- * no longer carries, one somebody else revoked, and one whose own revocation started
- * in the gap all leave the list offering nothing, and arming a confirmation for a rule
- * with no control on screen would leave a person confirming into empty space.
- */
-export function askToRevokeFromCommand(row: RevokeCommandRow, input: RevokeCommandInput): void {
-  const live = input.rules.find((candidate) => candidate.ruleId === row.ruleId);
-  if (live === undefined || !offersRevoke(live, input.revokingRuleIds)) {
-    return;
-  }
-  input.onAskToRevoke(live.ruleId);
 }

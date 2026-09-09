@@ -49,41 +49,6 @@ export interface IdleWarmScheduler {
   readonly cancel: (handle: number) => void;
 }
 
-interface IdleCallbackHost {
-  requestIdleCallback?: (callback: () => void) => number;
-  cancelIdleCallback?: (handle: number) => void;
-  setTimeout: (callback: () => void, delayMs: number) => number;
-  clearTimeout: (handle: number) => void;
-}
-
-/**
- * The host's idle scheduler, or the timeout floor beneath it.
- *
- * FEATURE-DETECTED ON BOTH HALVES, because a host that has `requestIdleCallback` and
- * not `cancelIdleCallback` would leave this walk unable to stop — and an uncancellable
- * background walk outliving the window that started it is the leak this seam exists to
- * make impossible. Detecting the pair together is what keeps the two branches honest:
- * whichever is chosen, `schedule` and `cancel` come from the same API.
- */
-export function idleWarmScheduler(host: IdleCallbackHost = globalThis): IdleWarmScheduler {
-  const requestIdle = host.requestIdleCallback;
-  const cancelIdle = host.cancelIdleCallback;
-  if (typeof requestIdle === "function" && typeof cancelIdle === "function") {
-    return {
-      schedule: (step) => requestIdle.call(host, step),
-      cancel: (handle) => {
-        cancelIdle.call(host, handle);
-      },
-    };
-  }
-  return {
-    schedule: (step) => host.setTimeout.call(host, step, LAZY_BODY_WARM_FALLBACK_DELAY_MS),
-    cancel: (handle) => {
-      host.clearTimeout.call(host, handle);
-    },
-  };
-}
-
 /**
  * Walk a board's unloaded bodies, one per idle callback, once.
  *
@@ -193,4 +158,39 @@ export class LazyBodyIdleWarm<TKey> {
     // that load rejects, so it answers "in flight or loaded" and not "already asked for".
     this.#armNextStep();
   }
+}
+
+/**
+ * The host's idle scheduler, or the timeout floor beneath it.
+ *
+ * FEATURE-DETECTED ON BOTH HALVES, because a host that has `requestIdleCallback` and
+ * not `cancelIdleCallback` would leave this walk unable to stop — and an uncancellable
+ * background walk outliving the window that started it is the leak this seam exists to
+ * make impossible. Detecting the pair together is what keeps the two branches honest:
+ * whichever is chosen, `schedule` and `cancel` come from the same API.
+ */
+export function idleWarmScheduler(host: IdleCallbackHost = globalThis): IdleWarmScheduler {
+  const requestIdle = host.requestIdleCallback;
+  const cancelIdle = host.cancelIdleCallback;
+  if (typeof requestIdle === "function" && typeof cancelIdle === "function") {
+    return {
+      schedule: (step) => requestIdle.call(host, step),
+      cancel: (handle) => {
+        cancelIdle.call(host, handle);
+      },
+    };
+  }
+  return {
+    schedule: (step) => host.setTimeout.call(host, step, LAZY_BODY_WARM_FALLBACK_DELAY_MS),
+    cancel: (handle) => {
+      host.clearTimeout.call(host, handle);
+    },
+  };
+}
+
+interface IdleCallbackHost {
+  requestIdleCallback?: (callback: () => void) => number;
+  cancelIdleCallback?: (handle: number) => void;
+  setTimeout: (callback: () => void, delayMs: number) => number;
+  clearTimeout: (handle: number) => void;
 }

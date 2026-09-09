@@ -60,6 +60,28 @@ export type ReasoningAvailability = ReasoningSurfaceReadResponse["availability"]
 export const REASONING_TAIL_LINE_COUNT = 3;
 
 /**
+ * What this card holds about the reasoning read, at any moment.
+ *
+ * FOUR STATUSES AND NOT THREE. `not-asked` is a different fact from a read that
+ * answered `unavailable`: the first says nobody put the question, the second says
+ * the daemon answered it. Collapsing them would make the surface claim a provider
+ * captured no reasoning every time a reader had simply not expanded the row.
+ */
+export type ReasoningSurfaceReading =
+  | { readonly status: "not-asked" }
+  | { readonly status: "reading" }
+  | { readonly status: "read"; readonly response: ReasoningSurfaceReadResponse }
+  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+
+/** What one arm says of itself when it carries no entries to show. */
+export interface ReasoningArmCopy {
+  /** The sentence, in the console's calm register — what happened, never a remedy. */
+  readonly title: string;
+  /** The second line, saying what remains readable. */
+  readonly detail: string;
+}
+
+/**
  * The newest lines of a streaming reasoning body.
  *
  * SLIDING, which is what makes it a tail rather than a head: the window is taken
@@ -81,28 +103,6 @@ export function reasoningTailOf(text: string): readonly string[] {
     }
   }
   return lines.slice(-REASONING_TAIL_LINE_COUNT);
-}
-
-/**
- * What this card holds about the reasoning read, at any moment.
- *
- * FOUR STATUSES AND NOT THREE. `not-asked` is a different fact from a read that
- * answered `unavailable`: the first says nobody put the question, the second says
- * the daemon answered it. Collapsing them would make the surface claim a provider
- * captured no reasoning every time a reader had simply not expanded the row.
- */
-export type ReasoningSurfaceReading =
-  | { readonly status: "not-asked" }
-  | { readonly status: "reading" }
-  | { readonly status: "read"; readonly response: ReasoningSurfaceReadResponse }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
-
-/** What one arm says of itself when it carries no entries to show. */
-export interface ReasoningArmCopy {
-  /** The sentence, in the console's calm register — what happened, never a remedy. */
-  readonly title: string;
-  /** The second line, saying what remains readable. */
-  readonly detail: string;
 }
 
 /**

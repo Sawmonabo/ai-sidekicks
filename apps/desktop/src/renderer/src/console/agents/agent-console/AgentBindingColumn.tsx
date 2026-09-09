@@ -59,19 +59,6 @@ import {
   useAgentMutationControl,
 } from "./mutation-control.js";
 
-/**
- * One submitted binding move: which agent it is about, and through which control.
- *
- * The control is held because it decides WHERE the settlement renders, and the two
- * moves are pressed in two places — detach on the agent's card, a switch in the form
- * below it. Recorded at submission rather than derived at render, because by the time
- * a refusal lands the roster may have moved and the pressed control may be gone.
- */
-interface BindingMove {
-  readonly agentId: string;
-  readonly control: "detach" | "switch";
-}
-
 export interface AgentBindingColumnProps {
   readonly models: AgentConsoleModels;
   /** The agent this console is about. `undefined` shows the whole roster. */
@@ -386,4 +373,17 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
       />
     </>
   );
+}
+
+/**
+ * One submitted binding move: which agent it is about, and through which control.
+ *
+ * The control is held because it decides WHERE the settlement renders, and the two
+ * moves are pressed in two places — detach on the agent's card, a switch in the form
+ * below it. Recorded at submission rather than derived at render, because by the time
+ * a refusal lands the roster may have moved and the pressed control may be gone.
+ */
+interface BindingMove {
+  readonly agentId: string;
+  readonly control: "detach" | "switch";
 }

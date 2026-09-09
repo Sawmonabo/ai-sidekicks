@@ -95,26 +95,6 @@ export interface ImportProgressSubscription {
 }
 
 /**
- * Whether a refusal establishes that the import it answered about is over.
- *
- * THE CONSOLE'S OWN READING OF THAT QUESTION AND NOT A SECOND ONE, on the precedent
- * `approvals/pane/approval-offer.ts` sets for the two approval answers: the shared
- * remedy table already says, per registered wire code, whether the request a refusal
- * names is finished, and a vocabulary invented here would be console words appearing
- * in no registry.
- *
- * IT IS FAIL-CLOSED, which is the half that matters. An unregistered code — the
- * broken-delivery sentence this module composes, a rejection nobody typed, a wire the
- * corpus has not registered — answers `undefined` and so answers "not established",
- * and the guard stays shut. Nothing here asks whether the daemon is still reading;
- * this window cannot see that, and the only honest release is an answer that says
- * the act itself is over.
- */
-function namesImportFinished(refusal: ConsoleRefusal): boolean {
-  return refusalRemedyFor(refusal.code)?.settled === true;
-}
-
-/**
  * Whether the import an id names is still being read.
  *
  * BESIDE THE UNION RATHER THAN IN THE PANEL, because it is a claim about which arms
@@ -262,4 +242,24 @@ export function useImportProgress(
     retry:
       reading.status === "refused" && !namesImportFinished(reading.refusal) ? retry : undefined,
   };
+}
+
+/**
+ * Whether a refusal establishes that the import it answered about is over.
+ *
+ * THE CONSOLE'S OWN READING OF THAT QUESTION AND NOT A SECOND ONE, on the precedent
+ * `approvals/pane/approval-offer.ts` sets for the two approval answers: the shared
+ * remedy table already says, per registered wire code, whether the request a refusal
+ * names is finished, and a vocabulary invented here would be console words appearing
+ * in no registry.
+ *
+ * IT IS FAIL-CLOSED, which is the half that matters. An unregistered code — the
+ * broken-delivery sentence this module composes, a rejection nobody typed, a wire the
+ * corpus has not registered — answers `undefined` and so answers "not established",
+ * and the guard stays shut. Nothing here asks whether the daemon is still reading;
+ * this window cannot see that, and the only honest release is an answer that says
+ * the act itself is over.
+ */
+function namesImportFinished(refusal: ConsoleRefusal): boolean {
+  return refusalRemedyFor(refusal.code)?.settled === true;
 }

@@ -50,12 +50,6 @@ import { useEffect, useState } from "react";
 
 import { Nothing } from "../../../../primitives/index.js";
 
-/** What one render attempt produced. Closed — a nameless failure is one a card cannot explain. */
-type MathRenderState =
-  | { readonly status: "pending" }
-  | { readonly status: "rendered"; readonly mathMarkup: string }
-  | { readonly status: "unrenderable" };
-
 export interface MathBlockProps {
   /** The TeX source, wire-verbatim. */
   readonly source: string;
@@ -91,6 +85,12 @@ export function MathBlock(props: MathBlockProps): React.JSX.Element {
     </span>
   );
 }
+
+/** What one render attempt produced. Closed — a nameless failure is one a card cannot explain. */
+type MathRenderState =
+  | { readonly status: "pending" }
+  | { readonly status: "rendered"; readonly mathMarkup: string }
+  | { readonly status: "unrenderable" };
 
 /**
  * KaTeX's markup for this source, loaded on first use.

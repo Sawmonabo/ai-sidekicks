@@ -91,33 +91,27 @@ export interface SessionListRow {
   readonly attentionSeverity: AttentionSeverity | undefined;
 }
 
+/**
+ * A row that has been placed in a tier.
+ *
+ * The tier travels ON the row rather than beside it in a map the renderer looks
+ * into, for two reasons: the row's own control needs it, and a row whose tier
+ * changed then has a new identity, which is what lets the list memoise a row and
+ * still re-render exactly the one that moved.
+ */
+export interface PlacedSessionRow extends SessionListRow {
+  readonly tier: SessionPinTier;
+}
+
+/** The list, folded into its two tiers. Each tier is already ordered. */
+export interface SessionTierFold {
+  readonly front: readonly PlacedSessionRow[];
+  readonly back: readonly PlacedSessionRow[];
+}
+
 /** True when the state is one a person can do nothing with. Fail-closed on `undefined`. */
 export function isAuditStubSession(state: string | undefined): boolean {
   return state !== undefined && (AUDIT_STUB_SESSION_STATES as readonly string[]).includes(state);
-}
-
-/**
- * Lifecycle rank, low sorts first.
- *
- * A total function over any string the wire can send, including one this console
- * has never seen: an unrecognised state ranks with the settled group rather than
- * with the live one, which is the fail-closed direction — it under-promises about
- * a session the console cannot classify instead of promoting it past sessions it
- * can.
- */
-function lifecycleRank(state: string | undefined): number {
-  if (isAuditStubSession(state)) {
-    return 2;
-  }
-  return state === "active" || state === "provisioning" ? 0 : 1;
-}
-
-/** Attention rank, low sorts first. Read from the projection; never computed. */
-function attentionRank(severity: AttentionSeverity | undefined): number {
-  if (severity === "actionable") {
-    return 0;
-  }
-  return severity === "informational" ? 1 : 2;
 }
 
 /** The ordinary status-and-activity comparator. Applies inside each tier. */
@@ -147,24 +141,6 @@ export function compareSessionRows(left: SessionListRow, right: SessionListRow):
 }
 
 /**
- * A row that has been placed in a tier.
- *
- * The tier travels ON the row rather than beside it in a map the renderer looks
- * into, for two reasons: the row's own control needs it, and a row whose tier
- * changed then has a new identity, which is what lets the list memoise a row and
- * still re-render exactly the one that moved.
- */
-export interface PlacedSessionRow extends SessionListRow {
-  readonly tier: SessionPinTier;
-}
-
-/** The list, folded into its two tiers. Each tier is already ordered. */
-export interface SessionTierFold {
-  readonly front: readonly PlacedSessionRow[];
-  readonly back: readonly PlacedSessionRow[];
-}
-
-/**
  * Fold rows into the two tiers.
  *
  * The pin map is read as a total function through the default, so a row nobody has
@@ -186,4 +162,28 @@ export function foldIntoTiers(
     front: front.sort(compareSessionRows),
     back: back.sort(compareSessionRows),
   };
+}
+
+/**
+ * Lifecycle rank, low sorts first.
+ *
+ * A total function over any string the wire can send, including one this console
+ * has never seen: an unrecognised state ranks with the settled group rather than
+ * with the live one, which is the fail-closed direction — it under-promises about
+ * a session the console cannot classify instead of promoting it past sessions it
+ * can.
+ */
+function lifecycleRank(state: string | undefined): number {
+  if (isAuditStubSession(state)) {
+    return 2;
+  }
+  return state === "active" || state === "provisioning" ? 0 : 1;
+}
+
+/** Attention rank, low sorts first. Read from the projection; never computed. */
+function attentionRank(severity: AttentionSeverity | undefined): number {
+  if (severity === "actionable") {
+    return 0;
+  }
+  return severity === "informational" ? 1 : 2;
 }

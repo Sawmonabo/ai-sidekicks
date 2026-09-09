@@ -80,14 +80,6 @@ import { QueueOrder } from "./queue-order.js";
 import type { ConsoleBridge } from "../console-bridge.js";
 
 /**
- * The session id as the stream's own registered request carries it.
- *
- * Taken off the schema rather than re-declared, so the brand this module holds is
- * the brand the wire admitted and never a `string` that resembles one.
- */
-type ScopedSessionId = ReturnType<typeof RunQueueSubscribeRequestSchema.parse>["sessionId"];
-
-/**
  * Everything the wire has said about one session's queue.
  *
  * The rows, the phase the newest read left, and what arrived unreadable on the way —
@@ -346,5 +338,13 @@ export class SessionQueueSubscription {
     this.#onChanged();
   }
 }
+
+/**
+ * The session id as the stream's own registered request carries it.
+ *
+ * Taken off the schema rather than re-declared, so the brand this module holds is
+ * the brand the wire admitted and never a `string` that resembles one.
+ */
+type ScopedSessionId = ReturnType<typeof RunQueueSubscribeRequestSchema.parse>["sessionId"];
 
 const EMPTY_ITEMS: readonly QueueItemSummary[] = Object.freeze([]);

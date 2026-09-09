@@ -30,6 +30,21 @@ export const RAIL_DESTINATIONS = ["sessions", "workflows", "settings"] as const;
 /** One icon-rail destination, derived from the tuple above. */
 export type RailDestination = (typeof RAIL_DESTINATIONS)[number];
 
+/** The auxiliary arm of the route union, named so predicates can narrow to it. */
+export type AuxiliaryConsoleRoute = Extract<ConsoleRoute, { kind: "auxiliary" }>;
+
+/**
+ * One phase of one run, as a workspace address names it.
+ *
+ * DERIVED FROM THE ARM RATHER THAN RESTATED BESIDE IT, which is the console's rule for
+ * a closed shape with more than one reader: a second declaration here would be a shape
+ * that agrees with the grammar until one of them grows a member, and the compiler
+ * reports neither.
+ */
+export type WorkflowPhaseFocus = NonNullable<
+  Extract<ConsoleRoute, { kind: "workspace" }>["workflowPhase"]
+>;
+
 /**
  * Which rail destination is current, or `undefined` in an auxiliary window.
  *
@@ -82,9 +97,6 @@ export function settingsRoute(page: string, selection: string | undefined): Cons
     : { kind: "settings", page, selection };
 }
 
-/** The auxiliary arm of the route union, named so predicates can narrow to it. */
-export type AuxiliaryConsoleRoute = Extract<ConsoleRoute, { kind: "auxiliary" }>;
-
 /**
  * True when this window is an auxiliary one, which changes what chrome renders.
  *
@@ -125,18 +137,6 @@ export function routeSessionId(route: ConsoleRoute): string | undefined {
 }
 
 /**
- * One phase of one run, as a workspace address names it.
- *
- * DERIVED FROM THE ARM RATHER THAN RESTATED BESIDE IT, which is the console's rule for
- * a closed shape with more than one reader: a second declaration here would be a shape
- * that agrees with the grammar until one of them grows a member, and the compiler
- * reports neither.
- */
-export type WorkflowPhaseFocus = NonNullable<
-  Extract<ConsoleRoute, { kind: "workspace" }>["workflowPhase"]
->;
-
-/**
  * The phase a route is focused on, or `undefined` where it names none.
  *
  * PUBLISHED, WHERE THE COMPARISON BELOW USED TO BE THE ONLY READER. The address
@@ -153,29 +153,6 @@ export type WorkflowPhaseFocus = NonNullable<
  */
 export function routeWorkflowPhase(route: ConsoleRoute): WorkflowPhaseFocus | undefined {
   return route.kind === "workspace" ? route.workflowPhase : undefined;
-}
-
-/**
- * The workspace arm's focus, compared field by field.
- *
- * Both-absent is EQUAL and one-absent is not, which is the whole content of the
- * comparison: a bare workspace address and one focused on a phase of it are two
- * different places, and treating them as one would make navigating from a run row to
- * its phase cost no transition and render nothing new.
- */
-function workflowPhaseFocusesAreEqual(
-  left: WorkflowPhaseFocus | undefined,
-  right: WorkflowPhaseFocus | undefined,
-): boolean {
-  if (left === undefined || right === undefined) {
-    return left === right;
-  }
-  return left.workflowRunId === right.workflowRunId && left.phaseId === right.phaseId;
-}
-
-/** The agent a route is scoped to. Module-private: only the comparison below asks. */
-function routeAgentId(route: ConsoleRoute): string | undefined {
-  return route.kind === "auxiliary" && "agentId" in route ? route.agentId : undefined;
 }
 
 /**
@@ -249,4 +226,27 @@ export function routesAreEqual(left: ConsoleRoute, right: ConsoleRoute): boolean
     case "not-found":
       return right.kind === "not-found" && left.attempted === right.attempted;
   }
+}
+
+/**
+ * The workspace arm's focus, compared field by field.
+ *
+ * Both-absent is EQUAL and one-absent is not, which is the whole content of the
+ * comparison: a bare workspace address and one focused on a phase of it are two
+ * different places, and treating them as one would make navigating from a run row to
+ * its phase cost no transition and render nothing new.
+ */
+function workflowPhaseFocusesAreEqual(
+  left: WorkflowPhaseFocus | undefined,
+  right: WorkflowPhaseFocus | undefined,
+): boolean {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  return left.workflowRunId === right.workflowRunId && left.phaseId === right.phaseId;
+}
+
+/** The agent a route is scoped to. Module-private: only the comparison below asks. */
+function routeAgentId(route: ConsoleRoute): string | undefined {
+  return route.kind === "auxiliary" && "agentId" in route ? route.agentId : undefined;
 }

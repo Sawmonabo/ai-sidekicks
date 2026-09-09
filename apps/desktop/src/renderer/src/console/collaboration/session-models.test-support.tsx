@@ -42,6 +42,18 @@ export interface CountedBridge {
   readonly liveSubscriptionCount: () => number;
 }
 
+/** What the holder reported while a render body was running. */
+export interface RenderPhaseReading {
+  readonly leaseCount: number;
+  readonly liveSubscriptionCount: number;
+}
+
+/** Which session a committed frame drew, beside the store that frame was handed. */
+export interface FramePairing {
+  readonly modelsSessionId: string | undefined;
+  readonly storeSessionId: string | undefined;
+}
+
 export function countedFixtureBridge(sessionId: string): CountedBridge {
   const fixture = createFixtureBridge({
     scenario: {
@@ -74,18 +86,6 @@ export function countedFixtureBridge(sessionId: string): CountedBridge {
     bridge: { ...fixture, sidekicks: { ...fixture.sidekicks, daemon } },
     liveSubscriptionCount: () => liveSubscriptionCount,
   };
-}
-
-/** What the holder reported while a render body was running. */
-export interface RenderPhaseReading {
-  readonly leaseCount: number;
-  readonly liveSubscriptionCount: number;
-}
-
-/** Which session a committed frame drew, beside the store that frame was handed. */
-export interface FramePairing {
-  readonly modelsSessionId: string | undefined;
-  readonly storeSessionId: string | undefined;
 }
 
 export function LeaseProbe(props: {

@@ -89,17 +89,6 @@ const RUN_CREATED_STATE: RunState = "queued";
  */
 const CONTEXT_COMPACTED_TYPE = "usage.context_compacted";
 
-/** What one pass has learned about one child run, before it is composed. */
-interface ChildRunReading {
-  /** The row the summary is stamped on — this child's own creation row. */
-  readonly creationEventId: string;
-  readonly parentRunId: string;
-  readonly producingNodeId: string | undefined;
-  state: RunState;
-  eventCount: number;
-  compactedAt: string | undefined;
-}
-
 /**
  * Every child run this log names, keyed by the EVENT ID of the row it is stamped on.
  *
@@ -141,6 +130,17 @@ export function deriveShellChildRunSummaries(
     }
   }
   return composedSummaries(readingsByRunId);
+}
+
+/** What one pass has learned about one child run, before it is composed. */
+interface ChildRunReading {
+  /** The row the summary is stamped on — this child's own creation row. */
+  readonly creationEventId: string;
+  readonly parentRunId: string;
+  readonly producingNodeId: string | undefined;
+  state: RunState;
+  eventCount: number;
+  compactedAt: string | undefined;
 }
 
 /**

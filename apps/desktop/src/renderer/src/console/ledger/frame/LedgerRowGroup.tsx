@@ -23,23 +23,6 @@ export interface LedgerRowGroupProps {
 }
 
 /**
- * A render failure, as a refusal.
- *
- * Built through `refuse` rather than an object literal so this failure carries the
- * same three fields as every daemon refusal and reaches the same three renderers.
- * The code is renderer-local and says so in its own name: nothing here came off a
- * wire, and dressing it as a wire code would make a console defect look like the
- * daemon's answer.
- */
-function rowProjectionRefusal(groupLabel: string, error: Error): ConsoleRefusal {
-  return refuse(
-    "ledger",
-    "renderer.row_projection_failed",
-    `${groupLabel} could not be drawn: ${error.message}`,
-  );
-}
-
-/**
  * One row group's boundary.
  *
  * A group rather than the whole feed: a single row that throws must not blank the
@@ -69,5 +52,22 @@ export function LedgerRowGroup(props: LedgerRowGroupProps): React.JSX.Element {
     >
       {props.children}
     </SurfaceErrorBoundary>
+  );
+}
+
+/**
+ * A render failure, as a refusal.
+ *
+ * Built through `refuse` rather than an object literal so this failure carries the
+ * same three fields as every daemon refusal and reaches the same three renderers.
+ * The code is renderer-local and says so in its own name: nothing here came off a
+ * wire, and dressing it as a wire code would make a console defect look like the
+ * daemon's answer.
+ */
+function rowProjectionRefusal(groupLabel: string, error: Error): ConsoleRefusal {
+  return refuse(
+    "ledger",
+    "renderer.row_projection_failed",
+    `${groupLabel} could not be drawn: ${error.message}`,
   );
 }

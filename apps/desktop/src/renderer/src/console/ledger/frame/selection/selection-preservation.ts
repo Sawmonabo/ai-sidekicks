@@ -95,101 +95,6 @@ interface ResolvedTextPosition {
 
 const TEXT_NODE_TYPE = 3;
 
-function isTextNode(node: Node): node is Text {
-  return node.nodeType === TEXT_NODE_TYPE;
-}
-
-/** Every text node under `root`, in document order. */
-function collectTextNodes(root: Node): readonly Text[] {
-  const textNodes: Text[] = [];
-  const visit = (node: Node): void => {
-    if (isTextNode(node)) {
-      textNodes.push(node);
-      return;
-    }
-    for (const child of Array.from(node.childNodes)) {
-      visit(child);
-    }
-  };
-  visit(root);
-  return textNodes;
-}
-
-/**
- * The character offset of one DOM position, measured from the start of `root`.
- *
- * `undefined` when the position is not inside `root` at all, which is how a selection
- * that has left this row is told from one that is still in it.
- */
-export function characterOffsetWithin(
-  root: Node,
-  node: Node | null,
-  offsetInNode: number,
-): number | undefined {
-  if (node === null || !root.contains(node)) {
-    return undefined;
-  }
-  if (isTextNode(node)) {
-    let offset = 0;
-    for (const textNode of collectTextNodes(root)) {
-      if (textNode === node) {
-        return offset + Math.min(offsetInNode, textNode.data.length);
-      }
-      offset += textNode.data.length;
-    }
-    return undefined;
-  }
-  // An element position addresses a child BOUNDARY, so the offset is everything the
-  // first `offsetInNode` children hold. A selection that starts at a block boundary
-  // reaches this arm rather than the text one.
-  let offset = 0;
-  const children = Array.from(node.childNodes);
-  for (const [childIndex, child] of children.entries()) {
-    if (childIndex >= offsetInNode) {
-      break;
-    }
-    offset += child.textContent?.length ?? 0;
-  }
-  const leading = characterOffsetWithin(root, node.parentNode, indexOfChild(node));
-  return leading === undefined ? offset : leading + offset;
-}
-
-function indexOfChild(node: Node): number {
-  const parent = node.parentNode;
-  if (parent === null) {
-    return 0;
-  }
-  return Array.from(parent.childNodes).indexOf(node as ChildNode);
-}
-
-/**
- * The DOM position a character offset names, or `undefined` when the row holds no
- * text to land in.
- *
- * The offset is clamped to the row's own length rather than refused: a migration that
- * shortened the text is a row whose selection cannot be restored exactly, and the end
- * of the text is the honest nearest position.
- */
-export function resolveTextPosition(
-  root: Node,
-  characterOffset: number,
-): ResolvedTextPosition | undefined {
-  const textNodes = collectTextNodes(root);
-  let remaining = Math.max(0, characterOffset);
-  let lastTextNode: Text | undefined;
-  for (const textNode of textNodes) {
-    if (remaining <= textNode.data.length) {
-      return { textNode, offsetInNode: remaining };
-    }
-    remaining -= textNode.data.length;
-    lastTextNode = textNode;
-  }
-  if (lastTextNode === undefined) {
-    return undefined;
-  }
-  return { textNode: lastTextNode, offsetInNode: lastTextNode.data.length };
-}
-
 /** One row's selection, held across that row's own remounts. */
 export class RowSelectionGuard {
   readonly #document: SelectionDocument;
@@ -332,4 +237,99 @@ export class RowSelectionGuard {
     this.#document.removeEventListener("selectionchange", this.#onSelectionChange);
     this.#listening = false;
   }
+}
+
+/**
+ * The character offset of one DOM position, measured from the start of `root`.
+ *
+ * `undefined` when the position is not inside `root` at all, which is how a selection
+ * that has left this row is told from one that is still in it.
+ */
+export function characterOffsetWithin(
+  root: Node,
+  node: Node | null,
+  offsetInNode: number,
+): number | undefined {
+  if (node === null || !root.contains(node)) {
+    return undefined;
+  }
+  if (isTextNode(node)) {
+    let offset = 0;
+    for (const textNode of collectTextNodes(root)) {
+      if (textNode === node) {
+        return offset + Math.min(offsetInNode, textNode.data.length);
+      }
+      offset += textNode.data.length;
+    }
+    return undefined;
+  }
+  // An element position addresses a child BOUNDARY, so the offset is everything the
+  // first `offsetInNode` children hold. A selection that starts at a block boundary
+  // reaches this arm rather than the text one.
+  let offset = 0;
+  const children = Array.from(node.childNodes);
+  for (const [childIndex, child] of children.entries()) {
+    if (childIndex >= offsetInNode) {
+      break;
+    }
+    offset += child.textContent?.length ?? 0;
+  }
+  const leading = characterOffsetWithin(root, node.parentNode, indexOfChild(node));
+  return leading === undefined ? offset : leading + offset;
+}
+
+/**
+ * The DOM position a character offset names, or `undefined` when the row holds no
+ * text to land in.
+ *
+ * The offset is clamped to the row's own length rather than refused: a migration that
+ * shortened the text is a row whose selection cannot be restored exactly, and the end
+ * of the text is the honest nearest position.
+ */
+export function resolveTextPosition(
+  root: Node,
+  characterOffset: number,
+): ResolvedTextPosition | undefined {
+  const textNodes = collectTextNodes(root);
+  let remaining = Math.max(0, characterOffset);
+  let lastTextNode: Text | undefined;
+  for (const textNode of textNodes) {
+    if (remaining <= textNode.data.length) {
+      return { textNode, offsetInNode: remaining };
+    }
+    remaining -= textNode.data.length;
+    lastTextNode = textNode;
+  }
+  if (lastTextNode === undefined) {
+    return undefined;
+  }
+  return { textNode: lastTextNode, offsetInNode: lastTextNode.data.length };
+}
+
+function isTextNode(node: Node): node is Text {
+  return node.nodeType === TEXT_NODE_TYPE;
+}
+
+/** Every text node under `root`, in document order. */
+function collectTextNodes(root: Node): readonly Text[] {
+  const textNodes: Text[] = [];
+  const visit = (node: Node): void => {
+    if (isTextNode(node)) {
+      textNodes.push(node);
+      return;
+    }
+    for (const child of Array.from(node.childNodes)) {
+      visit(child);
+    }
+  };
+  visit(root);
+  return textNodes;
+}
+
+function indexOfChild(node: Node): number {
+  const parent = node.parentNode;
+  if (parent === null) {
+    return 0;
+  }
+  return Array.from(parent.childNodes).indexOf(node as ChildNode);
 }

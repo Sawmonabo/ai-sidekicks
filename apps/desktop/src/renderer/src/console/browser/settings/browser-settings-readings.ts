@@ -39,6 +39,27 @@ export type BrowserPolicyReading =
   | { readonly kind: "refused"; readonly reading: BrowserPolicySwitchReading };
 
 /**
+ * How one policy write settled, and whether the node's record may have moved anyway.
+ *
+ * THE THIRD ARM IS THE WHOLE REASON THIS IS A UNION. A write the node RETURNED a
+ * refusal for is settled: it answered, and it answered no, so the position on screen
+ * is still the position the record holds. A write whose call REJECTED answered
+ * nothing — the request may have been applied and lost its reply, or never arrived at
+ * all — and the two are indistinguishable from this side of the wire. Folding them
+ * together left the refused sentence on screen beside a switch drawn at whichever
+ * position the last read had, with nothing asking the node which one it is now.
+ *
+ * The reading each failing arm carries is the SAME shape, because what a person reads
+ * is the refuser's own words either way. What differs is what the carrier does next,
+ * which is why the disposition rides the arm rather than being re-derived from the
+ * reading.
+ */
+export type PolicyWriteSettlement =
+  | { readonly kind: "served" }
+  | { readonly kind: "declined"; readonly reading: BrowserPolicyReading }
+  | { readonly kind: "ambiguous"; readonly reading: BrowserPolicyReading };
+
+/**
  * One reading per switch, total over the closed tuple.
  *
  * Asserted directly rather than through a rendered page: driving it through the page
@@ -53,6 +74,19 @@ export function policyReadingsFrom(
     readings[switchId] = switchReadingFor(reading, switchId);
   }
   return readings;
+}
+
+/** The refused arm, built once from whatever refused, so every call site agrees. */
+export function refusedSwitchReading(refusal: ConsoleRefusal): BrowserPolicySwitchReading {
+  return { kind: "refused", scope: "whole-answer", refusal };
+}
+
+/** The policy reading a call that REJECTED rather than answering settles into. */
+export function policyReadingFromRejection(rejection: unknown): BrowserPolicyReading {
+  return {
+    kind: "refused",
+    reading: refusedSwitchReading(consoleRefusalFrom(rejection, BROWSER_SETTINGS_ORIGIN)),
+  };
 }
 
 function switchReadingFor(
@@ -79,40 +113,6 @@ function switchReadingFor(
   }
   return { kind: "served", enabled: value };
 }
-
-/** The refused arm, built once from whatever refused, so every call site agrees. */
-export function refusedSwitchReading(refusal: ConsoleRefusal): BrowserPolicySwitchReading {
-  return { kind: "refused", scope: "whole-answer", refusal };
-}
-
-/** The policy reading a call that REJECTED rather than answering settles into. */
-export function policyReadingFromRejection(rejection: unknown): BrowserPolicyReading {
-  return {
-    kind: "refused",
-    reading: refusedSwitchReading(consoleRefusalFrom(rejection, BROWSER_SETTINGS_ORIGIN)),
-  };
-}
-
-/**
- * How one policy write settled, and whether the node's record may have moved anyway.
- *
- * THE THIRD ARM IS THE WHOLE REASON THIS IS A UNION. A write the node RETURNED a
- * refusal for is settled: it answered, and it answered no, so the position on screen
- * is still the position the record holds. A write whose call REJECTED answered
- * nothing — the request may have been applied and lost its reply, or never arrived at
- * all — and the two are indistinguishable from this side of the wire. Folding them
- * together left the refused sentence on screen beside a switch drawn at whichever
- * position the last read had, with nothing asking the node which one it is now.
- *
- * The reading each failing arm carries is the SAME shape, because what a person reads
- * is the refuser's own words either way. What differs is what the carrier does next,
- * which is why the disposition rides the arm rather than being re-derived from the
- * reading.
- */
-export type PolicyWriteSettlement =
-  | { readonly kind: "served" }
-  | { readonly kind: "declined"; readonly reading: BrowserPolicyReading }
-  | { readonly kind: "ambiguous"; readonly reading: BrowserPolicyReading };
 
 /** A write the node took. */
 export const SERVED_POLICY_WRITE: PolicyWriteSettlement = { kind: "served" };

@@ -85,6 +85,36 @@ export function resolveRunWorktreeId(
   return { disposition: "opened", worktreeId: only.worktreeId };
 }
 
+/**
+ * Fill the floor seat for as long as this workspace is mounted.
+ *
+ * Withdrawn on unmount rather than left standing: the handler closes over one deck,
+ * one transport and one session's store, and a handler outliving them would move a
+ * deck that is no longer on screen.
+ *
+ * AND THE READ LINE IS WITHDRAWN WITH IT. Withdrawing the handler stops the NEXT act
+ * from being asked for and does nothing about the one already on the wire, so the
+ * line is addressed at the same `(bridge, sessionId)` pairing the handler is composed
+ * from: unmounting it, or re-addressing the workspace at another session, abandons the
+ * execution-root read this act was waiting on instead of leaving it to be parsed for a
+ * deck that has gone.
+ */
+export function useTakeTheFloorSeat(deck: FloorDeck): void {
+  const { layout, bridge, sessionStore } = deck;
+  const readScope = useReadScope(bridge, sessionStore?.sessionId);
+  const handle = useCallback<TakeTheFloorHandler>(
+    (request) =>
+      handOverTheFloor({ layout, bridge, sessionStore }, request.runId, readScope.openRound()),
+    [layout, bridge, sessionStore, readScope],
+  );
+  useEffect(() => {
+    registerTakeTheFloorHandler(TAKE_THE_FLOOR_SEAT_OWNER, handle);
+    return () => {
+      unregisterTakeTheFloorHandler();
+    };
+  }, [handle]);
+}
+
 /** The agent this run is bound to, read off the run's own entity body. */
 function agentOfRun(sessionStore: SessionStore | undefined, runId: string): string | undefined {
   return readWireString(sessionStore?.snapshot().partitions.run[runId]?.body?.["agentId"]);
@@ -161,34 +191,4 @@ async function readRunWorktree(
     return { disposition: "unreadable" };
   }
   return resolveRunWorktreeId(reply.value.worktrees, runId);
-}
-
-/**
- * Fill the floor seat for as long as this workspace is mounted.
- *
- * Withdrawn on unmount rather than left standing: the handler closes over one deck,
- * one transport and one session's store, and a handler outliving them would move a
- * deck that is no longer on screen.
- *
- * AND THE READ LINE IS WITHDRAWN WITH IT. Withdrawing the handler stops the NEXT act
- * from being asked for and does nothing about the one already on the wire, so the
- * line is addressed at the same `(bridge, sessionId)` pairing the handler is composed
- * from: unmounting it, or re-addressing the workspace at another session, abandons the
- * execution-root read this act was waiting on instead of leaving it to be parsed for a
- * deck that has gone.
- */
-export function useTakeTheFloorSeat(deck: FloorDeck): void {
-  const { layout, bridge, sessionStore } = deck;
-  const readScope = useReadScope(bridge, sessionStore?.sessionId);
-  const handle = useCallback<TakeTheFloorHandler>(
-    (request) =>
-      handOverTheFloor({ layout, bridge, sessionStore }, request.runId, readScope.openRound()),
-    [layout, bridge, sessionStore, readScope],
-  );
-  useEffect(() => {
-    registerTakeTheFloorHandler(TAKE_THE_FLOOR_SEAT_OWNER, handle);
-    return () => {
-      unregisterTakeTheFloorHandler();
-    };
-  }, [handle]);
 }

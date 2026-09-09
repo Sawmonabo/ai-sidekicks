@@ -20,34 +20,6 @@ import { Suspense, useState } from "react";
 import { RevealFocusHandoff } from "./lazy-body-focus.js";
 import { LazyBodyFocusHandoff } from "./LazyBodyFocusHandoff.js";
 
-/** What one mount holds for as long as its registration is the one it started on. */
-interface PinnedBody<TContext extends object> {
-  /**
-   * The registration this pin belongs to, read as the `lazy()` component it built.
-   *
-   * The board mints exactly one of those per registration and holds it, so comparing it
-   * is comparing registrations — no counter, no id, and nothing for a caller to keep in
-   * step with the thing it identifies.
-   */
-  readonly registration: React.ComponentType<TContext>;
-  /** The arm this mount renders: the settled body if there was one, else the lazy form. */
-  readonly MountedBody: React.ComponentType<TContext>;
-  /** The reveal record the reserved side writes and the loaded side reads. */
-  readonly focusHandoff: RevealFocusHandoff;
-}
-
-/** Pin one registration's arm, with the reveal record that belongs to that mount. */
-function pinBody<TContext extends object>(
-  Body: React.ComponentType<TContext>,
-  resolvedBody: React.ComponentType<TContext> | undefined,
-): PinnedBody<TContext> {
-  return {
-    registration: Body,
-    MountedBody: resolvedBody ?? Body,
-    focusHandoff: new RevealFocusHandoff(),
-  };
-}
-
 export interface LazyBodyProps<TContext extends object> {
   /**
    * The lazy form of the registered body.
@@ -139,4 +111,32 @@ export function LazyBody<TContext extends object>(
       <MountedBody {...context} />
     </Suspense>
   );
+}
+
+/** What one mount holds for as long as its registration is the one it started on. */
+interface PinnedBody<TContext extends object> {
+  /**
+   * The registration this pin belongs to, read as the `lazy()` component it built.
+   *
+   * The board mints exactly one of those per registration and holds it, so comparing it
+   * is comparing registrations — no counter, no id, and nothing for a caller to keep in
+   * step with the thing it identifies.
+   */
+  readonly registration: React.ComponentType<TContext>;
+  /** The arm this mount renders: the settled body if there was one, else the lazy form. */
+  readonly MountedBody: React.ComponentType<TContext>;
+  /** The reveal record the reserved side writes and the loaded side reads. */
+  readonly focusHandoff: RevealFocusHandoff;
+}
+
+/** Pin one registration's arm, with the reveal record that belongs to that mount. */
+function pinBody<TContext extends object>(
+  Body: React.ComponentType<TContext>,
+  resolvedBody: React.ComponentType<TContext> | undefined,
+): PinnedBody<TContext> {
+  return {
+    registration: Body,
+    MountedBody: resolvedBody ?? Body,
+    focusHandoff: new RevealFocusHandoff(),
+  };
 }

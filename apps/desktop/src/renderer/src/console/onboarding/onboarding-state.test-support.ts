@@ -24,31 +24,6 @@ import { ONBOARDING_SCENARIO } from "../bridge/scenario/onboarding.js";
 import type { OnboardingStepId } from "./steps/step-model.js";
 
 /**
- * Whether this window's caller has finished onboarding, as the daemon would report it.
- *
- * A CLASS RATHER THAN A CLOSED-OVER `let`, on `FixtureOnboardingLedger`'s reason: the
- * completion fold is state two replaced operations have to agree about, and the
- * fixture's own ledger performs exactly this fold over the read it serves. A helper
- * that replaces the state read drops that fold, so a case pressing _Finish setting up_
- * saw the reply and never the node moving.
- */
-class CompletionRecord {
-  #hasCompleted = false;
-
-  public get hasCompleted(): boolean {
-    return this.#hasCompleted;
-  }
-
-  /** Record an ACCEPTED completion, and answer the write untouched. */
-  public foldAccepted(write: GrowthOutcome<void>): GrowthOutcome<void> {
-    if (write.status === "served") {
-      this.#hasCompleted = true;
-    }
-    return write;
-  }
-}
-
-/**
  * The onboarding scenario, with the daemon reporting exactly these steps done.
  *
  * The completed set travels as the raw string list the wire carries, which
@@ -87,4 +62,29 @@ export function bridgeWithNoRelayChosen(): ConsoleBridge {
 /** A node whose two group-A questions are both answered, and nothing else. */
 export function bridgeWithGroupAAnswered(): ConsoleBridge {
   return bridgeWithStepsDone("relay", "telemetry");
+}
+
+/**
+ * Whether this window's caller has finished onboarding, as the daemon would report it.
+ *
+ * A CLASS RATHER THAN A CLOSED-OVER `let`, on `FixtureOnboardingLedger`'s reason: the
+ * completion fold is state two replaced operations have to agree about, and the
+ * fixture's own ledger performs exactly this fold over the read it serves. A helper
+ * that replaces the state read drops that fold, so a case pressing _Finish setting up_
+ * saw the reply and never the node moving.
+ */
+class CompletionRecord {
+  #hasCompleted = false;
+
+  public get hasCompleted(): boolean {
+    return this.#hasCompleted;
+  }
+
+  /** Record an ACCEPTED completion, and answer the write untouched. */
+  public foldAccepted(write: GrowthOutcome<void>): GrowthOutcome<void> {
+    if (write.status === "served") {
+      this.#hasCompleted = true;
+    }
+    return write;
+  }
 }

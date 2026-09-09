@@ -223,6 +223,18 @@ export class ShellPreferenceStore implements ReadTriggerTarget {
     }
   }
 
+  /** Drop one key's refusal — the dismiss a person presses on the notice. */
+  public dismiss(key: ShellPreferenceKey): void {
+    if (!Object.hasOwn(this.#snapshot.refusalByKey, key)) {
+      return;
+    }
+    this.#publish({
+      ...this.#snapshot,
+      refusalByKey: withoutKey(this.#snapshot.refusalByKey, key),
+      revision: this.#snapshot.revision + 1,
+    });
+  }
+
   /** Whether this settled write is still its key's latest, and retire it if it is. */
   #settle(key: ShellPreferenceKey, write: GenerationClaim): boolean {
     if (this.#disposed || !write.isCurrent) {
@@ -236,18 +248,6 @@ export class ShellPreferenceStore implements ReadTriggerTarget {
   /** The keys still in flight, copied so a published snapshot never changes under a reader. */
   #pendingKeys(): ReadonlySet<ShellPreferenceKey> {
     return new Set(this.#pendingWriteKeys);
-  }
-
-  /** Drop one key's refusal — the dismiss a person presses on the notice. */
-  public dismiss(key: ShellPreferenceKey): void {
-    if (!Object.hasOwn(this.#snapshot.refusalByKey, key)) {
-      return;
-    }
-    this.#publish({
-      ...this.#snapshot,
-      refusalByKey: withoutKey(this.#snapshot.refusalByKey, key),
-      revision: this.#snapshot.revision + 1,
-    });
   }
 
   /**

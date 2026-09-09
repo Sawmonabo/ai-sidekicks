@@ -3,6 +3,14 @@ import { WireFigure } from "../../primitives/index.js";
 import { type ExecutionMode } from "@ai-sidekicks/contracts";
 import { type ModeRow } from "./mode-row.js";
 
+export interface ModeRowViewProps {
+  readonly row: ModeRow;
+  readonly workspaceId: string;
+  readonly isCurrent: boolean;
+  readonly isDefault: boolean;
+  readonly onSelect: (executionMode: ExecutionMode) => void;
+}
+
 export function ModeRowView(props: ModeRowViewProps): React.JSX.Element {
   const { row } = props;
   const inputId = `meridian-mode-${props.workspaceId}-${row.mode.replace(/\s+/gu, "-")}`;
@@ -46,12 +54,4 @@ export function ModeRowView(props: ModeRowViewProps): React.JSX.Element {
       ) : null}
     </div>
   );
-}
-
-export interface ModeRowViewProps {
-  readonly row: ModeRow;
-  readonly workspaceId: string;
-  readonly isCurrent: boolean;
-  readonly isDefault: boolean;
-  readonly onSelect: (executionMode: ExecutionMode) => void;
 }

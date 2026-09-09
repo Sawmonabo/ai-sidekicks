@@ -38,24 +38,6 @@ export interface DefinitionPhaseRowProps {
   readonly phase: WorkflowPhaseDefinition;
 }
 
-/**
- * One binding's full identity, as a list key and never as anything a person reads.
- *
- * The server and tool names alone are not one: two bindings equal in provider, server
- * and tool and differing in `scopeRef` are two configured servers, and under a
- * name-only key they are two siblings React is told are the same element. Every member
- * the union declares goes in, so a collision needs two bindings that genuinely are one.
- *
- * SERIALIZED RATHER THAN DELIMITER-JOINED, because one of these members is a filesystem
- * path and can hold whichever separator a joined key would have picked — two bindings
- * whose parts straddle that separator differently would collide again, under one
- * repository root and not another.
- */
-function bindingRowKey(binding: McpServerBindingRef, toolName: string): string {
-  const scopeRef = binding.scope === "user" ? undefined : binding.scopeRef;
-  return JSON.stringify([binding.provider, binding.scope, scopeRef, binding.serverName, toolName]);
-}
-
 /** One phase row: its name, its closed vocabulary values, and its tool bindings. */
 export function DefinitionPhaseRow(props: DefinitionPhaseRowProps): React.JSX.Element {
   const { phase } = props;
@@ -111,4 +93,22 @@ export function DefinitionPhaseRow(props: DefinitionPhaseRowProps): React.JSX.El
       {schemaFormPreviewMount.render({ phase })}
     </li>
   );
+}
+
+/**
+ * One binding's full identity, as a list key and never as anything a person reads.
+ *
+ * The server and tool names alone are not one: two bindings equal in provider, server
+ * and tool and differing in `scopeRef` are two configured servers, and under a
+ * name-only key they are two siblings React is told are the same element. Every member
+ * the union declares goes in, so a collision needs two bindings that genuinely are one.
+ *
+ * SERIALIZED RATHER THAN DELIMITER-JOINED, because one of these members is a filesystem
+ * path and can hold whichever separator a joined key would have picked — two bindings
+ * whose parts straddle that separator differently would collide again, under one
+ * repository root and not another.
+ */
+function bindingRowKey(binding: McpServerBindingRef, toolName: string): string {
+  const scopeRef = binding.scope === "user" ? undefined : binding.scopeRef;
+  return JSON.stringify([binding.provider, binding.scope, scopeRef, binding.serverName, toolName]);
 }

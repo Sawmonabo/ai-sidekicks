@@ -92,38 +92,6 @@ export const DIAGNOSTIC_BAND_FORWARD_PROBE = "diagnostic-band-forward";
 /** What a truncated detail ends with, so a reader can tell truncation from brevity. */
 const TRUNCATION_SUFFIX = "…";
 
-function boundedDetail(detail: string): string {
-  if (detail.length <= DIAGNOSTIC_CAPTURE_BOUNDS.detailCharacterCount) {
-    return detail;
-  }
-  return (
-    detail.slice(0, DIAGNOSTIC_CAPTURE_BOUNDS.detailCharacterCount - TRUNCATION_SUFFIX.length) +
-    TRUNCATION_SUFFIX
-  );
-}
-
-/**
- * One record as one JSON line.
- *
- * Field order is fixed by the object literal so two records of the same shape encode
- * to the same bytes — which is what makes a captured batch diffable against a
- * recorded one in a test.
- */
-export function toJsonLine(record: DiagnosticRecord): string {
-  return JSON.stringify({
-    at: record.at,
-    severity: record.severity,
-    source: record.source,
-    kind: record.kind,
-    detail: boundedDetail(record.detail),
-  });
-}
-
-/** A batch as JSONL: one record per line, newline-separated, no trailing newline. */
-export function toJsonLines(records: readonly DiagnosticRecord[]): string {
-  return records.map(toJsonLine).join("\n");
-}
-
 /**
  * The console's diagnostic capture.
  *
@@ -317,6 +285,38 @@ export class DiagnosticCapture {
   public get refusedBlindProbeCount(): number {
     return this.#refusedBlindProbeCount;
   }
+}
+
+/**
+ * One record as one JSON line.
+ *
+ * Field order is fixed by the object literal so two records of the same shape encode
+ * to the same bytes — which is what makes a captured batch diffable against a
+ * recorded one in a test.
+ */
+export function toJsonLine(record: DiagnosticRecord): string {
+  return JSON.stringify({
+    at: record.at,
+    severity: record.severity,
+    source: record.source,
+    kind: record.kind,
+    detail: boundedDetail(record.detail),
+  });
+}
+
+/** A batch as JSONL: one record per line, newline-separated, no trailing newline. */
+export function toJsonLines(records: readonly DiagnosticRecord[]): string {
+  return records.map(toJsonLine).join("\n");
+}
+
+function boundedDetail(detail: string): string {
+  if (detail.length <= DIAGNOSTIC_CAPTURE_BOUNDS.detailCharacterCount) {
+    return detail;
+  }
+  return (
+    detail.slice(0, DIAGNOSTIC_CAPTURE_BOUNDS.detailCharacterCount - TRUNCATION_SUFFIX.length) +
+    TRUNCATION_SUFFIX
+  );
 }
 
 /**

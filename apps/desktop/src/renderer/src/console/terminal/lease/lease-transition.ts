@@ -88,13 +88,6 @@ const TRANSITION_HOLDER_SHAPES: Readonly<
   auto_released_run_idle: "names-nobody",
 };
 
-/** A reason the wire sent, or `undefined` when it sent something outside the set. */
-export function asTerminalLeaseTransitionReason(
-  candidate: unknown,
-): TerminalLeaseTransitionReason | undefined {
-  return TERMINAL_LEASE_TRANSITION_REASONS.find((reason) => reason === candidate);
-}
-
 /** One transition, as the ledger renders it. */
 export interface TerminalLeaseTransition {
   /** The event's position in the session log. Stable across a replay. */
@@ -127,6 +120,13 @@ export interface TerminalLeaseUnreadTransition {
    * which is the same fact with less to say about it.
    */
   readonly reason: string | undefined;
+}
+
+/** A reason the wire sent, or `undefined` when it sent something outside the set. */
+export function asTerminalLeaseTransitionReason(
+  candidate: unknown,
+): TerminalLeaseTransitionReason | undefined {
+  return TERMINAL_LEASE_TRANSITION_REASONS.find((reason) => reason === candidate);
 }
 
 /**
@@ -184,22 +184,6 @@ export function readTerminalLeaseUnreadTransition(
 }
 
 /**
- * A participant id, or the free lease.
- *
- * Anything that is not a non-empty string reads as the free lease rather than as
- * an identity: an absent member and an explicit null both mean "nobody holds it",
- * and a surface that treated a missing member as a holder would attribute the
- * shell to `undefined`.
- *
- * The predicate is the console's one wire-string reading; what this module owns is
- * the mapping of its absence onto the free lease, which is a lease fact and not a
- * wire one.
- */
-function readParticipantId(candidate: unknown): string | null {
-  return readWireString(candidate) ?? null;
-}
-
-/**
  * The sentence one transition renders as.
  *
  * Total over the closed reason set by construction, so the three automatic reasons
@@ -231,4 +215,20 @@ export function terminalLeaseTransitionSentence(
     case "auto_released_run_idle":
       return `${previous}'s run left its running state, so the shell was released.`;
   }
+}
+
+/**
+ * A participant id, or the free lease.
+ *
+ * Anything that is not a non-empty string reads as the free lease rather than as
+ * an identity: an absent member and an explicit null both mean "nobody holds it",
+ * and a surface that treated a missing member as a holder would attribute the
+ * shell to `undefined`.
+ *
+ * The predicate is the console's one wire-string reading; what this module owns is
+ * the mapping of its absence onto the free lease, which is a lease fact and not a
+ * wire one.
+ */
+function readParticipantId(candidate: unknown): string | null {
+  return readWireString(candidate) ?? null;
 }

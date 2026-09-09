@@ -51,17 +51,17 @@ export interface SchemaFieldControlProps {
   readonly describedById: string | undefined;
 }
 
-/** The value read as text, which is what five of the six controls bind to. */
-export function textValueOf(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
 /** One thing the choice control offers: what a person reads, and what it is worth. */
 export interface SchemaChoiceOption {
   /** The text on the option. */
   readonly optionLabel: string;
   /** What the answer holds when it is picked. */
   readonly memberValue: unknown;
+}
+
+/** The value read as text, which is what five of the six controls bind to. */
+export function textValueOf(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 /**

@@ -32,6 +32,20 @@ import { hasRunningMotion, observeMotionStarts, sharesMotionWith } from "./eleme
 import { MotionFrameSampler } from "./motion-sampling.js";
 
 /**
+ * The observer a native-view consumer installs into its window's airspace.
+ *
+ * Takes the clock rather than minting one, for the reason the geometry binding gives
+ * about its own: a `RealClock` minted privately is invisible to `ManualClock`, which
+ * is the instrument the console counts timers with, so a sampler that minted one ran
+ * on wall time inside a window whose every other timer was frozen.
+ */
+export function overlayMotionObserver(clock: ConsoleClock): AirspaceMotionObserver {
+  const observation = new OverlayMotionObservation(clock);
+  return (element, onMoved) =>
+    isWatchableElement(element) ? observation.observe(element, onMoved) : () => undefined;
+}
+
+/**
  * One window's overlay-motion observation, shared by every element it is asked to
  * watch.
  *
@@ -121,18 +135,4 @@ class OverlayMotionObservation {
  */
 function isWatchableElement(subject: AirspaceOverlayElement): subject is Element {
   return "getAnimations" in subject && "contains" in subject;
-}
-
-/**
- * The observer a native-view consumer installs into its window's airspace.
- *
- * Takes the clock rather than minting one, for the reason the geometry binding gives
- * about its own: a `RealClock` minted privately is invisible to `ManualClock`, which
- * is the instrument the console counts timers with, so a sampler that minted one ran
- * on wall time inside a window whose every other timer was frozen.
- */
-export function overlayMotionObserver(clock: ConsoleClock): AirspaceMotionObserver {
-  const observation = new OverlayMotionObservation(clock);
-  return (element, onMoved) =>
-    isWatchableElement(element) ? observation.observe(element, onMoved) : () => undefined;
 }

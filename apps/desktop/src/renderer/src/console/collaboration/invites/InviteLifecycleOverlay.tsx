@@ -76,19 +76,6 @@ import { usePendingInvites } from "./use-pending-invites.js";
 
 export type InviteLifecycleOverlayProps = WindowOverlaySeatProps;
 
-/**
- * The head, whichever of the three states it arrived in.
- *
- * The reading splits one head across two mutually exclusive members, so this is that
- * split read back — and it is compared by IDENTITY rather than by a composed key
- * because the refused arm carries no handle at all (`pending-invite-arrivals.ts` says
- * why it cannot be given one), and two refusals with the same code would collide under
- * any key derived from their fields. The arrival object is the queue's own: admitted
- * once, carried unchanged, and dropped when the head is released, so identity answers
- * "is this still the prompt that was opened" exactly and for all three arms.
- */
-type PendingInvitePrompt = GrowthPendingInvite | GrowthPendingInvitePreviewFailure;
-
 export function InviteLifecycleOverlay(
   props: InviteLifecycleOverlayProps,
 ): React.JSX.Element | null {
@@ -199,3 +186,16 @@ export function InviteLifecycleOverlay(
     </>
   );
 }
+
+/**
+ * The head, whichever of the three states it arrived in.
+ *
+ * The reading splits one head across two mutually exclusive members, so this is that
+ * split read back — and it is compared by IDENTITY rather than by a composed key
+ * because the refused arm carries no handle at all (`pending-invite-arrivals.ts` says
+ * why it cannot be given one), and two refusals with the same code would collide under
+ * any key derived from their fields. The arrival object is the queue's own: admitted
+ * once, carried unchanged, and dropped when the head is released, so identity answers
+ * "is this still the prompt that was opened" exactly and for all three arms.
+ */
+type PendingInvitePrompt = GrowthPendingInvite | GrowthPendingInvitePreviewFailure;

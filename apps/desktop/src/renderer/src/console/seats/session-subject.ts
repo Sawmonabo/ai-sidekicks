@@ -36,23 +36,6 @@ import {
 import type { ConsoleBridge } from "../bridge/index.js";
 
 /**
- * Hold one value per `(bridge, sessionId)`.
- *
- * The session-named door onto the console's one subject-scoped holder, for the
- * callers whose subject IS the session. The bridge is the subject because its
- * replacement — a reconnect, a second window's own instance, the fixture's scenario
- * switch — retires every call in flight through it; the session id is the key within
- * it, because one bridge carries many sessions.
- */
-export function useSessionScopedState<TValue>(
-  bridge: ConsoleBridge,
-  sessionId: SessionScopedKey,
-  initial: () => TValue,
-): SubjectScopedState<TValue> {
-  return useSubjectScopedState(bridge, sessionId, initial);
-}
-
-/**
  * The session a holder is about, or `undefined` where the surface is about none.
  *
  * Named rather than written as a bare union at the parameter, so the two readings the
@@ -72,6 +55,23 @@ export type SessionScopedKey = string | undefined;
 export interface SessionSubject {
   readonly bridge: ConsoleBridge;
   readonly sessionStore: SessionStore;
+}
+
+/**
+ * Hold one value per `(bridge, sessionId)`.
+ *
+ * The session-named door onto the console's one subject-scoped holder, for the
+ * callers whose subject IS the session. The bridge is the subject because its
+ * replacement — a reconnect, a second window's own instance, the fixture's scenario
+ * switch — retires every call in flight through it; the session id is the key within
+ * it, because one bridge carries many sessions.
+ */
+export function useSessionScopedState<TValue>(
+  bridge: ConsoleBridge,
+  sessionId: SessionScopedKey,
+  initial: () => TValue,
+): SubjectScopedState<TValue> {
+  return useSubjectScopedState(bridge, sessionId, initial);
 }
 
 /**

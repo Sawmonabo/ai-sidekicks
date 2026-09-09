@@ -61,6 +61,12 @@ export type ActDisposition = "served" | "refused" | "rejects";
 /** The rejection the transport arms raise — a value carrying no daemon code at all. */
 export const TRANSPORT_REJECTION: Error = new Error("the call into the node never answered");
 
+export interface CarrierUnderTest {
+  readonly view: BrowserSettingsView;
+  readonly bridge: ConsoleBridge;
+  readonly node: SettingsNodeStub;
+}
+
 /**
  * A node that answers both reads, counts them, and can hold them open.
  *
@@ -196,12 +202,6 @@ export class SettingsNodeStub {
       ];
     });
   }
-}
-
-export interface CarrierUnderTest {
-  readonly view: BrowserSettingsView;
-  readonly bridge: ConsoleBridge;
-  readonly node: SettingsNodeStub;
 }
 
 export function carrierOver(node: SettingsNodeStub): CarrierUnderTest {

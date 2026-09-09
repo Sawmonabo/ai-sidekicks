@@ -99,33 +99,6 @@ export const MILLISECONDS_PER_MINUTE: number = 60 * MILLISECONDS_PER_SECOND;
 export const MILLISECONDS_PER_HOUR: number = 60 * MILLISECONDS_PER_MINUTE;
 export const MILLISECONDS_PER_DAY: number = 24 * MILLISECONDS_PER_HOUR;
 
-/** Days in `month` of `year`, with the Gregorian leap rule stated in full. */
-function daysInMonth(year: number, month: number): number {
-  if (month === 2) {
-    const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-    return leap ? 29 : 28;
-  }
-  return month === 4 || month === 6 || month === 9 || month === 11 ? 30 : 31;
-}
-
-/** Epoch milliseconds of a UTC calendar date and time the caller has validated. */
-function epochMillisecondsOfUtc(
-  year: number,
-  month: number,
-  day: number,
-  hour: number,
-  minute: number,
-  second: number,
-  millisecond: number,
-): number {
-  // `Date.UTC` reads a two-digit year as 1900 + year; `setUTCFullYear` does not.
-  // Composing at a fixed leap year first keeps a February 29 in year 0004 intact
-  // while the year is moved into place.
-  const composed = new Date(Date.UTC(2000, month - 1, day, hour, minute, second, millisecond));
-  composed.setUTCFullYear(year);
-  return composed.getTime();
-}
-
 /** A stamp this console could read. */
 export interface Instant {
   readonly kind: "instant";
@@ -177,6 +150,9 @@ export type InstantReading = Instant | MalformedInstant;
  * than silently gaining a refusal.
  */
 export type InstantOffsetPolicy = "any-offset" | "utc-only";
+
+/** Which end of the order the newest instant belongs at. */
+export type InstantOrder = "oldest-first" | "newest-first";
 
 /**
  * Read one wire instant.
@@ -258,9 +234,6 @@ export function parseInstant(
   return { kind: "instant", epochMilliseconds: localEpochMilliseconds - offsetMilliseconds, text };
 }
 
-/** Which end of the order the newest instant belongs at. */
-export type InstantOrder = "oldest-first" | "newest-first";
-
 /**
  * Order two readings.
  *
@@ -298,4 +271,31 @@ export function compareInstants(
   // returns a magnitude invites a caller to read one, and the only contract `sort`
   // has is the sign.
   return Math.sign(order === "newest-first" ? -ascending : ascending);
+}
+
+/** Days in `month` of `year`, with the Gregorian leap rule stated in full. */
+function daysInMonth(year: number, month: number): number {
+  if (month === 2) {
+    const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    return leap ? 29 : 28;
+  }
+  return month === 4 || month === 6 || month === 9 || month === 11 ? 30 : 31;
+}
+
+/** Epoch milliseconds of a UTC calendar date and time the caller has validated. */
+function epochMillisecondsOfUtc(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+  millisecond: number,
+): number {
+  // `Date.UTC` reads a two-digit year as 1900 + year; `setUTCFullYear` does not.
+  // Composing at a fixed leap year first keeps a February 29 in year 0004 intact
+  // while the year is moved into place.
+  const composed = new Date(Date.UTC(2000, month - 1, day, hour, minute, second, millisecond));
+  composed.setUTCFullYear(year);
+  return composed.getTime();
 }

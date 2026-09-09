@@ -277,17 +277,6 @@ const PHASE_SEQUENCES: Readonly<Record<string, readonly WorkflowPhaseDefinition[
 };
 
 /**
- * The summary this fixture publishes for one definition, or `undefined` for an id it
- * does not carry.
- *
- * The summary table is the ONE place a definition's identity is stated, so both
- * replies below resolve through here rather than each holding a copy.
- */
-function summaryFor(definitionId: string): WorkflowDefinitionSummary | undefined {
-  return WORKFLOWS_SCENARIO_DEFINITIONS.find((definition) => definition.id === definitionId);
-}
-
-/**
  * What `workflow.definitionRead` answers for one definition, or `undefined` for an id
  * this fixture states nothing about.
  *
@@ -354,4 +343,15 @@ export function workflowVersionBodyFor(
     phaseDefinitions,
     createdAt: summary.createdAt,
   };
+}
+
+/**
+ * The summary this fixture publishes for one definition, or `undefined` for an id it
+ * does not carry.
+ *
+ * The summary table is the ONE place a definition's identity is stated, so both
+ * replies below resolve through here rather than each holding a copy.
+ */
+function summaryFor(definitionId: string): WorkflowDefinitionSummary | undefined {
+  return WORKFLOWS_SCENARIO_DEFINITIONS.find((definition) => definition.id === definitionId);
 }

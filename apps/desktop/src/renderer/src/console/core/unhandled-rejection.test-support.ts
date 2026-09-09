@@ -22,12 +22,6 @@
 
 import { crossMacrotaskBoundary } from "./macrotask-boundary.test-support.js";
 
-/** The two host methods that report a rejection nothing handled. */
-interface UnhandledRejectionReporter {
-  on(event: "unhandledRejection", listener: (reason: unknown) => void): void;
-  off(event: "unhandledRejection", listener: (reason: unknown) => void): void;
-}
-
 /**
  * Run one case body and hand back every unhandled rejection reported while it ran.
  *
@@ -53,4 +47,10 @@ export async function unhandledRejectionsDuring(
     reporter.off("unhandledRejection", record);
   }
   return reported;
+}
+
+/** The two host methods that report a rejection nothing handled. */
+interface UnhandledRejectionReporter {
+  on(event: "unhandledRejection", listener: (reason: unknown) => void): void;
+  off(event: "unhandledRejection", listener: (reason: unknown) => void): void;
 }

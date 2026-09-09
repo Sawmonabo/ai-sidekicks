@@ -56,82 +56,6 @@ import {
 /** The DOM attribute an explicit scheme choice is stamped on. */
 export const SCHEME_ATTRIBUTE = "data-console-scheme";
 
-function declaration(tokenName: string, value: string): string {
-  return `  ${tokenVariableName(tokenName)}: ${value};`;
-}
-
-function schemeColorBlock(scheme: ConsoleScheme, indent: string): string {
-  const lines: string[] = [];
-  for (const [tokenName, pair] of SCHEME_COLOR_TOKENS) {
-    lines.push(`${indent}${declaration(tokenName, formatOklch(pair[scheme]))}`);
-  }
-  return lines.join("\n");
-}
-
-function invariantBlock(): string {
-  const lines: string[] = [];
-
-  lines.push("");
-  lines.push("  /* Participant wheel — identity, never attention, never theme. */");
-  PARTICIPANT_HUES.forEach((color, step) => {
-    lines.push(declaration(participantHueTokenName(step), formatOklch(color)));
-  });
-
-  lines.push("");
-  lines.push("  /* Vocabulary aliases — a family's own name for a console token.");
-  lines.push("     Emitted here rather than in each scheme layer because the token");
-  lines.push("     each one defers to already swaps. */");
-  for (const [tokenName, targetTokenName] of Object.entries(TOKEN_ALIASES)) {
-    lines.push(declaration(tokenName, tokenReference(targetTokenName)));
-  }
-
-  lines.push("");
-  lines.push("  /* Type. */");
-  for (const [tokenName, stack] of Object.entries(FONT_STACKS)) {
-    lines.push(declaration(tokenName, stack));
-  }
-  for (const [tokenName, sizeRem] of Object.entries(TYPE_SCALE_REM)) {
-    lines.push(declaration(tokenName, `${sizeRem}rem`));
-  }
-
-  lines.push("");
-  lines.push("  /* Space and radius. */");
-  for (const [tokenName, sizeRem] of Object.entries(SPACE_SCALE_REM)) {
-    lines.push(declaration(tokenName, `${sizeRem}rem`));
-  }
-  for (const [tokenName, sizeRem] of Object.entries(RADIUS_SCALE_REM)) {
-    lines.push(declaration(tokenName, `${sizeRem}rem`));
-  }
-  lines.push(declaration("attribution-edge", `${ATTRIBUTION_EDGE_WIDTH_PX}px`));
-  lines.push(declaration("enumeration-max-height", `${BOUNDED_ENUMERATION_HEIGHT_REM}rem`));
-  // The reflow floor. Emitted rather than written into `frame.css` as a literal
-  // because it is the palette's number and the frame is only the first thing to
-  // spend it — a surface that has to declare the same floor reads the property
-  // instead of copying the figure. It cannot be a media-query condition (custom
-  // properties do not reach one), and it is not meant to be: the console holds this
-  // width with one fluid layout rather than with a breakpoint.
-  lines.push(declaration("reflow-min-width", `${REFLOW_MIN_WIDTH_PX}px`));
-
-  lines.push("");
-  lines.push("  /* Motion — settles, never bounces. */");
-  for (const [tokenName, durationMs] of Object.entries(MOTION_DURATIONS_MS)) {
-    lines.push(declaration(tokenName, `${durationMs}ms`));
-  }
-  // ONE settle easing, and it is the spring `Spec-023 §Console Libraries`' motion row
-  // asks for — sampled at BUILD time rather than here, because both of the sampler's
-  // inputs are constants and a pure function of constants is one: `motion.ts` carries
-  // the emitted `linear()` and `motion.test.ts` holds it to the sampler, which no
-  // longer ships. So nothing computes a spring while anything is on screen, and the
-  // compositor runs the emitted curve under the platform's own timing. It is emitted
-  // under the name every stylesheet already reads: a second token holding the sampled
-  // curve left the hand-written cubic answering `var(--meridian-ease-settle)`
-  // everywhere while the spring the rule asks for was declared under a name no sheet
-  // spent.
-  lines.push(declaration("ease-settle", CHROME_SETTLE_EASING));
-
-  return lines.join("\n");
-}
-
 /**
  * The complete text of `meridian.css`. Deterministic: same inputs, same bytes,
  * including the trailing newline the assets tier compares.
@@ -252,4 +176,80 @@ export function generateMeridianCss(): string {
     baseBlock,
     "",
   ].join("\n");
+}
+
+function declaration(tokenName: string, value: string): string {
+  return `  ${tokenVariableName(tokenName)}: ${value};`;
+}
+
+function schemeColorBlock(scheme: ConsoleScheme, indent: string): string {
+  const lines: string[] = [];
+  for (const [tokenName, pair] of SCHEME_COLOR_TOKENS) {
+    lines.push(`${indent}${declaration(tokenName, formatOklch(pair[scheme]))}`);
+  }
+  return lines.join("\n");
+}
+
+function invariantBlock(): string {
+  const lines: string[] = [];
+
+  lines.push("");
+  lines.push("  /* Participant wheel — identity, never attention, never theme. */");
+  PARTICIPANT_HUES.forEach((color, step) => {
+    lines.push(declaration(participantHueTokenName(step), formatOklch(color)));
+  });
+
+  lines.push("");
+  lines.push("  /* Vocabulary aliases — a family's own name for a console token.");
+  lines.push("     Emitted here rather than in each scheme layer because the token");
+  lines.push("     each one defers to already swaps. */");
+  for (const [tokenName, targetTokenName] of Object.entries(TOKEN_ALIASES)) {
+    lines.push(declaration(tokenName, tokenReference(targetTokenName)));
+  }
+
+  lines.push("");
+  lines.push("  /* Type. */");
+  for (const [tokenName, stack] of Object.entries(FONT_STACKS)) {
+    lines.push(declaration(tokenName, stack));
+  }
+  for (const [tokenName, sizeRem] of Object.entries(TYPE_SCALE_REM)) {
+    lines.push(declaration(tokenName, `${sizeRem}rem`));
+  }
+
+  lines.push("");
+  lines.push("  /* Space and radius. */");
+  for (const [tokenName, sizeRem] of Object.entries(SPACE_SCALE_REM)) {
+    lines.push(declaration(tokenName, `${sizeRem}rem`));
+  }
+  for (const [tokenName, sizeRem] of Object.entries(RADIUS_SCALE_REM)) {
+    lines.push(declaration(tokenName, `${sizeRem}rem`));
+  }
+  lines.push(declaration("attribution-edge", `${ATTRIBUTION_EDGE_WIDTH_PX}px`));
+  lines.push(declaration("enumeration-max-height", `${BOUNDED_ENUMERATION_HEIGHT_REM}rem`));
+  // The reflow floor. Emitted rather than written into `frame.css` as a literal
+  // because it is the palette's number and the frame is only the first thing to
+  // spend it — a surface that has to declare the same floor reads the property
+  // instead of copying the figure. It cannot be a media-query condition (custom
+  // properties do not reach one), and it is not meant to be: the console holds this
+  // width with one fluid layout rather than with a breakpoint.
+  lines.push(declaration("reflow-min-width", `${REFLOW_MIN_WIDTH_PX}px`));
+
+  lines.push("");
+  lines.push("  /* Motion — settles, never bounces. */");
+  for (const [tokenName, durationMs] of Object.entries(MOTION_DURATIONS_MS)) {
+    lines.push(declaration(tokenName, `${durationMs}ms`));
+  }
+  // ONE settle easing, and it is the spring `Spec-023 §Console Libraries`' motion row
+  // asks for — sampled at BUILD time rather than here, because both of the sampler's
+  // inputs are constants and a pure function of constants is one: `motion.ts` carries
+  // the emitted `linear()` and `motion.test.ts` holds it to the sampler, which no
+  // longer ships. So nothing computes a spring while anything is on screen, and the
+  // compositor runs the emitted curve under the platform's own timing. It is emitted
+  // under the name every stylesheet already reads: a second token holding the sampled
+  // curve left the hand-written cubic answering `var(--meridian-ease-settle)`
+  // everywhere while the spring the rule asks for was declared under a name no sheet
+  // spent.
+  lines.push(declaration("ease-settle", CHROME_SETTLE_EASING));
+
+  return lines.join("\n");
 }

@@ -170,21 +170,6 @@ export class ActivityFeed {
 }
 
 /**
- * The applied keys the newest reading no longer names.
- *
- * Collected before anything is deleted, because both callers iterate the applied map
- * while removing from it — and one helper rather than the same walk written twice,
- * since the composing side and the agent side ask exactly one question.
- */
-function departedKeys<TValue>(
-  applied: ReadonlyMap<string, TValue>,
-  present: readonly string[],
-): readonly string[] {
-  const presentKeys = new Set(present);
-  return [...applied.keys()].filter((key) => !presentKeys.has(key));
-}
-
-/**
  * Build the session's activity feed, unstarted.
  *
  * Separate from the class for `buildSessionModels`' reason: construction stays a
@@ -212,4 +197,19 @@ export function createActivityFeed(options: {
       subscribeDaemonEvent<void>(bridge, PRESENCE_EVENT_STREAM, onChangeSignal),
   });
   return new ActivityFeed(read, registry);
+}
+
+/**
+ * The applied keys the newest reading no longer names.
+ *
+ * Collected before anything is deleted, because both callers iterate the applied map
+ * while removing from it — and one helper rather than the same walk written twice,
+ * since the composing side and the agent side ask exactly one question.
+ */
+function departedKeys<TValue>(
+  applied: ReadonlyMap<string, TValue>,
+  present: readonly string[],
+): readonly string[] {
+  const presentKeys = new Set(present);
+  return [...applied.keys()].filter((key) => !presentKeys.has(key));
 }

@@ -22,19 +22,6 @@ const SESSION_WIDE_SUBJECT: Readonly<Record<LedgerScope, string>> = {
   channel: "of the session's entries",
 };
 
-interface LedgerWindowAbsencesProps {
-  /** Events the contract package registers no category for. */
-  readonly unprojectableEventCount: number;
-  /** Rows the log holds and this window does not, because the cap took them. */
-  readonly droppedRowCount: number;
-  /** Rows the log holds and this window does not, because replay has not reached them. */
-  readonly withheldByReplayRowCount: number;
-  /** The store recorded sequences it never received. */
-  readonly hasUnreceivedEntries: boolean;
-  /** What this ledger is a log of — whose absence the first one is. */
-  readonly scope: LedgerScope;
-}
-
 /**
  * The four ways this window is not the whole session, each said out loud.
  *
@@ -81,4 +68,17 @@ export function LedgerWindowAbsences(props: LedgerWindowAbsencesProps): React.JS
       />
     </>
   );
+}
+
+interface LedgerWindowAbsencesProps {
+  /** Events the contract package registers no category for. */
+  readonly unprojectableEventCount: number;
+  /** Rows the log holds and this window does not, because the cap took them. */
+  readonly droppedRowCount: number;
+  /** Rows the log holds and this window does not, because replay has not reached them. */
+  readonly withheldByReplayRowCount: number;
+  /** The store recorded sequences it never received. */
+  readonly hasUnreceivedEntries: boolean;
+  /** What this ledger is a log of — whose absence the first one is. */
+  readonly scope: LedgerScope;
 }

@@ -76,19 +76,6 @@ export function heldCancelPort(): HeldCancel {
   };
 }
 
-function DispatchProbe(props: {
-  readonly growth: GrowthPort;
-  readonly workflowRunId: string | undefined;
-  readonly onObserve: (controls: WorkflowRunControls) => void;
-}): React.JSX.Element {
-  // No version chain reaches this hook at all: the chain is a read of its own,
-  // addressed by the pin the run's snapshot reports, and the pane joins the two at the
-  // mount. A case about the chain drives `OperatorControls` directly, where it arrives
-  // on the resume control the pane composes.
-  props.onObserve(useRunControlDispatch(props.growth, props.workflowRunId));
-  return <></>;
-}
-
 /** The controls as the latest render saw them, plus the handle a retarget needs. */
 export function observeControls(
   growth: GrowthPort,
@@ -116,4 +103,17 @@ export function observeControls(
       view.rerender(<DispatchProbe growth={growth} workflowRunId={next} onObserve={collect} />);
     },
   };
+}
+
+function DispatchProbe(props: {
+  readonly growth: GrowthPort;
+  readonly workflowRunId: string | undefined;
+  readonly onObserve: (controls: WorkflowRunControls) => void;
+}): React.JSX.Element {
+  // No version chain reaches this hook at all: the chain is a read of its own,
+  // addressed by the pin the run's snapshot reports, and the pane joins the two at the
+  // mount. A case about the chain drives `OperatorControls` directly, where it arrives
+  // on the resume control the pane composes.
+  props.onObserve(useRunControlDispatch(props.growth, props.workflowRunId));
+  return <></>;
 }

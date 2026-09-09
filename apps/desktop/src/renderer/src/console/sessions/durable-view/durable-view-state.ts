@@ -48,12 +48,6 @@ import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../../core/index
 import type { UiStateStore } from "../../persistence/index.js";
 import { GenerationLatch } from "../../store/index.js";
 
-/** The chokepoint's closed value-class union, taken from the chokepoint. */
-type PersistedValueClassName = Parameters<UiStateStore["writeGlobal"]>[1];
-
-/** What the chokepoint admits as a value, taken from the chokepoint. */
-type PersistedValue = Parameters<UiStateStore["writeGlobal"]>[2];
-
 /**
  * What one write answered, taken from the chokepoint.
  *
@@ -83,6 +77,12 @@ export interface DurableViewStateOptions<TValue extends PersistedValue> {
    */
   readonly narrow: (raw: unknown) => TValue | undefined;
 }
+
+/** The chokepoint's closed value-class union, taken from the chokepoint. */
+type PersistedValueClassName = Parameters<UiStateStore["writeGlobal"]>[1];
+
+/** What the chokepoint admits as a value, taken from the chokepoint. */
+type PersistedValue = Parameters<UiStateStore["writeGlobal"]>[2];
 
 /**
  * The one key every act of one state is on.

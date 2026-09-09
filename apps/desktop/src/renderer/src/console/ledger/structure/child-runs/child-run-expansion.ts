@@ -72,21 +72,11 @@ export const CHILD_RUN_SUMMARIZED: ChildRunExpansion = {
   refusal: undefined,
 };
 
-/**
- * Read one child run's entries, with the signal that stops the read.
- *
- * SEPARATE FROM THE STATE MACHINE ABOVE IT, on `repos/repo-reads.ts`' shape: the call
- * is one line over one registered pair, and what makes it a READ rather than an act is
- * that the signal is REQUIRED — there is no way to reach the door from here without
- * naming the thing that abandons it. Every parse, refusal code and rejection
- * normalization is still the bridge family's; nothing is re-authored here.
- */
-async function readChildRunEntries(
-  bridge: ConsoleBridge,
-  childRunId: RunId,
-  signal: AbortSignal,
-): Promise<DaemonReply<ChildRunExpandResponse>> {
-  return callDaemon(bridge, "timeline.childRunExpand", { runId: childRunId }, { signal });
+/** What one mounted ledger offers for a child-run summary row. */
+export interface ChildRunDisclosure {
+  readonly expansionFor: (childRunId: RunId) => ChildRunExpansion;
+  /** Expand a summarized child run, or fold an expanded one back. */
+  readonly toggle: (childRunId: RunId) => void;
 }
 
 /**
@@ -239,11 +229,21 @@ export class ChildRunExpansionState {
   }
 }
 
-/** What one mounted ledger offers for a child-run summary row. */
-export interface ChildRunDisclosure {
-  readonly expansionFor: (childRunId: RunId) => ChildRunExpansion;
-  /** Expand a summarized child run, or fold an expanded one back. */
-  readonly toggle: (childRunId: RunId) => void;
+/**
+ * Read one child run's entries, with the signal that stops the read.
+ *
+ * SEPARATE FROM THE STATE MACHINE ABOVE IT, on `repos/repo-reads.ts`' shape: the call
+ * is one line over one registered pair, and what makes it a READ rather than an act is
+ * that the signal is REQUIRED — there is no way to reach the door from here without
+ * naming the thing that abandons it. Every parse, refusal code and rejection
+ * normalization is still the bridge family's; nothing is re-authored here.
+ */
+async function readChildRunEntries(
+  bridge: ConsoleBridge,
+  childRunId: RunId,
+  signal: AbortSignal,
+): Promise<DaemonReply<ChildRunExpandResponse>> {
+  return callDaemon(bridge, "timeline.childRunExpand", { runId: childRunId }, { signal });
 }
 
 /**

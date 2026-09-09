@@ -84,6 +84,33 @@ export function isTransportLostAt(
   return outages.some((outage) => elapsedMs >= outage.lostAtMs && elapsedMs < outage.restoredAtMs);
 }
 
+/**
+ * Bind one scenario's scripted outages to one window's transport signal.
+ *
+ * Returns the release, which the fixture bridge owns: nothing here holds a timer, and
+ * the only resource is the engine subscription.
+ *
+ * A scenario that scripts no outage takes no subscription at all — there is nothing to
+ * wake for, and a sink attached to every advance of every fixture window is a cost paid
+ * by scenarios that never asked for it.
+ */
+export function playScenarioTransportOutages(
+  engine: ScenarioEngine,
+  signal: TransportReconnectSignal,
+): Unsubscribe {
+  const outages = engine.scenario.transportOutages ?? [];
+  if (outages.length === 0) {
+    return () => undefined;
+  }
+  const boundaries = new ScenarioTransportBoundaries(outages);
+  return engine.subscribeToAdvances((elapsedMs) => {
+    for (const transition of boundaries.crossedThrough(elapsedMs)) {
+      signal.observe(transition.reachability);
+    }
+    signal.observe(isTransportLostAt(outages, elapsedMs) ? "unreachable" : "reachable");
+  });
+}
+
 /** One state the script says the transport enters, and the instant it enters it. */
 interface ScheduledTransportTransition {
   readonly atMs: number;
@@ -168,31 +195,4 @@ function transitionsAcross(
     { atMs: outage.lostAtMs, reachability: "unreachable" as const },
     { atMs: outage.restoredAtMs, reachability: "reachable" as const },
   ]);
-}
-
-/**
- * Bind one scenario's scripted outages to one window's transport signal.
- *
- * Returns the release, which the fixture bridge owns: nothing here holds a timer, and
- * the only resource is the engine subscription.
- *
- * A scenario that scripts no outage takes no subscription at all — there is nothing to
- * wake for, and a sink attached to every advance of every fixture window is a cost paid
- * by scenarios that never asked for it.
- */
-export function playScenarioTransportOutages(
-  engine: ScenarioEngine,
-  signal: TransportReconnectSignal,
-): Unsubscribe {
-  const outages = engine.scenario.transportOutages ?? [];
-  if (outages.length === 0) {
-    return () => undefined;
-  }
-  const boundaries = new ScenarioTransportBoundaries(outages);
-  return engine.subscribeToAdvances((elapsedMs) => {
-    for (const transition of boundaries.crossedThrough(elapsedMs)) {
-      signal.observe(transition.reachability);
-    }
-    signal.observe(isTransportLostAt(outages, elapsedMs) ? "unreachable" : "reachable");
-  });
 }

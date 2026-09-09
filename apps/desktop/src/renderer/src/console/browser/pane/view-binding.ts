@@ -93,10 +93,6 @@ const DETACH_CALL_FALLBACK: BrowserPaneRejectionFallback = {
   detail: "The call that would have torn this pane's page view down never answered.",
 };
 
-/** The attach operation's own outcome type, and the page shape read out of it. */
-type AttachOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["browserPaneAttach"]>>;
-type AttachedPage = Extract<AttachOutcome, { readonly status: "served" }>["value"]["page"];
-
 /**
  * Whether this pane has a view, and if not, which kind of not.
  *
@@ -113,6 +109,10 @@ export type PaneViewAttachment =
   | { readonly kind: "unasked"; readonly refusal: ConsoleRefusal }
   /** The call was put and answered no, or it rejected. There is no view. */
   | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+/** The attach operation's own outcome type, and the page shape read out of it. */
+type AttachOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["browserPaneAttach"]>>;
+
+type AttachedPage = Extract<AttachOutcome, { readonly status: "served" }>["value"]["page"];
 
 /** The reading before anything has answered, held once so its identity is stable. */
 const ATTACHING_VIEW: PaneViewAttachment = { kind: "attaching" };

@@ -82,14 +82,6 @@ export interface SubjectScopedHolderOptions<TValue> {
   readonly disposeUnheldValue: (unheld: TValue) => void;
 }
 
-/** What a caller's disposal did, for the report sentences that differ on it. */
-interface DisposalOutcome {
-  /** Whether the disposal threw, leaving the value held by nothing at all. */
-  readonly threw: boolean;
-  /** What it threw, where it did. */
-  readonly failure: unknown;
-}
-
 /**
  * The caller's disposal, backstopped, with one report sentence per moment.
  *
@@ -195,4 +187,12 @@ export class UnheldValueDisposal<TValue> {
       return { threw: true, failure };
     }
   }
+}
+
+/** What a caller's disposal did, for the report sentences that differ on it. */
+interface DisposalOutcome {
+  /** Whether the disposal threw, leaving the value held by nothing at all. */
+  readonly threw: boolean;
+  /** What it threw, where it did. */
+  readonly failure: unknown;
 }

@@ -55,6 +55,30 @@ const INTEGER_STEP = "1";
  */
 const UNRESTRICTED_STEP = "any";
 
+/** A number, or nothing at all. */
+export function SchemaNumberField(props: SchemaFieldControlProps): React.JSX.Element {
+  // What the person typed that no member could carry, read off the draft rather than off
+  // this component: the node is what the box shows, so a seed, a reset, or a row that
+  // moved is displayed as whatever that member actually holds.
+  const isShowingUnreadableText = props.unreadableText !== "";
+  return (
+    <input
+      id={props.controlId}
+      className="meridian-schema-field__input meridian-schema-field__input--figure"
+      type="number"
+      step={stepOf(props.field)}
+      value={isShowingUnreadableText ? props.unreadableText : numericTextOf(props.value)}
+      aria-describedby={props.describedById}
+      aria-invalid={isShowingUnreadableText ? true : undefined}
+      onChange={(event) => {
+        const typed = event.currentTarget.value;
+        const read = finiteNumberIn(typed);
+        props.onChange(read === undefined ? unansweredScalar(typed) : answeredScalar(read));
+      }}
+    />
+  );
+}
+
 /**
  * What the control steps by: the schema's own step where it declared one, else the
  * type's — one for a whole number, unrestricted for a number the schema left open.
@@ -78,28 +102,4 @@ function finiteNumberIn(typed: string): number | undefined {
   }
   const read = Number(typed);
   return Number.isFinite(read) ? read : undefined;
-}
-
-/** A number, or nothing at all. */
-export function SchemaNumberField(props: SchemaFieldControlProps): React.JSX.Element {
-  // What the person typed that no member could carry, read off the draft rather than off
-  // this component: the node is what the box shows, so a seed, a reset, or a row that
-  // moved is displayed as whatever that member actually holds.
-  const isShowingUnreadableText = props.unreadableText !== "";
-  return (
-    <input
-      id={props.controlId}
-      className="meridian-schema-field__input meridian-schema-field__input--figure"
-      type="number"
-      step={stepOf(props.field)}
-      value={isShowingUnreadableText ? props.unreadableText : numericTextOf(props.value)}
-      aria-describedby={props.describedById}
-      aria-invalid={isShowingUnreadableText ? true : undefined}
-      onChange={(event) => {
-        const typed = event.currentTarget.value;
-        const read = finiteNumberIn(typed);
-        props.onChange(read === undefined ? unansweredScalar(typed) : answeredScalar(read));
-      }}
-    />
-  );
 }

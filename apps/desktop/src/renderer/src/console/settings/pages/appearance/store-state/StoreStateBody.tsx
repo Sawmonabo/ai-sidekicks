@@ -24,16 +24,6 @@ import {
 import { DefinitionGrid } from "../../../shared/DefinitionGrid.js";
 import { incidentsOf, type StoreStateReading } from "./store-state-reading.js";
 
-/** A measured figure, or the em dash that says the reading was not taken. */
-function byteReading(byteCount: number | undefined): string {
-  return byteCount === undefined ? "—" : formatByteQuantity(byteCount).text;
-}
-
-/** What the gauge says about room, in the gauge's own three-value vocabulary. */
-function pressureLabel(pressure: QuotaGauge["pressure"]): string {
-  return pressure === "unknown" ? "room not measured" : `room ${pressure}`;
-}
-
 export function StoreStateBody(props: { readonly reading: StoreStateReading }): ReactNode {
   const { reading } = props;
   if (reading.kind === "unread") {
@@ -85,4 +75,14 @@ export function StoreStateBody(props: { readonly reading: StoreStateReading }): 
       )}
     </>
   );
+}
+
+/** A measured figure, or the em dash that says the reading was not taken. */
+function byteReading(byteCount: number | undefined): string {
+  return byteCount === undefined ? "—" : formatByteQuantity(byteCount).text;
+}
+
+/** What the gauge says about room, in the gauge's own three-value vocabulary. */
+function pressureLabel(pressure: QuotaGauge["pressure"]): string {
+  return pressure === "unknown" ? "room not measured" : `room ${pressure}`;
 }

@@ -140,6 +140,40 @@ export const NOTHING_READ_YET: ArtifactPaneReading = {
 };
 
 /**
+ * How a delete settled, with the receipt on the two arms the daemon served.
+ *
+ * `ArtifactRowActOutcome`'s four arms with the receipt added where one exists, rather
+ * than a fifth arm or an optional member: the receipt is present on exactly the arms
+ * that mean the daemon answered, so a caller narrowing on `status` has it without
+ * asking whether it might be absent. Assignable to the shared type, so the pane's one
+ * announcer still takes it.
+ */
+export type ArtifactDeleteOutcome =
+  | { readonly status: "settled"; readonly receipt: ArtifactDeleteReceipt }
+  | { readonly status: "reconciling"; readonly receipt: ArtifactDeleteReceipt }
+  | { readonly status: "refused"; readonly refusal: ConsoleRefusal }
+  | { readonly status: "superseded" };
+
+/**
+ * How a visibility change settled, with the class the DAEMON settled on.
+ *
+ * `ArtifactRowActOutcome`'s four arms with the settled class added where one exists,
+ * on `ArtifactDeleteOutcome`'s shape: the member is present on exactly the arms that
+ * mean the daemon answered, so an announcer narrowing on `status` has it without
+ * asking whether it might be absent.
+ *
+ * THE CLASS IS THE REPLY'S AND NEVER THE REQUEST'S, which is the whole reason the arm
+ * carries one. A policy-blocked share retains the original and offers a derivative
+ * instead, so an announcement composed from what was ASKED FOR would tell a
+ * participant their artifact is shared when the daemon has just said it is not.
+ */
+export type ArtifactVisibilityUpdateOutcome =
+  | { readonly status: "settled"; readonly visibility: ArtifactVisibility }
+  | { readonly status: "reconciling"; readonly visibility: ArtifactVisibility }
+  | { readonly status: "refused"; readonly refusal: ConsoleRefusal }
+  | { readonly status: "superseded" };
+
+/**
  * The listed rows with one replaced by a fresher read of the same artifact.
  *
  * A row the current list no longer holds is left out rather than re-added: the list is
@@ -175,40 +209,6 @@ export function withoutRow(
   }
   return { kind: "listed", rows: artifacts.rows.filter((listed) => listed.id !== artifactId) };
 }
-
-/**
- * How a delete settled, with the receipt on the two arms the daemon served.
- *
- * `ArtifactRowActOutcome`'s four arms with the receipt added where one exists, rather
- * than a fifth arm or an optional member: the receipt is present on exactly the arms
- * that mean the daemon answered, so a caller narrowing on `status` has it without
- * asking whether it might be absent. Assignable to the shared type, so the pane's one
- * announcer still takes it.
- */
-export type ArtifactDeleteOutcome =
-  | { readonly status: "settled"; readonly receipt: ArtifactDeleteReceipt }
-  | { readonly status: "reconciling"; readonly receipt: ArtifactDeleteReceipt }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal }
-  | { readonly status: "superseded" };
-
-/**
- * How a visibility change settled, with the class the DAEMON settled on.
- *
- * `ArtifactRowActOutcome`'s four arms with the settled class added where one exists,
- * on `ArtifactDeleteOutcome`'s shape: the member is present on exactly the arms that
- * mean the daemon answered, so an announcer narrowing on `status` has it without
- * asking whether it might be absent.
- *
- * THE CLASS IS THE REPLY'S AND NEVER THE REQUEST'S, which is the whole reason the arm
- * carries one. A policy-blocked share retains the original and offers a derivative
- * instead, so an announcement composed from what was ASKED FOR would tell a
- * participant their artifact is shared when the daemon has just said it is not.
- */
-export type ArtifactVisibilityUpdateOutcome =
-  | { readonly status: "settled"; readonly visibility: ArtifactVisibility }
-  | { readonly status: "reconciling"; readonly visibility: ArtifactVisibility }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal }
-  | { readonly status: "superseded" };
 
 /**
  * An in-flight set with one row's act recorded as outstanding.

@@ -12,24 +12,6 @@ import {
   type InlineCardSeatProps,
 } from "../../seats/index.js";
 
-/**
- * One card's identity within its message.
- *
- * Narrows on the discriminant rather than reaching for a shared `id` member, because
- * there is not one: each arm carries the identity its own body fetches with, which is
- * `inline-card-seats.ts`' whole reason for being a union rather than a record.
- */
-function inlineCardKey(card: InlineCardSeatProps): string {
-  switch (card.kind) {
-    case "diff":
-      return `diff:${card.runId}:${card.diffArtifactId}`;
-    case "attachment":
-      return `attachment:${card.attachment.attachmentId}`;
-    case "artifact":
-      return `artifact:${card.artifact.kind}:${card.artifact.id}`;
-  }
-}
-
 export interface InlineCardsProps {
   readonly cards: readonly InlineCardSeatProps[];
 }
@@ -65,4 +47,22 @@ export function InlineCards(props: InlineCardsProps): React.JSX.Element | null {
       ))}
     </div>
   );
+}
+
+/**
+ * One card's identity within its message.
+ *
+ * Narrows on the discriminant rather than reaching for a shared `id` member, because
+ * there is not one: each arm carries the identity its own body fetches with, which is
+ * `inline-card-seats.ts`' whole reason for being a union rather than a record.
+ */
+function inlineCardKey(card: InlineCardSeatProps): string {
+  switch (card.kind) {
+    case "diff":
+      return `diff:${card.runId}:${card.diffArtifactId}`;
+    case "attachment":
+      return `attachment:${card.attachment.attachmentId}`;
+    case "artifact":
+      return `artifact:${card.artifact.kind}:${card.artifact.id}`;
+  }
 }

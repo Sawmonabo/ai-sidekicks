@@ -47,6 +47,22 @@ import type { SessionListRow } from "./session-rows.js";
  */
 const NO_PROJECTED_ROWS: readonly SessionListRow[] = [];
 
+/** What the open stores say about themselves, and about how well they are following. */
+export interface OpenSessionProjectionReading {
+  readonly rows: readonly SessionListRow[];
+  readonly degradedCause: SessionDegradedCause | undefined;
+  /**
+   * The same cause, asked at DISPATCH rather than read off this render.
+   *
+   * The projection's own live read, published rather than re-derived: a control that
+   * fails closed has to ask again the moment a press reaches it, because the cause can
+   * land in the frame between the render that enabled the control and the click. The
+   * function identity is the projection's and therefore stable for the life of the
+   * registry, so a caller may hold it.
+   */
+  readonly readDegradedCause: () => SessionDegradedCause | undefined;
+}
+
 /**
  * Every open session's projected row, kept current across the open set.
  *
@@ -64,10 +80,6 @@ export class OpenSessionRowProjection {
   #registryRelease: (() => void) | undefined = undefined;
   /** The cache. `undefined` means "invalidated", not "empty". */
   #rows: readonly SessionListRow[] | undefined = undefined;
-
-  public constructor(registry: SessionStoreRegistry) {
-    this.#registry = registry;
-  }
 
   /**
    * Follow the open set and every store in it, for as long as anyone is listening.
@@ -115,6 +127,10 @@ export class OpenSessionRowProjection {
       ),
     );
   };
+
+  public constructor(registry: SessionStoreRegistry) {
+    this.#registry = registry;
+  }
 
   /** Stores this projection currently holds a subscription on. The bound, observable. */
   public get subscribedSessionIds(): readonly string[] {
@@ -212,44 +228,6 @@ export class OpenSessionRowProjection {
 }
 
 /**
- * What one open session's store can say, as list rows.
- *
- * The participants are attached only to the store's OWN session. A store projects the
- * people it has seen in the session it is for, so lending that roster to a row for
- * some session it merely heard about would attribute the wrong people to it.
- */
-function projectOneStore(store: SessionStore): readonly SessionListRow[] {
-  const { partitions } = store.snapshot();
-  const participantIds = Object.keys(partitions.participant);
-  return Object.values(partitions.session).map((entity) => ({
-    sessionId: entity.id,
-    state: entity.state,
-    touchedAtIso: entity.touchedAt,
-    participantIds: entity.id === store.sessionId ? participantIds : [],
-    // Attention is one projection for the whole destination and is stamped over the
-    // merged list by the surface. Reading it per source would give one session two
-    // severities and let the merge decide which a person saw.
-    attentionSeverity: undefined,
-  }));
-}
-
-/** What the open stores say about themselves, and about how well they are following. */
-export interface OpenSessionProjectionReading {
-  readonly rows: readonly SessionListRow[];
-  readonly degradedCause: SessionDegradedCause | undefined;
-  /**
-   * The same cause, asked at DISPATCH rather than read off this render.
-   *
-   * The projection's own live read, published rather than re-derived: a control that
-   * fails closed has to ask again the moment a press reaches it, because the cause can
-   * land in the frame between the render that enabled the control and the click. The
-   * function identity is the projection's and therefore stable for the life of the
-   * registry, so a caller may hold it.
-   */
-  readonly readDegradedCause: () => SessionDegradedCause | undefined;
-}
-
-/**
  * What every session this window has open can describe, as a subscription.
  *
  * The projection is built once per registry and held in a ref: a fresh one per render
@@ -280,4 +258,26 @@ export function useOpenSessionProjection(
     projection.readDegradedCause,
   );
   return { rows, degradedCause, readDegradedCause: projection.readDegradedCause };
+}
+
+/**
+ * What one open session's store can say, as list rows.
+ *
+ * The participants are attached only to the store's OWN session. A store projects the
+ * people it has seen in the session it is for, so lending that roster to a row for
+ * some session it merely heard about would attribute the wrong people to it.
+ */
+function projectOneStore(store: SessionStore): readonly SessionListRow[] {
+  const { partitions } = store.snapshot();
+  const participantIds = Object.keys(partitions.participant);
+  return Object.values(partitions.session).map((entity) => ({
+    sessionId: entity.id,
+    state: entity.state,
+    touchedAtIso: entity.touchedAt,
+    participantIds: entity.id === store.sessionId ? participantIds : [],
+    // Attention is one projection for the whole destination and is stamped over the
+    // merged list by the surface. Reading it per source would give one session two
+    // severities and let the merge decide which a person saw.
+    attentionSeverity: undefined,
+  }));
 }

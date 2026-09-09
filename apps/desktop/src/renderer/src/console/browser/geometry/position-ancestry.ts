@@ -86,6 +86,56 @@ export function observeAncestorReorder(
 const LAYOUT_ATTRIBUTE_NAMES = ["class", "style"] as const;
 
 /**
+ * The size observers over the boxes beside the ancestry, replaced as that set moves.
+ *
+ * A class because the set is live state with an invariant — one observer per watched
+ * box, and none left armed after `dispose` — and `apps/desktop/AGENTS.md` puts
+ * stateful logic behind private fields rather than in a closure a caller can only
+ * hope was torn down.
+ *
+ * WHY IT DIFFS RATHER THAN RE-ARMING. A `ResizeObserver` delivers an initial callback
+ * for every element it is given, so disconnecting and re-observing the whole set on
+ * each reorder would raise an invalidation for every box on the page each time a
+ * single row moved. Diffing means an unchanged set costs nothing and a changed one
+ * costs exactly the boxes that changed — and the one initial delivery a genuinely new
+ * sibling brings is a box the caller has not measured yet, which is a reading it
+ * wants rather than noise.
+ */
+export class SiblingSizeObservers {
+  readonly #onSizeChange: () => void;
+  readonly #detachersByElement = new Map<Element, Unsubscribe>();
+
+  public constructor(onSizeChange: () => void) {
+    this.#onSizeChange = onSizeChange;
+  }
+
+  /** Watch exactly these boxes, releasing whatever is no longer among them. */
+  public watch(siblings: readonly Element[]): void {
+    const wanted = new Set(siblings);
+    for (const [watched, detach] of this.#detachersByElement) {
+      if (!wanted.has(watched)) {
+        detach();
+        this.#detachersByElement.delete(watched);
+      }
+    }
+    for (const sibling of wanted) {
+      if (!this.#detachersByElement.has(sibling)) {
+        this.#detachersByElement.set(sibling, observeElementResize(sibling, this.#onSizeChange));
+      }
+    }
+  }
+
+  /** How many boxes are armed. Zero after `dispose`, and that is the budget. */
+  public get watchedCount(): number {
+    return this.#detachersByElement.size;
+  }
+
+  public dispose(): void {
+    this.watch([]);
+  }
+}
+
+/**
  * Watch every `class` and `style` change in the outermost ancestor's subtree.
  *
  * WHY A SECOND OBSERVER RATHER THAN A WIDER OPTION SET ON THE FIRST. A
@@ -163,54 +213,4 @@ export function readAncestrySiblings(
     }
   }
   return siblings;
-}
-
-/**
- * The size observers over the boxes beside the ancestry, replaced as that set moves.
- *
- * A class because the set is live state with an invariant — one observer per watched
- * box, and none left armed after `dispose` — and `apps/desktop/AGENTS.md` puts
- * stateful logic behind private fields rather than in a closure a caller can only
- * hope was torn down.
- *
- * WHY IT DIFFS RATHER THAN RE-ARMING. A `ResizeObserver` delivers an initial callback
- * for every element it is given, so disconnecting and re-observing the whole set on
- * each reorder would raise an invalidation for every box on the page each time a
- * single row moved. Diffing means an unchanged set costs nothing and a changed one
- * costs exactly the boxes that changed — and the one initial delivery a genuinely new
- * sibling brings is a box the caller has not measured yet, which is a reading it
- * wants rather than noise.
- */
-export class SiblingSizeObservers {
-  readonly #onSizeChange: () => void;
-  readonly #detachersByElement = new Map<Element, Unsubscribe>();
-
-  public constructor(onSizeChange: () => void) {
-    this.#onSizeChange = onSizeChange;
-  }
-
-  /** Watch exactly these boxes, releasing whatever is no longer among them. */
-  public watch(siblings: readonly Element[]): void {
-    const wanted = new Set(siblings);
-    for (const [watched, detach] of this.#detachersByElement) {
-      if (!wanted.has(watched)) {
-        detach();
-        this.#detachersByElement.delete(watched);
-      }
-    }
-    for (const sibling of wanted) {
-      if (!this.#detachersByElement.has(sibling)) {
-        this.#detachersByElement.set(sibling, observeElementResize(sibling, this.#onSizeChange));
-      }
-    }
-  }
-
-  /** How many boxes are armed. Zero after `dispose`, and that is the budget. */
-  public get watchedCount(): number {
-    return this.#detachersByElement.size;
-  }
-
-  public dispose(): void {
-    this.watch([]);
-  }
 }

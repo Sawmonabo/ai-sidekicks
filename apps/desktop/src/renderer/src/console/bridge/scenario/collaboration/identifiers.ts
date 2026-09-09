@@ -156,6 +156,9 @@ export const PEER_RUN_ID = "019b7904-8ce0-740e-8110-cca0117a03c0";
  */
 export const PRESENCE_STATE_AT_JOIN = "online" as const;
 
+/** One row of the roster, so the two beat subsets can name what they narrow to. */
+export type CollaborationParticipant = CollaborationOpener | CollaborationJoiner;
+
 /** What every person in this room has, whichever way they arrived. */
 interface CollaborationMember {
   readonly participantId: ParticipantId;
@@ -216,9 +219,6 @@ interface CollaborationJoiner extends CollaborationMember {
   readonly presenceEventId: string;
   readonly presenceState: "idle" | "reconnecting" | "offline";
 }
-
-/** One row of the roster, so the two beat subsets can name what they narrow to. */
-export type CollaborationParticipant = CollaborationOpener | CollaborationJoiner;
 
 /**
  * Who is in the room, in join order, and what the roster read says of each.

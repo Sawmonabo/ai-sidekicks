@@ -87,6 +87,27 @@ export const LEDGER_NO_REPLAY_ANCHOR_REFUSAL: ConsoleRefusal = refuse(
   "There is no row in view to replay from. Scroll to the entry you want to re-watch and try again.",
 );
 
+/** The state one window's acts are built over. */
+export interface LedgerFeedActInputs {
+  readonly find: LedgerFindState;
+  readonly replay: LedgerReplayState;
+  /** The ledger's one scroll writer, for the walk's jumps. */
+  readonly jumpToRow: (rowId: string) => void;
+  readonly jumpToTail: () => void;
+  /** Fold every terminal chapter the feed has open. */
+  readonly collapseAllTerminalChapters: () => void;
+  /** The narrowing the facet bar writes, and the one act that widens it back. */
+  readonly ledgerFilter: LedgerFilterState;
+  /**
+   * The row a "replay from here" starts at, or `undefined` for an unmeasured box.
+   *
+   * Read rather than passed as a callback because the act must be able to REFUSE
+   * over an absent anchor, and a callback that answered nothing would leave the
+   * press silent — which is the shape this whole module exists to prevent.
+   */
+  readonly replayAnchorRowId: string | undefined;
+}
+
 /**
  * Scrub the engine to one named row, dock revealed and refusal included.
  *
@@ -109,27 +130,6 @@ export function buildReplayFromRowAct(replay: LedgerReplayState): (rowId: string
       raiseConsoleActRefusal(LEDGER_NO_REPLAY_ANCHOR_REFUSAL);
     }
   };
-}
-
-/** The state one window's acts are built over. */
-export interface LedgerFeedActInputs {
-  readonly find: LedgerFindState;
-  readonly replay: LedgerReplayState;
-  /** The ledger's one scroll writer, for the walk's jumps. */
-  readonly jumpToRow: (rowId: string) => void;
-  readonly jumpToTail: () => void;
-  /** Fold every terminal chapter the feed has open. */
-  readonly collapseAllTerminalChapters: () => void;
-  /** The narrowing the facet bar writes, and the one act that widens it back. */
-  readonly ledgerFilter: LedgerFilterState;
-  /**
-   * The row a "replay from here" starts at, or `undefined` for an unmeasured box.
-   *
-   * Read rather than passed as a callback because the act must be able to REFUSE
-   * over an absent anchor, and a callback that answered nothing would leave the
-   * press silent — which is the shape this whole module exists to prevent.
-   */
-  readonly replayAnchorRowId: string | undefined;
 }
 
 /**

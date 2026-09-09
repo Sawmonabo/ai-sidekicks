@@ -44,6 +44,23 @@ import { useReadScope, useSubjectScopedState } from "../../../store/index.js";
 export const OUTSIDE_TRUST_ENVELOPE_CODE = "repo.outside_trust_envelope";
 
 /**
+ * Where this session's local files may come from, as far as the console can say.
+ *
+ * `unreportedWorkspaceCount` is carried rather than dropped: a workspace whose
+ * filesystem root the daemon did not report is a place files may be admitted from
+ * that this list does not name, and a disclosure that silently omitted it would read
+ * as complete when it is not.
+ */
+export type AdmittedRootsReading =
+  | { readonly kind: "reading" }
+  | {
+      readonly kind: "served";
+      readonly roots: readonly string[];
+      readonly unreportedWorkspaceCount: number;
+    }
+  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+
+/**
  * Whether a refusal IS the boundary refusal, wherever the code arrived on it.
  *
  * Two places, and both are checked. A refusal the port raised carries the code
@@ -67,23 +84,6 @@ export function isOutsideTrustEnvelope(refusal: ConsoleRefusal | undefined): boo
     (cause as { readonly code?: unknown }).code === OUTSIDE_TRUST_ENVELOPE_CODE
   );
 }
-
-/**
- * Where this session's local files may come from, as far as the console can say.
- *
- * `unreportedWorkspaceCount` is carried rather than dropped: a workspace whose
- * filesystem root the daemon did not report is a place files may be admitted from
- * that this list does not name, and a disclosure that silently omitted it would read
- * as complete when it is not.
- */
-export type AdmittedRootsReading =
-  | { readonly kind: "reading" }
-  | {
-      readonly kind: "served";
-      readonly roots: readonly string[];
-      readonly unreportedWorkspaceCount: number;
-    }
-  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
 
 const UNREAD_ROOTS: AdmittedRootsReading = { kind: "reading" };
 

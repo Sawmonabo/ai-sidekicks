@@ -173,6 +173,20 @@ export const ONBOARDING_STEPS_IN_ORDER: readonly OnboardingStepDescriptor[] =
   ONBOARDING_STEP_IDS.map((id) => ONBOARDING_STEPS[id]);
 
 /**
+ * Where the completion act stands: settled already, held, or simply offered.
+ *
+ * ONE CLOSED VALUE RATHER THAN A REASON BESIDE A FLAG, because the three states are
+ * mutually exclusive and a footer handed two independent inputs can render a
+ * combination that means nothing — a control offered over a node the daemon has
+ * already recorded as set up, which is exactly the state that let a finished
+ * walkthrough re-dispatch `onboarding.complete`.
+ */
+export type OnboardingCompletionStanding =
+  | { readonly kind: "settled" }
+  | { readonly kind: "held"; readonly reason: string }
+  | { readonly kind: "offered" };
+
+/**
  * The daemon's completed-step set, narrowed to the steps this build knows.
  *
  * FAIL-CLOSED, per `Spec-023 §Console Design (Meridian)`' unknown-member rule: an id
@@ -233,20 +247,6 @@ export function stepBlockedReason(
   }
   return `Opens once “${ONBOARDING_STEPS[prerequisite].label}” is settled.`;
 }
-
-/**
- * Where the completion act stands: settled already, held, or simply offered.
- *
- * ONE CLOSED VALUE RATHER THAN A REASON BESIDE A FLAG, because the three states are
- * mutually exclusive and a footer handed two independent inputs can render a
- * combination that means nothing — a control offered over a node the daemon has
- * already recorded as set up, which is exactly the state that let a finished
- * walkthrough re-dispatch `onboarding.complete`.
- */
-export type OnboardingCompletionStanding =
-  | { readonly kind: "settled" }
-  | { readonly kind: "held"; readonly reason: string }
-  | { readonly kind: "offered" };
 
 /**
  * Where the completion act stands, from the daemon's own reading and nothing else.

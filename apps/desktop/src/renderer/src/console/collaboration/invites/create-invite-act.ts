@@ -87,9 +87,6 @@ const INVITE_CREATE_METHOD = "invite.create" satisfies CollaborationMutationMeth
 /** The coordinator's subject key. One mint at a time, so one key. */
 const CREATE_INVITE_KEY = "create-invite";
 
-/** What one mint asks for, read off the call door's own registry rather than declared. */
-type InviteCreateRequest = DaemonRequestOf<typeof INVITE_CREATE_METHOD>;
-
 /** What one press has to know before it can compose a request at all. */
 export interface InviteMintActOptions {
   readonly bridge: ConsoleBridge;
@@ -234,3 +231,6 @@ export function useInviteMintAct(options: InviteMintActOptions): InviteMintAct {
     dismissRefusal,
   };
 }
+
+/** What one mint asks for, read off the call door's own registry rather than declared. */
+type InviteCreateRequest = DaemonRequestOf<typeof INVITE_CREATE_METHOD>;

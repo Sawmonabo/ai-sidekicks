@@ -58,6 +58,11 @@ import { paneHarnessInstances } from "./pane-harness-instances.js";
 import { parseConsolePaneAddress, type ConsolePaneRegistry } from "../../seats/index.js";
 import { type ConsoleSurfaceContext, type ConsoleSurfaceRegistry } from "../../seats/index.js";
 
+export interface PaneHarnessSurfaceProps {
+  readonly context: ConsoleSurfaceContext;
+  readonly paneRegistry: ConsolePaneRegistry;
+}
+
 /**
  * Claim the harness slot, in a fixture build and in no other.
  *
@@ -86,11 +91,6 @@ export function registerPaneHarnessSurface(
     owner: "pane-harness",
     render: (context) => <PaneHarnessSurface context={context} paneRegistry={paneRegistry} />,
   });
-}
-
-export interface PaneHarnessSurfaceProps {
-  readonly context: ConsoleSurfaceContext;
-  readonly paneRegistry: ConsolePaneRegistry;
 }
 
 /**

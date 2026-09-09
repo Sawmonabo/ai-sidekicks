@@ -46,6 +46,18 @@ export interface DiffPaneSubjectEntity {
 }
 
 /**
+ * A subject with its arm's key in hand — the shape a request can actually be built from.
+ *
+ * The worktree arm resolves INTO this rather than being one of its members: once the run
+ * is read, a worktree-borne diff and a run-borne one are the same request, and carrying
+ * the worktree id past this point would invite a surface to render it as the subject the
+ * daemon attributed to.
+ */
+export type ResolvedDiffCreateSubject =
+  | { readonly attributionMode: "run_attributed"; readonly runId: string }
+  | { readonly attributionMode: "workspace_fallback"; readonly workspaceId: string };
+
+/**
  * Which subject a diff pane's address names, or `undefined` where it names none.
  *
  * `undefined` IS THE ANSWER FOR THREE OF THE FIVE KINDS and is not a gap. A repository
@@ -83,18 +95,6 @@ export function diffCreateSubjectKey(subject: DiffCreateSubject): string {
     ? `workspace:${subject.workspaceId}`
     : `worktree:${subject.worktreeId}`;
 }
-
-/**
- * A subject with its arm's key in hand — the shape a request can actually be built from.
- *
- * The worktree arm resolves INTO this rather than being one of its members: once the run
- * is read, a worktree-borne diff and a run-borne one are the same request, and carrying
- * the worktree id past this point would invite a surface to render it as the subject the
- * daemon attributed to.
- */
-export type ResolvedDiffCreateSubject =
-  | { readonly attributionMode: "run_attributed"; readonly runId: string }
-  | { readonly attributionMode: "workspace_fallback"; readonly workspaceId: string };
 
 /**
  * The attribution a resolved subject carries, in the model both diff surfaces render.

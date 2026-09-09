@@ -28,18 +28,6 @@ import { SessionsSurface } from "./SessionsSurface.js";
 import type { ConsoleSurfaceContext, NewSessionControlComponent } from "../seats/index.js";
 
 /**
- * The composed-draft control every case that is not about it gets.
- *
- * Renders the marker and calls nothing: a stand-in that settled a start would put a
- * navigation and a store open into suites whose subject is the list's chrome, and one
- * that rendered a control a person could press would change what every
- * `getByRole("button")` in those suites resolves.
- */
-function InertNewSessionControl(): React.JSX.Element {
-  return <span data-new-session-control>the composed-session control</span>;
-}
-
-/**
  * Let the destination's asynchronous arrivals land.
  *
  * Three reads settle behind this destination — the attention projection, the invites
@@ -156,4 +144,16 @@ export function renderSurface(
     container: surfaceRoot,
     politeText: () => politeText(mounted),
   };
+}
+
+/**
+ * The composed-draft control every case that is not about it gets.
+ *
+ * Renders the marker and calls nothing: a stand-in that settled a start would put a
+ * navigation and a store open into suites whose subject is the list's chrome, and one
+ * that rendered a control a person could press would change what every
+ * `getByRole("button")` in those suites resolves.
+ */
+function InertNewSessionControl(): React.JSX.Element {
+  return <span data-new-session-control>the composed-session control</span>;
 }

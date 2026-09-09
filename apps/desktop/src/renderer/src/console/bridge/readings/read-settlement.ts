@@ -80,6 +80,27 @@ export const READ_SETTLEMENT_REFUSAL_ORIGIN = "growth-read";
  */
 export type SettledReadRefusal = WireRefusal & { readonly status: "unavailable" };
 
+/** A settled read's current value, and the publisher its own answers arrive through. */
+export interface SettledGrowthRead<TState> {
+  readonly value: TState;
+  readonly publish: SubjectScopedPublish<TState>;
+}
+
+/**
+ * How a caller turns one read into the two states a surface renders.
+ *
+ * TWO PROJECTIONS AND NOT ONE, because a read has two moments and they are answered
+ * by different things. `unsettled` is what is true before an answer exists — which is
+ * `unasked` or `reading` depending on whether there was a question to put, a rule
+ * `store/read/subject-read-start.ts` already owns — and `settled` is the caller's reading
+ * of the port's own outcome. Handed as one object rather than as two positional
+ * callbacks so a call site cannot silently pass them in the wrong order.
+ */
+export interface SettledGrowthReadProjection<TOutcome, TState> {
+  readonly unsettled: (key: SubjectKey) => TState;
+  readonly settled: (settlement: TOutcome | SettledReadRefusal) => TState;
+}
+
 /**
  * Settle a growth read, so its caller has one value to narrow on.
  *
@@ -139,32 +160,6 @@ export function settleGrowthCall<TOutcome>(
   call: () => Promise<TOutcome>,
 ): Promise<TOutcome | SettledReadRefusal> {
   return settleGrowthRead(putGrowthCall(call));
-}
-
-/** The call, made where a synchronous throw is already a rejected promise. */
-async function putGrowthCall<TOutcome>(call: () => Promise<TOutcome>): Promise<TOutcome> {
-  return call();
-}
-
-/** A settled read's current value, and the publisher its own answers arrive through. */
-export interface SettledGrowthRead<TState> {
-  readonly value: TState;
-  readonly publish: SubjectScopedPublish<TState>;
-}
-
-/**
- * How a caller turns one read into the two states a surface renders.
- *
- * TWO PROJECTIONS AND NOT ONE, because a read has two moments and they are answered
- * by different things. `unsettled` is what is true before an answer exists — which is
- * `unasked` or `reading` depending on whether there was a question to put, a rule
- * `store/read/subject-read-start.ts` already owns — and `settled` is the caller's reading
- * of the port's own outcome. Handed as one object rather than as two positional
- * callbacks so a call site cannot silently pass them in the wrong order.
- */
-export interface SettledGrowthReadProjection<TOutcome, TState> {
-  readonly unsettled: (key: SubjectKey) => TState;
-  readonly settled: (settlement: TOutcome | SettledReadRefusal) => TState;
 }
 
 /**
@@ -290,4 +285,9 @@ export function useSettledGrowthRead<TOutcome, TState>(
     // on screen stays until the fresh read lands.
   }, [growth, key, publish, readRevision, readScope]);
   return { value, publish };
+}
+
+/** The call, made where a synchronous throw is already a rejected promise. */
+async function putGrowthCall<TOutcome>(call: () => Promise<TOutcome>): Promise<TOutcome> {
+  return call();
 }

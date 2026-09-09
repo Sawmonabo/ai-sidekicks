@@ -57,21 +57,6 @@ export type ShellSentencePart =
 /** One sentence, as alternating words and figure slots. Rendered, never joined. */
 export type ShellSentence = readonly ShellSentencePart[];
 
-/** The console's own words. Named so a builder below reads as the sentence it is. */
-function words(text: string): ShellSentencePart {
-  return { kind: "words", words: text };
-}
-
-/** A byte-for-byte string the shell reported. Rendered verbatim, in mono. */
-function figure(value: string): ShellSentencePart {
-  return { kind: "figure", value };
-}
-
-/** A quantity the shell reported. Rendered through `Intl`, in mono. */
-function count(value: number): ShellSentencePart {
-  return { kind: "count", count: value };
-}
-
 /** The console's own protocol version, as the negotiation reports this build's side. */
 export interface VersionRemedy {
   /** The banner's headline: which side is out of range. */
@@ -150,6 +135,21 @@ export function describeSupportedProtocols(negotiation: ShellNegotiation): Shell
     (version, position) => (position === 0 ? [figure(version)] : [words(", "), figure(version)]),
   );
   return [words("The runtime supports "), ...listed, words(".")];
+}
+
+/** The console's own words. Named so a builder below reads as the sentence it is. */
+function words(text: string): ShellSentencePart {
+  return { kind: "words", words: text };
+}
+
+/** A byte-for-byte string the shell reported. Rendered verbatim, in mono. */
+function figure(value: string): ShellSentencePart {
+  return { kind: "figure", value };
+}
+
+/** A quantity the shell reported. Rendered through `Intl`, in mono. */
+function count(value: number): ShellSentencePart {
+  return { kind: "count", count: value };
 }
 
 /**

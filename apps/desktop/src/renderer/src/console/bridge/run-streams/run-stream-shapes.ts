@@ -107,15 +107,6 @@ export function projectThroughRegisteredShape<Delivery extends RunStreamDelivery
   return { status: "projected", delivery: parsed.data };
 }
 
-/** One parse issue as a sentence fragment: which member, and what is wrong with it. */
-function describeIssue(issue: {
-  readonly path: readonly PropertyKey[];
-  readonly message: string;
-}): string {
-  const member = issue.path.length === 0 ? "the payload" : issue.path.map(String).join(".");
-  return `${member}: ${issue.message}`;
-}
-
 /** Every carried optional member the payload actually supplies, wire-verbatim. */
 export function carriedOptionalMembers(
   payload: Readonly<Record<string, unknown>>,
@@ -143,4 +134,13 @@ export function unprojectableFor(event: ConsoleSessionEvent, fault: string): Run
 /** The refusal arm, spelled once. */
 export function unprojectable(detail: string): RunStreamProjection {
   return { status: "unprojectable", detail };
+}
+
+/** One parse issue as a sentence fragment: which member, and what is wrong with it. */
+function describeIssue(issue: {
+  readonly path: readonly PropertyKey[];
+  readonly message: string;
+}): string {
+  const member = issue.path.length === 0 ? "the payload" : issue.path.map(String).join(".");
+  return `${member}: ${issue.message}`;
 }

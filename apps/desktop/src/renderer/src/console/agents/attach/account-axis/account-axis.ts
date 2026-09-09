@@ -119,19 +119,6 @@ export type AttachAccountAxisReading =
     };
 
 /**
- * The provider a driver name speaks for, or `undefined` where it names none.
- *
- * Narrowed against the contract's own closed set rather than cast: an account's
- * provider is that set and a driver name is a bare wire string, so this is the one
- * place the two vocabularies are reconciled and the one place a mismatch is visible.
- */
-function providerForDriver(driverName: string | undefined): ProviderName | undefined {
-  return driverName === undefined
-    ? undefined
-    : PROVIDER_NAMES.find((provider) => provider === driverName);
-}
-
-/**
  * The accounts this driver's provider carries, folded with what the registry stored.
  *
  * The registry's OWN ORDER is preserved and nothing is sorted here. The daemon sends
@@ -171,29 +158,6 @@ export function attachAccountAxisReadingFor(
     .filter((account) => account.provider === provider)
     .map((account) => accountChoiceFor(account, providerReadiness));
   return { kind: "served", provider, providerReadiness, choices };
-}
-
-/**
- * One registry row, carrying this provider's entry only where it resolved to that row.
- *
- * Matched against the ONE entry this provider carries rather than against every entry
- * the read holds: a projection that named an account of another provider would
- * otherwise attach itself here, which is the cross-provider attribution the per-account
- * rule exists to refuse.
- */
-function accountChoiceFor(
-  account: ProviderAccount,
-  providerReadiness: ProviderReadiness | undefined,
-): AttachAccountChoice {
-  return {
-    accountId: account.accountId,
-    displayLabel: account.displayLabel,
-    isProviderDefault: account.isDefault,
-    healthState: account.healthState,
-    healthObservedAt: account.healthObservedAt,
-    readiness:
-      providerReadiness?.resolvedAccountId === account.accountId ? providerReadiness : undefined,
-  };
 }
 
 /** The choice this axis is currently on, or `undefined` where the value names none. */
@@ -259,4 +223,40 @@ export function registryCarriesAccount(
   return (
     reading.kind !== "served" || reading.choices.some((choice) => choice.accountId === accountId)
   );
+}
+
+/**
+ * The provider a driver name speaks for, or `undefined` where it names none.
+ *
+ * Narrowed against the contract's own closed set rather than cast: an account's
+ * provider is that set and a driver name is a bare wire string, so this is the one
+ * place the two vocabularies are reconciled and the one place a mismatch is visible.
+ */
+function providerForDriver(driverName: string | undefined): ProviderName | undefined {
+  return driverName === undefined
+    ? undefined
+    : PROVIDER_NAMES.find((provider) => provider === driverName);
+}
+
+/**
+ * One registry row, carrying this provider's entry only where it resolved to that row.
+ *
+ * Matched against the ONE entry this provider carries rather than against every entry
+ * the read holds: a projection that named an account of another provider would
+ * otherwise attach itself here, which is the cross-provider attribution the per-account
+ * rule exists to refuse.
+ */
+function accountChoiceFor(
+  account: ProviderAccount,
+  providerReadiness: ProviderReadiness | undefined,
+): AttachAccountChoice {
+  return {
+    accountId: account.accountId,
+    displayLabel: account.displayLabel,
+    isProviderDefault: account.isDefault,
+    healthState: account.healthState,
+    healthObservedAt: account.healthObservedAt,
+    readiness:
+      providerReadiness?.resolvedAccountId === account.accountId ? providerReadiness : undefined,
+  };
 }

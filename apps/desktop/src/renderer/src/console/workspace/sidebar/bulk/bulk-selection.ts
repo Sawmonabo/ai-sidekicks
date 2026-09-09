@@ -42,18 +42,6 @@ const EMPTY_SNAPSHOT: BulkSelectionSnapshot = {
   settledItemByKey: new Map(),
 };
 
-/**
- * One row's key, across every section.
- *
- * The triple and not the id alone: two sections may hold rows for one entity — a run
- * appears under Runs and under its channel — and a key that ignored the section would
- * make selecting one select both. The act is in the key for the same reason at the
- * other grain: one entity can admit two acts.
- */
-export function bulkItemKey(item: SidebarBulkItem): string {
-  return `${item.sectionId}:${item.act}:${item.itemId}`;
-}
-
 export class BulkSelectionModel {
   readonly #changes = new Emitter<BulkSelectionSnapshot>("sidebar bulk selection");
   #snapshot: BulkSelectionSnapshot = EMPTY_SNAPSHOT;
@@ -169,6 +157,18 @@ export class BulkSelectionModel {
     this.#snapshot = { ...this.#snapshot, ...change };
     this.#changes.emit(this.#snapshot);
   }
+}
+
+/**
+ * One row's key, across every section.
+ *
+ * The triple and not the id alone: two sections may hold rows for one entity — a run
+ * appears under Runs and under its channel — and a key that ignored the section would
+ * make selecting one select both. The act is in the key for the same reason at the
+ * other grain: one entity can admit two acts.
+ */
+export function bulkItemKey(item: SidebarBulkItem): string {
+  return `${item.sectionId}:${item.act}:${item.itemId}`;
 }
 
 /**

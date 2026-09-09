@@ -140,19 +140,6 @@ interface WorkflowHumanFormAttempt {
 const IDLE: WorkflowHumanFormOutcome = { kind: "idle" };
 
 /**
- * How a submit call can end.
- *
- * Three arms and not two, on the run controls' own reading: the port's refusal for a
- * wire this build cannot serve, the read seam's reading of a REJECTION — a scripted
- * daemon refusal is thrown verbatim and the live seam will throw the same shape — and
- * the served value.
- */
-type SubmitSettlement =
-  | Awaited<ReturnType<GrowthPort["workflowHumanFormSubmit"]>>
-  | GrowthUnavailable
-  | SettledReadRefusal;
-
-/**
  * The answer as the request's `fields` member, or nothing where it is not one.
  *
  * The raw editor composes whatever JSON a person typed, and JSON is legally a number,
@@ -164,47 +151,6 @@ export function submittableFields(answer: unknown): WorkflowHumanFormFields | un
   return typeof answer === "object" && answer !== null && !Array.isArray(answer)
     ? (answer as WorkflowHumanFormFields)
     : undefined;
-}
-
-/**
- * What one settlement means for the form that asked.
- *
- * The three members the reply's own arm carries are named rather than spread, so a
- * member this outcome does not declare cannot arrive by accident — the reply also
- * carries the `phaseId` the caller supplied, and echoing a request back as though it
- * were news is how a settlement comes to look like a reading. A refusal is carried
- * VERBATIM: the port's unregistered-wire sentence names the wire and who owes it, and
- * a daemon's `workflow.*` code is its own adjudication.
- */
-function settledOutcome(settlement: SubmitSettlement): WorkflowHumanFormOutcome {
-  return settlement.status === "served"
-    ? {
-        kind: "submitted",
-        phaseRunId: settlement.value.phaseRunId,
-        outputCount: settlement.value.outputCount,
-        submittedAt: settlement.value.submittedAt,
-      }
-    : { kind: "refused", refusal: settlement };
-}
-
-/** The refusal an answer that is not a set of named values earns. */
-function answerNotComposedRefusal(): ConsoleRefusal {
-  const code: WorkflowHumanFormRefusalCode = "answer-not-composed";
-  return refuse(
-    WORKFLOW_HUMAN_FORM_ORIGIN,
-    code,
-    "This phase is answered with a set of named values, and what is typed is not one yet.",
-  );
-}
-
-/** The refusal a second press earns while the first answer is still outstanding. */
-function submitAlreadyInFlightRefusal(): ConsoleRefusal {
-  const code: WorkflowHumanFormRefusalCode = "submit-already-in-flight";
-  return refuse(
-    WORKFLOW_HUMAN_FORM_ORIGIN,
-    code,
-    "This answer is already with the daemon. Wait for it to come back before sending another.",
-  );
 }
 
 /**
@@ -322,4 +268,58 @@ export function useHumanFormSubmit(
         });
     },
   };
+}
+
+/**
+ * How a submit call can end.
+ *
+ * Three arms and not two, on the run controls' own reading: the port's refusal for a
+ * wire this build cannot serve, the read seam's reading of a REJECTION — a scripted
+ * daemon refusal is thrown verbatim and the live seam will throw the same shape — and
+ * the served value.
+ */
+type SubmitSettlement =
+  | Awaited<ReturnType<GrowthPort["workflowHumanFormSubmit"]>>
+  | GrowthUnavailable
+  | SettledReadRefusal;
+
+/**
+ * What one settlement means for the form that asked.
+ *
+ * The three members the reply's own arm carries are named rather than spread, so a
+ * member this outcome does not declare cannot arrive by accident — the reply also
+ * carries the `phaseId` the caller supplied, and echoing a request back as though it
+ * were news is how a settlement comes to look like a reading. A refusal is carried
+ * VERBATIM: the port's unregistered-wire sentence names the wire and who owes it, and
+ * a daemon's `workflow.*` code is its own adjudication.
+ */
+function settledOutcome(settlement: SubmitSettlement): WorkflowHumanFormOutcome {
+  return settlement.status === "served"
+    ? {
+        kind: "submitted",
+        phaseRunId: settlement.value.phaseRunId,
+        outputCount: settlement.value.outputCount,
+        submittedAt: settlement.value.submittedAt,
+      }
+    : { kind: "refused", refusal: settlement };
+}
+
+/** The refusal an answer that is not a set of named values earns. */
+function answerNotComposedRefusal(): ConsoleRefusal {
+  const code: WorkflowHumanFormRefusalCode = "answer-not-composed";
+  return refuse(
+    WORKFLOW_HUMAN_FORM_ORIGIN,
+    code,
+    "This phase is answered with a set of named values, and what is typed is not one yet.",
+  );
+}
+
+/** The refusal a second press earns while the first answer is still outstanding. */
+function submitAlreadyInFlightRefusal(): ConsoleRefusal {
+  const code: WorkflowHumanFormRefusalCode = "submit-already-in-flight";
+  return refuse(
+    WORKFLOW_HUMAN_FORM_ORIGIN,
+    code,
+    "This answer is already with the daemon. Wait for it to come back before sending another.",
+  );
 }

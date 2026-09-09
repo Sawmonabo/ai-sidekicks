@@ -28,42 +28,6 @@ import {
 } from "./human-form-selection.js";
 
 /**
- * The route one park card offers to its own form, where the card has one.
- *
- * A run that branches parks more than one phase on a person at a time, and the pane
- * mounts ONE form slot — so every addressable wait carries the action that makes its
- * form the open one, and the card whose form is already open says so instead. A wait
- * the run reported without its handle says why it cannot be opened, which is the fact
- * the operator needs and the one a missing control does not give them.
- *
- * Returns the prop bag rather than the route, so the arm with no route omits the key
- * instead of passing `undefined` through it — the mount's own presence rule.
- */
-function formRoutePropsFor(
-  workflowRunId: string,
-  phase: WorkflowPhaseState,
-  humanForms: HumanFormSelection,
-): { readonly formRoute?: WorkflowParkFormRoute } {
-  if (phase.parkReason !== "waiting-human") {
-    return {};
-  }
-  if (humanFormPhaseFor(workflowRunId, phase) === undefined) {
-    return { formRoute: { kind: "unaddressable", detail: UNADDRESSABLE_HUMAN_WAIT_DETAIL } };
-  }
-  const { phaseId } = phase;
-  return humanForms.isOpen(phaseId)
-    ? { formRoute: { kind: "open" } }
-    : {
-        formRoute: {
-          kind: "openable",
-          openForm: () => {
-            humanForms.openFormFor(phaseId);
-          },
-        },
-      };
-}
-
-/**
  * Every phase parked at the moment the snapshot was built, and nothing else.
  *
  * A park is read from `parkReason` and never from a phase's `state` — the status
@@ -131,4 +95,40 @@ export function RunParks(props: {
       ))}
     </div>
   );
+}
+
+/**
+ * The route one park card offers to its own form, where the card has one.
+ *
+ * A run that branches parks more than one phase on a person at a time, and the pane
+ * mounts ONE form slot — so every addressable wait carries the action that makes its
+ * form the open one, and the card whose form is already open says so instead. A wait
+ * the run reported without its handle says why it cannot be opened, which is the fact
+ * the operator needs and the one a missing control does not give them.
+ *
+ * Returns the prop bag rather than the route, so the arm with no route omits the key
+ * instead of passing `undefined` through it — the mount's own presence rule.
+ */
+function formRoutePropsFor(
+  workflowRunId: string,
+  phase: WorkflowPhaseState,
+  humanForms: HumanFormSelection,
+): { readonly formRoute?: WorkflowParkFormRoute } {
+  if (phase.parkReason !== "waiting-human") {
+    return {};
+  }
+  if (humanFormPhaseFor(workflowRunId, phase) === undefined) {
+    return { formRoute: { kind: "unaddressable", detail: UNADDRESSABLE_HUMAN_WAIT_DETAIL } };
+  }
+  const { phaseId } = phase;
+  return humanForms.isOpen(phaseId)
+    ? { formRoute: { kind: "open" } }
+    : {
+        formRoute: {
+          kind: "openable",
+          openForm: () => {
+            humanForms.openFormFor(phaseId);
+          },
+        },
+      };
 }

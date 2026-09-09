@@ -19,14 +19,6 @@ import {
 } from "../../../bridge/index.js";
 import { useCastBarRead, type CastBarReadState } from "./cast-bar-read-projection.js";
 
-/** What the health read answers with, folded to the two facts one line can hold. */
-interface CastBarHealthReading {
-  /** How many components are not `healthy`, counted from the wire's own readings. */
-  readonly unwellComponentCount: number;
-  /** The component names behind that count, in the order the wire listed them. */
-  readonly unwellComponentNames: readonly string[];
-}
-
 /**
  * The bar's ONE reading of the node's health — the verdict both halves are decided from.
  *
@@ -110,21 +102,6 @@ export function useCastBarHealth(
   return castBarHealthVerdict(health);
 }
 
-/** The read state as the four things the bar does about it, and nothing else. */
-function castBarHealthVerdict(
-  health: CastBarReadState<CastBarHealthReading>,
-): CastBarHealthVerdict {
-  if (health.status === "reading") {
-    return { kind: "in-flight" };
-  }
-  if (health.status === "unavailable") {
-    return { kind: "unchecked", refusal: health.refusal };
-  }
-  return health.value.unwellComponentCount === 0
-    ? { kind: "clear" }
-    : { kind: "unwell", ...health.value };
-}
-
 /**
  * The session's committed spend, from the one accountant.
  *
@@ -155,4 +132,27 @@ export function useCastBarSpend(
         }
       : outcome;
   });
+}
+
+/** What the health read answers with, folded to the two facts one line can hold. */
+interface CastBarHealthReading {
+  /** How many components are not `healthy`, counted from the wire's own readings. */
+  readonly unwellComponentCount: number;
+  /** The component names behind that count, in the order the wire listed them. */
+  readonly unwellComponentNames: readonly string[];
+}
+
+/** The read state as the four things the bar does about it, and nothing else. */
+function castBarHealthVerdict(
+  health: CastBarReadState<CastBarHealthReading>,
+): CastBarHealthVerdict {
+  if (health.status === "reading") {
+    return { kind: "in-flight" };
+  }
+  if (health.status === "unavailable") {
+    return { kind: "unchecked", refusal: health.refusal };
+  }
+  return health.value.unwellComponentCount === 0
+    ? { kind: "clear" }
+    : { kind: "unwell", ...health.value };
 }

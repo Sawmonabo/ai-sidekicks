@@ -72,24 +72,6 @@ const EMPTY_PROJECTION: RowKeyProjection = { virtualKeys: [], duplicateKeyCount:
  */
 const REPEAT_KEY_SEPARATOR = "~repeat-";
 
-/**
- * The row a measured key was recorded under.
- *
- * The ordinal is checked rather than assumed, so a row whose own key happens to
- * contain the separator is not truncated into a row that does not exist — which
- * would drop the prior of a row still in the window.
- */
-function rowKeyOfMeasuredKey(measuredKey: string): string {
-  const separatorIndex = measuredKey.lastIndexOf(REPEAT_KEY_SEPARATOR);
-  if (separatorIndex < 0) {
-    return measuredKey;
-  }
-  const ordinal = measuredKey.slice(separatorIndex + REPEAT_KEY_SEPARATOR.length);
-  return ordinal.length > 0 && /^\d+$/.test(ordinal)
-    ? measuredKey.slice(0, separatorIndex)
-    : measuredKey;
-}
-
 export class RowMeasurementLedger {
   readonly #estimatedRowHeightPx: number;
   readonly #measurementCap: number;
@@ -283,4 +265,22 @@ export class RowMeasurementLedger {
     }
     return 0;
   }
+}
+
+/**
+ * The row a measured key was recorded under.
+ *
+ * The ordinal is checked rather than assumed, so a row whose own key happens to
+ * contain the separator is not truncated into a row that does not exist — which
+ * would drop the prior of a row still in the window.
+ */
+function rowKeyOfMeasuredKey(measuredKey: string): string {
+  const separatorIndex = measuredKey.lastIndexOf(REPEAT_KEY_SEPARATOR);
+  if (separatorIndex < 0) {
+    return measuredKey;
+  }
+  const ordinal = measuredKey.slice(separatorIndex + REPEAT_KEY_SEPARATOR.length);
+  return ordinal.length > 0 && /^\d+$/.test(ordinal)
+    ? measuredKey.slice(0, separatorIndex)
+    : measuredKey;
 }

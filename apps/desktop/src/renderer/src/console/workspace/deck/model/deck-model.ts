@@ -198,6 +198,14 @@ export function applyPaneSizePercentages(
   );
 }
 
+/** Whether two width sets are the same, so a no-op write-back commits nothing. */
+export function sizesAreEqual(left: readonly DeckPane[], right: readonly DeckPane[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((pane, position) => pane.sizePermille === right[position]?.sizePermille)
+  );
+}
+
 /**
  * Make a clamped row sum to the whole deck again, without breaking the floor.
  *
@@ -229,14 +237,6 @@ function settleToTotal(panes: readonly DeckPane[], floor: number): readonly Deck
     ...pane,
     sizePermille: sizes[position] ?? pane.sizePermille,
   }));
-}
-
-/** Whether two width sets are the same, so a no-op write-back commits nothing. */
-export function sizesAreEqual(left: readonly DeckPane[], right: readonly DeckPane[]): boolean {
-  return (
-    left.length === right.length &&
-    left.every((pane, position) => pane.sizePermille === right[position]?.sizePermille)
-  );
 }
 
 /**

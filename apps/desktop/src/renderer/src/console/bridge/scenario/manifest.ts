@@ -74,6 +74,13 @@ export interface ConsoleScenarioManifest {
   readonly fixtureServedOperations: readonly GrowthOperationId[];
 }
 
+/** Every ledger entry that serves one slate row, in both categories. */
+export interface SlateRowCoverage {
+  readonly row: GrowthSlateRow;
+  readonly operations: readonly GrowthOperationEntry[];
+  readonly prerequisites: readonly GrowthPrerequisiteEntry[];
+}
+
 /**
  * The manifest, composed on demand.
  *
@@ -106,13 +113,6 @@ export function consoleScenarioManifest(): ConsoleScenarioManifest {
     slateRows: GROWTH_SLATE_ROWS,
     fixtureServedOperations: FIXTURE_SERVED_GROWTH_OPERATIONS,
   };
-}
-
-/** Every ledger entry that serves one slate row, in both categories. */
-export interface SlateRowCoverage {
-  readonly row: GrowthSlateRow;
-  readonly operations: readonly GrowthOperationEntry[];
-  readonly prerequisites: readonly GrowthPrerequisiteEntry[];
 }
 
 /**

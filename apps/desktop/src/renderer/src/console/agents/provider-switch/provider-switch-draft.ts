@@ -110,6 +110,13 @@ export type AxisDraftAction =
     }
   | { readonly kind: "rebase"; readonly binding: AxisDraft };
 
+/** What one mounted switch form holds: the binding it is about, and the edits on it. */
+export interface ProviderSwitchDraft {
+  readonly binding: AxisDraft;
+  readonly axes: AxisDraft;
+  readonly setAxis: (axis: ProviderAxis, value: string | undefined) => void;
+}
+
 /**
  * The agent's effective binding as an axis record.
  *
@@ -160,11 +167,6 @@ export function targetChainOf(draft: AxisDraft, binding: AxisDraft): ResolvedAxi
     }
   }
   return chain;
-}
-
-/** Whether two readings of a binding are the same one, axis by axis. */
-function isSameBinding(left: AxisDraft, right: AxisDraft): boolean {
-  return PROVIDER_AXES.every((axis) => left[axis] === right[axis]);
 }
 
 /**
@@ -223,13 +225,6 @@ export function applyDraftAction(held: HeldAxisDraft, action: AxisDraftAction): 
   return { binding: action.binding, axes: next };
 }
 
-/** What one mounted switch form holds: the binding it is about, and the edits on it. */
-export interface ProviderSwitchDraft {
-  readonly binding: AxisDraft;
-  readonly axes: AxisDraft;
-  readonly setAxis: (axis: ProviderAxis, value: string | undefined) => void;
-}
-
 /**
  * The draft for one agent, kept in step with the binding the roster reports.
  *
@@ -259,11 +254,6 @@ export function useProviderSwitchDraft(
   };
 }
 
-/** A form opened on an agent starts stamped with that agent's own binding. */
-function heldDraftFor(agent: AgentRosterEntry): HeldAxisDraft {
-  return { binding: bindingSnapshotOf(agent), axes: EMPTY_AXIS_DRAFT };
-}
-
 /**
  * What the two actions actually put on the wire.
  *
@@ -286,4 +276,14 @@ export function submittableAxes(
     delete axes.effort;
   }
   return axes;
+}
+
+/** Whether two readings of a binding are the same one, axis by axis. */
+function isSameBinding(left: AxisDraft, right: AxisDraft): boolean {
+  return PROVIDER_AXES.every((axis) => left[axis] === right[axis]);
+}
+
+/** A form opened on an agent starts stamped with that agent's own binding. */
+function heldDraftFor(agent: AgentRosterEntry): HeldAxisDraft {
+  return { binding: bindingSnapshotOf(agent), axes: EMPTY_AXIS_DRAFT };
 }

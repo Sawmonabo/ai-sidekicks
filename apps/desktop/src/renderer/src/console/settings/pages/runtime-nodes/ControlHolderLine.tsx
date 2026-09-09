@@ -31,11 +31,6 @@ import {
 } from "../../../tokens/index.js";
 import type { ControlHolderReading } from "./control-holder-reading.js";
 
-/** Carries the holder's hue into the mark's fill, as the ledger row does for an edge. */
-interface ControlHolderMarkStyle extends React.CSSProperties {
-  readonly "--meridian-control-holder-hue": string;
-}
-
 export function ControlHolderLine(props: {
   readonly reading: ControlHolderReading;
   /** The session wheel's assignment, or `undefined` for an identity it never admitted. */
@@ -90,4 +85,9 @@ export function ControlHolderLine(props: {
       <WireFigure value={reading.participantId} />
     </p>
   );
+}
+
+/** Carries the holder's hue into the mark's fill, as the ledger row does for an edge. */
+interface ControlHolderMarkStyle extends React.CSSProperties {
+  readonly "--meridian-control-holder-hue": string;
 }

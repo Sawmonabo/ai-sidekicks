@@ -164,85 +164,6 @@ export interface WorkflowRunListRow {
 export type OpenRun = (row: WorkflowRunListRow) => void;
 
 /**
- * The tie-break, and the reason the ordering is a property rather than a hope.
- *
- * `workflowRunId` is the run's own identity, so two rows compare equal here only when
- * they are the same run — and a list that held one run twice would be a fixture or a
- * daemon defect rather than an ordering question. Compared by code unit rather than
- * through `localeCompare`, because the order has to be the same on every host: a
- * locale-sensitive collation of opaque identifiers would put two operators' lists in
- * different orders and make a screenshot reference a fact about the machine that took
- * it.
- */
-function workflowRunIdAscending(left: WorkflowRunListRow, right: WorkflowRunListRow): number {
-  const leftRunId = left.run.workflowRunId;
-  const rightRunId = right.run.workflowRunId;
-  if (leftRunId === rightRunId) {
-    return 0;
-  }
-  return leftRunId < rightRunId ? -1 : 1;
-}
-
-/** The band a run belongs to, decided by its parks first and its status second. */
-function attentionBandFor(
-  run: WorkflowRunSnapshot,
-  parkedPhases: readonly WorkflowParkedPhase[],
-): WorkflowRunAttentionBand {
-  return parkedPhases.length > 0 ? "parked" : RUN_STATE_ATTENTION_BANDS[run.state];
-}
-
-/**
- * Every phase of one run that is parked, classified, in the order they arrived.
- *
- * THE PARK PROJECTION, AND THE ONLY ONE. Three surfaces draw a park — the run row's
- * badges, the run pane's stack of cards, and the phase node above that stack — and each
- * used to apply the discriminator and the schedule rule itself. Two of the three then
- * disagreed about the phase's NAME, because one read the row's own member and the other
- * substituted a module-level constant, so one screen named a parked phase and the
- * surface beside it drew the same park with no name at all. That is not a bug in either
- * one: it is the consequence of there being three.
- *
- * Takes the phases rather than the run because two of the three callers hold only a
- * phase list, and a projection that demanded a whole run would have sent them back to
- * deriving it themselves — which is the state this replaces.
- */
-export function projectParkedPhases(
-  phaseStates: readonly WorkflowPhaseStateRow[],
-): readonly WorkflowParkedPhase[] {
-  const parkedPhases: WorkflowParkedPhase[] = [];
-  for (const phase of phaseStates) {
-    const park = phasePark(phase);
-    if (park !== undefined) {
-      parkedPhases.push({
-        phaseId: phase.phaseId,
-        phaseName: phase.phaseName,
-        park,
-        schedule: parkSchedule(park),
-      });
-    }
-  }
-  return parkedPhases;
-}
-
-/** One run's row, with every derived fact read off the snapshot exactly once. */
-function projectRun(run: WorkflowRunSnapshot): WorkflowRunListRow {
-  const parkedPhases = projectParkedPhases(run.phaseStates);
-  return {
-    run,
-    parkedPhases,
-    // The start is read ONCE per run, here, rather than once per comparison and again
-    // at the row. A key function called from inside the comparator parses the same
-    // string on the order of `n log n` occasions, and — the reason that matters — gives
-    // the sort a place to disagree with itself and with the surface above it.
-    startedAt: workflowInstant(run.startedAt),
-    isPinnedBehindLatestVersion:
-      run.definitionLatestWorkflowVersionId !== undefined &&
-      run.definitionLatestWorkflowVersionId !== run.workflowVersionId,
-    attentionBand: attentionBandFor(run, parkedPhases),
-  };
-}
-
-/**
  * The run list, projected once from the snapshots a caller holds.
  *
  * A class rather than a function because the rows and the counts read off them are
@@ -343,4 +264,83 @@ export class RunListProjection {
   public get frozenPinCount(): number {
     return this.#rows.filter((row) => row.isPinnedBehindLatestVersion).length;
   }
+}
+
+/**
+ * Every phase of one run that is parked, classified, in the order they arrived.
+ *
+ * THE PARK PROJECTION, AND THE ONLY ONE. Three surfaces draw a park — the run row's
+ * badges, the run pane's stack of cards, and the phase node above that stack — and each
+ * used to apply the discriminator and the schedule rule itself. Two of the three then
+ * disagreed about the phase's NAME, because one read the row's own member and the other
+ * substituted a module-level constant, so one screen named a parked phase and the
+ * surface beside it drew the same park with no name at all. That is not a bug in either
+ * one: it is the consequence of there being three.
+ *
+ * Takes the phases rather than the run because two of the three callers hold only a
+ * phase list, and a projection that demanded a whole run would have sent them back to
+ * deriving it themselves — which is the state this replaces.
+ */
+export function projectParkedPhases(
+  phaseStates: readonly WorkflowPhaseStateRow[],
+): readonly WorkflowParkedPhase[] {
+  const parkedPhases: WorkflowParkedPhase[] = [];
+  for (const phase of phaseStates) {
+    const park = phasePark(phase);
+    if (park !== undefined) {
+      parkedPhases.push({
+        phaseId: phase.phaseId,
+        phaseName: phase.phaseName,
+        park,
+        schedule: parkSchedule(park),
+      });
+    }
+  }
+  return parkedPhases;
+}
+
+/**
+ * The tie-break, and the reason the ordering is a property rather than a hope.
+ *
+ * `workflowRunId` is the run's own identity, so two rows compare equal here only when
+ * they are the same run — and a list that held one run twice would be a fixture or a
+ * daemon defect rather than an ordering question. Compared by code unit rather than
+ * through `localeCompare`, because the order has to be the same on every host: a
+ * locale-sensitive collation of opaque identifiers would put two operators' lists in
+ * different orders and make a screenshot reference a fact about the machine that took
+ * it.
+ */
+function workflowRunIdAscending(left: WorkflowRunListRow, right: WorkflowRunListRow): number {
+  const leftRunId = left.run.workflowRunId;
+  const rightRunId = right.run.workflowRunId;
+  if (leftRunId === rightRunId) {
+    return 0;
+  }
+  return leftRunId < rightRunId ? -1 : 1;
+}
+
+/** The band a run belongs to, decided by its parks first and its status second. */
+function attentionBandFor(
+  run: WorkflowRunSnapshot,
+  parkedPhases: readonly WorkflowParkedPhase[],
+): WorkflowRunAttentionBand {
+  return parkedPhases.length > 0 ? "parked" : RUN_STATE_ATTENTION_BANDS[run.state];
+}
+
+/** One run's row, with every derived fact read off the snapshot exactly once. */
+function projectRun(run: WorkflowRunSnapshot): WorkflowRunListRow {
+  const parkedPhases = projectParkedPhases(run.phaseStates);
+  return {
+    run,
+    parkedPhases,
+    // The start is read ONCE per run, here, rather than once per comparison and again
+    // at the row. A key function called from inside the comparator parses the same
+    // string on the order of `n log n` occasions, and — the reason that matters — gives
+    // the sort a place to disagree with itself and with the surface above it.
+    startedAt: workflowInstant(run.startedAt),
+    isPinnedBehindLatestVersion:
+      run.definitionLatestWorkflowVersionId !== undefined &&
+      run.definitionLatestWorkflowVersionId !== run.workflowVersionId,
+    attentionBand: attentionBandFor(run, parkedPhases),
+  };
 }

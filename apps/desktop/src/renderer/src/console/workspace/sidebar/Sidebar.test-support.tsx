@@ -38,33 +38,6 @@ export interface RenderedSidebar {
   column(): HTMLElement;
 }
 
-/** The frame plus the one subscription its owner makes, and nothing else. */
-function SidebarHost(props: {
-  readonly model: SidebarModel;
-  readonly registry: SidebarSectionRegistry;
-  readonly seat: MountedSidebarSeat;
-  readonly bridge: ConsoleBridge;
-  readonly sessionStore: SessionStore;
-  readonly frameStore: FrameStore;
-}): ReactElement {
-  const snapshot = useSyncExternalStore(
-    (listener) => props.model.subscribe(listener),
-    () => props.model.snapshot,
-  );
-  return (
-    <Sidebar
-      sessionStore={props.sessionStore}
-      bridge={props.bridge}
-      frameStore={props.frameStore}
-      openPane={() => undefined}
-      model={props.model}
-      snapshot={snapshot}
-      sectionRegistry={props.registry}
-      commandSeat={props.seat}
-    />
-  );
-}
-
 export function renderSidebar(
   registry: SidebarSectionRegistry = new SidebarSectionRegistry(),
   model: SidebarModel = new SidebarModel(),
@@ -109,4 +82,31 @@ export function filterField(sidebar: HTMLElement): HTMLInputElement {
     throw new Error("the sidebar rendered no filter field");
   }
   return field;
+}
+
+/** The frame plus the one subscription its owner makes, and nothing else. */
+function SidebarHost(props: {
+  readonly model: SidebarModel;
+  readonly registry: SidebarSectionRegistry;
+  readonly seat: MountedSidebarSeat;
+  readonly bridge: ConsoleBridge;
+  readonly sessionStore: SessionStore;
+  readonly frameStore: FrameStore;
+}): ReactElement {
+  const snapshot = useSyncExternalStore(
+    (listener) => props.model.subscribe(listener),
+    () => props.model.snapshot,
+  );
+  return (
+    <Sidebar
+      sessionStore={props.sessionStore}
+      bridge={props.bridge}
+      frameStore={props.frameStore}
+      openPane={() => undefined}
+      model={props.model}
+      snapshot={snapshot}
+      sectionRegistry={props.registry}
+      commandSeat={props.seat}
+    />
+  );
 }

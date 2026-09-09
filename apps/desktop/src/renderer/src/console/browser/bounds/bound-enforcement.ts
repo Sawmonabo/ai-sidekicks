@@ -105,15 +105,6 @@ export const BROWSER_BYTE_BOUND_NAMES: readonly BrowserByteBoundName[] = [
   "CLIPBOARD_MAX",
 ];
 
-/** The scalar value of a bound the caller has already established is scalar. */
-function scalarValueOf(name: BrowserBoundName): number {
-  const measure = BROWSER_BOUNDS[name].measure;
-  // The tuple above is checked against this by the co-located test, so the fallback
-  // is unreachable rather than a silent widening — and `0` is the fail-closed value:
-  // a bound that lost its number refuses everything rather than admitting everything.
-  return measure.kind === "scalar" ? measure.value : 0;
-}
-
 /**
  * Admit one more page, or refuse naming the cap and the current count.
  *
@@ -211,4 +202,13 @@ export function admitByteLength(
     BROWSER_BOUND_REFUSAL_CODE,
     `${bound} is ${formatByteQuantity(ceiling).text} and this value is ${formatByteQuantity(byteLength).text}. It is refused rather than trimmed to fit.`,
   );
+}
+
+/** The scalar value of a bound the caller has already established is scalar. */
+function scalarValueOf(name: BrowserBoundName): number {
+  const measure = BROWSER_BOUNDS[name].measure;
+  // The tuple above is checked against this by the co-located test, so the fallback
+  // is unreachable rather than a silent widening — and `0` is the fail-closed value:
+  // a bound that lost its number refuses everything rather than admitting everything.
+  return measure.kind === "scalar" ? measure.value : 0;
 }

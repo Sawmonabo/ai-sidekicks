@@ -86,21 +86,6 @@ export async function press(root: HTMLElement, className: string): Promise<void>
 }
 
 /**
- * The open card's own element, or a thrown explanation of why there is none.
- *
- * Both library-driven closes below address it, and a fallback to the document body
- * would send an Escape somewhere Base UI is not listening and read a card that never
- * opened as a card that declined to close.
- */
-function openCard(root: HTMLElement): Element {
-  const popup = root.querySelector(".meridian-invite-confirmation");
-  if (popup === null) {
-    throw new Error("no confirmation card is open");
-  }
-  return popup;
-}
-
-/**
  * Close the card the way the keyboard does, letting whatever it dispatched settle.
  *
  * Hoisted on the second use, with the backdrop below it. Two suites drive the three
@@ -133,4 +118,19 @@ export async function closeThroughBackdrop(root: HTMLElement): Promise<void> {
     backdrop.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await crossMacrotaskBoundary();
   });
+}
+
+/**
+ * The open card's own element, or a thrown explanation of why there is none.
+ *
+ * Both library-driven closes below address it, and a fallback to the document body
+ * would send an Escape somewhere Base UI is not listening and read a card that never
+ * opened as a card that declined to close.
+ */
+function openCard(root: HTMLElement): Element {
+  const popup = root.querySelector(".meridian-invite-confirmation");
+  if (popup === null) {
+    throw new Error("no confirmation card is open");
+  }
+  return popup;
 }

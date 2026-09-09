@@ -202,6 +202,20 @@ export function findScenariosStatingCallbackTool(
     .map((scenario) => scenario.id);
 }
 
+/**
+ * The value a served outcome carries, or a failure naming what the port answered.
+ *
+ * Hoisted here on its second reader rather than copied: the plane suites beside the
+ * port all narrow the same union the same way, and a second copy would report a
+ * refusal as an unhelpful `undefined` in whichever suite drifted.
+ */
+export function servedValueOf<TValue>(outcome: GrowthOutcome<TValue>): TValue {
+  if (outcome.status !== "served") {
+    throw new Error(`the fixture port answered ${outcome.status} rather than serving a value`);
+  }
+  return outcome.value;
+}
+
 /** Whether this value, or anything under it, is a stated callback tool. */
 function statesCallbackTool(candidate: unknown): boolean {
   if (Array.isArray(candidate)) {
@@ -220,18 +234,4 @@ function statesCallbackTool(candidate: unknown): boolean {
     return true;
   }
   return Object.values(members).some(statesCallbackTool);
-}
-
-/**
- * The value a served outcome carries, or a failure naming what the port answered.
- *
- * Hoisted here on its second reader rather than copied: the plane suites beside the
- * port all narrow the same union the same way, and a second copy would report a
- * refusal as an unhelpful `undefined` in whichever suite drifted.
- */
-export function servedValueOf<TValue>(outcome: GrowthOutcome<TValue>): TValue {
-  if (outcome.status !== "served") {
-    throw new Error(`the fixture port answered ${outcome.status} rather than serving a value`);
-  }
-  return outcome.value;
 }

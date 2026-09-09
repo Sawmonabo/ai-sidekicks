@@ -17,30 +17,11 @@ export type PaneViewCall =
   | { readonly operation: "subscribe-navigation"; readonly paneId: string }
   | { readonly operation: "subscribe-pages"; readonly paneId: string };
 
-/** The page a served attach answers with. Shape derived from the port, never restated. */
-type AttachOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["browserPaneAttach"]>>;
-type AttachedPage = Extract<AttachOutcome, { readonly status: "served" }>["value"]["page"];
-
-/** One page, at the quiet value for every field no case here reads. */
-export function attachedPage(pageId: string): AttachedPage {
-  return {
-    pageId,
-    label: null,
-    title: "",
-    url: "about:blank",
-    host: "",
-    isLoading: false,
-    isSelected: true,
-    isShown: true,
-  };
-}
-
 export interface RecordedViewBridge {
   readonly bridge: ConsoleBridge;
   /** Every recorded call, oldest first. Read for order and for count. */
   readonly calls: PaneViewCall[];
 }
-
 export interface RecordedViewBridgeOptions {
   /**
    * How the attach settles. `"served"` hands back a page; `"refused"` answers with a
@@ -56,6 +37,20 @@ export interface RecordedViewBridgeOptions {
    * that must reach no diagnostic record.
    */
   readonly detach?: "served" | "refused" | "unasked";
+}
+
+/** One page, at the quiet value for every field no case here reads. */
+export function attachedPage(pageId: string): AttachedPage {
+  return {
+    pageId,
+    label: null,
+    title: "",
+    url: "about:blank",
+    host: "",
+    isLoading: false,
+    isSelected: true,
+    isShown: true,
+  };
 }
 
 /**
@@ -129,3 +124,8 @@ export function recordedViewBridge(options: RecordedViewBridgeOptions): Recorded
 export function calledOperations(calls: readonly PaneViewCall[]): readonly string[] {
   return calls.map((call) => call.operation);
 }
+
+/** The page a served attach answers with. Shape derived from the port, never restated. */
+type AttachOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["browserPaneAttach"]>>;
+
+type AttachedPage = Extract<AttachOutcome, { readonly status: "served" }>["value"]["page"];

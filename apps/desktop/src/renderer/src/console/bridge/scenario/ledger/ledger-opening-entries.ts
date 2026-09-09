@@ -40,6 +40,28 @@ export interface LedgerCastMemberLookup {
   readonly agentId: string;
 }
 
+/** Who is in the room before any run starts. */
+export interface LedgerOpeningInput {
+  readonly sessionId: string;
+  /** The participant who opened the session, and whose window this is. */
+  readonly openedBy: string;
+  /** The second person, who joins by membership. */
+  readonly joinedBy: string;
+  readonly membershipId: string;
+  /** The cast, each attached at the tick beside it. */
+  readonly cast: readonly (LedgerCastMember & { readonly attachedAtMs: number })[];
+  /** When the second person joins, in scenario time. */
+  readonly joinedAtMs: number;
+  /**
+   * The one named channel this session opens, where it opens one.
+   *
+   * Optional because most scenarios' lanes speak in the implicit main channel,
+   * which is unnamed on the wire and needs no beat; a scenario that wants a
+   * channel-addressed pane to be a log of something scripts one here.
+   */
+  readonly channel?: { readonly channelId: string; readonly name: string };
+}
+
 /**
  * One member of a scenario's cast, by the agent id a beat already names.
  *
@@ -61,28 +83,6 @@ export function ledgerCastMember<Member extends LedgerCastMemberLookup>(
     throw new RangeError(`no cast member of this scenario is attached as agent ${agentId}`);
   }
   return member;
-}
-
-/** Who is in the room before any run starts. */
-export interface LedgerOpeningInput {
-  readonly sessionId: string;
-  /** The participant who opened the session, and whose window this is. */
-  readonly openedBy: string;
-  /** The second person, who joins by membership. */
-  readonly joinedBy: string;
-  readonly membershipId: string;
-  /** The cast, each attached at the tick beside it. */
-  readonly cast: readonly (LedgerCastMember & { readonly attachedAtMs: number })[];
-  /** When the second person joins, in scenario time. */
-  readonly joinedAtMs: number;
-  /**
-   * The one named channel this session opens, where it opens one.
-   *
-   * Optional because most scenarios' lanes speak in the implicit main channel,
-   * which is unnamed on the wire and needs no beat; a scenario that wants a
-   * channel-addressed pane to be a log of something scripts one here.
-   */
-  readonly channel?: { readonly channelId: string; readonly name: string };
 }
 
 /**

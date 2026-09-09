@@ -53,47 +53,6 @@ export type SequenceAdmission =
 const DUPLICATE: SequenceAdmission = { outcome: "duplicate" };
 const DIVERGED: SequenceAdmission = { outcome: "diverged" };
 
-/**
- * Whether a delivered sequence is one cursor arithmetic can survive.
- *
- * Checked BEFORE anything else a store does with an event, because no base state
- * makes such a sequence applicable: `Math.max(cursor, NaN)` is `NaN` and every
- * comparison against that cursor is false afterwards, so one of these admitted
- * would silently disarm dedupe, gap detection, and the rewind guard together — for
- * the rest of the session, with nothing to see.
- */
-export function isReconcilableSequence(sequence: number): boolean {
-  return Number.isSafeInteger(sequence);
-}
-
-/**
- * Batch order, by sequence.
- *
- * Total on purpose. The obvious `left.sequence - right.sequence` returns `NaN` for
- * a malformed sequence, and a comparator that answers `NaN` leaves the sort order
- * of the whole batch undefined — so one hostile event would decide the order of
- * every well-formed one beside it. Anything the cursor cannot carry sorts last,
- * together, and the caller refuses each of them.
- */
-export function orderBatchBySequence(
-  events: readonly ConsoleSessionEvent[],
-): ConsoleSessionEvent[] {
-  return [...events].sort(compareBySequence);
-}
-
-function compareBySequence(left: ConsoleSessionEvent, right: ConsoleSessionEvent): number {
-  const leftKey = sortKeyFor(left.sequence);
-  const rightKey = sortKeyFor(right.sequence);
-  if (leftKey < rightKey) {
-    return -1;
-  }
-  return leftKey > rightKey ? 1 : 0;
-}
-
-function sortKeyFor(sequence: number): number {
-  return isReconcilableSequence(sequence) ? sequence : Number.MAX_SAFE_INTEGER;
-}
-
 /** The admitted run of one session's stream: where it stands and what it is missing. */
 export class SequenceReconciler {
   #cursor = -1;
@@ -192,4 +151,45 @@ export class SequenceReconciler {
     }
     this.releaseSequencesAtOrBelowCursor();
   }
+}
+
+/**
+ * Whether a delivered sequence is one cursor arithmetic can survive.
+ *
+ * Checked BEFORE anything else a store does with an event, because no base state
+ * makes such a sequence applicable: `Math.max(cursor, NaN)` is `NaN` and every
+ * comparison against that cursor is false afterwards, so one of these admitted
+ * would silently disarm dedupe, gap detection, and the rewind guard together — for
+ * the rest of the session, with nothing to see.
+ */
+export function isReconcilableSequence(sequence: number): boolean {
+  return Number.isSafeInteger(sequence);
+}
+
+/**
+ * Batch order, by sequence.
+ *
+ * Total on purpose. The obvious `left.sequence - right.sequence` returns `NaN` for
+ * a malformed sequence, and a comparator that answers `NaN` leaves the sort order
+ * of the whole batch undefined — so one hostile event would decide the order of
+ * every well-formed one beside it. Anything the cursor cannot carry sorts last,
+ * together, and the caller refuses each of them.
+ */
+export function orderBatchBySequence(
+  events: readonly ConsoleSessionEvent[],
+): ConsoleSessionEvent[] {
+  return [...events].sort(compareBySequence);
+}
+
+function compareBySequence(left: ConsoleSessionEvent, right: ConsoleSessionEvent): number {
+  const leftKey = sortKeyFor(left.sequence);
+  const rightKey = sortKeyFor(right.sequence);
+  if (leftKey < rightKey) {
+    return -1;
+  }
+  return leftKey > rightKey ? 1 : 0;
+}
+
+function sortKeyFor(sequence: number): number {
+  return isReconcilableSequence(sequence) ? sequence : Number.MAX_SAFE_INTEGER;
 }

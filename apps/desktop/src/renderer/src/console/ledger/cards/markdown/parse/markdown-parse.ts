@@ -165,6 +165,11 @@ export function parseVolatileTail(tailSource: string, definitionPreamble = ""): 
   return parseAgainstDefinitions(remend(tailSource, REMEND_OPTIONS), definitionPreamble);
 }
 
+/** What the settled-block cache is holding. For the budget test, and for nothing else. */
+export function settledBlockCacheStats(): ReturnType<ByteBoundedCache<MarkdownRoot>["stats"]> {
+  return settledBlockCache.stats();
+}
+
 /**
  * The cache key, in one place, so a store and a lookup cannot disagree.
  *
@@ -202,10 +207,5 @@ function parseAgainstDefinitions(blockSource: string, definitionPreamble: string
       (child) => (child.position?.start.offset ?? 0) >= definitionPreamble.length,
     ),
   };
-}
-
-/** What the settled-block cache is holding. For the budget test, and for nothing else. */
-export function settledBlockCacheStats(): ReturnType<ByteBoundedCache<MarkdownRoot>["stats"]> {
-  return settledBlockCache.stats();
 }
 import { MARKDOWN_BLOCK_CACHE_BYTE_CAP } from "../../../../core/index.js";

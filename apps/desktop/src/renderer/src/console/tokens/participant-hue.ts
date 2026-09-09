@@ -73,33 +73,6 @@ export interface ParticipantHueAssignment {
 }
 
 /**
- * FNV-1a over the id's UTF-16 code units, folded to 32 bits.
- *
- * Chosen over a cryptographic digest because the property needed is even spread
- * over twelve buckets, not preimage resistance, and because this runs
- * synchronously on the render path where `crypto.subtle` is a promise. Chosen
- * over `String.prototype.charCodeAt` summing because a sum collides on
- * anagrams, and participant ids in this corpus are UUIDs whose characters are
- * drawn from a sixteen-symbol alphabet.
- */
-export function hashParticipantId(participantId: string): number {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < participantId.length; index += 1) {
-    hash ^= participantId.charCodeAt(index);
-    // The FNV prime, 16777619, by shift-and-add so the product stays in the
-    // 32-bit range Math would otherwise lose precision on.
-    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
-    hash >>>= 0;
-  }
-  return hash >>> 0;
-}
-
-/** The step a participant would take if the wheel were empty. */
-export function preferredHueStep(participantId: string): number {
-  return hashParticipantId(participantId) % PARTICIPANT_HUE_STEPS;
-}
-
-/**
  * Allocates wheel steps for one session. Construct one per session store and
  * feed it the join log in order; it is deliberately NOT a module-level singleton,
  * because two sessions each start their own wheel.
@@ -196,4 +169,31 @@ export class ParticipantHueAllocator {
     }
     return bestStep;
   }
+}
+
+/**
+ * FNV-1a over the id's UTF-16 code units, folded to 32 bits.
+ *
+ * Chosen over a cryptographic digest because the property needed is even spread
+ * over twelve buckets, not preimage resistance, and because this runs
+ * synchronously on the render path where `crypto.subtle` is a promise. Chosen
+ * over `String.prototype.charCodeAt` summing because a sum collides on
+ * anagrams, and participant ids in this corpus are UUIDs whose characters are
+ * drawn from a sixteen-symbol alphabet.
+ */
+export function hashParticipantId(participantId: string): number {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < participantId.length; index += 1) {
+    hash ^= participantId.charCodeAt(index);
+    // The FNV prime, 16777619, by shift-and-add so the product stays in the
+    // 32-bit range Math would otherwise lose precision on.
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+    hash >>>= 0;
+  }
+  return hash >>> 0;
+}
+
+/** The step a participant would take if the wheel were empty. */
+export function preferredHueStep(participantId: string): number {
+  return hashParticipantId(participantId) % PARTICIPANT_HUE_STEPS;
 }

@@ -116,19 +116,6 @@ export interface WindowAbsenceNotice {
 const UNNAMED_PRODUCER = "producer";
 
 /**
- * The noun the never-received sentence opens with.
- *
- * A blank name is not a name: an unnamed producer and one named `"   "` are the same
- * fact, and rendering the second would leave "The  numbered entries" on screen. So
- * an empty name falls back to the generic noun rather than to a broken sentence —
- * the posture `core/refusal.ts` takes for every other caller-supplied identifier.
- */
-function producerNoun(named: string | undefined): string {
-  const trimmed = named?.trim() ?? "";
-  return trimmed.length === 0 ? UNNAMED_PRODUCER : trimmed;
-}
-
-/**
  * What an absence says of itself, about `subject`.
  *
  * `subject` is a lowercase PLURAL noun phrase naming what the window holds —
@@ -204,4 +191,17 @@ export function windowAbsenceNotices(
   return absences
     .filter((absence) => absence.kind === "never-received" || absence.count > 0)
     .map((absence) => windowAbsenceNotice(absence, subject));
+}
+
+/**
+ * The noun the never-received sentence opens with.
+ *
+ * A blank name is not a name: an unnamed producer and one named `"   "` are the same
+ * fact, and rendering the second would leave "The  numbered entries" on screen. So
+ * an empty name falls back to the generic noun rather than to a broken sentence —
+ * the posture `core/refusal.ts` takes for every other caller-supplied identifier.
+ */
+function producerNoun(named: string | undefined): string {
+  const trimmed = named?.trim() ?? "";
+  return trimmed.length === 0 ? UNNAMED_PRODUCER : trimmed;
 }

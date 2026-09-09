@@ -15,6 +15,11 @@ import {
 import type { ConsoleBridge } from "../console-bridge.js";
 import { useDriverCapabilities, type DriverCapabilityReadout } from "./driver-capability-read.js";
 
+export interface CountingBridge {
+  readonly bridge: ConsoleBridge;
+  readonly calls: readonly RecordedDaemonCall[];
+}
+
 /** One driver's report: the named flags true, every other flag false. */
 export function reportFor(driverName: string, declared: readonly DriverCapabilityFlag[]): unknown {
   return {
@@ -26,11 +31,6 @@ export function reportFor(driverName: string, declared: readonly DriverCapabilit
       contractVersion: "1",
     },
   };
-}
-
-export interface CountingBridge {
-  readonly bridge: ConsoleBridge;
-  readonly calls: readonly RecordedDaemonCall[];
 }
 
 /**

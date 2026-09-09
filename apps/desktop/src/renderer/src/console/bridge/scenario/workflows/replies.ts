@@ -100,24 +100,6 @@ const CHANNEL_BY_RUN: Readonly<Record<string, string>> = {
 };
 
 /**
- * The definition a run's name resolves to, most-specific-first as the daemon would.
- *
- * Two definitions share each of two names in this fixture, which is what makes the
- * browser's resolution mark say anything — so a name alone does not identify a row,
- * and the entry takes the one the enumeration marked as resolving here. That is the
- * definition a run started from this context would have been pinned to.
- */
-function resolvedDefinitionNamed(name: string): WorkflowDefinitionSummary {
-  const resolved = WORKFLOWS_SCENARIO_DEFINITIONS.find(
-    (definition) => definition.name === name && definition.resolvesAtThisContext,
-  );
-  if (resolved === undefined) {
-    throw new Error(`the workflows fixture names no resolving definition called ${name}`);
-  }
-  return resolved;
-}
-
-/**
  * The four runs as the ENUMERATION answers with them: each run's own row plus the
  * definition facts a list needs and a single-run read never carries.
  */
@@ -289,4 +271,22 @@ export function versionReadFor(request: unknown): WorkflowVersionBody | undefine
     );
   }
   return body;
+}
+
+/**
+ * The definition a run's name resolves to, most-specific-first as the daemon would.
+ *
+ * Two definitions share each of two names in this fixture, which is what makes the
+ * browser's resolution mark say anything — so a name alone does not identify a row,
+ * and the entry takes the one the enumeration marked as resolving here. That is the
+ * definition a run started from this context would have been pinned to.
+ */
+function resolvedDefinitionNamed(name: string): WorkflowDefinitionSummary {
+  const resolved = WORKFLOWS_SCENARIO_DEFINITIONS.find(
+    (definition) => definition.name === name && definition.resolvesAtThisContext,
+  );
+  if (resolved === undefined) {
+    throw new Error(`the workflows fixture names no resolving definition called ${name}`);
+  }
+  return resolved;
 }

@@ -175,9 +175,6 @@ export const PROPOSAL_GATE_SUBJECT_KINDS: readonly ProposalGateSubject["kind"][]
   "ephemeral-clone",
 ];
 
-/** The branch-context read's request, derived from the port rather than transcribed. */
-type BranchContextReadRequest = Parameters<ConsoleBridge["growth"]["gitflowBranchContextRead"]>[0];
-
 /**
  * How one subject reaches the registered branch-context read, or why it cannot.
  *
@@ -189,6 +186,9 @@ type BranchContextReadRequest = Parameters<ConsoleBridge["growth"]["gitflowBranc
 export type BranchContextReadPlan =
   | { readonly kind: "askable"; readonly request: BranchContextReadRequest }
   | { readonly kind: "unaddressable"; readonly reason: string };
+
+/** The branch-context read's request, derived from the port rather than transcribed. */
+type BranchContextReadRequest = Parameters<ConsoleBridge["growth"]["gitflowBranchContextRead"]>[0];
 
 /**
  * What a branch root's gate says instead of a reading.

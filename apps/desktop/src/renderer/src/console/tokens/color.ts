@@ -78,6 +78,11 @@ function oklchToLinearSrgb(color: OklchColor): LinearSrgbColor {
 
 const GAMUT_EPSILON = 1e-6;
 
+/** True when the color as authored renders inside sRGB with no gamut mapping. */
+export function isOklchInsideSrgbGamut(color: OklchColor): boolean {
+  return isInsideSrgbGamut(oklchToLinearSrgb(color));
+}
+
 function isInsideSrgbGamut(linear: LinearSrgbColor): boolean {
   return (
     linear.red >= -GAMUT_EPSILON &&
@@ -87,11 +92,6 @@ function isInsideSrgbGamut(linear: LinearSrgbColor): boolean {
     linear.blue >= -GAMUT_EPSILON &&
     linear.blue <= 1 + GAMUT_EPSILON
   );
-}
-
-/** True when the color as authored renders inside sRGB with no gamut mapping. */
-export function isOklchInsideSrgbGamut(color: OklchColor): boolean {
-  return isInsideSrgbGamut(oklchToLinearSrgb(color));
 }
 
 /**
@@ -132,21 +132,6 @@ export function oklchToSrgb(color: OklchColor): SrgbColor {
     green: clamp(linear.green),
     blue: clamp(linear.blue),
   };
-}
-
-/**
- * WCAG 2.2 relative luminance of a displayed sRGB triple.
- *
- * The triple is what the display shows, not the unclamped linear one, because a
- * channel the display cannot show contributes the luminance of the channel it
- * shows instead.
- */
-function srgbRelativeLuminance(displayed: SrgbColor): number {
-  return (
-    0.2126 * decodeSrgbChannel(displayed.red) +
-    0.7152 * decodeSrgbChannel(displayed.green) +
-    0.0722 * decodeSrgbChannel(displayed.blue)
-  );
 }
 
 /**
@@ -193,6 +178,21 @@ export function roundToEmittedPrecision(color: OklchColor): OklchColor {
     chroma: Number(color.chroma.toFixed(4)),
     hueDegrees: Number(color.hueDegrees.toFixed(1)),
   };
+}
+
+/**
+ * WCAG 2.2 relative luminance of a displayed sRGB triple.
+ *
+ * The triple is what the display shows, not the unclamped linear one, because a
+ * channel the display cannot show contributes the luminance of the channel it
+ * shows instead.
+ */
+function srgbRelativeLuminance(displayed: SrgbColor): number {
+  return (
+    0.2126 * decodeSrgbChannel(displayed.red) +
+    0.7152 * decodeSrgbChannel(displayed.green) +
+    0.0722 * decodeSrgbChannel(displayed.blue)
+  );
 }
 
 /** Decimal places `formatOklch` emits for chroma. The gamut floor rounds to this. */

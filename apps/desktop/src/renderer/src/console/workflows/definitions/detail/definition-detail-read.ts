@@ -87,11 +87,6 @@ export interface WorkflowDefinitionDetail {
   readonly chain: WorkflowVersionChainReading;
 }
 
-/** What this read looks like once its subject has an answer, either kind. */
-type SettledDefinitionDetail =
-  | { readonly status: "served"; readonly detail: WorkflowDefinitionDetail }
-  | { readonly status: "unavailable"; readonly refusal: SettledReadRefusal };
-
 /**
  * What the pane knows about its definition at one moment.
  *
@@ -126,6 +121,11 @@ export function useWorkflowDefinitionDetail(
     },
   ).value;
 }
+
+/** What this read looks like once its subject has an answer, either kind. */
+type SettledDefinitionDetail =
+  | { readonly status: "served"; readonly detail: WorkflowDefinitionDetail }
+  | { readonly status: "unavailable"; readonly refusal: SettledReadRefusal };
 
 /**
  * What the composed read answers with: the whole detail, or the SUBJECT read's refusal.

@@ -121,137 +121,6 @@ export type SubjectScopedDisposal<TResource> =
   | SubjectScopedTerminalDisposal<TResource>;
 
 /**
- * How a resource whose `close` was terminal is replaced: the reading, the mint, and
- * where the answer goes.
- *
- * Held together because they are one act and are all three minted per render — the
- * reading and the mint close over whatever the caller's `open` reads, and the
- * publisher is re-captured whenever the addressing moves. Held on the lifetime rather
- * than read from the effect's closure for the same reason `close` is: the effect
- * depends on the resource alone, so its closure is the one from the render that
- * installed the value and may be several renders old.
- */
-interface SubjectScopedResourceReopening<TResource> {
-  readonly isClosed: (resource: TResource) => boolean;
-  readonly open: () => TResource;
-  readonly publish: SubjectScopedPublish<TResource>;
-}
-
-/**
- * Which resource the last commit saw, for the hook that has to close the rest.
- *
- * ONE PER MOUNT, held in state beside the holder. Nothing here is a rule about
- * subjects — it is a rule about renders — which is why it lives outside the holder
- * that has no idea one is happening.
- */
-class SubjectScopedResourceLifetime<TResource> {
-  #close: (resource: TResource) => void;
-  #reopening: SubjectScopedResourceReopening<TResource> | undefined;
-  #committed: { readonly resource: TResource } | undefined;
-
-  public constructor(close: (resource: TResource) => void) {
-    this.#close = close;
-  }
-
-  /**
-   * Close a resource the holder dropped that no commit ever saw.
-   *
-   * A bound property rather than a method, so it is handed to the holder once at
-   * construction rather than minted per render for a call that almost never happens.
-   * One property serves every door — a refused publish, a value a later publish
-   * replaced, and the seed of a pass that never committed — because a value no commit
-   * saw is closed whichever door it arrived at, and the committed check is not
-   * redundant on any of them. A caller may publish the resource it is already holding;
-   * a refusal is no reason to tear down what the frame on screen is reading through;
-   * and a publish that replaces the COMMITTED resource hands this the value a live
-   * effect still owns, which that effect closes on its own terms when the replacement
-   * reaches it.
-   *
-   * The committed resource is deliberately NOT closed here: a live effect is holding
-   * it, and the render doing the dropping may itself be discarded, in which case that
-   * effect goes on holding it and this render never happened.
-   *
-   * NOR IS ONE THAT IS ALREADY CLOSED, which is what makes the re-mint below safe to
-   * write through the holder: the value a re-mint replaces is the corpse the committed
-   * cleanup has just disposed, and it arrives here as an ordinary replaced value with
-   * no commit holding it. Closing it again would be the second `dispose()` a terminal
-   * disposal is entitled to refuse. A caller that supplies no reading has no closed
-   * values to tell apart, and this guard is inert for it.
-   */
-  public readonly closeIfUncommitted = (dropped: TResource): void => {
-    if (this.#committed?.resource === dropped || this.#reopening?.isClosed(dropped) === true) {
-      return;
-    }
-    this.#close(dropped);
-  };
-
-  /**
-   * Hold the caller's latest disposal, and disturb nothing else.
-   *
-   * SEPARATE FROM {@link commit} BECAUSE A DISPOSAL IS NOT A LIFETIME. A caller
-   * whose `close` is minted per render — the shape the hook below documents support
-   * for — hands over a new identity on renders that have nothing to do with the
-   * resource, and an effect taking that identity as a dependency answered an
-   * unrelated rerender by running its own cleanup: it closed the resource the frame
-   * on screen was still reading through, then recommitted that closed value. So the
-   * per-render identity is written here, on its own dependency, and the lifetime
-   * effect depends on the resource alone.
-   *
-   * Written from the LAYOUT phase, which is what makes "the latest" exact: every
-   * layout effect for a commit runs before any passive cleanup for it, so the
-   * disposal this holds when a retired resource is closed is the one supplied by the
-   * render that retired it.
-   */
-  public holdClose(close: (resource: TResource) => void): void {
-    this.#close = close;
-  }
-
-  /**
-   * Hold the caller's latest way of replacing a resource its `close` ended.
-   *
-   * Beside {@link holdClose} and for its reason: all three parts are minted per render
-   * and none of them is a lifetime. `undefined` where the caller supplied no reading,
-   * which is every caller whose `close` releases rather than ends.
-   */
-  public holdReopening(reopening: SubjectScopedResourceReopening<TResource> | undefined): void {
-    this.#reopening = reopening;
-  }
-
-  /**
-   * Record what this commit is holding, or replace a value that is already closed.
-   *
-   * The disposal is read when the cleanup RUNS rather than captured as it is built,
-   * so a resource retires through the caller's most recent `close` rather than
-   * through whichever render happened to install the value.
-   *
-   * THE RE-MINT COMES FIRST AND HOLDS NOTHING. A run that finds the value closed is
-   * the double-mount's second one: the cleanup for this same resource has already
-   * disposed it, and committing it would install a resource that will never work
-   * again. So the replacement is published through the holder — which is what makes
-   * it the subject's value and re-runs this effect against a live resource — and this
-   * run records no commit and answers no cleanup, because it is holding nothing. The
-   * run the publish causes does both.
-   *
-   * A caller whose `open` answers with an already-closed resource publishes forever,
-   * and is stopped by React's own update-depth guard rather than by a count here: a
-   * bound would turn a caller's defect into this hook silently holding a corpse, which
-   * is the state it exists to prevent.
-   */
-  public commit(resource: TResource): (() => void) | undefined {
-    const reopening = this.#reopening;
-    if (reopening !== undefined && reopening.isClosed(resource)) {
-      reopening.publish(reopening.open());
-      return undefined;
-    }
-    this.#committed = { resource };
-    return () => {
-      this.#committed = undefined;
-      this.#close(resource);
-    };
-  }
-}
-
-/**
  * Hold one resource per `(subject, key)`, and close it however its render ended.
  *
  * {@link useSubjectScopedState}'s rule about the value, plus the half that hook
@@ -340,4 +209,135 @@ export function useSubjectScopedResource<TResource>(
   // caller and not about what this effect is holding.
   useEffect(() => lifetime.commit(value), [lifetime, value]);
   return held;
+}
+
+/**
+ * How a resource whose `close` was terminal is replaced: the reading, the mint, and
+ * where the answer goes.
+ *
+ * Held together because they are one act and are all three minted per render — the
+ * reading and the mint close over whatever the caller's `open` reads, and the
+ * publisher is re-captured whenever the addressing moves. Held on the lifetime rather
+ * than read from the effect's closure for the same reason `close` is: the effect
+ * depends on the resource alone, so its closure is the one from the render that
+ * installed the value and may be several renders old.
+ */
+interface SubjectScopedResourceReopening<TResource> {
+  readonly isClosed: (resource: TResource) => boolean;
+  readonly open: () => TResource;
+  readonly publish: SubjectScopedPublish<TResource>;
+}
+
+/**
+ * Which resource the last commit saw, for the hook that has to close the rest.
+ *
+ * ONE PER MOUNT, held in state beside the holder. Nothing here is a rule about
+ * subjects — it is a rule about renders — which is why it lives outside the holder
+ * that has no idea one is happening.
+ */
+class SubjectScopedResourceLifetime<TResource> {
+  #close: (resource: TResource) => void;
+  #reopening: SubjectScopedResourceReopening<TResource> | undefined;
+  #committed: { readonly resource: TResource } | undefined;
+
+  /**
+   * Close a resource the holder dropped that no commit ever saw.
+   *
+   * A bound property rather than a method, so it is handed to the holder once at
+   * construction rather than minted per render for a call that almost never happens.
+   * One property serves every door — a refused publish, a value a later publish
+   * replaced, and the seed of a pass that never committed — because a value no commit
+   * saw is closed whichever door it arrived at, and the committed check is not
+   * redundant on any of them. A caller may publish the resource it is already holding;
+   * a refusal is no reason to tear down what the frame on screen is reading through;
+   * and a publish that replaces the COMMITTED resource hands this the value a live
+   * effect still owns, which that effect closes on its own terms when the replacement
+   * reaches it.
+   *
+   * The committed resource is deliberately NOT closed here: a live effect is holding
+   * it, and the render doing the dropping may itself be discarded, in which case that
+   * effect goes on holding it and this render never happened.
+   *
+   * NOR IS ONE THAT IS ALREADY CLOSED, which is what makes the re-mint below safe to
+   * write through the holder: the value a re-mint replaces is the corpse the committed
+   * cleanup has just disposed, and it arrives here as an ordinary replaced value with
+   * no commit holding it. Closing it again would be the second `dispose()` a terminal
+   * disposal is entitled to refuse. A caller that supplies no reading has no closed
+   * values to tell apart, and this guard is inert for it.
+   */
+  public readonly closeIfUncommitted = (dropped: TResource): void => {
+    if (this.#committed?.resource === dropped || this.#reopening?.isClosed(dropped) === true) {
+      return;
+    }
+    this.#close(dropped);
+  };
+
+  public constructor(close: (resource: TResource) => void) {
+    this.#close = close;
+  }
+
+  /**
+   * Hold the caller's latest disposal, and disturb nothing else.
+   *
+   * SEPARATE FROM {@link commit} BECAUSE A DISPOSAL IS NOT A LIFETIME. A caller
+   * whose `close` is minted per render — the shape the hook below documents support
+   * for — hands over a new identity on renders that have nothing to do with the
+   * resource, and an effect taking that identity as a dependency answered an
+   * unrelated rerender by running its own cleanup: it closed the resource the frame
+   * on screen was still reading through, then recommitted that closed value. So the
+   * per-render identity is written here, on its own dependency, and the lifetime
+   * effect depends on the resource alone.
+   *
+   * Written from the LAYOUT phase, which is what makes "the latest" exact: every
+   * layout effect for a commit runs before any passive cleanup for it, so the
+   * disposal this holds when a retired resource is closed is the one supplied by the
+   * render that retired it.
+   */
+  public holdClose(close: (resource: TResource) => void): void {
+    this.#close = close;
+  }
+
+  /**
+   * Hold the caller's latest way of replacing a resource its `close` ended.
+   *
+   * Beside {@link holdClose} and for its reason: all three parts are minted per render
+   * and none of them is a lifetime. `undefined` where the caller supplied no reading,
+   * which is every caller whose `close` releases rather than ends.
+   */
+  public holdReopening(reopening: SubjectScopedResourceReopening<TResource> | undefined): void {
+    this.#reopening = reopening;
+  }
+
+  /**
+   * Record what this commit is holding, or replace a value that is already closed.
+   *
+   * The disposal is read when the cleanup RUNS rather than captured as it is built,
+   * so a resource retires through the caller's most recent `close` rather than
+   * through whichever render happened to install the value.
+   *
+   * THE RE-MINT COMES FIRST AND HOLDS NOTHING. A run that finds the value closed is
+   * the double-mount's second one: the cleanup for this same resource has already
+   * disposed it, and committing it would install a resource that will never work
+   * again. So the replacement is published through the holder — which is what makes
+   * it the subject's value and re-runs this effect against a live resource — and this
+   * run records no commit and answers no cleanup, because it is holding nothing. The
+   * run the publish causes does both.
+   *
+   * A caller whose `open` answers with an already-closed resource publishes forever,
+   * and is stopped by React's own update-depth guard rather than by a count here: a
+   * bound would turn a caller's defect into this hook silently holding a corpse, which
+   * is the state it exists to prevent.
+   */
+  public commit(resource: TResource): (() => void) | undefined {
+    const reopening = this.#reopening;
+    if (reopening !== undefined && reopening.isClosed(resource)) {
+      reopening.publish(reopening.open());
+      return undefined;
+    }
+    this.#committed = { resource };
+    return () => {
+      this.#committed = undefined;
+      this.#close(resource);
+    };
+  }
 }

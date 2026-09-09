@@ -86,6 +86,15 @@ export interface AttachControllerOptions {
  */
 const ROSTER_QUESTION = "roster";
 
+/** What the hook hands a dialog: the reading, and the four things it can ask for. */
+export interface AttachBinding {
+  readonly reading: AttachReading;
+  readonly requestRoster: () => void;
+  readonly retryRoster: () => void;
+  readonly attach: (localPath: string, nodeId: string) => void;
+  readonly clearAct: () => void;
+}
+
 /**
  * Reads the roster and sends the attach for one session.
  *
@@ -188,15 +197,6 @@ export class AttachController extends ActSurfaceController<
       ? { status: "refused", refusal: outcome }
       : { status: "served", value: attachNodeOptions(outcome.value.nodes) };
   }
-}
-
-/** What the hook hands a dialog: the reading, and the four things it can ask for. */
-export interface AttachBinding {
-  readonly reading: AttachReading;
-  readonly requestRoster: () => void;
-  readonly retryRoster: () => void;
-  readonly attach: (localPath: string, nodeId: string) => void;
-  readonly clearAct: () => void;
 }
 
 /** Bind one session's attach controller to a surface. */

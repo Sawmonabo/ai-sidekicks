@@ -63,32 +63,6 @@ export function clipsItsContents(overflowValue: string): boolean {
 }
 
 /**
- * Whether one computed style clips what is inside its box.
- *
- * The axes decide whenever either of them is readable, and the shorthand is consulted
- * only when neither is — the module header says why. The shorthand arm splits on
- * whitespace because that is the shorthand's own grammar (`overflow: <x> [<y>]`), so a
- * two-value declaration is read as the two axes it names rather than missed for not
- * being one keyword.
- *
- * `?? ""` on all three reads rather than trusting the declared type: a fake standing in
- * for a computed style supplies the members its case needs and nothing else, so an
- * absent axis arrives as `undefined` and `.trim()` on it would throw inside a walk
- * whose whole job is answering.
- */
-function styleClipsItsContents(style: CSSStyleDeclaration): boolean {
-  const horizontalAxis = style.overflowX ?? "";
-  const verticalAxis = style.overflowY ?? "";
-  if (horizontalAxis !== "" || verticalAxis !== "") {
-    return clipsItsContents(horizontalAxis) || clipsItsContents(verticalAxis);
-  }
-  return (style.overflow ?? "")
-    .trim()
-    .split(/\s+/u)
-    .some((axisValue) => clipsItsContents(axisValue));
-}
-
-/**
  * Every ancestor of `element` that clips what is inside it, innermost first.
  *
  * A GENERATOR, and the laziness is the point rather than a flourish. One caller
@@ -117,4 +91,30 @@ export function* clippingAncestorsOf(element: Element): Generator<HTMLElement> {
     }
     ancestor = ancestor.parentElement ?? null;
   }
+}
+
+/**
+ * Whether one computed style clips what is inside its box.
+ *
+ * The axes decide whenever either of them is readable, and the shorthand is consulted
+ * only when neither is — the module header says why. The shorthand arm splits on
+ * whitespace because that is the shorthand's own grammar (`overflow: <x> [<y>]`), so a
+ * two-value declaration is read as the two axes it names rather than missed for not
+ * being one keyword.
+ *
+ * `?? ""` on all three reads rather than trusting the declared type: a fake standing in
+ * for a computed style supplies the members its case needs and nothing else, so an
+ * absent axis arrives as `undefined` and `.trim()` on it would throw inside a walk
+ * whose whole job is answering.
+ */
+function styleClipsItsContents(style: CSSStyleDeclaration): boolean {
+  const horizontalAxis = style.overflowX ?? "";
+  const verticalAxis = style.overflowY ?? "";
+  if (horizontalAxis !== "" || verticalAxis !== "") {
+    return clipsItsContents(horizontalAxis) || clipsItsContents(verticalAxis);
+  }
+  return (style.overflow ?? "")
+    .trim()
+    .split(/\s+/u)
+    .some((axisValue) => clipsItsContents(axisValue));
 }

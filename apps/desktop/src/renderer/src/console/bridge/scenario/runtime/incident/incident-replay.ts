@@ -29,6 +29,9 @@ export interface IncidentReplayRefusal {
   readonly reason: string;
 }
 
+/** Everything a scenario states about itself except the script, which the recording is. */
+export type IncidentScenarioShape = Omit<ConsoleScenario, "beats">;
+
 /**
  * Plays a recording back through the console's decode boundary.
  *
@@ -92,9 +95,6 @@ export class IncidentPlayer {
     return this.#refusals;
   }
 }
-
-/** Everything a scenario states about itself except the script, which the recording is. */
-export type IncidentScenarioShape = Omit<ConsoleScenario, "beats">;
 
 /**
  * Compose the scenario one recording plays as.

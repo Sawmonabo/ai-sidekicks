@@ -90,14 +90,6 @@ const DISPLACED_CAPTURE_NOTES: Readonly<Record<BrowserIngestState["status"], str
   refused: "The full capture was not stored.",
 };
 
-/** What became of the capture the tool result could not carry. */
-function displacedCaptureNote(ingest: BrowserIngestState): string {
-  if (ingest.status === "refused" && ingest.remedy === "none") {
-    return "The full capture will not be stored.";
-  }
-  return DISPLACED_CAPTURE_NOTES[ingest.status];
-}
-
 export interface BrowserCaptureCardProps {
   /**
    * Which produced object this card is about, wire-verbatim.
@@ -249,4 +241,12 @@ export function BrowserCaptureCard(props: BrowserCaptureCardProps): React.JSX.El
       ) : null}
     </article>
   );
+}
+
+/** What became of the capture the tool result could not carry. */
+function displacedCaptureNote(ingest: BrowserIngestState): string {
+  if (ingest.status === "refused" && ingest.remedy === "none") {
+    return "The full capture will not be stored.";
+  }
+  return DISPLACED_CAPTURE_NOTES[ingest.status];
 }

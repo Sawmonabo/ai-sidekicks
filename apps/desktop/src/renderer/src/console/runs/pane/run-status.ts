@@ -143,11 +143,6 @@ export const RUN_STATE_TONES: Readonly<Record<RunState, ChipTone>> = {
 // console's one home for reading the wire's run-state vocabulary, and this pane's own
 // controls take it through the bridge door like any other family.
 
-/** Whether the run is blocked on a person or an approval rather than working. */
-export function isBlockedRunState(state: RunState): boolean {
-  return BLOCKED_STATES.has(state);
-}
-
 /**
  * One stop-condition trigger, taken from the wire rather than restated.
  *
@@ -156,6 +151,11 @@ export function isBlockedRunState(state: RunState): boolean {
  * CONTRACT instead of against a copy of it that could fall behind.
  */
 export type RunStopTrigger = NonNullable<RunStateChangeEvent["trigger"]>;
+
+/** Whether the run is blocked on a person or an approval rather than working. */
+export function isBlockedRunState(state: RunState): boolean {
+  return BLOCKED_STATES.has(state);
+}
 
 /**
  * What a stop-condition trigger says, in this pane's own words.

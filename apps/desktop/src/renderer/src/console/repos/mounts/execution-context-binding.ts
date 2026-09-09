@@ -45,6 +45,12 @@ import {
 } from "./execution-context-model.js";
 import { WorkspaceExecutionContextReader } from "./execution-context-reader.js";
 
+/** What a `<details>` needs to stand where this family's density rule puts it. */
+export interface ExecutionRootsDisclosureBinding {
+  readonly isOpen: boolean;
+  readonly onToggle: (isOpen: boolean) => void;
+}
+
 /**
  * Bind one workspace's execution-context reading to its reader.
  *
@@ -80,12 +86,6 @@ export function useWorkspaceExecutionContext(
   );
   const read = useCallback(() => reader.snapshot, [reader]);
   return useSyncExternalStore(subscribe, read, read);
-}
-
-/** What a `<details>` needs to stand where this family's density rule puts it. */
-export interface ExecutionRootsDisclosureBinding {
-  readonly isOpen: boolean;
-  readonly onToggle: (isOpen: boolean) => void;
 }
 
 /**

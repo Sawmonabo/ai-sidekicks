@@ -113,14 +113,6 @@ export interface DecodedSidebarLayout {
   readonly refusals: readonly SidebarRestoreRefusal[];
 }
 
-/** This module's refusals, named for the restore they are about. */
-function refuseSidebarRestore(
-  code: SidebarRestoreRefusalCode,
-  detail: string,
-): SidebarRestoreRefusal {
-  return refuse(SIDEBAR_LAYOUT_REFUSAL_ORIGIN, code, detail);
-}
-
 /**
  * Write the sidebar's state out, under the one class the chokepoint admits.
  *
@@ -242,4 +234,12 @@ export function collapsedSectionSetsMatch(
   right: ReadonlySet<SidebarSectionId>,
 ): boolean {
   return left.size === right.size && [...left].every((sectionId) => right.has(sectionId));
+}
+
+/** This module's refusals, named for the restore they are about. */
+function refuseSidebarRestore(
+  code: SidebarRestoreRefusalCode,
+  detail: string,
+): SidebarRestoreRefusal {
+  return refuse(SIDEBAR_LAYOUT_REFUSAL_ORIGIN, code, detail);
 }

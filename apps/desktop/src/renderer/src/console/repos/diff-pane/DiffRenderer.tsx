@@ -101,32 +101,6 @@ export interface DiffRendererProps {
   readonly label: string;
 }
 
-/**
- * Drop the measured row heights whenever the wrap toggle moves.
- *
- * Measured sizes belong to ONE wrap mode: turning wrap off would otherwise leave
- * the tall measurements cached and space unwrapped rows at wrapped heights, which
- * is the drift this renderer exists to have none of. Turning wrap on clears them
- * too and the rows re-measure, because the measurement ref they are handed
- * changes identity in that direction and React calls the new one with the node.
- *
- * NOT ON MOUNT, and that is the whole reason this is a guarded hook rather than
- * an effect with the toggle in its dependency list. The rows are measured as they
- * attach, which happens in the first commit — BEFORE a parent's layout effect
- * runs — so an unguarded reset would wipe exactly the measurements it was meant
- * to protect, and nothing would re-take them until a row resized.
- */
-function useMeasurementsScopedToWrap(virtualizer: RowWindow, wrapLongLines: boolean): void {
-  const measuredUnderWrap = useRef(wrapLongLines);
-  useLayoutEffect(() => {
-    if (measuredUnderWrap.current === wrapLongLines) {
-      return;
-    }
-    measuredUnderWrap.current = wrapLongLines;
-    virtualizer.measure();
-  }, [virtualizer, wrapLongLines]);
-}
-
 export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
@@ -238,4 +212,30 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
       </div>
     </div>
   );
+}
+
+/**
+ * Drop the measured row heights whenever the wrap toggle moves.
+ *
+ * Measured sizes belong to ONE wrap mode: turning wrap off would otherwise leave
+ * the tall measurements cached and space unwrapped rows at wrapped heights, which
+ * is the drift this renderer exists to have none of. Turning wrap on clears them
+ * too and the rows re-measure, because the measurement ref they are handed
+ * changes identity in that direction and React calls the new one with the node.
+ *
+ * NOT ON MOUNT, and that is the whole reason this is a guarded hook rather than
+ * an effect with the toggle in its dependency list. The rows are measured as they
+ * attach, which happens in the first commit — BEFORE a parent's layout effect
+ * runs — so an unguarded reset would wipe exactly the measurements it was meant
+ * to protect, and nothing would re-take them until a row resized.
+ */
+function useMeasurementsScopedToWrap(virtualizer: RowWindow, wrapLongLines: boolean): void {
+  const measuredUnderWrap = useRef(wrapLongLines);
+  useLayoutEffect(() => {
+    if (measuredUnderWrap.current === wrapLongLines) {
+      return;
+    }
+    measuredUnderWrap.current = wrapLongLines;
+    virtualizer.measure();
+  }, [virtualizer, wrapLongLines]);
 }

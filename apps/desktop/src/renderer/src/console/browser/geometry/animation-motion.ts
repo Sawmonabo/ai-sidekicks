@@ -92,22 +92,6 @@ export const PAINT_ONLY_ANIMATED_PROPERTIES = [
  */
 export const KEYFRAME_TIMING_KEYS = ["offset", "computedOffset", "composite", "easing"] as const;
 
-/**
- * Whether a closed set of authored property names holds this normalized one.
- *
- * One helper for both tuples rather than a comparison written twice: the two sets
- * are asked the same question in the same expression below, and two spellings of one
- * membership test are how the normalization on each side starts to drift.
- */
-function namesNormalizedProperty(
-  authoredNames: readonly string[],
-  normalizedProperty: string,
-): boolean {
-  return authoredNames.some(
-    (authoredName) => normalizeAnimatedPropertyName(authoredName) === normalizedProperty,
-  );
-}
-
 export function normalizeAnimatedPropertyName(name: string): string {
   return name.toLowerCase().replaceAll("-", "");
 }
@@ -133,6 +117,22 @@ export function couldAnimationMove(
     return true;
   }
   return carriesSubject(target) || isInNormalFlow(target);
+}
+
+/**
+ * Whether a closed set of authored property names holds this normalized one.
+ *
+ * One helper for both tuples rather than a comparison written twice: the two sets
+ * are asked the same question in the same expression below, and two spellings of one
+ * membership test are how the normalization on each side starts to drift.
+ */
+function namesNormalizedProperty(
+  authoredNames: readonly string[],
+  normalizedProperty: string,
+): boolean {
+  return authoredNames.some(
+    (authoredName) => normalizeAnimatedPropertyName(authoredName) === normalizedProperty,
+  );
 }
 
 /**

@@ -89,6 +89,40 @@ export interface LedgerScriptOptions {
   readonly entries: readonly LedgerScriptEntry[];
 }
 
+/** What one run-lifecycle transition says. */
+export interface RunTransitionInput {
+  readonly atMs: number;
+  readonly sessionId: string;
+  readonly runId: string;
+  /** The daemon's progression counter for this run. Increments per transition. */
+  readonly runVersion: number;
+  /** Absent only on the birth transition, where no document names a prior state. */
+  readonly previousState?: string;
+  readonly newState: string;
+  /** The agent the run belongs to. Carried on the birth transition. */
+  readonly agentId?: string;
+  readonly actorId?: string;
+  /**
+   * The run that created this one, and the two facts that ride beside it.
+   *
+   * The three orchestration-linkage members, on the BIRTH beat and nowhere else. The
+   * taxonomy's run-lifecycle rows put them on `run.queued`, so the parent is named
+   * where the child is created — a second beat announcing the link would be a second
+   * record of one fact and the projection reading it would have to choose which. The
+   * builder refuses them on any other transition rather than emitting a beat the
+   * daemon does not send.
+   *
+   * `linkType` is deliberately absent from this set: it is typed by an orchestration
+   * symbol no TypeScript in this workspace declares, so a beat carrying one would be
+   * stating a value nothing here can check.
+   */
+  readonly parentRunId?: string;
+  /** Whether the child is the parent's own helper rather than a participant's run. */
+  readonly internalHelper?: boolean;
+  /** The runtime node that produced the child, where the daemon resolved one. */
+  readonly producingNodeId?: string;
+}
+
 /**
  * Turn one ordered script into beats, positioned and stamped.
  *
@@ -129,42 +163,82 @@ export function scriptLedgerBeats(options: LedgerScriptOptions): readonly Scenar
   });
 }
 
-/** What one run-lifecycle transition says. */
-export interface RunTransitionInput {
+/** The one transition the orchestration linkage rides. */
+const RUN_BIRTH_STATE = "queued";
+
+/** What one assistant-output beat says. */
+export interface AssistantOutputInput {
   readonly atMs: number;
   readonly sessionId: string;
   readonly runId: string;
-  /** The daemon's progression counter for this run. Increments per transition. */
-  readonly runVersion: number;
-  /** Absent only on the birth transition, where no document names a prior state. */
-  readonly previousState?: string;
-  readonly newState: string;
-  /** The agent the run belongs to. Carried on the birth transition. */
-  readonly agentId?: string;
-  readonly actorId?: string;
+  /** `assistant.message` or `assistant.thinking_update`. */
+  readonly kind: string;
+  /** Media type of the body, which the PRODUCER sets and the codec does not. */
+  readonly contentType: string;
+  /** Pre-truncation UTF-8 byte length of the body that was sealed. */
+  readonly contentLength: number;
   /**
-   * The run that created this one, and the two facts that ride beside it.
+   * The channel this turn was spoken in, where the lane speaks in one.
    *
-   * The three orchestration-linkage members, on the BIRTH beat and nowhere else. The
-   * taxonomy's run-lifecycle rows put them on `run.queued`, so the parent is named
-   * where the child is created — a second beat announcing the link would be a second
-   * record of one fact and the projection reading it would have to choose which. The
-   * builder refuses them on any other transition rather than emitting a beat the
-   * daemon does not send.
-   *
-   * `linkType` is deliberately absent from this set: it is typed by an orchestration
-   * symbol no TypeScript in this workspace declares, so a beat carrying one would be
-   * stating a value nothing here can check.
+   * Optional because the member is optional on the registered shape, and carried at
+   * all because a channel-addressed pane is a log of the channel: with no beat in
+   * any scenario naming one, every channel pane in the fixture bridge rendered its
+   * empty state and no composition of that surface could be seen.
    */
-  readonly parentRunId?: string;
-  /** Whether the child is the parent's own helper rather than a participant's run. */
-  readonly internalHelper?: boolean;
-  /** The runtime node that produced the child, where the daemon resolved one. */
-  readonly producingNodeId?: string;
+  readonly channelId?: string;
 }
 
-/** The one transition the orchestration linkage rides. */
-const RUN_BIRTH_STATE = "queued";
+/** What one tool-activity beat says. */
+export interface ToolActivityInput {
+  readonly atMs: number;
+  readonly sessionId: string;
+  readonly runId: string;
+  /** `tool.invoked`, `tool.result`, or `tool.error`. */
+  readonly kind: string;
+  /** REQUIRED by the registered shape: a tool row with no name is unattributable. */
+  readonly toolName: string;
+  /** Pairs an invocation with its settlement, which is what a tool card renders. */
+  readonly toolCallId: string;
+  /** The channel the call was made in — `AssistantOutputInput.channelId`'s reason. */
+  readonly channelId?: string;
+  readonly durationMs?: number;
+  readonly contentLength?: number;
+}
+
+/** What one provider-native subagent beat says. */
+export interface SubagentActivityInput {
+  readonly atMs: number;
+  readonly sessionId: string;
+  readonly runId: string;
+  /** `subagent.started` or `subagent.completed`. */
+  readonly kind: string;
+  /** The provider that minted the child. Half of the key a completion pairs on. */
+  readonly provider: string;
+  /** The provider-native child id. Unique only inside that provider's run scope. */
+  readonly subagentId: string;
+  /** The tool call the child was opened under, where the provider names one. */
+  readonly parentToolCallId?: string;
+}
+
+/** The four entry builders one session's script uses, with its session bound in. */
+export interface LedgerLaneEntryBuilders {
+  readonly transition: (
+    runId: string,
+    input: Omit<RunTransitionInput, "sessionId" | "runId">,
+  ) => LedgerScriptEntry;
+  readonly output: (
+    runId: string,
+    input: Omit<AssistantOutputInput, "sessionId" | "runId">,
+  ) => LedgerScriptEntry;
+  readonly tool: (
+    runId: string,
+    input: Omit<ToolActivityInput, "sessionId" | "runId">,
+  ) => LedgerScriptEntry;
+  readonly subagent: (
+    runId: string,
+    input: Omit<SubagentActivityInput, "sessionId" | "runId">,
+  ) => LedgerScriptEntry;
+}
 
 /**
  * One run-state transition, as `run.<state>`.
@@ -199,37 +273,6 @@ export function runTransitionEntry(input: RunTransitionInput): LedgerScriptEntry
   };
 }
 
-/** Whichever of the three linkage members this entry stated, and no key for the rest. */
-function orchestrationLinkageMembers(input: RunTransitionInput): Readonly<Record<string, unknown>> {
-  return {
-    ...(input.parentRunId === undefined ? {} : { parentRunId: input.parentRunId }),
-    ...(input.internalHelper === undefined ? {} : { internalHelper: input.internalHelper }),
-    ...(input.producingNodeId === undefined ? {} : { producingNodeId: input.producingNodeId }),
-  };
-}
-
-/** What one assistant-output beat says. */
-export interface AssistantOutputInput {
-  readonly atMs: number;
-  readonly sessionId: string;
-  readonly runId: string;
-  /** `assistant.message` or `assistant.thinking_update`. */
-  readonly kind: string;
-  /** Media type of the body, which the PRODUCER sets and the codec does not. */
-  readonly contentType: string;
-  /** Pre-truncation UTF-8 byte length of the body that was sealed. */
-  readonly contentLength: number;
-  /**
-   * The channel this turn was spoken in, where the lane speaks in one.
-   *
-   * Optional because the member is optional on the registered shape, and carried at
-   * all because a channel-addressed pane is a log of the channel: with no beat in
-   * any scenario naming one, every channel pane in the fixture bridge rendered its
-   * empty state and no composition of that surface could be seen.
-   */
-  readonly channelId?: string;
-}
-
 /**
  * One assistant turn, carrying its body's DESCRIPTION and never its body.
  *
@@ -254,23 +297,6 @@ export function assistantOutputEntry(input: AssistantOutputInput): LedgerScriptE
   };
 }
 
-/** What one tool-activity beat says. */
-export interface ToolActivityInput {
-  readonly atMs: number;
-  readonly sessionId: string;
-  readonly runId: string;
-  /** `tool.invoked`, `tool.result`, or `tool.error`. */
-  readonly kind: string;
-  /** REQUIRED by the registered shape: a tool row with no name is unattributable. */
-  readonly toolName: string;
-  /** Pairs an invocation with its settlement, which is what a tool card renders. */
-  readonly toolCallId: string;
-  /** The channel the call was made in — `AssistantOutputInput.channelId`'s reason. */
-  readonly channelId?: string;
-  readonly durationMs?: number;
-  readonly contentLength?: number;
-}
-
 /** One tool call, invocation or settlement, in the registered shape. */
 export function toolActivityEntry(input: ToolActivityInput): LedgerScriptEntry {
   return {
@@ -286,21 +312,6 @@ export function toolActivityEntry(input: ToolActivityInput): LedgerScriptEntry {
       ...(input.contentLength === undefined ? {} : { contentLength: input.contentLength }),
     },
   };
-}
-
-/** What one provider-native subagent beat says. */
-export interface SubagentActivityInput {
-  readonly atMs: number;
-  readonly sessionId: string;
-  readonly runId: string;
-  /** `subagent.started` or `subagent.completed`. */
-  readonly kind: string;
-  /** The provider that minted the child. Half of the key a completion pairs on. */
-  readonly provider: string;
-  /** The provider-native child id. Unique only inside that provider's run scope. */
-  readonly subagentId: string;
-  /** The tool call the child was opened under, where the provider names one. */
-  readonly parentToolCallId?: string;
 }
 
 /**
@@ -331,26 +342,6 @@ export function subagentActivityEntry(input: SubagentActivityInput): LedgerScrip
   };
 }
 
-/** The four entry builders one session's script uses, with its session bound in. */
-export interface LedgerLaneEntryBuilders {
-  readonly transition: (
-    runId: string,
-    input: Omit<RunTransitionInput, "sessionId" | "runId">,
-  ) => LedgerScriptEntry;
-  readonly output: (
-    runId: string,
-    input: Omit<AssistantOutputInput, "sessionId" | "runId">,
-  ) => LedgerScriptEntry;
-  readonly tool: (
-    runId: string,
-    input: Omit<ToolActivityInput, "sessionId" | "runId">,
-  ) => LedgerScriptEntry;
-  readonly subagent: (
-    runId: string,
-    input: Omit<SubagentActivityInput, "sessionId" | "runId">,
-  ) => LedgerScriptEntry;
-}
-
 /**
  * Bind one session id into the four entry builders.
  *
@@ -364,5 +355,14 @@ export function createLedgerLaneEntries(sessionId: string): LedgerLaneEntryBuild
     output: (runId, input) => assistantOutputEntry({ ...input, sessionId, runId }),
     tool: (runId, input) => toolActivityEntry({ ...input, sessionId, runId }),
     subagent: (runId, input) => subagentActivityEntry({ ...input, sessionId, runId }),
+  };
+}
+
+/** Whichever of the three linkage members this entry stated, and no key for the rest. */
+function orchestrationLinkageMembers(input: RunTransitionInput): Readonly<Record<string, unknown>> {
+  return {
+    ...(input.parentRunId === undefined ? {} : { parentRunId: input.parentRunId }),
+    ...(input.internalHelper === undefined ? {} : { internalHelper: input.internalHelper }),
+    ...(input.producingNodeId === undefined ? {} : { producingNodeId: input.producingNodeId }),
   };
 }

@@ -58,34 +58,6 @@ export interface ScriptedLegs {
   readonly scriptsFirstTurn?: boolean;
 }
 
-function scenario(options: ScriptedLegs): ConsoleScenario {
-  return {
-    id: "draft-send",
-    label: "Draft send",
-    purpose: "Drives the new-session draft's three wire calls.",
-    sessionId: "session-draft",
-    participantIdsInJoinOrder: ["participant-you"],
-    startedAtIso: "2026-01-01T09:00:00.000Z",
-    beats: [],
-    replies: [
-      ...(options.scriptsCreate ? [{ call: SESSION_CREATE_METHOD, result: CREATE_REPLY }] : []),
-      ...(options.scriptsAttach === true ? [{ call: "agent.attach", result: ATTACH_REPLY }] : []),
-      ...(options.scriptsFirstTurn === true
-        ? [{ call: RUN_QUEUE_CREATE_METHOD, result: QUEUE_REPLY }]
-        : []),
-    ],
-  };
-}
-
-export function draftFor(options: ScriptedLegs): NewSessionDraft {
-  return new NewSessionDraft({ bridge: createFixtureBridge({ scenario: scenario(options) }) });
-}
-
-/** The method one recorded call named, for a count that reads as what it counts. */
-export function sentMethod(call: RecordedDaemonCall): string {
-  return call.method;
-}
-
 /** A draft plus a tally of what reached the wire behind it. */
 export interface CountedDraft {
   readonly draft: NewSessionDraft;
@@ -96,6 +68,15 @@ export interface CountedDraft {
    * is counting, and a copy taken at construction would always be empty.
    */
   readonly calls: readonly RecordedDaemonCall[];
+}
+
+export function draftFor(options: ScriptedLegs): NewSessionDraft {
+  return new NewSessionDraft({ bridge: createFixtureBridge({ scenario: scenario(options) }) });
+}
+
+/** The method one recorded call named, for a count that reads as what it counts. */
+export function sentMethod(call: RecordedDaemonCall): string {
+  return call.method;
 }
 
 /**
@@ -127,6 +108,25 @@ export function countedDraftFor(options: ScriptedLegs): CountedDraft {
     },
   );
   return { draft: new NewSessionDraft({ bridge: under.bridge }), calls: under.calls };
+}
+
+function scenario(options: ScriptedLegs): ConsoleScenario {
+  return {
+    id: "draft-send",
+    label: "Draft send",
+    purpose: "Drives the new-session draft's three wire calls.",
+    sessionId: "session-draft",
+    participantIdsInJoinOrder: ["participant-you"],
+    startedAtIso: "2026-01-01T09:00:00.000Z",
+    beats: [],
+    replies: [
+      ...(options.scriptsCreate ? [{ call: SESSION_CREATE_METHOD, result: CREATE_REPLY }] : []),
+      ...(options.scriptsAttach === true ? [{ call: "agent.attach", result: ATTACH_REPLY }] : []),
+      ...(options.scriptsFirstTurn === true
+        ? [{ call: RUN_QUEUE_CREATE_METHOD, result: QUEUE_REPLY }]
+        : []),
+    ],
+  };
 }
 
 /**

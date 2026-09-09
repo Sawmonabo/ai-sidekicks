@@ -35,21 +35,6 @@ import { useSessionPartition } from "./session-hooks.js";
 import { type SessionStore } from "./session-store.js";
 
 /**
- * Whether one session's projection reports the peer-invocation grant.
- *
- * `undefined` for BOTH an absent member and a member of the wrong type, which is
- * the honest fold: neither says the grant is off, and rendering `false` for either
- * would present an enabled session as safe.
- */
-export function peerInvocationEnabledIn(
-  sessionPartition: Readonly<Record<string, ConsoleEntity>>,
-  sessionId: string,
-): boolean | undefined {
-  const projected = sessionPartition[sessionId]?.body?.["peerInvocationEnabled"];
-  return typeof projected === "boolean" ? projected : undefined;
-}
-
-/**
  * One reading of the grant, and the projected row it was read from.
  *
  * The row travels beside the value because a surface holding a local settlement
@@ -63,6 +48,21 @@ export function peerInvocationEnabledIn(
 export interface PeerInvocationProjection {
   readonly enabled: boolean | undefined;
   readonly source: ConsoleEntity | undefined;
+}
+
+/**
+ * Whether one session's projection reports the peer-invocation grant.
+ *
+ * `undefined` for BOTH an absent member and a member of the wrong type, which is
+ * the honest fold: neither says the grant is off, and rendering `false` for either
+ * would present an enabled session as safe.
+ */
+export function peerInvocationEnabledIn(
+  sessionPartition: Readonly<Record<string, ConsoleEntity>>,
+  sessionId: string,
+): boolean | undefined {
+  const projected = sessionPartition[sessionId]?.body?.["peerInvocationEnabled"];
+  return typeof projected === "boolean" ? projected : undefined;
 }
 
 /** What a mount with no store to subscribe to reads. Nothing was projected. */

@@ -32,12 +32,6 @@ export interface AnsiOutputProps {
   readonly label: string;
 }
 
-/** The cap this block is rendering under, and the source it was granted for. */
-interface RevealedSpanCap {
-  readonly source: string;
-  readonly spanCap: number;
-}
-
 export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
   const [revealed, setRevealed] = useState<RevealedSpanCap>({
     source: props.source,
@@ -96,4 +90,10 @@ export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
       ) : null}
     </div>
   );
+}
+
+/** The cap this block is rendering under, and the source it was granted for. */
+interface RevealedSpanCap {
+  readonly source: string;
+  readonly spanCap: number;
 }

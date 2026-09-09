@@ -35,20 +35,6 @@ import { type PaneKind } from "./pane-kinds.js";
 import { type ConsolePaneContext } from "./pane-context.js";
 import { FrameStore, type SessionStore } from "../../store/index.js";
 
-/** One pane kind's address arm, as the caller writes it. */
-type PaneAddressOf<TKind extends PaneKind> = Extract<ConsolePaneAddress, { readonly kind: TKind }>;
-
-/**
- * The binding half of a pane context — everything that is not the address.
- *
- * `Omit` over the whole union rather than over one arm, and that is the load-bearing
- * choice: `keyof` a union is the members every arm carries, so `entity` — which only
- * some arms have — drops out on its own and what remains is exactly the eight members
- * every pane is bound with. Naming an arm here would have made one pane kind's shape
- * the definition of every other one's.
- */
-type PaneBindingMembers = Omit<ConsolePaneContext, "kind">;
-
 /**
  * What a mounting suite actually decides.
  *
@@ -132,3 +118,17 @@ export function paneContext<TKind extends PaneKind>(
     focusHue: undefined,
   };
 }
+
+/** One pane kind's address arm, as the caller writes it. */
+type PaneAddressOf<TKind extends PaneKind> = Extract<ConsolePaneAddress, { readonly kind: TKind }>;
+
+/**
+ * The binding half of a pane context — everything that is not the address.
+ *
+ * `Omit` over the whole union rather than over one arm, and that is the load-bearing
+ * choice: `keyof` a union is the members every arm carries, so `entity` — which only
+ * some arms have — drops out on its own and what remains is exactly the eight members
+ * every pane is bound with. Naming an arm here would have made one pane kind's shape
+ * the definition of every other one's.
+ */
+type PaneBindingMembers = Omit<ConsolePaneContext, "kind">;

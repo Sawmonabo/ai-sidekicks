@@ -75,52 +75,6 @@ export function unansweredEntryMessage(index: number): string {
   return `Entry ${String(index + 1)} has no value yet.`;
 }
 
-/** What one scalar node contributes, or `undefined` where it contributes no member. */
-function projectedScalar(field: SchemaFieldDescriptor, node: SchemaLeafDraft | undefined): unknown {
-  if (node?.form === "scalar" && node.state === "answered") {
-    return node.value;
-  }
-  return unansweredFieldValue(field);
-}
-
-/** Every answered entry of one collection, in the order the rows are drawn. */
-function answeredEntryValues(entries: readonly SchemaListEntryDraft[]): readonly unknown[] {
-  return entries.flatMap((held) => (held.entry.state === "answered" ? [held.entry.value] : []));
-}
-
-/**
- * What one collection contributes: its answered entries, or what an unanswered one is worth.
- *
- * The LATCH decides, never the row count. An answered collection contributes an array
- * however few rows survive the projection — `[]` included — and one nobody is answering
- * contributes `unansweredListValue`, which for the required case that can never be
- * unanswered is still the `[]` its fieldset stands over.
- */
-function projectedList(leaf: SchemaLeafEntry, node: SchemaLeafDraft | undefined): unknown {
-  if (leaf.form !== "list") {
-    return undefined;
-  }
-  return node?.form === "list" && node.state === "active"
-    ? answeredEntryValues(node.entries)
-    : unansweredListValue(leaf.list);
-}
-
-/** What one leaf contributes to the answer, or `undefined` where it contributes nothing. */
-function projectedLeaf(leaf: SchemaLeafEntry, node: SchemaLeafDraft | undefined): unknown {
-  return leaf.form === "list" ? projectedList(leaf, node) : projectedScalar(leaf.field, node);
-}
-
-/** One leaf folded into the level it answers under, or that level untouched where absent. */
-function withProjectedLeaf(
-  level: SchemaFormAnswer,
-  leaf: SchemaLeafEntry,
-  node: SchemaLeafDraft | undefined,
-): SchemaFormAnswer {
-  const key = leafKeyOf(leaf);
-  const value = projectedLeaf(leaf, node);
-  return key === undefined || value === undefined ? level : { ...level, [key]: value };
-}
-
 /**
  * The answer this draft composes: what the validator checks, and what a submission sends.
  *
@@ -194,18 +148,6 @@ export function projectedEntryPosition(
   return entries.slice(0, index).filter((before) => before.entry.state === "answered").length;
 }
 
-/** One issue per row the projection dropped, addressed at the row a person is looking at. */
-function listDraftIssues(leaf: SchemaLeafEntry, node: SchemaLeafDraft | undefined) {
-  if (leaf.form !== "list" || node?.form !== "list") {
-    return [];
-  }
-  return listEntriesOf(node).flatMap((held, index) =>
-    held.entry.state === "answered"
-      ? []
-      : [{ memberPath: [...leaf.list.memberPath, index], message: unansweredEntryMessage(index) }],
-  );
-}
-
 /**
  * Everything wrong with the DRAFT that the answer cannot carry to the validator.
  *
@@ -245,4 +187,62 @@ export function reportWithDraftIssues(
     return report;
   }
   return { status: "invalid", issues: [...report.issues, ...draftIssues] };
+}
+
+/** What one scalar node contributes, or `undefined` where it contributes no member. */
+function projectedScalar(field: SchemaFieldDescriptor, node: SchemaLeafDraft | undefined): unknown {
+  if (node?.form === "scalar" && node.state === "answered") {
+    return node.value;
+  }
+  return unansweredFieldValue(field);
+}
+
+/** Every answered entry of one collection, in the order the rows are drawn. */
+function answeredEntryValues(entries: readonly SchemaListEntryDraft[]): readonly unknown[] {
+  return entries.flatMap((held) => (held.entry.state === "answered" ? [held.entry.value] : []));
+}
+
+/**
+ * What one collection contributes: its answered entries, or what an unanswered one is worth.
+ *
+ * The LATCH decides, never the row count. An answered collection contributes an array
+ * however few rows survive the projection — `[]` included — and one nobody is answering
+ * contributes `unansweredListValue`, which for the required case that can never be
+ * unanswered is still the `[]` its fieldset stands over.
+ */
+function projectedList(leaf: SchemaLeafEntry, node: SchemaLeafDraft | undefined): unknown {
+  if (leaf.form !== "list") {
+    return undefined;
+  }
+  return node?.form === "list" && node.state === "active"
+    ? answeredEntryValues(node.entries)
+    : unansweredListValue(leaf.list);
+}
+
+/** What one leaf contributes to the answer, or `undefined` where it contributes nothing. */
+function projectedLeaf(leaf: SchemaLeafEntry, node: SchemaLeafDraft | undefined): unknown {
+  return leaf.form === "list" ? projectedList(leaf, node) : projectedScalar(leaf.field, node);
+}
+
+/** One leaf folded into the level it answers under, or that level untouched where absent. */
+function withProjectedLeaf(
+  level: SchemaFormAnswer,
+  leaf: SchemaLeafEntry,
+  node: SchemaLeafDraft | undefined,
+): SchemaFormAnswer {
+  const key = leafKeyOf(leaf);
+  const value = projectedLeaf(leaf, node);
+  return key === undefined || value === undefined ? level : { ...level, [key]: value };
+}
+
+/** One issue per row the projection dropped, addressed at the row a person is looking at. */
+function listDraftIssues(leaf: SchemaLeafEntry, node: SchemaLeafDraft | undefined) {
+  if (leaf.form !== "list" || node?.form !== "list") {
+    return [];
+  }
+  return listEntriesOf(node).flatMap((held, index) =>
+    held.entry.state === "answered"
+      ? []
+      : [{ memberPath: [...leaf.list.memberPath, index], message: unansweredEntryMessage(index) }],
+  );
 }

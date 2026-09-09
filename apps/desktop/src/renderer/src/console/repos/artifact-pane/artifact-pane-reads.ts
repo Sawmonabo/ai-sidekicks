@@ -72,23 +72,6 @@ export async function readArtifactList(
 }
 
 /**
- * Whether a served bounds reply carries the two members this leg reads.
- *
- * BOTH, AND BY TYPE. The allow-list is rendered as a list and the cap as a byte
- * figure, so a reply carrying one of them is not a reply this leg can half-use — it
- * would draw an effective bounds disclosure whose numbers came from nowhere.
- */
-function carriesBounds(
-  value: unknown,
-): value is { readonly contentTypes: readonly string[]; readonly maximumByteLength: number } {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const candidate = value as { contentTypes?: unknown; maximumByteLength?: unknown };
-  return Array.isArray(candidate.contentTypes) && typeof candidate.maximumByteLength === "number";
-}
-
-/**
  * The deployment's own bounds, or the shipped defaults and why they are showing.
  *
  * THE REFUSAL IS A DESIGNED ARM OF THIS READING AND NOT A FAILURE OF IT. A
@@ -128,4 +111,21 @@ export async function readArtifactAllowlist(
     maximumByteLength: answer.value.maximumByteLength,
     refusal: undefined,
   };
+}
+
+/**
+ * Whether a served bounds reply carries the two members this leg reads.
+ *
+ * BOTH, AND BY TYPE. The allow-list is rendered as a list and the cap as a byte
+ * figure, so a reply carrying one of them is not a reply this leg can half-use — it
+ * would draw an effective bounds disclosure whose numbers came from nowhere.
+ */
+function carriesBounds(
+  value: unknown,
+): value is { readonly contentTypes: readonly string[]; readonly maximumByteLength: number } {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const candidate = value as { contentTypes?: unknown; maximumByteLength?: unknown };
+  return Array.isArray(candidate.contentTypes) && typeof candidate.maximumByteLength === "number";
 }

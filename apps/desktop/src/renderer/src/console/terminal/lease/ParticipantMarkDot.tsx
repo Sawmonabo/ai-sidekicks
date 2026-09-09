@@ -7,11 +7,6 @@
 import { participantHueTokenName, tokenReference } from "../../tokens/index.js";
 import type { TerminalParticipantMark } from "./participant-mark.js";
 
-/** Carries the holder's participant hue into the mark's fill. */
-interface LeaseMarkStyle extends React.CSSProperties {
-  readonly "--meridian-lease-hue": string;
-}
-
 export interface ParticipantMarkDotProps {
   readonly mark: TerminalParticipantMark | undefined;
 }
@@ -26,4 +21,9 @@ export function ParticipantMarkDot(props: ParticipantMarkDotProps): React.JSX.El
       ? undefined
       : { "--meridian-lease-hue": tokenReference(participantHueTokenName(props.mark.hueStep)) };
   return <span className={className} style={style} aria-hidden="true" />;
+}
+
+/** Carries the holder's participant hue into the mark's fill. */
+interface LeaseMarkStyle extends React.CSSProperties {
+  readonly "--meridian-lease-hue": string;
 }

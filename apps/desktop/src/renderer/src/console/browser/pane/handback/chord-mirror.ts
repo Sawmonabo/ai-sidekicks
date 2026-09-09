@@ -38,24 +38,6 @@ const MIRROR_CHORD_SEPARATOR = " ";
 const EMPTY_CHORD_MIRROR_KEY = "";
 
 /**
- * One projection as a single value an effect can be keyed on.
- *
- * An unreadable registry and an empty projection compose to the same key, and that is
- * correct rather than a conflation: 12.4's fourth rule sends both to the page, so both
- * are "this pane claims nothing" and the host is owed the same sentence for either.
- */
-export function composeChordMirrorKey(mirrorChords: readonly string[] | undefined): string {
-  return mirrorChords === undefined
-    ? EMPTY_CHORD_MIRROR_KEY
-    : mirrorChords.join(MIRROR_CHORD_SEPARATOR);
-}
-
-/** The chords a key carries, as the wire takes them. Empty key, empty list. */
-export function readChordMirrorKey(mirrorKey: string): readonly string[] {
-  return mirrorKey === EMPTY_CHORD_MIRROR_KEY ? [] : mirrorKey.split(MIRROR_CHORD_SEPARATOR);
-}
-
-/**
  * What one pane's page host is currently holding, so a publication can be owed.
  *
  * A class with a private field because the whole point is that the field is written
@@ -83,4 +65,22 @@ export class ChordMirrorPublication {
   public recordPublication(mirrorKey: string): void {
     this.#publishedChordKey = mirrorKey;
   }
+}
+
+/**
+ * One projection as a single value an effect can be keyed on.
+ *
+ * An unreadable registry and an empty projection compose to the same key, and that is
+ * correct rather than a conflation: 12.4's fourth rule sends both to the page, so both
+ * are "this pane claims nothing" and the host is owed the same sentence for either.
+ */
+export function composeChordMirrorKey(mirrorChords: readonly string[] | undefined): string {
+  return mirrorChords === undefined
+    ? EMPTY_CHORD_MIRROR_KEY
+    : mirrorChords.join(MIRROR_CHORD_SEPARATOR);
+}
+
+/** The chords a key carries, as the wire takes them. Empty key, empty list. */
+export function readChordMirrorKey(mirrorKey: string): readonly string[] {
+  return mirrorKey === EMPTY_CHORD_MIRROR_KEY ? [] : mirrorKey.split(MIRROR_CHORD_SEPARATOR);
 }

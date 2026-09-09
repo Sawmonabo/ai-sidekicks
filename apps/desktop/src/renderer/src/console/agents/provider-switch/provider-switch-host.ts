@@ -82,6 +82,48 @@ const driverCatalogDisposal: SubjectScopedDisposal<DriverCatalogRead> = {
   isClosed: (read: DriverCatalogRead): boolean => read.isDisposed,
 };
 
+/** The catalog half of `ProviderSwitchProps`, ready to hand over. */
+export interface DriverCatalogHolder {
+  /** Straight onto `ProviderSwitchProps.catalog`. */
+  readonly catalog: PushDrivenReadState<DriverCatalogReading>;
+  /** Straight onto `ProviderSwitchProps.onCatalogReopen`. Stable between reads. */
+  readonly reopen: () => void;
+}
+
+/**
+ * One answered `agent.configUpdate` round.
+ *
+ * A VALUE FOR THE SETTLED ARM, because the reply's own `switch` member cannot stand in
+ * for one. That member is optional — "absent on a pure rename or rebind" — so a holder
+ * that published it bare collapsed `{ settled, settlement: undefined }` into a plain
+ * `undefined`, which is indistinguishable from "nothing has been answered". The form
+ * then reported nothing and every consumer keyed on the member's presence — the chip's
+ * binding re-read among them — never fired: a press that appeared to do nothing at all
+ * while the daemon had in fact answered.
+ */
+export interface AgentSwitchRound {
+  /** The reply's `switch` member, verbatim. Absent on a pure rename or rebind. */
+  readonly settlement: AgentSwitchSettlement | undefined;
+}
+
+/** The mutation half of `ProviderSwitchProps`, ready to hand over. */
+export interface AgentBindingSwitchHolder {
+  /** Straight onto `ProviderSwitchProps.isSubmitting`. */
+  readonly isSubmitting: boolean;
+  /**
+   * Straight onto `ProviderSwitchProps.round`. Present once the daemon has answered.
+   *
+   * Stable by identity between rounds, which is what a consumer reading it in an effect
+   * dependency rests on: a fresh record on every render would re-fire that effect for a
+   * settlement nothing new had happened to.
+   */
+  readonly settled: AgentSwitchRound | undefined;
+  /** Straight onto `ProviderSwitchProps.refusal`. Why the press did not happen. */
+  readonly refusal: ConsoleRefusal | undefined;
+  /** Straight onto `ProviderSwitchProps.onApply`. */
+  readonly apply: (axes: AxisDraft, interruptAndSwitch: boolean) => void;
+}
+
 /** Move provider axes on one running agent. Never a second run control. */
 export async function requestAgentConfigUpdate(
   bridge: ConsoleBridge,
@@ -92,14 +134,6 @@ export async function requestAgentConfigUpdate(
   return servedGrowthValueOrRaise(
     await bridge.growth.agentConfigUpdate({ agentId, interruptAndSwitch, ...axes }),
   );
-}
-
-/** The catalog half of `ProviderSwitchProps`, ready to hand over. */
-export interface DriverCatalogHolder {
-  /** Straight onto `ProviderSwitchProps.catalog`. */
-  readonly catalog: PushDrivenReadState<DriverCatalogReading>;
-  /** Straight onto `ProviderSwitchProps.onCatalogReopen`. Stable between reads. */
-  readonly reopen: () => void;
 }
 
 /**
@@ -142,40 +176,6 @@ export function useDriverCatalogReading(bridge: ConsoleBridge): DriverCatalogHol
     read.refresh("participant-request");
   }, [read]);
   return { catalog, reopen };
-}
-
-/**
- * One answered `agent.configUpdate` round.
- *
- * A VALUE FOR THE SETTLED ARM, because the reply's own `switch` member cannot stand in
- * for one. That member is optional — "absent on a pure rename or rebind" — so a holder
- * that published it bare collapsed `{ settled, settlement: undefined }` into a plain
- * `undefined`, which is indistinguishable from "nothing has been answered". The form
- * then reported nothing and every consumer keyed on the member's presence — the chip's
- * binding re-read among them — never fired: a press that appeared to do nothing at all
- * while the daemon had in fact answered.
- */
-export interface AgentSwitchRound {
-  /** The reply's `switch` member, verbatim. Absent on a pure rename or rebind. */
-  readonly settlement: AgentSwitchSettlement | undefined;
-}
-
-/** The mutation half of `ProviderSwitchProps`, ready to hand over. */
-export interface AgentBindingSwitchHolder {
-  /** Straight onto `ProviderSwitchProps.isSubmitting`. */
-  readonly isSubmitting: boolean;
-  /**
-   * Straight onto `ProviderSwitchProps.round`. Present once the daemon has answered.
-   *
-   * Stable by identity between rounds, which is what a consumer reading it in an effect
-   * dependency rests on: a fresh record on every render would re-fire that effect for a
-   * settlement nothing new had happened to.
-   */
-  readonly settled: AgentSwitchRound | undefined;
-  /** Straight onto `ProviderSwitchProps.refusal`. Why the press did not happen. */
-  readonly refusal: ConsoleRefusal | undefined;
-  /** Straight onto `ProviderSwitchProps.onApply`. */
-  readonly apply: (axes: AxisDraft, interruptAndSwitch: boolean) => void;
 }
 
 /**

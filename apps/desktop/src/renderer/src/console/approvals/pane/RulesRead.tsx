@@ -12,13 +12,6 @@ import { RememberedGrants } from "./grants/RememberedGrants.js";
 import { type RememberedRule } from "../../bridge/index.js";
 import { type ReadPhase } from "./approvals-reader.js";
 
-interface RulesReadProps {
-  readonly phase: ReadPhase<RememberedRule>;
-  readonly revokingRuleIds: ReadonlySet<string>;
-  readonly revokeRefusalByRuleId: ReadonlyMap<string, ConsoleRefusal>;
-  readonly onRevoke: (ruleId: string) => void;
-}
-
 export function RulesRead(props: RulesReadProps): React.JSX.Element {
   if (props.phase.status === "not-checked") {
     return (
@@ -51,4 +44,11 @@ export function RulesRead(props: RulesReadProps): React.JSX.Element {
       onRevoke={props.onRevoke}
     />
   );
+}
+
+interface RulesReadProps {
+  readonly phase: ReadPhase<RememberedRule>;
+  readonly revokingRuleIds: ReadonlySet<string>;
+  readonly revokeRefusalByRuleId: ReadonlyMap<string, ConsoleRefusal>;
+  readonly onRevoke: (ruleId: string) => void;
 }

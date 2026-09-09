@@ -72,27 +72,6 @@ const CALLER_PARTICIPANT_READ_DISPOSAL: SubjectScopedDisposal<ScheduledCallerPar
 };
 
 /**
- * The clock this page's readings schedule against, held for the life of a bridge.
- *
- * The scenario's frozen clock under the fixture and the real one otherwise, so these
- * reads' coalescing windows advance exactly when every other console read's does.
- *
- * Resolved through the family's own holder rather than `useConsoleClock`, which reads
- * the bridge PROVIDER: this page is mounted from a settings board that hands it a
- * bridge directly, and reaching for the provider would make the clock a second,
- * stricter requirement than the bridge the page already has. Pinned rather than read
- * per call because the live arm of `consoleClockFor` MINTS — the reading it gives is
- * the same either way, and holding one is what keeps a scheduler armed on a clock that
- * does not change underneath it.
- *
- * Both of this page's chained readings take it from here, so a page cannot come to run
- * its identity read and its preference read on two time bases.
- */
-function usePinnedBridgeClock(bridge: ConsoleBridge): ConsoleClock {
-  return useSubjectScopedState(bridge, undefined, () => consoleClockFor(bridge)).value;
-}
-
-/**
  * The two reads, in order, and the writer that owns everything after them.
  *
  * A hook rather than a render body: it owns the identity read's effect, the reading
@@ -216,6 +195,27 @@ export function useStoredAttentionPreferences(
       writer.toggle(row, member);
     },
   };
+}
+
+/**
+ * The clock this page's readings schedule against, held for the life of a bridge.
+ *
+ * The scenario's frozen clock under the fixture and the real one otherwise, so these
+ * reads' coalescing windows advance exactly when every other console read's does.
+ *
+ * Resolved through the family's own holder rather than `useConsoleClock`, which reads
+ * the bridge PROVIDER: this page is mounted from a settings board that hands it a
+ * bridge directly, and reaching for the provider would make the clock a second,
+ * stricter requirement than the bridge the page already has. Pinned rather than read
+ * per call because the live arm of `consoleClockFor` MINTS — the reading it gives is
+ * the same either way, and holding one is what keeps a scheduler armed on a clock that
+ * does not change underneath it.
+ *
+ * Both of this page's chained readings take it from here, so a page cannot come to run
+ * its identity read and its preference read on two time bases.
+ */
+function usePinnedBridgeClock(bridge: ConsoleBridge): ConsoleClock {
+  return useSubjectScopedState(bridge, undefined, () => consoleClockFor(bridge)).value;
 }
 
 /**

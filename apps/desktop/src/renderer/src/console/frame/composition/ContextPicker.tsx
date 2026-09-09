@@ -92,55 +92,6 @@ export interface ContextPickerProps {
   readonly onChoose: (target: AuxiliaryRouteTarget) => void;
 }
 
-interface AgentStep {
-  /** Set when the registry can perform no read at all, so no store initialises. */
-  readonly readRefusal: ConsoleRefusal | undefined;
-  readonly store: SessionStore | undefined;
-  readonly routeNoun: string;
-  readonly label: string;
-  readonly onChoose: (agentId: string) => void;
-}
-
-/**
- * The two absences that are not facts about one store, and the component for when
- * neither holds.
- *
- * A plain function rather than a component, and it subscribes to nothing: both
- * arms below are answered before any store exists to read, which is exactly why
- * they cannot live inside `AgentChoice` — React forbids a conditional hook, so a
- * component that rendered these would be subscribing on a store it may not have.
- */
-function renderAgentStep(step: AgentStep): React.ReactNode {
-  if (step.readRefusal !== undefined) {
-    // The registry carries a refusal instead of a reader, so no store it opens
-    // will ever reach a base state and this session's agents are a question the
-    // console cannot put. "Not checked", never "none".
-    return (
-      <Nothing
-        kind="not-checked"
-        title="The console cannot read this session's agents."
-        detail={step.readRefusal.detail}
-      />
-    );
-  }
-  if (step.store === undefined) {
-    // One frame: the session was chosen in this render and the effect that opens
-    // it has not run. The honest rendering of that frame is a read in flight,
-    // which is what `RouteSurface` says about the same gap one level up.
-    return (
-      <Nothing kind="not-loaded" title={`Opening the session this ${step.routeNoun} follows.`} />
-    );
-  }
-  return (
-    <AgentChoice
-      store={step.store}
-      routeNoun={step.routeNoun}
-      label={step.label}
-      onChoose={step.onChoose}
-    />
-  );
-}
-
 export function ContextPicker(props: ContextPickerProps): React.JSX.Element {
   // The label comes from the shared map, not a copy: the Window menu titles the
   // same route in the main process, and two maps in two processes drift silently
@@ -260,5 +211,54 @@ export function ContextPicker(props: ContextPickerProps): React.JSX.Element {
         label={question}
       />
     </section>
+  );
+}
+
+interface AgentStep {
+  /** Set when the registry can perform no read at all, so no store initialises. */
+  readonly readRefusal: ConsoleRefusal | undefined;
+  readonly store: SessionStore | undefined;
+  readonly routeNoun: string;
+  readonly label: string;
+  readonly onChoose: (agentId: string) => void;
+}
+
+/**
+ * The two absences that are not facts about one store, and the component for when
+ * neither holds.
+ *
+ * A plain function rather than a component, and it subscribes to nothing: both
+ * arms below are answered before any store exists to read, which is exactly why
+ * they cannot live inside `AgentChoice` — React forbids a conditional hook, so a
+ * component that rendered these would be subscribing on a store it may not have.
+ */
+function renderAgentStep(step: AgentStep): React.ReactNode {
+  if (step.readRefusal !== undefined) {
+    // The registry carries a refusal instead of a reader, so no store it opens
+    // will ever reach a base state and this session's agents are a question the
+    // console cannot put. "Not checked", never "none".
+    return (
+      <Nothing
+        kind="not-checked"
+        title="The console cannot read this session's agents."
+        detail={step.readRefusal.detail}
+      />
+    );
+  }
+  if (step.store === undefined) {
+    // One frame: the session was chosen in this render and the effect that opens
+    // it has not run. The honest rendering of that frame is a read in flight,
+    // which is what `RouteSurface` says about the same gap one level up.
+    return (
+      <Nothing kind="not-loaded" title={`Opening the session this ${step.routeNoun} follows.`} />
+    );
+  }
+  return (
+    <AgentChoice
+      store={step.store}
+      routeNoun={step.routeNoun}
+      label={step.label}
+      onChoose={step.onChoose}
+    />
   );
 }

@@ -74,6 +74,12 @@ export const SCENARIO_FROZEN_TICKS: FrozenTickTable = {
   "incident-ledger-window-growth": [{ name: "settled", atMs: 20_000 }],
 };
 
+/** One way the registry and the scenario board disagree. */
+export interface FrozenTickRegistryDefect {
+  readonly scenarioId: string;
+  readonly reason: string;
+}
+
 /**
  * The frames pinned for one scenario, or an empty list where none are.
  *
@@ -95,12 +101,6 @@ export function frozenTicksFor(
   frozenTicks: FrozenTickTable = SCENARIO_FROZEN_TICKS,
 ): readonly ScenarioFrozenTick[] {
   return Object.hasOwn(frozenTicks, scenarioId) ? (frozenTicks[scenarioId] ?? []) : [];
-}
-
-/** One way the registry and the scenario board disagree. */
-export interface FrozenTickRegistryDefect {
-  readonly scenarioId: string;
-  readonly reason: string;
 }
 
 /**

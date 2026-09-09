@@ -40,39 +40,6 @@ import {
 } from "./channel-writes.js";
 import { type ChannelRowLifecycle } from "./ChannelRowControls.js";
 
-/** One row a lifecycle move found GONE, with the daemon's own words for it. */
-interface GoneChannelNotice {
-  readonly channelId: string;
-  readonly refusal: ConsoleRefusal;
-}
-
-/**
- * The move the coordinator's latch is actually held for, and the row it names.
- *
- * ONE VALUE RATHER THAN TWO REGISTERS. The action used to be held on its own beside
- * the coordinator's pending key, written at the press: a second press arriving before
- * the first render had shut the controls replaced it, the coordinator then answered
- * that press under its single-flight rule, and the row still holding the latch
- * rendered the neighbour's verb — a mute in flight reading “Archiving…”. Which row a
- * move belongs to is a fact about the move, so it travels with it.
- */
-interface PendingChannelAct {
-  readonly channelId: string;
-  readonly action: ChannelLifecycleAction;
-}
-
-/** The directory as the list draws it: two regions, the notices, and the acts. */
-interface ChannelDirectoryView {
-  /** Active and muted rows, main first, minus any the daemon says is gone. */
-  readonly live: readonly ChannelRow[];
-  /** Archived rows, same subtraction. */
-  readonly archived: readonly ChannelRow[];
-  /** The rows that went, each with the sentence that took it away. */
-  readonly goneNotices: readonly GoneChannelNotice[];
-  /** What one row's controls are wired to, or `undefined` on a terminal row. */
-  readonly lifecycleFor: (row: ChannelRow) => ChannelRowLifecycle | undefined;
-}
-
 /**
  * Hold one session's lifecycle state and hand back the directory to draw.
  *
@@ -236,4 +203,37 @@ export function useChannelLifecycle(
       .map(([channelId, refusal]) => ({ channelId, refusal })),
     lifecycleFor,
   };
+}
+
+/** One row a lifecycle move found GONE, with the daemon's own words for it. */
+interface GoneChannelNotice {
+  readonly channelId: string;
+  readonly refusal: ConsoleRefusal;
+}
+
+/**
+ * The move the coordinator's latch is actually held for, and the row it names.
+ *
+ * ONE VALUE RATHER THAN TWO REGISTERS. The action used to be held on its own beside
+ * the coordinator's pending key, written at the press: a second press arriving before
+ * the first render had shut the controls replaced it, the coordinator then answered
+ * that press under its single-flight rule, and the row still holding the latch
+ * rendered the neighbour's verb — a mute in flight reading “Archiving…”. Which row a
+ * move belongs to is a fact about the move, so it travels with it.
+ */
+interface PendingChannelAct {
+  readonly channelId: string;
+  readonly action: ChannelLifecycleAction;
+}
+
+/** The directory as the list draws it: two regions, the notices, and the acts. */
+interface ChannelDirectoryView {
+  /** Active and muted rows, main first, minus any the daemon says is gone. */
+  readonly live: readonly ChannelRow[];
+  /** Archived rows, same subtraction. */
+  readonly archived: readonly ChannelRow[];
+  /** The rows that went, each with the sentence that took it away. */
+  readonly goneNotices: readonly GoneChannelNotice[];
+  /** What one row's controls are wired to, or `undefined` on a terminal row. */
+  readonly lifecycleFor: (row: ChannelRow) => ChannelRowLifecycle | undefined;
 }

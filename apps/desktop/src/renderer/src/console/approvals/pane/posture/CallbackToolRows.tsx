@@ -25,12 +25,6 @@ import { Collapsible } from "@base-ui/react/collapsible";
 import { Chip, WireFigure } from "../../../primitives/index.js";
 import { callbackToolArguments, type CallbackToolArgument } from "./callback-tool-arguments.js";
 
-/** One entry with its arguments already read, which is what a row renders from. */
-interface CallbackToolRow {
-  readonly tool: SessionCallbackTool;
-  readonly toolArguments: readonly CallbackToolArgument[];
-}
-
 /**
  * One row per entry, with the schema one click away and never expanded.
  *
@@ -95,4 +89,10 @@ export function CallbackToolRows(props: {
       ))}
     </ul>
   );
+}
+
+/** One entry with its arguments already read, which is what a row renders from. */
+interface CallbackToolRow {
+  readonly tool: SessionCallbackTool;
+  readonly toolArguments: readonly CallbackToolArgument[];
 }

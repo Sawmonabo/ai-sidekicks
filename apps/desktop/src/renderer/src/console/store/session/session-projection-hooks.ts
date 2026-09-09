@@ -31,10 +31,6 @@ export function useSessionInitialised(store: SessionStore): boolean {
   return useStore(store.readable, readInitialised);
 }
 
-function readInitialised(state: SessionStoreState): boolean {
-  return state.initialised;
-}
-
 /**
  * The store's monotonic transition counter — "the projection moved", and nothing more.
  *
@@ -49,10 +45,6 @@ function readInitialised(state: SessionStoreState): boolean {
  */
 export function useSessionProjectionRevision(store: SessionStore): number {
   return useStore(store.readable, readRevision);
-}
-
-function readRevision(state: SessionStoreState): number {
-  return state.revision;
 }
 
 /**
@@ -76,10 +68,6 @@ export function useSessionDegraded(store: SessionStore): boolean {
   return useStore(store.readable, readDegraded);
 }
 
-function readDegraded(state: SessionStoreState): boolean {
-  return state.degradedCause !== undefined;
-}
-
 /**
  * Why the projection is known-incomplete, or `undefined` while it is whole.
  *
@@ -96,10 +84,6 @@ function readDegraded(state: SessionStoreState): boolean {
  */
 export function useSessionDegradedCause(store: SessionStore): SessionDegradedCause | undefined {
   return useStore(store.readable, readDegradedCause);
-}
-
-function readDegradedCause(state: SessionStoreState): SessionDegradedCause | undefined {
-  return state.degradedCause;
 }
 
 /**
@@ -138,4 +122,20 @@ export function useTimelineResume(
   // The same reader on both sides: this console renders no server pass, and a second
   // reader for one would be a second answer to the question the first one answers.
   return useSyncExternalStore(subscribe, readDecision, readDecision);
+}
+
+function readInitialised(state: SessionStoreState): boolean {
+  return state.initialised;
+}
+
+function readRevision(state: SessionStoreState): number {
+  return state.revision;
+}
+
+function readDegraded(state: SessionStoreState): boolean {
+  return state.degradedCause !== undefined;
+}
+
+function readDegradedCause(state: SessionStoreState): SessionDegradedCause | undefined {
+  return state.degradedCause;
 }

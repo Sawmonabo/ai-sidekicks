@@ -104,36 +104,6 @@ const EMPTY_HEAD: readonly string[] = Object.freeze([]);
 const EMPTY_HEAD_ROWS: readonly TimelineRow[] = Object.freeze([]);
 
 /**
- * How many rows of a chapter fall outside the cap, from the chapter's own length.
- *
- * THE ONE RULE, AND THE COUNT IS ASKED WITHOUT CUTTING. The figure beside a chapter's
- * header is a count and the body's list is a selection, and until this existed the
- * count was taken by cutting the selection and reading its length — which allocated an
- * array of every clipped id, per chapter, on every pass of a fold that runs once per
- * admitted event, to answer a subtraction. A ten-thousand-row session paid that
- * allocation for rows nothing was going to look at.
- */
-export function chapterClippedHeadRowCount(chapterRowCount: number): number {
-  return Math.max(0, chapterRowCount - CHAPTER_VISIBLE_ROW_CAP);
-}
-
-/**
- * The row ids outside the cap — the chapter's older head, in log order.
- *
- * The exact complement of the selection the feed's fold admits, so the two together
- * are the chapter's rows and neither drops one. It is derived from the ids the CALLER
- * holds rather than from the sealed chapter, which is what keeps it right under a
- * narrowing: a filtered chapter carries the admitted ids, so the head this returns is
- * the admitted head and never the whole run's. Where the cut falls is
- * {@link chapterClippedHeadRowCount}'s to say, so the count and the selection cannot
- * disagree about which rows are outside.
- */
-export function chapterClippedHeadRowIds(rowIds: readonly string[]): readonly string[] {
-  const clippedCount = chapterClippedHeadRowCount(rowIds.length);
-  return clippedCount === 0 ? EMPTY_HEAD : rowIds.slice(0, clippedCount);
-}
-
-/**
  * The rows a chapter's body can still reach, collected as the fold absorbs them.
  *
  * WHY A BOUNDED COLLECTOR AND NOT THE WHOLE RUN. The body is a viewport and not an
@@ -193,4 +163,34 @@ export class ChapterBodyRowWindow {
     }
     return head;
   }
+}
+
+/**
+ * How many rows of a chapter fall outside the cap, from the chapter's own length.
+ *
+ * THE ONE RULE, AND THE COUNT IS ASKED WITHOUT CUTTING. The figure beside a chapter's
+ * header is a count and the body's list is a selection, and until this existed the
+ * count was taken by cutting the selection and reading its length — which allocated an
+ * array of every clipped id, per chapter, on every pass of a fold that runs once per
+ * admitted event, to answer a subtraction. A ten-thousand-row session paid that
+ * allocation for rows nothing was going to look at.
+ */
+export function chapterClippedHeadRowCount(chapterRowCount: number): number {
+  return Math.max(0, chapterRowCount - CHAPTER_VISIBLE_ROW_CAP);
+}
+
+/**
+ * The row ids outside the cap — the chapter's older head, in log order.
+ *
+ * The exact complement of the selection the feed's fold admits, so the two together
+ * are the chapter's rows and neither drops one. It is derived from the ids the CALLER
+ * holds rather than from the sealed chapter, which is what keeps it right under a
+ * narrowing: a filtered chapter carries the admitted ids, so the head this returns is
+ * the admitted head and never the whole run's. Where the cut falls is
+ * {@link chapterClippedHeadRowCount}'s to say, so the count and the selection cannot
+ * disagree about which rows are outside.
+ */
+export function chapterClippedHeadRowIds(rowIds: readonly string[]): readonly string[] {
+  const clippedCount = chapterClippedHeadRowCount(rowIds.length);
+  return clippedCount === 0 ? EMPTY_HEAD : rowIds.slice(0, clippedCount);
 }

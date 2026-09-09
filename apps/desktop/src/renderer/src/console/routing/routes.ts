@@ -133,29 +133,6 @@ export type ConsoleRoute =
 export const DEFAULT_ROUTE: ConsoleRoute = { kind: "sessions" };
 
 /**
- * Decode one path segment, or `undefined` when its percent-escapes are malformed.
- *
- * ONE helper rather than a `try` at each decode site. `decodeURIComponent` raises
- * `URIError` on an escape like `%zz`, and {@link parseRoute}'s contract is that
- * every input produces a route — a promise that holds only while EVERY decode in
- * this module answers a malformed escape the same way. A guard pasted per site is
- * how the next arm to grow a segment ships without one. The auxiliary arm reaches
- * the same discipline through the shared grammar, which decodes its own segments
- * and answers `null`, so it needs no third call here.
- *
- * `undefined` rather than a raised refusal, because the caller has an answer for
- * this: a hash anyone can type into the address bar is a probe, not an incident,
- * and the not-found route says what it could not open.
- */
-function decodeSegment(segment: string): string | undefined {
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    return undefined;
-  }
-}
-
-/**
  * Parse a location hash into a route.
  *
  * Total: every input produces a route, because a renderer that throws while
@@ -268,6 +245,70 @@ export function parseRoute(hash: string): ConsoleRoute {
   return notFound(hash);
 }
 
+/** Render a route back to a hash. Round-trips with `parseRoute`. */
+export function formatRoute(route: ConsoleRoute): string {
+  switch (route.kind) {
+    case "sessions":
+      return "#/sessions";
+    case "workspace": {
+      const workspaceAddress = `#/session/${encodeURIComponent(route.sessionId)}`;
+      // The keywords are written literally on both sides of one grammar, three lines
+      // from the parse that reads them, so the pair cannot drift into a link that
+      // opens the workspace with its focus quietly dropped.
+      const { workflowPhase } = route;
+      return workflowPhase === undefined
+        ? workspaceAddress
+        : `${workspaceAddress}/workflow/${encodeURIComponent(workflowPhase.workflowRunId)}/phase/${encodeURIComponent(workflowPhase.phaseId)}`;
+    }
+    case "workflows":
+      return "#/workflows";
+    case "settings": {
+      if (route.page === undefined) {
+        return "#/settings";
+      }
+      const pageAddress = `#/settings/${encodeURIComponent(route.page)}`;
+      return route.selection === undefined
+        ? pageAddress
+        : `${pageAddress}/${encodeURIComponent(route.selection)}`;
+    }
+    case "pane-harness":
+      return `#/pane-harness/${encodeURIComponent(route.paneKind)}/${encodeURIComponent(route.sessionId)}`;
+    case "auxiliary": {
+      // Encoded by the shared producer, which keeps this the exact inverse of the
+      // parse above — both sides of one grammar, written once. Only the kind tag
+      // is dropped; the rest of the route IS the target, so there is no arm-by-arm
+      // reconstruction here to disagree with the grammar it is reconstructing.
+      const { kind: _consoleRouteKind, ...target } = route;
+      return formatAuxiliaryFragment(target);
+    }
+    case "not-found":
+      return route.attempted;
+  }
+}
+
+/**
+ * Decode one path segment, or `undefined` when its percent-escapes are malformed.
+ *
+ * ONE helper rather than a `try` at each decode site. `decodeURIComponent` raises
+ * `URIError` on an escape like `%zz`, and {@link parseRoute}'s contract is that
+ * every input produces a route — a promise that holds only while EVERY decode in
+ * this module answers a malformed escape the same way. A guard pasted per site is
+ * how the next arm to grow a segment ships without one. The auxiliary arm reaches
+ * the same discipline through the shared grammar, which decodes its own segments
+ * and answers `null`, so it needs no third call here.
+ *
+ * `undefined` rather than a raised refusal, because the caller has an answer for
+ * this: a hash anyone can type into the address bar is a probe, not an incident,
+ * and the not-found route says what it could not open.
+ */
+function decodeSegment(segment: string): string | undefined {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * The two workspace addresses, read from the segments after `session`.
  *
@@ -312,47 +353,6 @@ function workspaceRoute(hash: string, rest: readonly string[]): ConsoleRoute {
   return workflowRunId === undefined || phaseId === undefined
     ? notFound(hash)
     : { kind: "workspace", sessionId, workflowPhase: { workflowRunId, phaseId } };
-}
-
-/** Render a route back to a hash. Round-trips with `parseRoute`. */
-export function formatRoute(route: ConsoleRoute): string {
-  switch (route.kind) {
-    case "sessions":
-      return "#/sessions";
-    case "workspace": {
-      const workspaceAddress = `#/session/${encodeURIComponent(route.sessionId)}`;
-      // The keywords are written literally on both sides of one grammar, three lines
-      // from the parse that reads them, so the pair cannot drift into a link that
-      // opens the workspace with its focus quietly dropped.
-      const { workflowPhase } = route;
-      return workflowPhase === undefined
-        ? workspaceAddress
-        : `${workspaceAddress}/workflow/${encodeURIComponent(workflowPhase.workflowRunId)}/phase/${encodeURIComponent(workflowPhase.phaseId)}`;
-    }
-    case "workflows":
-      return "#/workflows";
-    case "settings": {
-      if (route.page === undefined) {
-        return "#/settings";
-      }
-      const pageAddress = `#/settings/${encodeURIComponent(route.page)}`;
-      return route.selection === undefined
-        ? pageAddress
-        : `${pageAddress}/${encodeURIComponent(route.selection)}`;
-    }
-    case "pane-harness":
-      return `#/pane-harness/${encodeURIComponent(route.paneKind)}/${encodeURIComponent(route.sessionId)}`;
-    case "auxiliary": {
-      // Encoded by the shared producer, which keeps this the exact inverse of the
-      // parse above — both sides of one grammar, written once. Only the kind tag
-      // is dropped; the rest of the route IS the target, so there is no arm-by-arm
-      // reconstruction here to disagree with the grammar it is reconstructing.
-      const { kind: _consoleRouteKind, ...target } = route;
-      return formatAuxiliaryFragment(target);
-    }
-    case "not-found":
-      return route.attempted;
-  }
 }
 
 function notFound(attempted: string): ConsoleRoute {

@@ -35,17 +35,6 @@
 export type SchemaMemberPath = readonly (string | number)[];
 
 /**
- * One segment as an RFC 6901 reference token.
- *
- * The escape character is replaced FIRST. Doing the separator first would then escape the
- * `~` this step just wrote, turning `a/b` into `a~01b` — a token that decodes to something
- * nobody wrote.
- */
-function referenceTokenOf(segment: string | number): string {
-  return String(segment).replace(/~/g, "~0").replace(/\//g, "~1");
-}
-
-/**
  * One member path as the RFC 6901 JSON Pointer that names it — the string spelling, where
  * a string is what the platform takes.
  *
@@ -67,4 +56,15 @@ export function encodeMemberPointer(path: SchemaMemberPath): string {
  */
 export function isSameMemberPath(left: SchemaMemberPath, right: SchemaMemberPath): boolean {
   return left.length === right.length && left.every((segment, at) => segment === right[at]);
+}
+
+/**
+ * One segment as an RFC 6901 reference token.
+ *
+ * The escape character is replaced FIRST. Doing the separator first would then escape the
+ * `~` this step just wrote, turning `a/b` into `a~01b` — a token that decodes to something
+ * nobody wrote.
+ */
+function referenceTokenOf(segment: string | number): string {
+  return String(segment).replace(/~/g, "~0").replace(/\//g, "~1");
 }

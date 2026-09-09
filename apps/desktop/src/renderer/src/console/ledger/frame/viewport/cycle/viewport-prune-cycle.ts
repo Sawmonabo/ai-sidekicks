@@ -52,22 +52,6 @@ export interface LedgerPruneCycleResult {
   readonly readingFloorRowKey: string | undefined;
 }
 
-/**
- * Whether two held-row readings name the same rows, order ignored.
- *
- * Order is ignored because the anchor's held set is a `Map`'s key order and a
- * re-hold moves a key without changing which rows are engaged; the walk reads the
- * set through a `Set`, so a reordering is invisible to it and must be invisible
- * here too or the re-ask would fire on a fact the prune cannot use.
- */
-function sameRowKeySet(left: readonly string[], right: readonly string[]): boolean {
-  if (left.length !== right.length) {
-    return false;
-  }
-  const rightKeys = new Set(right);
-  return left.every((rowKey) => rightKeys.has(rowKey));
-}
-
 export class LedgerPruneCycle {
   readonly #window: LedgerWindow;
   readonly #measurements: RowMeasurementLedger;
@@ -279,4 +263,20 @@ export class LedgerPruneCycle {
         return false;
     }
   }
+}
+
+/**
+ * Whether two held-row readings name the same rows, order ignored.
+ *
+ * Order is ignored because the anchor's held set is a `Map`'s key order and a
+ * re-hold moves a key without changing which rows are engaged; the walk reads the
+ * set through a `Set`, so a reordering is invisible to it and must be invisible
+ * here too or the re-ask would fire on a fact the prune cannot use.
+ */
+function sameRowKeySet(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  const rightKeys = new Set(right);
+  return left.every((rowKey) => rightKeys.has(rowKey));
 }

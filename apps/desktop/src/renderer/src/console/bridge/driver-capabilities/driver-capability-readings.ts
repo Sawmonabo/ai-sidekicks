@@ -96,23 +96,6 @@ export function boundDriverNameForRun(
 }
 
 /**
- * The one driver this node reported, where it reported exactly one.
- *
- * The fallback both entry points below share. A node with one driver installed names
- * a binding for no run — `driver.listCapabilities` is addressed at the node and names
- * no run at all — and refusing to answer there would take every capability-gated
- * control off every run on the most ordinary installation there is. With two drivers
- * reported it answers nothing, because then the question really is unanswered.
- */
-function soleReportedDriverName(readout: DriverCapabilityReadout): string | undefined {
-  if (readout.flagsByDriverName.size !== 1) {
-    return undefined;
-  }
-  const [onlyReportedDriverName] = readout.flagsByDriverName.keys();
-  return onlyReportedDriverName;
-}
-
-/**
  * What this build knows about one flag on the driver ONE RUN is bound to.
  *
  * The console's single answer to that question. It used to be three: a
@@ -152,6 +135,23 @@ export function readingForRun(
   flag: DriverCapabilityFlag,
 ): DriverCapabilityReading {
   return readingForDriver(readout, boundDriverNameForRun(readout, runId), flag);
+}
+
+/**
+ * The one driver this node reported, where it reported exactly one.
+ *
+ * The fallback both entry points below share. A node with one driver installed names
+ * a binding for no run — `driver.listCapabilities` is addressed at the node and names
+ * no run at all — and refusing to answer there would take every capability-gated
+ * control off every run on the most ordinary installation there is. With two drivers
+ * reported it answers nothing, because then the question really is unanswered.
+ */
+function soleReportedDriverName(readout: DriverCapabilityReadout): string | undefined {
+  if (readout.flagsByDriverName.size !== 1) {
+    return undefined;
+  }
+  const [onlyReportedDriverName] = readout.flagsByDriverName.keys();
+  return onlyReportedDriverName;
 }
 
 /**

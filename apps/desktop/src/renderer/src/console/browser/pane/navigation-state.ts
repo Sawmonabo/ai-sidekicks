@@ -57,13 +57,6 @@ const SUBSCRIPTION_FAILURE_FALLBACK: BrowserPaneRejectionFallback = {
     "The page's navigation state is no longer being reported to this window. Closing the pane and opening it again starts a new subscription.",
 };
 
-/** The subscription's own outcome type, and the three shapes read out of it. */
-type NavigationOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["browserSubscribeNavigation"]>>;
-type NavigationStream = Extract<NavigationOutcome, { readonly status: "served" }>["value"];
-type NavigationState = NavigationStream extends { readonly events: AsyncIterable<infer Event> }
-  ? Event
-  : never;
-
 /**
  * What the pane knows about the page right now.
  *
@@ -98,6 +91,13 @@ export type NavigationReading =
    * would claim the pane is behind a producer that is no longer producing.
    */
   | { readonly kind: "ended" };
+/** The subscription's own outcome type, and the three shapes read out of it. */
+type NavigationOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["browserSubscribeNavigation"]>>;
+type NavigationStream = Extract<NavigationOutcome, { readonly status: "served" }>["value"];
+
+type NavigationState = NavigationStream extends { readonly events: AsyncIterable<infer Event> }
+  ? Event
+  : never;
 
 /** The reading before any subject has been answered, and after one has changed. */
 const UNREAD_NAVIGATION: NavigationReading = { kind: "reading" };

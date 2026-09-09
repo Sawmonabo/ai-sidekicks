@@ -134,10 +134,6 @@ describe("ApplyQueue — a drain that throws", () => {
     readonly failures: unknown[] = [];
     #remainingFailures: number;
 
-    public constructor(failureCount: number) {
-      this.#remainingFailures = failureCount;
-    }
-
     public readonly drain = (events: readonly ConsoleSessionEvent[]): void => {
       if (this.#remainingFailures > 0) {
         this.#remainingFailures -= 1;
@@ -149,6 +145,10 @@ describe("ApplyQueue — a drain that throws", () => {
     public readonly recordError = (error: unknown): void => {
       this.failures.push(error);
     };
+
+    public constructor(failureCount: number) {
+      this.#remainingFailures = failureCount;
+    }
   }
 
   it("keeps the batch, names the failure, and lets the clock finish its pass", () => {

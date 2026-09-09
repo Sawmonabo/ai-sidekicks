@@ -206,30 +206,6 @@ export class CollaborationSessionModelHolder {
 }
 
 /**
- * Everything one session reads from, built and not yet started.
- *
- * Separate from the holder so construction stays a total function of its inputs and
- * the holder keeps only the lifetime question — which set is held, and by how many.
- */
-function buildSessionModels(
-  bridge: ConsoleBridge,
-  sessionStore: SessionStore,
-): CollaborationSessionModels {
-  const clock = consoleClockFor(bridge);
-  const activity = new ActivityIndicatorRegistry(clock);
-  return {
-    subject: { bridge, sessionStore },
-    clock,
-    activity,
-    activityFeed: createActivityFeed({ bridge, sessionStore, clock, registry: activity }),
-    channelDirectory: createChannelDirectory({ bridge, sessionStore, clock }),
-    presenceRoster: createPresenceRoster({ bridge, sessionStore, clock }),
-    terminalControlHolder: createTerminalControlHolder({ bridge, sessionStore, clock }),
-    labels: sessionProjectionLabels(sessionStore),
-  };
-}
-
-/**
  * This session's models, from a lifecycle owner rather than from a render.
  *
  * `undefined` for exactly one frame — the one between the render that first names a
@@ -309,6 +285,30 @@ export function sessionProjectionLabels(sessionStore: SessionStore): ChannelActi
       }
       return projectedName(sessionStore, "agent", agentId) ?? runId;
     },
+  };
+}
+
+/**
+ * Everything one session reads from, built and not yet started.
+ *
+ * Separate from the holder so construction stays a total function of its inputs and
+ * the holder keeps only the lifetime question — which set is held, and by how many.
+ */
+function buildSessionModels(
+  bridge: ConsoleBridge,
+  sessionStore: SessionStore,
+): CollaborationSessionModels {
+  const clock = consoleClockFor(bridge);
+  const activity = new ActivityIndicatorRegistry(clock);
+  return {
+    subject: { bridge, sessionStore },
+    clock,
+    activity,
+    activityFeed: createActivityFeed({ bridge, sessionStore, clock, registry: activity }),
+    channelDirectory: createChannelDirectory({ bridge, sessionStore, clock }),
+    presenceRoster: createPresenceRoster({ bridge, sessionStore, clock }),
+    terminalControlHolder: createTerminalControlHolder({ bridge, sessionStore, clock }),
+    labels: sessionProjectionLabels(sessionStore),
   };
 }
 

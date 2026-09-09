@@ -26,6 +26,46 @@ export interface AttentionSessionGroup {
 }
 
 /**
+ * What one projection read produced, as a value a view narrows on.
+ *
+ * Four phases and not two: a read in flight, a read that was never put, a read that
+ * answered, and a read that FAILED. Collapsing the second into the third would let
+ * the all-clear line stand for a question nobody asked, which is exactly the
+ * conflation the five kinds of nothing exist to prevent — and collapsing the fourth
+ * into the second would report a reader that broke as a reader that was never asked,
+ * which is the same conflation from the other side.
+ *
+ * The `read` arm carries its own COVERAGE, because a read that answered is not the
+ * same as a read that answered for everything it asked about, and one phase for
+ * both would make the difference unrenderable.
+ */
+export type AttentionReading =
+  | { readonly phase: "reading" }
+  | { readonly phase: "not-asked" }
+  | { readonly phase: "refused"; readonly refusal: ConsoleRefusal }
+  | {
+      readonly phase: "read";
+      readonly plane: AttentionPlane;
+      /** Members the boundary refused. A fact about the reader, not about attention. */
+      readonly droppedCount: number;
+      /** Sessions that never answered. Non-empty means the coverage is incomplete. */
+      readonly refusedSessions: readonly RefusedAttentionSession[];
+      /**
+       * Every session this read asked about, carried through from the fan-out.
+       *
+       * The denominator the refusals are a numerator over, and the only member that
+       * says which sessions a settled read speaks FOR. A surface that renders the
+       * projection needs neither; the emitter needs both, because an item from a
+       * session this read has only just begun addressing is the state of the world
+       * rather than something that happened.
+       */
+      readonly addressedSessionIds: readonly string[];
+    };
+
+/** The arm that answered. Named once, so the readings below take it directly. */
+export type AnsweredAttentionReading = Extract<AttentionReading, { readonly phase: "read" }>;
+
+/**
  * The fold over one projection read.
  *
  * An encapsulated value rather than four loose helpers: the center, the
@@ -140,46 +180,6 @@ function groupBySession(items: readonly AttentionItem[]): readonly AttentionSess
     informational: split.informational,
   }));
 }
-
-/**
- * What one projection read produced, as a value a view narrows on.
- *
- * Four phases and not two: a read in flight, a read that was never put, a read that
- * answered, and a read that FAILED. Collapsing the second into the third would let
- * the all-clear line stand for a question nobody asked, which is exactly the
- * conflation the five kinds of nothing exist to prevent — and collapsing the fourth
- * into the second would report a reader that broke as a reader that was never asked,
- * which is the same conflation from the other side.
- *
- * The `read` arm carries its own COVERAGE, because a read that answered is not the
- * same as a read that answered for everything it asked about, and one phase for
- * both would make the difference unrenderable.
- */
-export type AttentionReading =
-  | { readonly phase: "reading" }
-  | { readonly phase: "not-asked" }
-  | { readonly phase: "refused"; readonly refusal: ConsoleRefusal }
-  | {
-      readonly phase: "read";
-      readonly plane: AttentionPlane;
-      /** Members the boundary refused. A fact about the reader, not about attention. */
-      readonly droppedCount: number;
-      /** Sessions that never answered. Non-empty means the coverage is incomplete. */
-      readonly refusedSessions: readonly RefusedAttentionSession[];
-      /**
-       * Every session this read asked about, carried through from the fan-out.
-       *
-       * The denominator the refusals are a numerator over, and the only member that
-       * says which sessions a settled read speaks FOR. A surface that renders the
-       * projection needs neither; the emitter needs both, because an item from a
-       * session this read has only just begun addressing is the state of the world
-       * rather than something that happened.
-       */
-      readonly addressedSessionIds: readonly string[];
-    };
-
-/** The arm that answered. Named once, so the readings below take it directly. */
-export type AnsweredAttentionReading = Extract<AttentionReading, { readonly phase: "read" }>;
 
 /** What every surface and every announcement calls what this read was of. */
 export const ATTENTION_SUBJECT = "what needs you";

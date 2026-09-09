@@ -60,11 +60,6 @@ export async function settleReads(bridge: ConsoleBridge): Promise<void> {
 /** The session this family's projection cases read, rather than an id per file. */
 export const PROJECTION_SESSION_ID = "session-9";
 
-/** One projected session row, under the id above. */
-function sessionEntity(body: Readonly<Record<string, unknown>>): ConsoleEntity {
-  return { kind: "session", id: PROJECTION_SESSION_ID, body };
-}
-
 /** A read response whose one session reports the peer-invocation grant either way. */
 export function snapshotEnabling(enabled: boolean): SessionSnapshot {
   return {
@@ -89,4 +84,9 @@ export function bridgeReadingProjection(
     sessionRead,
     ...alsoServing,
   });
+}
+
+/** One projected session row, under the id above. */
+function sessionEntity(body: Readonly<Record<string, unknown>>): ConsoleEntity {
+  return { kind: "session", id: PROJECTION_SESSION_ID, body };
 }

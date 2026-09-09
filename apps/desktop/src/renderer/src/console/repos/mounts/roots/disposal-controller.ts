@@ -71,6 +71,13 @@ export interface RootDisposalControllerOptions {
   readonly host: RootDisposalHost;
 }
 
+/** What the hook hands a confirmation: the reading, and the two things it can ask for. */
+export interface DisposalBinding {
+  readonly reading: DisposalReading;
+  readonly send: () => void;
+  readonly clear: () => void;
+}
+
 /** Sends one root's disposal and reports what came back. */
 export class RootDisposalController {
   readonly #bridge: ConsoleBridge;
@@ -132,13 +139,6 @@ export class RootDisposalController {
       this.#inFlight = false;
     }
   }
-}
-
-/** What the hook hands a confirmation: the reading, and the two things it can ask for. */
-export interface DisposalBinding {
-  readonly reading: DisposalReading;
-  readonly send: () => void;
-  readonly clear: () => void;
 }
 
 /**

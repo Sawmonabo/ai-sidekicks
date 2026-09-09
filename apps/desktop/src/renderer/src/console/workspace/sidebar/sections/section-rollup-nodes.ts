@@ -62,6 +62,17 @@ export interface SectionRollupReading {
   readonly opens: ConsolePaneAddress;
 }
 
+/** One row of a named section, as the column's drag binder keys it. */
+export interface SectionRowDragInput {
+  readonly sectionId: SidebarSectionId;
+  /** The row's wire-verbatim identifier — unique within its own section. */
+  readonly entityId: string;
+  /** What a person reads on the row, and what the drop announcement names it by. */
+  readonly label: string;
+  /** What the drop opens. A row that opens nothing is not a drag target at all. */
+  readonly opens: ConsolePaneAddress;
+}
+
 /**
  * This section's items as the column's rollup tree.
  *
@@ -95,17 +106,6 @@ export function readSectionRollup(
       opens: reading.opens,
     };
   });
-}
-
-/** One row of a named section, as the column's drag binder keys it. */
-export interface SectionRowDragInput {
-  readonly sectionId: SidebarSectionId;
-  /** The row's wire-verbatim identifier — unique within its own section. */
-  readonly entityId: string;
-  /** What a person reads on the row, and what the drop announcement names it by. */
-  readonly label: string;
-  /** What the drop opens. A row that opens nothing is not a drag target at all. */
-  readonly opens: ConsolePaneAddress;
 }
 
 /**

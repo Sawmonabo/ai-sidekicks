@@ -111,6 +111,31 @@ function constantIsAnObject(schema: Readonly<Record<string, unknown>>): boolean 
 const ALTERNATION_KEYWORDS = ["oneOf", "anyOf"] as const;
 
 /**
+ * Whether this schema's root declares an answer the submit request cannot carry.
+ *
+ * False for a root that declares nothing — see the header: an undeclared root is not a
+ * root that asked for the wrong thing.
+ */
+export function schemaRootAsksOutsideNamedValues(inputSchema: unknown): boolean {
+  return !objectAnswerIsPossible(inputSchema, new Set());
+}
+
+/**
+ * The refusal such a phase carries, or nothing where its root can be answered at all.
+ *
+ * Composed here rather than at each surface so the two that render it — the run's form
+ * and the definition preview beside it — say one thing, and so the code they render is
+ * the constant above rather than a string spelled twice.
+ */
+export function schemaRootRefusal(
+  inputSchema: unknown,
+): NarrowedRefusal<typeof SCHEMA_ROOT_NOT_NAMED_VALUES> | undefined {
+  return schemaRootAsksOutsideNamedValues(inputSchema)
+    ? refuse(SCHEMA_ROOT_ORIGIN, SCHEMA_ROOT_NOT_NAMED_VALUES, SCHEMA_ROOT_DETAIL)
+    : undefined;
+}
+
+/**
  * Whether some object could satisfy this schema — the module's whole question, asked of
  * the root by its callers and of each combinator arm by itself.
  *
@@ -160,29 +185,4 @@ function schemaAdmitsAnObject(
     !Array.isArray(conjunction) ||
     conjunction.every((arm) => objectAnswerIsPossible(arm, ancestors))
   );
-}
-
-/**
- * Whether this schema's root declares an answer the submit request cannot carry.
- *
- * False for a root that declares nothing — see the header: an undeclared root is not a
- * root that asked for the wrong thing.
- */
-export function schemaRootAsksOutsideNamedValues(inputSchema: unknown): boolean {
-  return !objectAnswerIsPossible(inputSchema, new Set());
-}
-
-/**
- * The refusal such a phase carries, or nothing where its root can be answered at all.
- *
- * Composed here rather than at each surface so the two that render it — the run's form
- * and the definition preview beside it — say one thing, and so the code they render is
- * the constant above rather than a string spelled twice.
- */
-export function schemaRootRefusal(
-  inputSchema: unknown,
-): NarrowedRefusal<typeof SCHEMA_ROOT_NOT_NAMED_VALUES> | undefined {
-  return schemaRootAsksOutsideNamedValues(inputSchema)
-    ? refuse(SCHEMA_ROOT_ORIGIN, SCHEMA_ROOT_NOT_NAMED_VALUES, SCHEMA_ROOT_DETAIL)
-    : undefined;
 }

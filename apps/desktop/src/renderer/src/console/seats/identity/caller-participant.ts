@@ -90,20 +90,6 @@ export function callerParticipantIdentityFrom(
 }
 
 /**
- * The one call, at module scope so every render hands the read the same function.
- *
- * `useGrowthReadOnMount` reads it through a ref rather than through its dependency
- * list, so a fresh closure would re-ask nothing — but a stable one states that there
- * is nothing per-render about how this question is asked.
- */
-function askCallerParticipant(
-  bridge: ConsoleBridge,
-  request: { readonly sessionId: string },
-): Promise<CallerParticipantOutcome> {
-  return bridge.growth.callerParticipantRead(request);
-}
-
-/**
  * Which participant this window is, asked once per session and held against it.
  *
  * Three arms and not two: `undefined` is the not-yet-answered absence, which is a
@@ -147,6 +133,20 @@ export function useCallerMembershipRoleFor(
   // The role is read off the store's own roster entry through the bridge's one
   // narrowing read — the store names no wire member, so the reader is injected.
   return useCallerMembershipRole(readCallerParticipant, sessionStore, membershipRoleOf);
+}
+
+/**
+ * The one call, at module scope so every render hands the read the same function.
+ *
+ * `useGrowthReadOnMount` reads it through a ref rather than through its dependency
+ * list, so a fresh closure would re-ask nothing — but a stable one states that there
+ * is nothing per-render about how this question is asked.
+ */
+function askCallerParticipant(
+  bridge: ConsoleBridge,
+  request: { readonly sessionId: string },
+): Promise<CallerParticipantOutcome> {
+  return bridge.growth.callerParticipantRead(request);
 }
 
 /** The seat's own read, projected onto the three arms a surface renders from. */

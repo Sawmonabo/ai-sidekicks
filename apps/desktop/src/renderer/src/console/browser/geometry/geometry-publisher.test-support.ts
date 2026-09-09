@@ -22,10 +22,6 @@ import type { PaneGeometrySample, PaneRect } from "./pane-geometry.js";
 import type { AttachedPaneViewHost } from "./view-host.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 
-export function rect(x: number, y: number, width: number, height: number): PaneRect {
-  return { x, y, width, height };
-}
-
 /** A host that records what it was handed, and can be told to reject. */
 export class RecordingViewHost implements AttachedPaneViewHost {
   public readonly state = "attached" as const;
@@ -43,6 +39,10 @@ export class RecordingViewHost implements AttachedPaneViewHost {
       ? { status: "accepted" }
       : { status: "rejected", refusal: this.#rejection };
   }
+}
+
+export function rect(x: number, y: number, width: number, height: number): PaneRect {
+  return { x, y, width, height };
 }
 
 /** Put an element's box where the test wants it, standing in for a relayout. */

@@ -71,45 +71,6 @@ const RUNNING_LABELS: Record<ClearSiteDataStep, string> = {
   clearing: "Clearing…",
 };
 
-/**
- * What the control reports beneath the arm, once the two facts it holds are ranked.
- *
- * Three arms rather than "a refusal or nothing": a served settlement is a fact to
- * render and not an absence of one, and giving it an arm is what stops the projected
- * refusal from reappearing under a clear that succeeded.
- */
-type ClearControlReport =
-  | { readonly kind: "cleared" }
-  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal }
-  | { readonly kind: "silent" };
-
-/**
- * The ranking, as a pure reading of the control's own state and what it was handed.
- *
- * `running` reports nothing on purpose. An act is in flight, the button already says
- * which step it is waiting on, and the projection it is about to replace is the one
- * verdict on screen that is certainly not about this attempt.
- *
- * A settlement outranks only the projection it was RANKED OVER. Once the row carries
- * a different one, the settlement is a verdict about a state the listing has moved
- * past and the newer projection speaks — which is what keeps a `cleared` receipt from
- * outliving the removal it reports.
- */
-function reportFor(
-  state: PartitionClearState,
-  lastClearRefusal: ConsoleRefusal | undefined,
-): ClearControlReport {
-  if (state.phase === "settled" && state.rankedOverRefusal === lastClearRefusal) {
-    return state.outcome.status === "cleared"
-      ? { kind: "cleared" }
-      : { kind: "refused", refusal: state.outcome.refusal };
-  }
-  if (state.phase === "running" || lastClearRefusal === undefined) {
-    return { kind: "silent" };
-  }
-  return { kind: "refused", refusal: lastClearRefusal };
-}
-
 export interface PartitionClearControlProps {
   readonly sessionId: string;
   /**
@@ -242,4 +203,43 @@ export function PartitionClearControl(props: PartitionClearControlProps): React.
       ) : null}
     </div>
   );
+}
+
+/**
+ * What the control reports beneath the arm, once the two facts it holds are ranked.
+ *
+ * Three arms rather than "a refusal or nothing": a served settlement is a fact to
+ * render and not an absence of one, and giving it an arm is what stops the projected
+ * refusal from reappearing under a clear that succeeded.
+ */
+type ClearControlReport =
+  | { readonly kind: "cleared" }
+  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal }
+  | { readonly kind: "silent" };
+
+/**
+ * The ranking, as a pure reading of the control's own state and what it was handed.
+ *
+ * `running` reports nothing on purpose. An act is in flight, the button already says
+ * which step it is waiting on, and the projection it is about to replace is the one
+ * verdict on screen that is certainly not about this attempt.
+ *
+ * A settlement outranks only the projection it was RANKED OVER. Once the row carries
+ * a different one, the settlement is a verdict about a state the listing has moved
+ * past and the newer projection speaks — which is what keeps a `cleared` receipt from
+ * outliving the removal it reports.
+ */
+function reportFor(
+  state: PartitionClearState,
+  lastClearRefusal: ConsoleRefusal | undefined,
+): ClearControlReport {
+  if (state.phase === "settled" && state.rankedOverRefusal === lastClearRefusal) {
+    return state.outcome.status === "cleared"
+      ? { kind: "cleared" }
+      : { kind: "refused", refusal: state.outcome.refusal };
+  }
+  if (state.phase === "running" || lastClearRefusal === undefined) {
+    return { kind: "silent" };
+  }
+  return { kind: "refused", refusal: lastClearRefusal };
 }

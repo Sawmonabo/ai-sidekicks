@@ -67,6 +67,25 @@ export interface DurableViewBinding {
   subscribe(sink: () => void): Unsubscribe;
 }
 
+/** What a surface holds: the live binding while there is one, and the way to reach it. */
+export interface DurableViewBindingAccess<TBinding extends DurableViewBinding> {
+  /**
+   * The binding this render may read, or `undefined` while the acquiring effect has
+   * not settled — the OPENING arm. A surface renders its own initial value there,
+   * which is what a freshly minted binding holds anyway, so the arm costs a person
+   * nothing and never shows a disposed binding's contents.
+   */
+  readonly binding: TBinding | undefined;
+  /**
+   * The binding an event handler writes through.
+   *
+   * Acquires rather than reads: a press must move a binding rather than be swallowed
+   * by the frame before the effect ran, and a press cannot outrun a passive effect,
+   * so the handler settles on the same binding that effect acquires.
+   */
+  readonly acquire: () => TBinding;
+}
+
 /**
  * Which binding is live for which store, and the one disposal there is.
  *
@@ -138,25 +157,6 @@ export class DurableViewBindingHolder<TBinding extends DurableViewBinding> {
     this.#binding = minted;
     return minted;
   }
-}
-
-/** What a surface holds: the live binding while there is one, and the way to reach it. */
-export interface DurableViewBindingAccess<TBinding extends DurableViewBinding> {
-  /**
-   * The binding this render may read, or `undefined` while the acquiring effect has
-   * not settled — the OPENING arm. A surface renders its own initial value there,
-   * which is what a freshly minted binding holds anyway, so the arm costs a person
-   * nothing and never shows a disposed binding's contents.
-   */
-  readonly binding: TBinding | undefined;
-  /**
-   * The binding an event handler writes through.
-   *
-   * Acquires rather than reads: a press must move a binding rather than be swallowed
-   * by the frame before the effect ran, and a press cannot outrun a passive effect,
-   * so the handler settles on the same binding that effect acquires.
-   */
-  readonly acquire: () => TBinding;
 }
 
 /**

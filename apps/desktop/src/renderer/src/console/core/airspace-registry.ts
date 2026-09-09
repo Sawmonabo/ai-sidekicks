@@ -103,14 +103,6 @@ export type AirspaceMotionObserver = (
   onMoved: () => void,
 ) => Unsubscribe;
 
-interface RegisteredOverlay {
-  readonly kind: AirspaceOverlayKind;
-  readonly read: AirspaceRectReader;
-  readonly element: AirspaceOverlayElement | undefined;
-  /** One disarm per installed observer, so an uninstall disarms only its own. */
-  readonly disarmByObserver: Map<AirspaceMotionObserver, Unsubscribe>;
-}
-
 /**
  * Which overlays are on screen right now, as a set of rectangle READERS.
  *
@@ -266,4 +258,12 @@ export class AirspaceRegistry {
     this.#overlaysByToken.delete(token);
     this.#changeEmitter.emit();
   }
+}
+
+interface RegisteredOverlay {
+  readonly kind: AirspaceOverlayKind;
+  readonly read: AirspaceRectReader;
+  readonly element: AirspaceOverlayElement | undefined;
+  /** One disarm per installed observer, so an uninstall disarms only its own. */
+  readonly disarmByObserver: Map<AirspaceMotionObserver, Unsubscribe>;
 }

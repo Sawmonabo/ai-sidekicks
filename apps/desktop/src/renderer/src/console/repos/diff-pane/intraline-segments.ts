@@ -94,11 +94,6 @@ interface IntralinePairReading {
 /** The line a missing address reads as. Declared once so no branch builds its own. */
 const EMPTY_LINE: DiffLine = { kind: "context", segments: [{ text: "", changed: false }] };
 
-/** One line's own text, unsplit. What a line with no counterpart reads as. */
-function wholeLineReading(text: string): IntralineReading {
-  return { segments: wholeLineSegments(text), skipped: false };
-}
-
 /**
  * The intraline segmentations of one diff, computed on demand and held bounded.
  *
@@ -218,4 +213,9 @@ export class IntralineSegmentCache {
       }
     }
   }
+}
+
+/** One line's own text, unsplit. What a line with no counterpart reads as. */
+function wholeLineReading(text: string): IntralineReading {
+  return { segments: wholeLineSegments(text), skipped: false };
 }

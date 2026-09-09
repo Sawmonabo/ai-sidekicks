@@ -66,21 +66,6 @@ import { deriveDriverAskTerminals, type DriverAskReading } from "../../cards/bod
 import { type ChildRunEntry } from "./child-run-entries.js";
 import { type ChildRunExpansion } from "./child-run-expansion.js";
 
-/**
- * How the expanded page resolves each of the three decisions the seat is handed, and
- * the terminal map the ask rows among those entries read.
- *
- * The map travels beside them rather than being folded where the list is drawn, for
- * the reason every other derivation on this row travels: it is derived once per page
- * in the component, so a re-render of the parent does not re-fold the child's log.
- */
-interface ChildRunEntryDecisions {
-  readonly renderTimelineRow: TimelineRowRenderer;
-  readonly hueForActor: (participantId: string) => ParticipantHueAssignment | undefined;
-  readonly superseded: SupersededIndex;
-  readonly askTerminalByAskIdentity: ReadonlyMap<string, DriverAskReading>;
-}
-
 export interface ChildRunSummaryRowProps {
   readonly entry: ChildRunEntry;
   /** The wire type of the row this summary rides, drawn in the row's kind slot. */
@@ -183,6 +168,21 @@ export function ChildRunSummaryRow(props: ChildRunSummaryRowProps): React.JSX.El
       {renderExpansion(expansion, entryDecisions)}
     </LedgerRow>
   );
+}
+
+/**
+ * How the expanded page resolves each of the three decisions the seat is handed, and
+ * the terminal map the ask rows among those entries read.
+ *
+ * The map travels beside them rather than being folded where the list is drawn, for
+ * the reason every other derivation on this row travels: it is derived once per page
+ * in the component, so a re-render of the parent does not re-fold the child's log.
+ */
+interface ChildRunEntryDecisions {
+  readonly renderTimelineRow: TimelineRowRenderer;
+  readonly hueForActor: (participantId: string) => ParticipantHueAssignment | undefined;
+  readonly superseded: SupersededIndex;
+  readonly askTerminalByAskIdentity: ReadonlyMap<string, DriverAskReading>;
 }
 
 /** What the disclosure says, one word per state and none of them invented. */

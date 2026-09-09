@@ -4,6 +4,12 @@ import { type AgentConsoleModels } from "../../run-console/agent-console-model.j
 import { HeldRunLinkage } from "./HeldRunLinkage.js";
 import { type ChildRunLinkageRead } from "../../run-console/agent-console-reads.js";
 
+/** One acquired child-link read, with the parent run it answers for. */
+export interface AcquiredLinkage {
+  readonly parentRunId: string;
+  readonly read: ChildRunLinkageRead;
+}
+
 /**
  * The mounted arm, where both halves exist and the read may be taken.
  *
@@ -34,12 +40,6 @@ export function ResolvedRunLinkage(props: {
     return <RunLinkage parentRunId={parentRunId} state={undefined} />;
   }
   return <HeldRunLinkage parentRunId={parentRunId} read={read} />;
-}
-
-/** One acquired child-link read, with the parent run it answers for. */
-export interface AcquiredLinkage {
-  readonly parentRunId: string;
-  readonly read: ChildRunLinkageRead;
 }
 
 /**

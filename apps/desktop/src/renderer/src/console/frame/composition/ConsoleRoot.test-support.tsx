@@ -111,28 +111,6 @@ export async function mountConsole(options: MountConsoleOptions = {}): Promise<R
 }
 
 /**
- * Put this window's opening address in place, before anything reads it.
- *
- * WRITTEN ONTO THE WINDOW RATHER THAN PASSED AS A PROP, because that is where the
- * console reads it from: the frame store parses `window.location.hash` in its own
- * constructor and the first-launch rule is decided on the same value, so an address
- * handed through a prop would be an address neither of them consults.
- *
- * THE EMPTY READING IS THE ONLY ONE IT OVERRIDES. A case that set an address before
- * mounting is stating the window's opening, and a helper that overwrote it would be
- * the second writer `hash-route-binding.ts` exists to keep off this value.
- */
-function openWindowAt(openedAtHash: string | undefined): void {
-  if (openedAtHash !== undefined) {
-    window.location.hash = openedAtHash;
-    return;
-  }
-  if (window.location.hash === "") {
-    window.location.hash = SESSIONS_HASH;
-  }
-}
-
-/**
  * Let every registered SURFACE body finish arriving.
  *
  * THE ONE ANSWER TO "HAS THE DESTINATION LANDED", for every suite that drives the
@@ -175,4 +153,26 @@ export async function settleRegisteredBodies(): Promise<void> {
     );
     await crossMacrotaskBoundary();
   });
+}
+
+/**
+ * Put this window's opening address in place, before anything reads it.
+ *
+ * WRITTEN ONTO THE WINDOW RATHER THAN PASSED AS A PROP, because that is where the
+ * console reads it from: the frame store parses `window.location.hash` in its own
+ * constructor and the first-launch rule is decided on the same value, so an address
+ * handed through a prop would be an address neither of them consults.
+ *
+ * THE EMPTY READING IS THE ONLY ONE IT OVERRIDES. A case that set an address before
+ * mounting is stating the window's opening, and a helper that overwrote it would be
+ * the second writer `hash-route-binding.ts` exists to keep off this value.
+ */
+function openWindowAt(openedAtHash: string | undefined): void {
+  if (openedAtHash !== undefined) {
+    window.location.hash = openedAtHash;
+    return;
+  }
+  if (window.location.hash === "") {
+    window.location.hash = SESSIONS_HASH;
+  }
 }

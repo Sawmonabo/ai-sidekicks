@@ -13,11 +13,6 @@
 // binding really performs through the real seam. A suite that handed a binding a
 // stand-in resource would be counting its own wrapper.
 
-/** Just enough of a `vi.spyOn` handle to read the `this` of each call it saw. */
-interface DisposalSpy {
-  readonly mock: { readonly contexts: readonly unknown[] };
-}
-
 /**
  * How many disposals landed on a resource that had already been disposed.
  *
@@ -34,4 +29,9 @@ export function repeatedDisposalCount(disposals: DisposalSpy): number {
     disposed.add(resource);
   }
   return repeated;
+}
+
+/** Just enough of a `vi.spyOn` handle to read the `this` of each call it saw. */
+interface DisposalSpy {
+  readonly mock: { readonly contexts: readonly unknown[] };
 }

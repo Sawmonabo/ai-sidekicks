@@ -22,27 +22,6 @@
 
 import type { ConsoleBridge } from "../console-bridge.js";
 
-/** The raw subscribe arm, as these wrappers have to call it. */
-type RawSubscribe = (name: string, sink: (payload: unknown) => void) => () => void;
-
-function rawSubscribeOf(bridge: ConsoleBridge): RawSubscribe {
-  return bridge.sidekicks.daemon.subscribe as RawSubscribe;
-}
-
-/** One bridge with its subscribe arm replaced, and nothing else touched. */
-function withSubscribeArm(bridge: ConsoleBridge, subscribe: RawSubscribe): ConsoleBridge {
-  return {
-    ...bridge,
-    sidekicks: {
-      ...bridge.sidekicks,
-      daemon: {
-        ...bridge.sidekicks.daemon,
-        subscribe: subscribe as ConsoleBridge["sidekicks"]["daemon"]["subscribe"],
-      },
-    },
-  } as ConsoleBridge;
-}
-
 /** A bridge recording what was opened and closed on it, and what it recorded. */
 export interface RecordedStreamLifecycle {
   readonly bridge: ConsoleBridge;
@@ -52,6 +31,13 @@ export interface RecordedStreamLifecycle {
   readonly openCountFor: (streamName: string) => number;
   /** How many of that stream's subscriptions were closed again. */
   readonly closeCountFor: (streamName: string) => number;
+}
+
+/** A bridge holding every sink one stream was opened with, in order. */
+export interface RecordedStreamSinks {
+  readonly bridge: ConsoleBridge;
+  /** Each sink, oldest first — including the ones a re-open has superseded. */
+  readonly sinks: readonly ((payload: unknown) => void)[];
 }
 
 /**
@@ -87,13 +73,6 @@ export function withRecordedStreamLifecycle(bridge: ConsoleBridge): RecordedStre
       };
     }),
   };
-}
-
-/** A bridge holding every sink one stream was opened with, in order. */
-export interface RecordedStreamSinks {
-  readonly bridge: ConsoleBridge;
-  /** Each sink, oldest first — including the ones a re-open has superseded. */
-  readonly sinks: readonly ((payload: unknown) => void)[];
 }
 
 /**
@@ -196,4 +175,25 @@ export function withReplayedStream(
     }
     return () => undefined;
   });
+}
+
+/** The raw subscribe arm, as these wrappers have to call it. */
+type RawSubscribe = (name: string, sink: (payload: unknown) => void) => () => void;
+
+function rawSubscribeOf(bridge: ConsoleBridge): RawSubscribe {
+  return bridge.sidekicks.daemon.subscribe as RawSubscribe;
+}
+
+/** One bridge with its subscribe arm replaced, and nothing else touched. */
+function withSubscribeArm(bridge: ConsoleBridge, subscribe: RawSubscribe): ConsoleBridge {
+  return {
+    ...bridge,
+    sidekicks: {
+      ...bridge.sidekicks,
+      daemon: {
+        ...bridge.sidekicks.daemon,
+        subscribe: subscribe as ConsoleBridge["sidekicks"]["daemon"]["subscribe"],
+      },
+    },
+  } as ConsoleBridge;
 }

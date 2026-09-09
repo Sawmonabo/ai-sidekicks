@@ -32,10 +32,6 @@ export function useShellState(store: FrameStore): ShellState {
   return useStore(store.readable, readShellState);
 }
 
-function readShellState(state: FrameStoreState): ShellState {
-  return state.shellState;
-}
-
 /**
  * How many sessions need a person, or `undefined` where nothing is reading.
  *
@@ -45,10 +41,6 @@ function readShellState(state: FrameStoreState): ShellState {
  */
 export function useRailAttentionCount(store: FrameStore): number | undefined {
   return useStore(store.readable, readRailAttentionCount);
-}
-
-function readRailAttentionCount(state: FrameStoreState): number | undefined {
-  return state.railAttentionCount;
 }
 
 /**
@@ -86,4 +78,12 @@ export function useFrameStore<TSelected>(
   selector: (state: FrameStoreState) => TSelected,
 ): TSelected {
   return useStore(store.readable, selector);
+}
+
+function readShellState(state: FrameStoreState): ShellState {
+  return state.shellState;
+}
+
+function readRailAttentionCount(state: FrameStoreState): number | undefined {
+  return state.railAttentionCount;
 }

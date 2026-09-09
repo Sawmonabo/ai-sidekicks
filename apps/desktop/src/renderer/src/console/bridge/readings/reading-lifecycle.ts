@@ -58,32 +58,6 @@ export interface WireReadState {
 }
 
 /**
- * The refusal a surface renders for this reading, or `undefined` when there is none.
- *
- * THE PHASE-AWARE ACCESSOR EVERY CONSUMER GOES THROUGH, so the coupling between the
- * two members is stated once rather than at each call site. Two consumers read the
- * member bare and rendered a healed reading's last failure indefinitely; both now ask
- * here, and a reading whose newest read served answers `undefined` even if some later
- * arm forgets {@link WireReadLifecycle.settleRead}'s clear.
- */
-export function readRefusalOf(state: WireReadState): ConsoleRefusal | undefined {
-  return state.phase === "refused" ? state.readRefusal : undefined;
-}
-
-/**
- * Whether this reading's tail is up, and what a trigger may do about it if not.
- *
- *   • `closed` — no tail, and opening one is worth trying. The seed state, the state
- *     a closed reading returns to, and the state a transport-level open failure
- *     leaves, because the transport that refused may serve the next caller.
- *   • `open` — the tail is up and this reading's reads are behind it.
- *   • `unopenable` — the open failed for a reason re-trying cannot change: the
- *     stream's own registered request did not admit the scope this reading is
- *     addressed at, and that request is composed from the same scope every time.
- */
-type WireStreamState = "closed" | "open" | "unopenable";
-
-/**
  * One reading's phase, its refusal, and its stream's openability.
  *
  * A class with private fields rather than three fields on each reading, because the
@@ -176,3 +150,29 @@ export class WireReadLifecycle {
     this.#readRefusal = refusal;
   }
 }
+
+/**
+ * The refusal a surface renders for this reading, or `undefined` when there is none.
+ *
+ * THE PHASE-AWARE ACCESSOR EVERY CONSUMER GOES THROUGH, so the coupling between the
+ * two members is stated once rather than at each call site. Two consumers read the
+ * member bare and rendered a healed reading's last failure indefinitely; both now ask
+ * here, and a reading whose newest read served answers `undefined` even if some later
+ * arm forgets {@link WireReadLifecycle.settleRead}'s clear.
+ */
+export function readRefusalOf(state: WireReadState): ConsoleRefusal | undefined {
+  return state.phase === "refused" ? state.readRefusal : undefined;
+}
+
+/**
+ * Whether this reading's tail is up, and what a trigger may do about it if not.
+ *
+ *   • `closed` — no tail, and opening one is worth trying. The seed state, the state
+ *     a closed reading returns to, and the state a transport-level open failure
+ *     leaves, because the transport that refused may serve the next caller.
+ *   • `open` — the tail is up and this reading's reads are behind it.
+ *   • `unopenable` — the open failed for a reason re-trying cannot change: the
+ *     stream's own registered request did not admit the scope this reading is
+ *     addressed at, and that request is composed from the same scope every time.
+ */
+type WireStreamState = "closed" | "open" | "unopenable";

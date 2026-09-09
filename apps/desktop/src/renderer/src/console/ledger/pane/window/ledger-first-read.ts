@@ -20,11 +20,6 @@ import {
   type SessionStoreState,
 } from "../../../store/index.js";
 
-/** Whether a read response has established this window's base state. */
-function readInitialised(state: SessionStoreState): boolean {
-  return state.initialised;
-}
-
 /**
  * Whether this session's first read has settled.
  *
@@ -33,4 +28,9 @@ function readInitialised(state: SessionStoreState): boolean {
  */
 export function useLedgerFirstReadSettled(sessionStore: SessionStore): boolean {
   return useSessionStore(sessionStore, readInitialised);
+}
+
+/** Whether a read response has established this window's base state. */
+function readInitialised(state: SessionStoreState): boolean {
+  return state.initialised;
 }

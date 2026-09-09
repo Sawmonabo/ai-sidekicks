@@ -22,6 +22,10 @@ export interface DiffViewControlDefaults {
   readonly showWhitespaceChanges?: boolean;
 }
 
+export interface DiffToolbarProps {
+  readonly controls: DiffViewControls;
+}
+
 /**
  * Hold the four view controls.
  *
@@ -64,10 +68,6 @@ export function useDiffViewControls(defaults: DiffViewControlDefaults = {}): Dif
     toggleWrapLongLines,
     toggleWhitespaceChanges,
   };
-}
-
-export interface DiffToolbarProps {
-  readonly controls: DiffViewControls;
 }
 
 export function DiffToolbar(props: DiffToolbarProps): React.JSX.Element {

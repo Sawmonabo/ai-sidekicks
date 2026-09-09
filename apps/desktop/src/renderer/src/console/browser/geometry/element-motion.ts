@@ -57,6 +57,13 @@ import {
  */
 const MOTION_START_EVENT_NAMES = ["transitionrun", "animationstart"] as const;
 
+export interface ElementPositionObserverOptions {
+  readonly element: Element;
+  /** The frame source the transition arm samples on. */
+  readonly clock: ConsoleClock;
+  readonly onMove: () => void;
+}
+
 /**
  * Report the node under every transition or animation that starts anywhere in this
  * document. One listener pair serves every subject a caller holds — a pair per
@@ -157,13 +164,6 @@ export function hasRunningDocumentMotion(element: Element): boolean {
   }
   const carriesSubject = (target: Element): boolean => sharesMotionWith(element, target);
   return isAnyMoving(document.getAnimations(), carriesSubject);
-}
-
-export interface ElementPositionObserverOptions {
-  readonly element: Element;
-  /** The frame source the transition arm samples on. */
-  readonly clock: ConsoleClock;
-  readonly onMove: () => void;
 }
 
 /**

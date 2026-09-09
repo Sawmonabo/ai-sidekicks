@@ -88,14 +88,6 @@ export interface AuxiliaryWindowPort {
   >;
 }
 
-/** Build one plane refusal. The two codes' sentences are the caller's own. */
-function refuseAuxiliaryWindow(
-  code: AuxiliaryWindowRefusalCode,
-  detail: string,
-): AuxiliaryWindowRefusal {
-  return refuse(AUXILIARY_WINDOW_REFUSAL_ORIGIN, code, detail);
-}
-
 /** The refusal a build with no shell answers every operation with. */
 export function refuseWithoutShell(): AuxiliaryWindowOutcome<never> {
   return {
@@ -133,6 +125,14 @@ export function createShellAuxiliaryWindowPort(sidekicks: SidekicksBridge): Auxi
     subscribePaneErrors: async () => paneErrors.open(),
     subscribePaneReturns: async () => paneReturns.open(),
   };
+}
+
+/** Build one plane refusal. The two codes' sentences are the caller's own. */
+function refuseAuxiliaryWindow(
+  code: AuxiliaryWindowRefusalCode,
+  detail: string,
+): AuxiliaryWindowRefusal {
+  return refuse(AUXILIARY_WINDOW_REFUSAL_ORIGIN, code, detail);
 }
 
 /**

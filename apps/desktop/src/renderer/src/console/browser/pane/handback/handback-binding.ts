@@ -61,12 +61,6 @@ const MIRROR_PUBLISH_FALLBACK: BrowserPaneRejectionFallback = {
     "The console's chords could not be published to the page host, so no application chord is claimed from the page. Every keystroke reaches the page instead, which is the safe direction.",
 };
 
-/** The subscription's own outcome type, and the stream read out of it. */
-type AcceleratorOutcome = Awaited<
-  ReturnType<ConsoleBridge["growth"]["browserSubscribeAccelerators"]>
->;
-type AcceleratorStream = Extract<AcceleratorOutcome, { readonly status: "served" }>["value"];
-
 /** What the pane knows about its handback: the mirror it published, and any refusal. */
 export interface HandbackBinding {
   /** The chords the mirror carries, or `undefined` while the registry is unreadable. */
@@ -76,7 +70,6 @@ export interface HandbackBinding {
   /** How many claimed chords have been replayed into this window. */
   readonly replayCount: number;
 }
-
 /**
  * Publish this pane's chord mirror and replay whatever comes back.
  *
@@ -251,3 +244,10 @@ export function replayClaimedChord(
   }
   return handback.replay(chord, paneRoot);
 }
+
+/** The subscription's own outcome type, and the stream read out of it. */
+type AcceleratorOutcome = Awaited<
+  ReturnType<ConsoleBridge["growth"]["browserSubscribeAccelerators"]>
+>;
+
+type AcceleratorStream = Extract<AcceleratorOutcome, { readonly status: "served" }>["value"];

@@ -65,14 +65,6 @@ const LAYOUT_PANE_DROP_DETAIL: Readonly<Record<LayoutPaneDropCode, string>> = {
     "A browser pane is never restored: it would re-open a page nobody asked for, on a partition that may since have been cleared.",
 };
 
-/** One drop, composed through the console's own refusal constructor. */
-function droppedPane(kind: unknown, code: LayoutPaneDropCode): LayoutPaneDrop {
-  return {
-    kind,
-    refusal: refuse(LAYOUT_RESTORE_REFUSAL_ORIGIN, code, LAYOUT_PANE_DROP_DETAIL[code]),
-  };
-}
-
 /** What a restore read back, and what it refused to. */
 export interface LayoutRestoreReading<TEntry> {
   readonly restored: readonly (TEntry & { readonly kind: PaneKind })[];
@@ -117,4 +109,12 @@ export function panesFromLayoutSnapshot<TEntry extends { readonly kind: unknown 
     restored.push(entry as TEntry & { readonly kind: PaneKind });
   }
   return { restored, dropped };
+}
+
+/** One drop, composed through the console's own refusal constructor. */
+function droppedPane(kind: unknown, code: LayoutPaneDropCode): LayoutPaneDrop {
+  return {
+    kind,
+    refusal: refuse(LAYOUT_RESTORE_REFUSAL_ORIGIN, code, LAYOUT_PANE_DROP_DETAIL[code]),
+  };
 }

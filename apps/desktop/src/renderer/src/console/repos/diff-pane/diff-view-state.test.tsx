@@ -85,13 +85,13 @@ class ViewStateProbeDriver {
   readonly #states: DiffModelViewState[] = [];
   readonly #view: ReturnType<typeof render>;
 
-  public constructor(diff: ConsoleDiffModel | undefined) {
-    this.#view = render(<ViewStateProbe diff={diff} onRender={this.#record} />);
-  }
-
   readonly #record = (state: DiffModelViewState): void => {
     this.#states.push(state);
   };
+
+  public constructor(diff: ConsoleDiffModel | undefined) {
+    this.#view = render(<ViewStateProbe diff={diff} onRender={this.#record} />);
+  }
 
   public showDiff(diff: ConsoleDiffModel | undefined): void {
     this.#view.rerender(<ViewStateProbe diff={diff} onRender={this.#record} />);

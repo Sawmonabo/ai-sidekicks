@@ -61,6 +61,25 @@ export const REPOS_SCENARIO_STARTED_AT_ISO = "2026-01-01T09:05:00.000Z";
 // asserted equal by `repos.test.ts`, so the pair cannot drift.
 const REPOS_SCENARIO_STARTED_AT_MILLISECONDS = Date.UTC(2026, 0, 1, 9, 5, 0);
 
+/** One scripted beat, as `repos.ts` states it: when, where in the sequence, and what. */
+export interface ReposBeatScript {
+  /** Milliseconds from scenario start. The beat's wire stamp is derived from this. */
+  readonly atMs: number;
+  /** Monotonic position in the session's log. */
+  readonly sequence: number;
+  /** The registered event type, wire-verbatim. */
+  readonly kind: string;
+  /**
+   * The participant the event is attributed to.
+   *
+   * Omitted where the DAEMON made the move — a participant id on a system transition
+   * would attribute the daemon's decision to a person.
+   */
+  readonly actorId?: string;
+  /** The registered family payload, transcribed verbatim by the caller. */
+  readonly payload: Readonly<Record<string, unknown>>;
+}
+
 /**
  * The wire stamp for one tick of scenario time.
  *
@@ -96,25 +115,6 @@ export function scenarioInstant(atMs: number): string {
  */
 export function secondsBeforeStart(seconds: number): string {
   return scenarioInstant(-seconds * 1_000);
-}
-
-/** One scripted beat, as `repos.ts` states it: when, where in the sequence, and what. */
-export interface ReposBeatScript {
-  /** Milliseconds from scenario start. The beat's wire stamp is derived from this. */
-  readonly atMs: number;
-  /** Monotonic position in the session's log. */
-  readonly sequence: number;
-  /** The registered event type, wire-verbatim. */
-  readonly kind: string;
-  /**
-   * The participant the event is attributed to.
-   *
-   * Omitted where the DAEMON made the move — a participant id on a system transition
-   * would attribute the daemon's decision to a person.
-   */
-  readonly actorId?: string;
-  /** The registered family payload, transcribed verbatim by the caller. */
-  readonly payload: Readonly<Record<string, unknown>>;
 }
 
 /** Wrap one scripted beat in the envelope every beat in this scenario shares. */

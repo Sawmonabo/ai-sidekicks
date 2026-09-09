@@ -32,12 +32,6 @@
  */
 export type ScenarioReplyOutcome = "due" | "abandoned" | "backlog-full";
 
-/** One reply parked until the frozen clock reaches its tick. */
-interface HeldScenarioReply {
-  readonly dueAtMs: number;
-  readonly settle: (outcome: ScenarioReplyOutcome) => void;
-}
-
 /**
  * The replies a scenario is holding, and the bound on how many.
  *
@@ -109,4 +103,10 @@ export class HeldReplyQueue {
       reply.settle("abandoned");
     }
   }
+}
+
+/** One reply parked until the frozen clock reaches its tick. */
+interface HeldScenarioReply {
+  readonly dueAtMs: number;
+  readonly settle: (outcome: ScenarioReplyOutcome) => void;
 }

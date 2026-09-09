@@ -138,56 +138,6 @@ export function producedObjectArtifactId(card: ProducedObjectCard): string {
   return card.props.artifactId;
 }
 
-/** A payload member as a non-empty string, or nothing. */
-function readStringMember(
-  payload: Readonly<Record<string, unknown>> | undefined,
-  member: string,
-): string | undefined {
-  const value = payload?.[member];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-/** A payload's `state`, where it is one of the three the shelf can render. */
-function readProducedState(
-  payload: Readonly<Record<string, unknown>> | undefined,
-): ProducedArtifactState | undefined {
-  const value = payload?.["state"];
-  return isProducedArtifactState(value) ? value : undefined;
-}
-
-/**
- * One row's state and sequence from `deciding`, its optional members from either.
- *
- * WHY AN ABSENT OPTIONAL IS NOT AN ERASURE. `runId` and `visibility` are optional on
- * the `artifact_publication` payload, so a lifecycle beat need not repeat what has
- * not changed: an `artifact.visibility_updated` names the new visibility and
- * routinely carries no `runId`, and an `artifact.superseded` names neither. A fold
- * that replaced the row wholesale therefore read every such beat as "this artifact
- * now has no run" and dropped the attribution the publish had established — a claim
- * about the artifact nothing on the wire ever made. Absent means "this beat says
- * nothing about it", which is what `??` encodes, and the only value that can erase a
- * member is a later beat carrying a different one.
- *
- * `deciding` supplies the state and the sequence unconditionally, which is what keeps
- * this a merge of METADATA rather than of state: the newest beat decides what the
- * artifact is, and the older one only fills what the newer left unsaid.
- */
-function mergedProducedArtifact(
-  deciding: ProducedArtifact,
-  fallback: ProducedArtifact | undefined,
-): ProducedArtifact {
-  if (fallback === undefined) {
-    return deciding;
-  }
-  return {
-    artifactId: deciding.artifactId,
-    state: deciding.state,
-    runId: deciding.runId ?? fallback.runId,
-    visibility: deciding.visibility ?? fallback.visibility,
-    latestSequence: deciding.latestSequence,
-  };
-}
-
 /**
  * Every artifact this window produced, newest first, as the log now knows it.
  *
@@ -244,4 +194,54 @@ export function foldProducedArtifacts(
   return [...byArtifactId.values()].sort(
     (left, right) => right.latestSequence - left.latestSequence,
   );
+}
+
+/** A payload member as a non-empty string, or nothing. */
+function readStringMember(
+  payload: Readonly<Record<string, unknown>> | undefined,
+  member: string,
+): string | undefined {
+  const value = payload?.[member];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/** A payload's `state`, where it is one of the three the shelf can render. */
+function readProducedState(
+  payload: Readonly<Record<string, unknown>> | undefined,
+): ProducedArtifactState | undefined {
+  const value = payload?.["state"];
+  return isProducedArtifactState(value) ? value : undefined;
+}
+
+/**
+ * One row's state and sequence from `deciding`, its optional members from either.
+ *
+ * WHY AN ABSENT OPTIONAL IS NOT AN ERASURE. `runId` and `visibility` are optional on
+ * the `artifact_publication` payload, so a lifecycle beat need not repeat what has
+ * not changed: an `artifact.visibility_updated` names the new visibility and
+ * routinely carries no `runId`, and an `artifact.superseded` names neither. A fold
+ * that replaced the row wholesale therefore read every such beat as "this artifact
+ * now has no run" and dropped the attribution the publish had established — a claim
+ * about the artifact nothing on the wire ever made. Absent means "this beat says
+ * nothing about it", which is what `??` encodes, and the only value that can erase a
+ * member is a later beat carrying a different one.
+ *
+ * `deciding` supplies the state and the sequence unconditionally, which is what keeps
+ * this a merge of METADATA rather than of state: the newest beat decides what the
+ * artifact is, and the older one only fills what the newer left unsaid.
+ */
+function mergedProducedArtifact(
+  deciding: ProducedArtifact,
+  fallback: ProducedArtifact | undefined,
+): ProducedArtifact {
+  if (fallback === undefined) {
+    return deciding;
+  }
+  return {
+    artifactId: deciding.artifactId,
+    state: deciding.state,
+    runId: deciding.runId ?? fallback.runId,
+    visibility: deciding.visibility ?? fallback.visibility,
+    latestSequence: deciding.latestSequence,
+  };
 }

@@ -35,11 +35,6 @@ import {
   type GrowthMcpMutationResult,
 } from "../../growth-values/index.js";
 
-/** What the inventory read answers with, as the registered signature declares it. */
-interface McpInventoryReading {
-  readonly servers: readonly GrowthMcpInventoryEntry[];
-}
-
 /**
  * The rows this port's governance mutations have already replaced, keyed by binding.
  *
@@ -85,4 +80,9 @@ export class FixtureMcpInventoryLedger {
       ),
     };
   }
+}
+
+/** What the inventory read answers with, as the registered signature declares it. */
+interface McpInventoryReading {
+  readonly servers: readonly GrowthMcpInventoryEntry[];
 }

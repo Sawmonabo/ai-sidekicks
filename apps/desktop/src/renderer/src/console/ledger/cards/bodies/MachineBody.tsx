@@ -67,17 +67,36 @@ export type MachineBodyKind = (typeof MACHINE_BODY_KINDS)[number];
  */
 const MARKDOWN_MEDIA_TYPES: readonly string[] = ["text/markdown", "text/x-markdown"];
 
-/**
- * The essence of a declared media type — its type and subtype, lowercased.
- *
- * `contentType` is a free-form wire string, so the value arrives as the producer spelled
- * it: `text/markdown; charset=utf-8` and `TEXT/MARKDOWN` are the same declaration, and a
- * comparison against the raw member would answer "unrecognised" for both. Parameters are
- * dropped rather than parsed — none of them bears on which renderer the body takes.
- */
-function declaredEssence(declaredMediaType: string): string {
-  const [essence = ""] = declaredMediaType.split(";");
-  return essence.trim().toLowerCase();
+export interface MachineBodyProps {
+  /**
+   * The hydrated body as the read projection reports it, or `undefined` when this row's
+   * body has not been asked for. The three states are distinct and none is the others:
+   * not asked, asked and unavailable, asked and available.
+   */
+  readonly content: HydratedSessionEventContent | undefined;
+  /**
+   * Text the reveal engine is publishing for this row right now.
+   *
+   * Present only while the turn streams. It takes precedence over `content` because a
+   * live turn HAS no stored body yet, and it carries no truncation marker because
+   * nothing has been truncated: the ceiling is applied at append, which has not
+   * happened.
+   */
+  readonly liveText?: string | undefined;
+  /**
+   * The media type the PRODUCER declared for this body, where it declared one.
+   *
+   * `AssistantOutputPayload.contentType` and nothing else: the tool trio carries no such
+   * member, so a tool card passes nothing here and the body's bytes decide instead. It is
+   * a free-form wire string rather than a closed union, which is why the reading above
+   * normalises it rather than switching on it.
+   */
+  readonly contentType?: string | undefined;
+  /** The row this body belongs to — the footnote registry's first key half. */
+  readonly sourceId: string;
+  readonly footnotes: FootnoteRegistry;
+  /** What a screen reader calls a command-output block. */
+  readonly label: string;
 }
 
 /**
@@ -115,38 +134,6 @@ export function machineBodyKindOf(
   return carriesAnsiEscapes(body) ? "command-output" : "prose";
 }
 
-export interface MachineBodyProps {
-  /**
-   * The hydrated body as the read projection reports it, or `undefined` when this row's
-   * body has not been asked for. The three states are distinct and none is the others:
-   * not asked, asked and unavailable, asked and available.
-   */
-  readonly content: HydratedSessionEventContent | undefined;
-  /**
-   * Text the reveal engine is publishing for this row right now.
-   *
-   * Present only while the turn streams. It takes precedence over `content` because a
-   * live turn HAS no stored body yet, and it carries no truncation marker because
-   * nothing has been truncated: the ceiling is applied at append, which has not
-   * happened.
-   */
-  readonly liveText?: string | undefined;
-  /**
-   * The media type the PRODUCER declared for this body, where it declared one.
-   *
-   * `AssistantOutputPayload.contentType` and nothing else: the tool trio carries no such
-   * member, so a tool card passes nothing here and the body's bytes decide instead. It is
-   * a free-form wire string rather than a closed union, which is why the reading above
-   * normalises it rather than switching on it.
-   */
-  readonly contentType?: string | undefined;
-  /** The row this body belongs to — the footnote registry's first key half. */
-  readonly sourceId: string;
-  readonly footnotes: FootnoteRegistry;
-  /** What a screen reader calls a command-output block. */
-  readonly label: string;
-}
-
 export function MachineBody(props: MachineBodyProps): React.JSX.Element {
   if (props.liveText !== undefined) {
     return renderBodyText(props, props.liveText, false);
@@ -178,6 +165,19 @@ export function MachineBody(props: MachineBodyProps): React.JSX.Element {
       ) : null}
     </div>
   );
+}
+
+/**
+ * The essence of a declared media type — its type and subtype, lowercased.
+ *
+ * `contentType` is a free-form wire string, so the value arrives as the producer spelled
+ * it: `text/markdown; charset=utf-8` and `TEXT/MARKDOWN` are the same declaration, and a
+ * comparison against the raw member would answer "unrecognised" for both. Parameters are
+ * dropped rather than parsed — none of them bears on which renderer the body takes.
+ */
+function declaredEssence(declaredMediaType: string): string {
+  const [essence = ""] = declaredMediaType.split(";");
+  return essence.trim().toLowerCase();
 }
 
 /**

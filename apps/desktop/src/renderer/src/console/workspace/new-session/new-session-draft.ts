@@ -111,33 +111,6 @@ export interface NewSessionDraftState {
   readonly revision: number;
 }
 
-/** What one draft has already put on the wire, so a repeat press resumes rather than repeats. */
-interface LandedCalls {
-  /**
-   * The session this draft created, once it has.
-   *
-   * Set only where the reply was READ, so this member and {@link sessionId} move
-   * together and the resume path can address the session it names. The create that
-   * answered unreadably is the other half of the same rule and is recorded beside it
-   * in {@link hasUnreadableCreate}, because it cannot be resumed from at all — there
-   * is no id — and must still stop the next press from minting a second session.
-   */
-  hasCreatedSession: boolean;
-  sessionId: string | undefined;
-  /**
-   * Whether the create answered with a reply this build could not read.
-   *
-   * The state {@link hasCreatedSession} anticipates and could not by itself express:
-   * a create the daemon answered unreadably may have made a session, and no id came
-   * back to address it by — so the draft can neither resume against it nor safely
-   * mint another. Recorded so every LATER press answers from memory and puts nothing
-   * on the wire.
-   */
-  hasUnreadableCreate: boolean;
-  readonly attachedDefinitionIds: Set<string>;
-  hasQueuedFirstTurn: boolean;
-}
-
 export class NewSessionDraft {
   readonly #bridge: ConsoleBridge;
   readonly #changes = new Emitter<NewSessionDraftState>("new session draft change");
@@ -365,4 +338,31 @@ export class NewSessionDraft {
     };
     this.#changes.emit(this.#state);
   }
+}
+
+/** What one draft has already put on the wire, so a repeat press resumes rather than repeats. */
+interface LandedCalls {
+  /**
+   * The session this draft created, once it has.
+   *
+   * Set only where the reply was READ, so this member and {@link sessionId} move
+   * together and the resume path can address the session it names. The create that
+   * answered unreadably is the other half of the same rule and is recorded beside it
+   * in {@link hasUnreadableCreate}, because it cannot be resumed from at all — there
+   * is no id — and must still stop the next press from minting a second session.
+   */
+  hasCreatedSession: boolean;
+  sessionId: string | undefined;
+  /**
+   * Whether the create answered with a reply this build could not read.
+   *
+   * The state {@link hasCreatedSession} anticipates and could not by itself express:
+   * a create the daemon answered unreadably may have made a session, and no id came
+   * back to address it by — so the draft can neither resume against it nor safely
+   * mint another. Recorded so every LATER press answers from memory and puts nothing
+   * on the wire.
+   */
+  hasUnreadableCreate: boolean;
+  readonly attachedDefinitionIds: Set<string>;
+  hasQueuedFirstTurn: boolean;
 }

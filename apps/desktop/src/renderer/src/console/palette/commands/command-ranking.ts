@@ -67,13 +67,6 @@ export const COMMAND_GROUP_FIELD_PENALTY = 64;
  */
 export const COMMAND_RECENCY_BONUS = 12;
 
-function compareStrings(left: string, right: string): number {
-  if (left === right) {
-    return 0;
-  }
-  return left < right ? -1 : 1;
-}
-
 /**
  * The console's display order for two commands: category, then title, then id.
  *
@@ -211,4 +204,11 @@ export function rankCommandsForEmptyQuery(
   // remainder needs no second sort — and must not get one, or the categories
   // would reshuffle between an empty query and a cleared query.
   return [...recentResults, ...remainingResults].slice(0, PALETTE_RESULT_CAP);
+}
+
+function compareStrings(left: string, right: string): number {
+  if (left === right) {
+    return 0;
+  }
+  return left < right ? -1 : 1;
 }

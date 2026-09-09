@@ -71,6 +71,15 @@ const CODEX_DEFAULT_ACCOUNT_ID = "acct-codex-personal";
 const CODEX_SECOND_ACCOUNT_ID = "acct-codex-work";
 const OBSERVED_AT = "2026-01-01T08:40:00.000Z";
 
+/** The four members a rendering case actually varies. The rest are held fixed. */
+export interface ScriptedProviderAccountFields {
+  readonly accountId: string;
+  readonly displayLabel: string;
+  readonly isDefault: boolean;
+  /** Which provider holds this account. `codex`, where a case does not care. */
+  readonly provider?: string;
+}
+
 /**
  * A model over a bridge and a real window store.
  *
@@ -195,15 +204,6 @@ export function twoAccountScenario(): ConsoleScenario {
       },
     ],
   };
-}
-
-/** The four members a rendering case actually varies. The rest are held fixed. */
-export interface ScriptedProviderAccountFields {
-  readonly accountId: string;
-  readonly displayLabel: string;
-  readonly isDefault: boolean;
-  /** Which provider holds this account. `codex`, where a case does not care. */
-  readonly provider?: string;
 }
 
 /**

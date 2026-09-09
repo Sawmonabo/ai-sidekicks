@@ -28,9 +28,6 @@ import {
   type WorkflowDefinitionDirectoryState,
 } from "./definition-directory.js";
 
-/** One settled page, derived from the port's own answer rather than restated. */
-type SettledDefinitionPage = Awaited<ReturnType<GrowthPort["workflowDefinitionList"]>>;
-
 /**
  * One row per id, which is what these cases read back: the id is the only member that
  * says WHICH read committed. Everything else is the family's row, built once at
@@ -70,15 +67,6 @@ export function twoPagePort(secondPageIds: readonly string[] = ["third", "fourth
         }
       : { status: "served", value: { definitions: secondPageIds.map(definitionWithId) } },
   );
-}
-
-function DirectoryProbe(props: {
-  readonly growth: GrowthPort;
-  readonly sessionId: string | undefined;
-  readonly onObserve: (directory: WorkflowDefinitionDirectory) => void;
-}): React.JSX.Element {
-  props.onObserve(useWorkflowDefinitionDirectory(props.growth, props.sessionId));
-  return <></>;
 }
 
 export function observeDirectory(
@@ -132,4 +120,16 @@ export function lastState(
 
 export function definitionIds(state: WorkflowDefinitionDirectoryState): readonly string[] {
   return state.status === "served" ? state.definitions.map((row) => row.id) : [];
+}
+
+/** One settled page, derived from the port's own answer rather than restated. */
+type SettledDefinitionPage = Awaited<ReturnType<GrowthPort["workflowDefinitionList"]>>;
+
+function DirectoryProbe(props: {
+  readonly growth: GrowthPort;
+  readonly sessionId: string | undefined;
+  readonly onObserve: (directory: WorkflowDefinitionDirectory) => void;
+}): React.JSX.Element {
+  props.onObserve(useWorkflowDefinitionDirectory(props.growth, props.sessionId));
+  return <></>;
 }

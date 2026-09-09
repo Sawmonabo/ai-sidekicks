@@ -48,17 +48,17 @@ export const DEFAULT_PREFERENCE_MEMBER = "notify";
  */
 const DEFAULT_PREFERENCE_ENABLED = true;
 
-/** What one trigger's record is before anybody has stored one. */
-export function defaultPreferenceFor(trigger: AttentionTrigger): AttentionPreference {
-  return { key: trigger, value: { [DEFAULT_PREFERENCE_MEMBER]: DEFAULT_PREFERENCE_ENABLED } };
-}
-
 /** The stored set, and which of its rows this console supplied rather than read. */
 export interface PreferencesWithDefaults {
   /** The daemon's own records first, in its order, then a default per missing trigger. */
   readonly preferences: readonly AttentionPreference[];
   /** The keys nobody has stored. Every one of them is tagged on screen. */
   readonly defaultedKeys: ReadonlySet<string>;
+}
+
+/** What one trigger's record is before anybody has stored one. */
+export function defaultPreferenceFor(trigger: AttentionTrigger): AttentionPreference {
+  return { key: trigger, value: { [DEFAULT_PREFERENCE_MEMBER]: DEFAULT_PREFERENCE_ENABLED } };
 }
 
 /**

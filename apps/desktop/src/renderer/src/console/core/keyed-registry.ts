@@ -109,42 +109,6 @@ export class KeyedRegistry<Key, Value> {
     this.#duplicateHint = options.duplicateHint === undefined ? "" : `; ${options.duplicateHint}`;
   }
 
-  #alreadyRegistered(key: Key): DuplicateRegistrationError {
-    return new DuplicateRegistrationError(
-      refuse(
-        REGISTRY_ORIGIN,
-        "duplicate-registration",
-        `${this.#describeWhat} "${String(key)}" is already registered${this.#duplicateHint}`,
-      ),
-      String(key),
-    );
-  }
-
-  /**
-   * The conflict an owner-scoped registry raises when a DIFFERENT owner claims a
-   * taken key. One builder rather than two identical literals, because `register`
-   * and `registerAll` raised the same conflict from two hand-copied messages.
-   */
-  #ownerConflict(key: Key, existing: Value, incoming: Value): DuplicateRegistrationError {
-    return new DuplicateRegistrationError(
-      refuse(
-        REGISTRY_ORIGIN,
-        "owner-conflict",
-        `${this.#describeWhat} "${String(key)}" is already registered by ${this.#ownerName(existing)}; ${this.#ownerName(incoming)} cannot claim it too`,
-      ),
-      String(key),
-    );
-  }
-
-  /**
-   * Who owns a value. `ownerOf` is present under `"owner-scoped"` — the constructor
-   * refuses that policy without one — so the empty fallback is unreachable there and
-   * exists only to keep the reader total.
-   */
-  #ownerName(value: Value): string {
-    return this.#ownerOf === undefined ? "" : this.#ownerOf(value);
-  }
-
   /**
    * Register one value, applying the policy.
    *
@@ -235,6 +199,42 @@ export class KeyedRegistry<Key, Value> {
 
   public clear(): void {
     this.#valuesByKey.clear();
+  }
+
+  #alreadyRegistered(key: Key): DuplicateRegistrationError {
+    return new DuplicateRegistrationError(
+      refuse(
+        REGISTRY_ORIGIN,
+        "duplicate-registration",
+        `${this.#describeWhat} "${String(key)}" is already registered${this.#duplicateHint}`,
+      ),
+      String(key),
+    );
+  }
+
+  /**
+   * The conflict an owner-scoped registry raises when a DIFFERENT owner claims a
+   * taken key. One builder rather than two identical literals, because `register`
+   * and `registerAll` raised the same conflict from two hand-copied messages.
+   */
+  #ownerConflict(key: Key, existing: Value, incoming: Value): DuplicateRegistrationError {
+    return new DuplicateRegistrationError(
+      refuse(
+        REGISTRY_ORIGIN,
+        "owner-conflict",
+        `${this.#describeWhat} "${String(key)}" is already registered by ${this.#ownerName(existing)}; ${this.#ownerName(incoming)} cannot claim it too`,
+      ),
+      String(key),
+    );
+  }
+
+  /**
+   * Who owns a value. `ownerOf` is present under `"owner-scoped"` — the constructor
+   * refuses that policy without one — so the empty fallback is unreachable there and
+   * exists only to keep the reader total.
+   */
+  #ownerName(value: Value): string {
+    return this.#ownerOf === undefined ? "" : this.#ownerOf(value);
   }
 }
 

@@ -48,6 +48,30 @@ export function uncheckedSessionsSentence(refusedCount: number): string {
 }
 
 /**
+ * One settled attention read, in one sentence for the polite lane.
+ *
+ * The `not-asked` arm speaks, and that is deliberate: it is a settled state rather
+ * than a read in flight — the installed bridge reaches it and stays there — so
+ * leaving it silent would put a person who cannot see the panel in front of the one
+ * conflation this whole surface is built to prevent, hearing nothing and having no
+ * way to tell "you are free" from "nobody asked".
+ */
+export function describeAttentionSettlement(reading: SettledAttentionReading): string {
+  if (reading.phase === "not-asked") {
+    return "The attention projection has not been read, so this is not an all-clear.";
+  }
+  if (reading.phase === "refused") {
+    return reading.refusal.detail;
+  }
+  const clauses = [needsYouClause(reading)];
+  if (reading.refusedSessions.length > 0) {
+    clauses.push(uncheckedSessionsSentence(reading.refusedSessions.length));
+  }
+  clauses.push(...incompletenessSentences(reading));
+  return clauses.join(" ");
+}
+
+/**
  * What the console says aloud about a read that was not the whole of it.
  *
  * The SENTENCES the panel is already showing, read off `primitives/reading/partial-read.ts`
@@ -70,30 +94,6 @@ function incompletenessSentences(reading: AnsweredAttentionReading): readonly st
     // its own title through `Nothing` — and `none` is a reading that was whole.
   }
   return sentences;
-}
-
-/**
- * One settled attention read, in one sentence for the polite lane.
- *
- * The `not-asked` arm speaks, and that is deliberate: it is a settled state rather
- * than a read in flight — the installed bridge reaches it and stays there — so
- * leaving it silent would put a person who cannot see the panel in front of the one
- * conflation this whole surface is built to prevent, hearing nothing and having no
- * way to tell "you are free" from "nobody asked".
- */
-export function describeAttentionSettlement(reading: SettledAttentionReading): string {
-  if (reading.phase === "not-asked") {
-    return "The attention projection has not been read, so this is not an all-clear.";
-  }
-  if (reading.phase === "refused") {
-    return reading.refusal.detail;
-  }
-  const clauses = [needsYouClause(reading)];
-  if (reading.refusedSessions.length > 0) {
-    clauses.push(uncheckedSessionsSentence(reading.refusedSessions.length));
-  }
-  clauses.push(...incompletenessSentences(reading));
-  return clauses.join(" ");
 }
 
 /**

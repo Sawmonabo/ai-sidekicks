@@ -54,11 +54,6 @@ export interface SettingsSurfaceProps {
   readonly pages: SettingsPageRegistry;
 }
 
-/** The section a `#/settings/<page>` address names, or `undefined` for none of them. */
-function requestedSection(page: string | undefined): SettingsSectionId | undefined {
-  return SETTINGS_SECTION_IDS.find((section) => section === page);
-}
-
 export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element {
   const { context, pages } = props;
   const { route } = context;
@@ -185,4 +180,9 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
       </div>
     </section>
   );
+}
+
+/** The section a `#/settings/<page>` address names, or `undefined` for none of them. */
+function requestedSection(page: string | undefined): SettingsSectionId | undefined {
+  return SETTINGS_SECTION_IDS.find((section) => section === page);
 }

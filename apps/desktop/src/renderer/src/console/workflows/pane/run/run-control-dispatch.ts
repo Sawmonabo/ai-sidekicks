@@ -74,6 +74,36 @@ import {
 } from "./run-controls.js";
 import type { RecordServedRunAct } from "./served-run-act.js";
 
+/** Both controls for one run, and the re-arm round their settlements advance. */
+export interface WorkflowRunControls {
+  readonly cancel: WorkflowCancelControl;
+  /**
+   * The resume call and its outcome, and deliberately not the version chain.
+   *
+   * The chain is a read addressed by the version the run's snapshot reports, and that
+   * snapshot is put at the round this hook publishes — so a chain taken as a parameter
+   * here would have to be resolved before the value it is resolved from exists. The
+   * surface that mounts the control is where the two producers meet, and
+   * `run-controls.ts` states the split on the pair of interfaces it declares for it.
+   */
+  readonly resume: WorkflowResumeDispatch;
+  /** The run read's round. Advances by one per served act; see the state above. */
+  readonly servedActCount: number;
+  /**
+   * Advance that round for a served act this dispatcher did not put.
+   *
+   * The pane's parked phases are answered through the human-form slot, which is a body
+   * mounted in a seat and reaches no dispatcher — and a submission the daemon recorded
+   * moved the run exactly as a served cancel did. So the advance is offered rather than
+   * a second count being kept next door: `served-run-act.ts` is the seam the pane hands
+   * this across, and states why it is a context rather than a member on the mount.
+   *
+   * Does nothing on a pane naming no run, which is the arm both controls above take —
+   * such a pane has put no read, so there is no answer for an act to make stale.
+   */
+  readonly recordServedAct: RecordServedRunAct;
+}
+
 /** What one control's press settles to, once the port has answered. */
 interface ServedActReading {
   readonly runState: WorkflowRunControlRunState;
@@ -122,36 +152,6 @@ interface RunControlRuntime {
   readonly growth: GrowthPort;
   readonly workflowRunId: string;
   readonly publish: SubjectScopedPublish<RunControlDispatchState>;
-}
-
-/** Both controls for one run, and the re-arm round their settlements advance. */
-export interface WorkflowRunControls {
-  readonly cancel: WorkflowCancelControl;
-  /**
-   * The resume call and its outcome, and deliberately not the version chain.
-   *
-   * The chain is a read addressed by the version the run's snapshot reports, and that
-   * snapshot is put at the round this hook publishes — so a chain taken as a parameter
-   * here would have to be resolved before the value it is resolved from exists. The
-   * surface that mounts the control is where the two producers meet, and
-   * `run-controls.ts` states the split on the pair of interfaces it declares for it.
-   */
-  readonly resume: WorkflowResumeDispatch;
-  /** The run read's round. Advances by one per served act; see the state above. */
-  readonly servedActCount: number;
-  /**
-   * Advance that round for a served act this dispatcher did not put.
-   *
-   * The pane's parked phases are answered through the human-form slot, which is a body
-   * mounted in a seat and reaches no dispatcher — and a submission the daemon recorded
-   * moved the run exactly as a served cancel did. So the advance is offered rather than
-   * a second count being kept next door: `served-run-act.ts` is the seam the pane hands
-   * this across, and states why it is a context rather than a member on the mount.
-   *
-   * Does nothing on a pane naming no run, which is the arm both controls above take —
-   * such a pane has put no read, so there is no answer for an act to make stale.
-   */
-  readonly recordServedAct: RecordServedRunAct;
 }
 
 /** Both controls idle and nothing served yet — what a newly addressed run starts at. */

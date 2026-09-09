@@ -136,6 +136,9 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
   #readiness: readonly ProviderReadiness[] = NO_READINESS;
   #readout: ProviderQuotaReadout;
 
+  /** The reading as it stands. One object for every watcher, stable between changes. */
+  public snapshot = (): ProviderQuotaReadout => this.#readout;
+
   public constructor(bridge: ConsoleBridge, onIdle: () => void) {
     this.#bridge = bridge;
     this.#onIdle = onIdle;
@@ -202,9 +205,6 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
     }
     this.#refresh.request(reason);
   }
-
-  /** The reading as it stands. One object for every watcher, stable between changes. */
-  public snapshot = (): ProviderQuotaReadout => this.#readout;
 
   /** Whether this reading has been retired. A retired one serves nobody again. */
   public get isRetired(): boolean {

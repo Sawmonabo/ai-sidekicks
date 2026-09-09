@@ -45,6 +45,11 @@ export interface RosterListRowProps {
   readonly onToggleDetail: () => void;
 }
 
+/** The hue a row's identity mark carries, as a `var()` reference. */
+export interface IdentityMarkStyle extends React.CSSProperties {
+  readonly "--meridian-roster-hue": string;
+}
+
 export function RosterListRow(props: RosterListRowProps): React.JSX.Element {
   const { row, nowMilliseconds, label, composingChannelId, role, holdsTerminalControl } = props;
   const { participant } = row;
@@ -130,11 +135,6 @@ export function RosterListRow(props: RosterListRowProps): React.JSX.Element {
       ) : null}
     </li>
   );
-}
-
-/** The hue a row's identity mark carries, as a `var()` reference. */
-export interface IdentityMarkStyle extends React.CSSProperties {
-  readonly "--meridian-roster-hue": string;
 }
 
 /** Which chip tone a presence state earns. Amber only where a person is needed. */

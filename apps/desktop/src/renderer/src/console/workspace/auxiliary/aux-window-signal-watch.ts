@@ -44,18 +44,6 @@ import {
  */
 export type ConsoleAuxiliaryWindowPort = ConsoleBridge["auxiliaryWindows"];
 
-/**
- * A stream this watch can drain, in the shape a plane subscription answers with.
- *
- * Structural rather than the port's own `WindowSignalStream`, so this module names
- * the two members it actually uses and nothing else. The concrete streams satisfy it
- * because they carry both.
- */
-interface DrainableSignal<TEvent> {
-  readonly events: AsyncIterable<TEvent>;
-  close(): void;
-}
-
 export interface AuxiliaryWindowSignalWatchOptions<TEvent> {
   /**
    * The latch key this watch's rounds are claimed under.
@@ -250,6 +238,18 @@ export class AuxiliaryWindowSignalWatch<TEvent> {
       this.#options.onChanged();
     });
   }
+}
+
+/**
+ * A stream this watch can drain, in the shape a plane subscription answers with.
+ *
+ * Structural rather than the port's own `WindowSignalStream`, so this module names
+ * the two members it actually uses and nothing else. The concrete streams satisfy it
+ * because they carry both.
+ */
+interface DrainableSignal<TEvent> {
+  readonly events: AsyncIterable<TEvent>;
+  close(): void;
 }
 
 /**

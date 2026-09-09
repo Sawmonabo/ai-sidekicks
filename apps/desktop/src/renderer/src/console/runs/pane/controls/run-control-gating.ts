@@ -81,6 +81,21 @@ export const CONTROL_CAPABILITY_GATE: Readonly<
 };
 
 /**
+ * What a row OFFERS for one run, split the way the row draws it.
+ *
+ * Two lists rather than one, because the row's two halves are two different
+ * density rules: `primary` is always visible on the run, `overflow` is the
+ * one-click-away set. A caller that only wants "every control this run offers"
+ * concatenates them, which is what the palette contribution does.
+ */
+export interface OfferedRunControls {
+  /** Always visible on the row: the pause/resume verb the state admits, and stop. */
+  readonly primary: readonly RunControl[];
+  /** One click away, and capability-gated: steer, cancel, rewind. */
+  readonly overflow: readonly RunControl[];
+}
+
+/**
  * Whether a control is OFFERED on the driver this run is bound to.
  *
  * Absent, never disabled. An ungated control is always offered, and a gated one is
@@ -98,21 +113,6 @@ export function isControlOffered(
     return true;
   }
   return readingForRun(readout, runId, gate) === "declared";
-}
-
-/**
- * What a row OFFERS for one run, split the way the row draws it.
- *
- * Two lists rather than one, because the row's two halves are two different
- * density rules: `primary` is always visible on the run, `overflow` is the
- * one-click-away set. A caller that only wants "every control this run offers"
- * concatenates them, which is what the palette contribution does.
- */
-export interface OfferedRunControls {
-  /** Always visible on the row: the pause/resume verb the state admits, and stop. */
-  readonly primary: readonly RunControl[];
-  /** One click away, and capability-gated: steer, cancel, rewind. */
-  readonly overflow: readonly RunControl[];
 }
 
 /**

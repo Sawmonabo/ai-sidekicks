@@ -60,6 +60,9 @@ export const PROBE_PARTICIPANT_ID = "019b7a12-0280-79a4-8110-cca0117a0401";
 /** The continuation token the paged cases hand back. */
 export const SECOND_PAGE_CURSOR = "definitions-page-2";
 
+/** One settled page, derived from the port's own answer rather than restated. */
+export type SettledDefinitionPage = Awaited<ReturnType<GrowthPort["workflowDefinitionList"]>>;
+
 /** One definition, as the enumeration carries it. Override only what a case asserts on. */
 export function definition(overrides: Partial<WorkflowDefinitionRow> = {}): WorkflowDefinitionRow {
   return {
@@ -75,9 +78,6 @@ export function definition(overrides: Partial<WorkflowDefinitionRow> = {}): Work
     ...overrides,
   };
 }
-
-/** One settled page, derived from the port's own answer rather than restated. */
-export type SettledDefinitionPage = Awaited<ReturnType<GrowthPort["workflowDefinitionList"]>>;
 
 /** The real port answering the enumeration one way, and nothing else changed. */
 export function portAnswering(page: SettledDefinitionPage): GrowthPort {

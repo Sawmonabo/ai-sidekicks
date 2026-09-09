@@ -71,6 +71,13 @@ const NO_SESSION_TO_READ: ConsoleRefusal = refuse(
   "This console was not handed a session to read the projection from, so nothing was asked of the daemon.",
 );
 
+/** What a surface drives the re-read control from. */
+export interface SessionProjectionReReadBinding {
+  /** Ask the daemon again. Total: a mount with no session answers with a refusal. */
+  readonly requestReRead: () => void;
+  readonly refusal: ConsoleRefusal | undefined;
+}
+
 /** A re-read of one session's projection, coalesced through the refresh chokepoint. */
 export class SessionProjectionReRead {
   readonly #bridge: ConsoleBridge;
@@ -145,13 +152,6 @@ export class SessionProjectionReRead {
     this.#refusal = refusal;
     this.#changes.emit();
   }
-}
-
-/** What a surface drives the re-read control from. */
-export interface SessionProjectionReReadBinding {
-  /** Ask the daemon again. Total: a mount with no session answers with a refusal. */
-  readonly requestReRead: () => void;
-  readonly refusal: ConsoleRefusal | undefined;
 }
 
 /**

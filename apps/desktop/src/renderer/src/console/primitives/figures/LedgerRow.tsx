@@ -58,11 +58,6 @@ export interface LedgerRowProps {
   readonly isSuperseded?: boolean;
 }
 
-/** Carries the row's participant hue into the edge's fill patterns. */
-interface AttributionEdgeStyle extends React.CSSProperties {
-  readonly "--meridian-row-hue": string;
-}
-
 export function LedgerRow(props: LedgerRowProps): React.JSX.Element {
   const actorId = useId();
 
@@ -134,4 +129,9 @@ export function LedgerRow(props: LedgerRowProps): React.JSX.Element {
       ) : null}
     </article>
   );
+}
+
+/** Carries the row's participant hue into the edge's fill patterns. */
+interface AttributionEdgeStyle extends React.CSSProperties {
+  readonly "--meridian-row-hue": string;
 }

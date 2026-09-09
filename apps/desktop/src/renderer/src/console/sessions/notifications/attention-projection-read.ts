@@ -161,60 +161,6 @@ export function attentionProjectionReaderFor(
   };
 }
 
-function isTrigger(candidate: unknown): candidate is AttentionTrigger {
-  return (
-    typeof candidate === "string" && (ATTENTION_TRIGGERS as readonly string[]).includes(candidate)
-  );
-}
-
-function isSeverity(candidate: unknown): candidate is AttentionSeverity {
-  return (
-    typeof candidate === "string" && (ATTENTION_SEVERITIES as readonly string[]).includes(candidate)
-  );
-}
-
-function readString(source: Readonly<Record<string, unknown>>, member: string): string | undefined {
-  const value = source[member];
-  return typeof value === "string" && value !== "" ? value : undefined;
-}
-
-/**
- * What an OPTIONAL member answered — three values, because two would lose one.
- *
- * `readString` above answers `undefined` for a member that is absent, empty, or not
- * a string at all, which is exactly right for a REQUIRED member (the conjunction
- * below rejects the item either way) and exactly wrong for an optional one: it
- * converts "the producer sent something this console cannot read" into "the
- * producer sent nothing", and absence is a meaningful value on both optional
- * members here.
- */
-type OptionalStringReading =
-  | { readonly presence: "absent" }
-  | { readonly presence: "present"; readonly value: string }
-  | { readonly presence: "invalid" };
-
-/**
- * Read an optional string member without flattening invalid onto absent.
- *
- * `undefined` is absence and nothing else is: a JSON producer omits an optional
- * member rather than sending a null, so `null`, `""`, and every non-string answer
- * `invalid` and the item is dropped. That is the fail-closed arm — the alternative
- * is a console that reads `resolvedAt: null` as "still outstanding" and offers a
- * person work the daemon already closed.
- */
-function readOptionalString(
-  source: Readonly<Record<string, unknown>>,
-  member: string,
-): OptionalStringReading {
-  const value = source[member];
-  if (value === undefined) {
-    return { presence: "absent" };
-  }
-  return typeof value === "string" && value !== ""
-    ? { presence: "present", value }
-    : { presence: "invalid" };
-}
-
 /**
  * Narrow one projection member, or drop it.
  *
@@ -292,4 +238,58 @@ export function narrowAttentionProjection(members: readonly unknown[]): {
     items.push(item);
   }
   return { items, droppedCount };
+}
+
+function isTrigger(candidate: unknown): candidate is AttentionTrigger {
+  return (
+    typeof candidate === "string" && (ATTENTION_TRIGGERS as readonly string[]).includes(candidate)
+  );
+}
+
+function isSeverity(candidate: unknown): candidate is AttentionSeverity {
+  return (
+    typeof candidate === "string" && (ATTENTION_SEVERITIES as readonly string[]).includes(candidate)
+  );
+}
+
+function readString(source: Readonly<Record<string, unknown>>, member: string): string | undefined {
+  const value = source[member];
+  return typeof value === "string" && value !== "" ? value : undefined;
+}
+
+/**
+ * What an OPTIONAL member answered — three values, because two would lose one.
+ *
+ * `readString` above answers `undefined` for a member that is absent, empty, or not
+ * a string at all, which is exactly right for a REQUIRED member (the conjunction
+ * below rejects the item either way) and exactly wrong for an optional one: it
+ * converts "the producer sent something this console cannot read" into "the
+ * producer sent nothing", and absence is a meaningful value on both optional
+ * members here.
+ */
+type OptionalStringReading =
+  | { readonly presence: "absent" }
+  | { readonly presence: "present"; readonly value: string }
+  | { readonly presence: "invalid" };
+
+/**
+ * Read an optional string member without flattening invalid onto absent.
+ *
+ * `undefined` is absence and nothing else is: a JSON producer omits an optional
+ * member rather than sending a null, so `null`, `""`, and every non-string answer
+ * `invalid` and the item is dropped. That is the fail-closed arm — the alternative
+ * is a console that reads `resolvedAt: null` as "still outstanding" and offers a
+ * person work the daemon already closed.
+ */
+function readOptionalString(
+  source: Readonly<Record<string, unknown>>,
+  member: string,
+): OptionalStringReading {
+  const value = source[member];
+  if (value === undefined) {
+    return { presence: "absent" };
+  }
+  return typeof value === "string" && value !== ""
+    ? { presence: "present", value }
+    : { presence: "invalid" };
 }

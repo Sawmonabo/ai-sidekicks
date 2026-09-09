@@ -75,44 +75,6 @@ export type UnreadableDeliveryRefusalComposer = (
 const UNREADABLE_DELIVERY_REFUSAL_CODE = "delivery-unreadable";
 
 /**
- * One stream's unreadable-delivery refusal, composed from that stream's own words.
- *
- * HOISTED ON THE SECOND USE, like the ledger below it. `queue/` and `quotas/` each
- * wrote this function out under one name — same code, same member-path sentence, same
- * parameter — differing only in the origin and the noun, and the second one's own
- * header said it was a copy. What actually differs between two streams is what a
- * person reads, and that is what `stream` carries; what is the same is the CODE and
- * the shape of the sentence, and those belong here rather than in however many
- * families tail a registered union next.
- *
- * NAMES THE FAILING MEMBER PATHS AND NEVER THE PAYLOAD. The payload is a frame this
- * build could not read, so quoting it would put an unbounded and unvalidated value on
- * screen to explain why an unvalidated value was refused. The path set is fixed by the
- * registered shape, which is what bounds the sentence without a cap to spend.
- *
- * ONE OBJECT RATHER THAN TWO POSITIONAL STRINGS, because an origin and a sentence are
- * both `string`, and a caller that swapped them would compile and ship a refusal whose
- * origin is a sentence.
- */
-export function unreadableDeliveryRefusalComposerFor(stream: {
-  /** The subsystem name every refusal this stream raises carries. */
-  readonly origin: string;
-  /**
-   * What a person reads before the failing members: which delivery did not parse,
-   * against which registered shape, and what did NOT change here because of it.
-   * Written with no trailing punctuation — the members and the stop are appended.
-   */
-  readonly sentence: string;
-}): UnreadableDeliveryRefusalComposer {
-  return (issues) =>
-    refuse(
-      stream.origin,
-      UNREADABLE_DELIVERY_REFUSAL_CODE,
-      `${stream.sentence}: ${refusedMemberPaths(issues).join(", ")}.`,
-    );
-}
-
-/**
  * One stream's unreadable-delivery ledger.
  *
  * A class with private fields rather than two fields on each reading, because the
@@ -154,4 +116,42 @@ export class UnreadableDeliveryLedger {
     this.#unreadableDeliveryCount = 0;
     this.#unreadableRefusal = undefined;
   }
+}
+
+/**
+ * One stream's unreadable-delivery refusal, composed from that stream's own words.
+ *
+ * HOISTED ON THE SECOND USE, like the ledger below it. `queue/` and `quotas/` each
+ * wrote this function out under one name — same code, same member-path sentence, same
+ * parameter — differing only in the origin and the noun, and the second one's own
+ * header said it was a copy. What actually differs between two streams is what a
+ * person reads, and that is what `stream` carries; what is the same is the CODE and
+ * the shape of the sentence, and those belong here rather than in however many
+ * families tail a registered union next.
+ *
+ * NAMES THE FAILING MEMBER PATHS AND NEVER THE PAYLOAD. The payload is a frame this
+ * build could not read, so quoting it would put an unbounded and unvalidated value on
+ * screen to explain why an unvalidated value was refused. The path set is fixed by the
+ * registered shape, which is what bounds the sentence without a cap to spend.
+ *
+ * ONE OBJECT RATHER THAN TWO POSITIONAL STRINGS, because an origin and a sentence are
+ * both `string`, and a caller that swapped them would compile and ship a refusal whose
+ * origin is a sentence.
+ */
+export function unreadableDeliveryRefusalComposerFor(stream: {
+  /** The subsystem name every refusal this stream raises carries. */
+  readonly origin: string;
+  /**
+   * What a person reads before the failing members: which delivery did not parse,
+   * against which registered shape, and what did NOT change here because of it.
+   * Written with no trailing punctuation — the members and the stop are appended.
+   */
+  readonly sentence: string;
+}): UnreadableDeliveryRefusalComposer {
+  return (issues) =>
+    refuse(
+      stream.origin,
+      UNREADABLE_DELIVERY_REFUSAL_CODE,
+      `${stream.sentence}: ${refusedMemberPaths(issues).join(", ")}.`,
+    );
 }

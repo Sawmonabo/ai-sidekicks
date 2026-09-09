@@ -80,6 +80,28 @@ export const SCENARIO_SELECTION_REFUSAL_ORIGIN = "scenario-selection";
 /** Why a requested scenario was not played. Closed — one miss is the only case. */
 export const SCENARIO_SELECTION_REFUSAL_CODE = "scenario-unknown";
 
+/** What a driver may do with the running scenario. Closed, and read-mostly. */
+export interface ScenarioFixtureHandle {
+  /** The scenario actually playing — the selection's outcome, not its request. */
+  readonly scenarioId: string;
+  /** Advance the frozen clock, delivering every beat that falls due. */
+  advance(milliseconds: number): void;
+  /** How many beats have been delivered so far. */
+  deliveredBeatCount(): number;
+}
+
+/*
+ * The property a fixture build hangs the scenario control on, for the two
+ * Electron tiers.
+ *
+ * Declared in `core/fixture-globals.ts` and re-exported here, so this installer
+ * and the release-absence sweep that proves the handle absent read one string.
+ * Re-exported rather than only imported because the driving tiers reach this
+ * module by name for it, and a retyped literal at either end would leave a tier
+ * reading `undefined` and reporting a missing property instead of a rename.
+ */
+export { SCENARIO_FIXTURE_GLOBAL };
+
 /**
  * Which scenario this window plays, decided from the document URL it opened at.
  *
@@ -163,28 +185,6 @@ export class ScenarioSelection {
     }
     return selection;
   }
-}
-
-/*
- * The property a fixture build hangs the scenario control on, for the two
- * Electron tiers.
- *
- * Declared in `core/fixture-globals.ts` and re-exported here, so this installer
- * and the release-absence sweep that proves the handle absent read one string.
- * Re-exported rather than only imported because the driving tiers reach this
- * module by name for it, and a retyped literal at either end would leave a tier
- * reading `undefined` and reporting a missing property instead of a rename.
- */
-export { SCENARIO_FIXTURE_GLOBAL };
-
-/** What a driver may do with the running scenario. Closed, and read-mostly. */
-export interface ScenarioFixtureHandle {
-  /** The scenario actually playing — the selection's outcome, not its request. */
-  readonly scenarioId: string;
-  /** Advance the frozen clock, delivering every beat that falls due. */
-  advance(milliseconds: number): void;
-  /** How many beats have been delivered so far. */
-  deliveredBeatCount(): number;
 }
 
 /**

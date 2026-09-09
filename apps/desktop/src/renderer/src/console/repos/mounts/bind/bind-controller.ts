@@ -79,6 +79,15 @@ export interface BindControllerOptions {
  */
 const CAPABILITIES_QUESTION = "capabilities";
 
+/** What the hook hands a surface: the reading, and the four things it can ask for. */
+export interface BindBinding {
+  readonly reading: BindReading;
+  readonly requestCapabilities: () => void;
+  readonly retryCapabilities: () => void;
+  readonly bind: (executionMode: ExecutionMode, directory: string | undefined) => void;
+  readonly clearAct: () => void;
+}
+
 /** Reads what a mount admits and sends the bind for it. */
 export class BindWorkspaceController extends ActSurfaceController<
   WorkspaceExecutionModeCapabilitiesReadResponse,
@@ -152,15 +161,6 @@ export class BindWorkspaceController extends ActSurfaceController<
       signal,
     );
   }
-}
-
-/** What the hook hands a surface: the reading, and the four things it can ask for. */
-export interface BindBinding {
-  readonly reading: BindReading;
-  readonly requestCapabilities: () => void;
-  readonly retryCapabilities: () => void;
-  readonly bind: (executionMode: ExecutionMode, directory: string | undefined) => void;
-  readonly clearAct: () => void;
 }
 
 /**

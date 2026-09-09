@@ -80,11 +80,6 @@ export interface BoundTerminalPaneProps {
   readonly sessionStore: SessionStore;
 }
 
-/** Stored reference, never a built value — the store's own equality rests on it. */
-function selectTimeline(state: SessionStoreState): SessionStoreState["timeline"] {
-  return state.timeline;
-}
-
 export function BoundTerminalPane(props: BoundTerminalPaneProps): React.JSX.Element {
   const { bridge, sessionStore } = props;
   // The session's id, read once. V1 gives a session one shared shell, so this is also
@@ -194,4 +189,9 @@ export function BoundTerminalPane(props: BoundTerminalPaneProps): React.JSX.Elem
       />
     </>
   );
+}
+
+/** Stored reference, never a built value — the store's own equality rests on it. */
+function selectTimeline(state: SessionStoreState): SessionStoreState["timeline"] {
+  return state.timeline;
 }

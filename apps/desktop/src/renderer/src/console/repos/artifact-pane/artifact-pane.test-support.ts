@@ -136,6 +136,23 @@ export const LISTED_ONE_ROW: GrowthPortAnswer<"artifactList"> = {
   value: [SERVED_SUMMARY],
 };
 
+/** What a case scripts each of the pane's five port operations to answer. */
+export interface ArtifactPortScript {
+  readonly listAnswer?: ScriptedAnswer<"artifactList">;
+  readonly allowlistAnswer?: ScriptedAnswer<"artifactAllowlistRead">;
+  readonly readAnswer?: ScriptedAnswer<"artifactRead">;
+  readonly deleteAnswer?: ScriptedAnswer<"artifactDelete">;
+  readonly visibilityAnswer?: ScriptedAnswer<"artifactVisibilityUpdate">;
+  /** Supplied where a case counts the list reads or varies them between reads. */
+  readonly artifactList?: () => Promise<GrowthPortAnswer<"artifactList">>;
+  /** Supplied where a case counts the payload reads or asserts what one was asked. */
+  readonly artifactRead?: (request: unknown) => Promise<GrowthPortAnswer<"artifactRead">>;
+  /** Supplied where a case holds the change open or asserts what class was asked for. */
+  readonly artifactVisibilityUpdate?: (
+    request: unknown,
+  ) => Promise<GrowthPortAnswer<"artifactVisibilityUpdate">>;
+}
+
 /**
  * One served READ, which is a manifest plus a way to reach the bytes.
  *
@@ -176,35 +193,6 @@ export function servedPayload(artifactId: string, text: string): GrowthPortAnswe
 }
 
 /**
- * What one operation may be scripted with: the answer it serves, or the `Error` it
- * throws.
- *
- * Keyed by the operation id so each member below is checked against the value THAT
- * operation returns — a read answer scripted onto the delete slot is a compile error
- * rather than a pane rendering a receipt as a manifest.
- */
-type ScriptedAnswer<TOperationId extends GrowthOperationId> =
-  | GrowthPortAnswer<TOperationId>
-  | Error;
-
-/** What a case scripts each of the pane's five port operations to answer. */
-export interface ArtifactPortScript {
-  readonly listAnswer?: ScriptedAnswer<"artifactList">;
-  readonly allowlistAnswer?: ScriptedAnswer<"artifactAllowlistRead">;
-  readonly readAnswer?: ScriptedAnswer<"artifactRead">;
-  readonly deleteAnswer?: ScriptedAnswer<"artifactDelete">;
-  readonly visibilityAnswer?: ScriptedAnswer<"artifactVisibilityUpdate">;
-  /** Supplied where a case counts the list reads or varies them between reads. */
-  readonly artifactList?: () => Promise<GrowthPortAnswer<"artifactList">>;
-  /** Supplied where a case counts the payload reads or asserts what one was asked. */
-  readonly artifactRead?: (request: unknown) => Promise<GrowthPortAnswer<"artifactRead">>;
-  /** Supplied where a case holds the change open or asserts what class was asked for. */
-  readonly artifactVisibilityUpdate?: (
-    request: unknown,
-  ) => Promise<GrowthPortAnswer<"artifactVisibilityUpdate">>;
-}
-
-/**
  * A port answering exactly what a case scripts — or REJECTING, where it scripts an
  * `Error`.
  *
@@ -238,24 +226,6 @@ export function artifactBridgeAnswering(script: ArtifactPortScript): ConsoleBrid
       script.artifactVisibilityUpdate ??
       (async () => scriptedAnswer("artifactVisibilityUpdate", script.visibilityAnswer)),
   });
-}
-
-/**
- * An unscripted operation answers the port's own refusal, never `undefined`.
- *
- * The operation id is passed rather than a shared refusal value because a refusal
- * names the operation that raised it: one fixture answering every unscripted call
- * would report the same `operationId` for a list, a read, a delete and a
- * re-classification, which is the one thing a reader consults it for.
- */
-async function scriptedAnswer<TAnswer>(
-  operationId: GrowthOperationId,
-  scripted: TAnswer | Error | undefined,
-): Promise<TAnswer | GrowthUnavailable> {
-  if (scripted instanceof Error) {
-    throw scripted;
-  }
-  return scripted ?? growthUnavailable(operationId);
 }
 
 /**
@@ -360,4 +330,34 @@ export function readerWithHeldPayloadFetch(clock: ManualClock): {
     clock,
   });
   return { reader, artifactRead, releaseRead: readCall.open };
+}
+
+/**
+ * What one operation may be scripted with: the answer it serves, or the `Error` it
+ * throws.
+ *
+ * Keyed by the operation id so each member below is checked against the value THAT
+ * operation returns — a read answer scripted onto the delete slot is a compile error
+ * rather than a pane rendering a receipt as a manifest.
+ */
+type ScriptedAnswer<TOperationId extends GrowthOperationId> =
+  | GrowthPortAnswer<TOperationId>
+  | Error;
+
+/**
+ * An unscripted operation answers the port's own refusal, never `undefined`.
+ *
+ * The operation id is passed rather than a shared refusal value because a refusal
+ * names the operation that raised it: one fixture answering every unscripted call
+ * would report the same `operationId` for a list, a read, a delete and a
+ * re-classification, which is the one thing a reader consults it for.
+ */
+async function scriptedAnswer<TAnswer>(
+  operationId: GrowthOperationId,
+  scripted: TAnswer | Error | undefined,
+): Promise<TAnswer | GrowthUnavailable> {
+  if (scripted instanceof Error) {
+    throw scripted;
+  }
+  return scripted ?? growthUnavailable(operationId);
 }

@@ -65,6 +65,24 @@ export interface NarrowedRefusal<Code extends string> extends ConsoleRefusal {
 }
 
 /**
+ * An error carrying a refusal.
+ *
+ * For the seams where a refusal has to travel as an exception — a constructor, a
+ * `throw` inside a library callback — rather than as a return value. Returning a
+ * refusal is the default and this is the exception: an error costs a stack unwind
+ * and forces every caller into a `try`.
+ */
+export class ConsoleRefusalError extends Error {
+  public readonly refusal: ConsoleRefusal;
+
+  public constructor(refusal: ConsoleRefusal, options?: { readonly cause?: unknown }) {
+    super(`${refusal.origin}: ${refusal.code}: ${refusal.detail}`, options);
+    this.name = "ConsoleRefusalError";
+    this.refusal = refusal;
+  }
+}
+
+/**
  * Build a refusal.
  *
  * A function rather than an object literal at each site so the field order and the
@@ -85,24 +103,6 @@ export function refuse<Code extends string>(
   detail: string,
 ): NarrowedRefusal<Code> {
   return { code, detail, origin };
-}
-
-/**
- * An error carrying a refusal.
- *
- * For the seams where a refusal has to travel as an exception — a constructor, a
- * `throw` inside a library callback — rather than as a return value. Returning a
- * refusal is the default and this is the exception: an error costs a stack unwind
- * and forces every caller into a `try`.
- */
-export class ConsoleRefusalError extends Error {
-  public readonly refusal: ConsoleRefusal;
-
-  public constructor(refusal: ConsoleRefusal, options?: { readonly cause?: unknown }) {
-    super(`${refusal.origin}: ${refusal.code}: ${refusal.detail}`, options);
-    this.name = "ConsoleRefusalError";
-    this.refusal = refusal;
-  }
 }
 
 /**

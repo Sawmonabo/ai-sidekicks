@@ -116,6 +116,42 @@ export type SchemaValidator =
 const NOTHING_WRONG: readonly SchemaValidationIssue[] = [];
 
 /**
+ * Compile one input schema into something an answer can be checked against.
+ *
+ * Total: every schema resolves to one of the two arms and none of them escapes as a
+ * throw, which is what lets the form's own fallback stay a fallback rather than a crash.
+ */
+export function compileSchemaValidator(inputSchema: unknown): SchemaValidator {
+  let compiled: zod.ZodType;
+  try {
+    compiled = zod.fromJSONSchema(inputSchema as Parameters<typeof zod.fromJSONSchema>[0]);
+  } catch (error) {
+    return {
+      status: "uncompilable",
+      detail: `This phase's schema could not be checked here (${thrownDetail(error)}), so only the JSON itself is checked.`,
+    };
+  }
+  return {
+    status: "compiled",
+    check: (answer) => {
+      const parsed = compiled.safeParse(answer);
+      if (parsed.success) {
+        // `parsed.data` and never the answer that went in: the header's rule, and the
+        // one line that makes the verdict and the submission be about one value.
+        return { status: "valid", issues: NOTHING_WRONG, acceptedValue: parsed.data };
+      }
+      return {
+        status: "invalid",
+        issues: parsed.error.issues.map((issue) => ({
+          memberPath: memberPathOf(issue.path),
+          message: sentenceOf(issue, answer),
+        })),
+      };
+    },
+  };
+}
+
+/**
  * A library issue path, carried as segments and never as one joined string.
  *
  * A number stays a number, which is what the array position is. Everything else becomes a
@@ -184,40 +220,4 @@ function thrownDetail(thrown: unknown): string {
   return thrown instanceof Error && thrown.message.length > 0
     ? thrown.message
     : "the schema reader gave no reason";
-}
-
-/**
- * Compile one input schema into something an answer can be checked against.
- *
- * Total: every schema resolves to one of the two arms and none of them escapes as a
- * throw, which is what lets the form's own fallback stay a fallback rather than a crash.
- */
-export function compileSchemaValidator(inputSchema: unknown): SchemaValidator {
-  let compiled: zod.ZodType;
-  try {
-    compiled = zod.fromJSONSchema(inputSchema as Parameters<typeof zod.fromJSONSchema>[0]);
-  } catch (error) {
-    return {
-      status: "uncompilable",
-      detail: `This phase's schema could not be checked here (${thrownDetail(error)}), so only the JSON itself is checked.`,
-    };
-  }
-  return {
-    status: "compiled",
-    check: (answer) => {
-      const parsed = compiled.safeParse(answer);
-      if (parsed.success) {
-        // `parsed.data` and never the answer that went in: the header's rule, and the
-        // one line that makes the verdict and the submission be about one value.
-        return { status: "valid", issues: NOTHING_WRONG, acceptedValue: parsed.data };
-      }
-      return {
-        status: "invalid",
-        issues: parsed.error.issues.map((issue) => ({
-          memberPath: memberPathOf(issue.path),
-          message: sentenceOf(issue, answer),
-        })),
-      };
-    },
-  };
 }

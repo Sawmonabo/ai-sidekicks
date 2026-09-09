@@ -44,18 +44,6 @@ export interface ObservedSubjectRead<TSource extends object, TReading, TKey = un
   readonly readdress: (next: SubjectReadAddress<TSource, TKey>) => void;
 }
 
-function SubjectReadProbe<TSource extends object, TReading, TKey>(props: {
-  readonly useRead: (source: TSource, subject: TKey | undefined) => TReading;
-  readonly address: SubjectReadAddress<TSource, TKey>;
-  readonly onCommit: (reading: TReading) => void;
-}): React.JSX.Element {
-  const reading = props.useRead(props.address.source, props.address.subject);
-  useEffect(() => {
-    props.onCommit(reading);
-  });
-  return <></>;
-}
-
 /**
  * Drive one read hook through a rendered probe, recording what each commit carried.
  *
@@ -91,4 +79,16 @@ export function latestCommitted<TReading>(committed: readonly TReading[]): TRead
     throw new Error("the probe never committed a render, so there is nothing to read");
   }
   return reading;
+}
+
+function SubjectReadProbe<TSource extends object, TReading, TKey>(props: {
+  readonly useRead: (source: TSource, subject: TKey | undefined) => TReading;
+  readonly address: SubjectReadAddress<TSource, TKey>;
+  readonly onCommit: (reading: TReading) => void;
+}): React.JSX.Element {
+  const reading = props.useRead(props.address.source, props.address.subject);
+  useEffect(() => {
+    props.onCommit(reading);
+  });
+  return <></>;
 }

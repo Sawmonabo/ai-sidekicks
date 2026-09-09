@@ -314,23 +314,6 @@ export function readRememberedRuleList(reply: unknown): ParsedRows<RememberedRul
   return parseRows(rememberedRuleListSchema.parse(reply).rules, rememberedRuleSchema);
 }
 
-function parseRows<TRow>(
-  candidates: readonly unknown[],
-  schema: z.ZodType<TRow>,
-): ParsedRows<TRow> {
-  const rows: TRow[] = [];
-  let unreadableCount = 0;
-  for (const candidate of candidates) {
-    const parsed = schema.safeParse(candidate);
-    if (parsed.success) {
-      rows.push(parsed.data);
-    } else {
-      unreadableCount += 1;
-    }
-  }
-  return { rows, unreadableCount };
-}
-
 /**
  * Whether a record's resolved quad is complete.
  *
@@ -351,4 +334,21 @@ export function hasCompleteResolvedQuad(record: ApprovalRecord): boolean {
 /** True for the two states the resolved quad is required on. */
 export function isResolvedState(state: string): boolean {
   return state === "approved" || state === "rejected";
+}
+
+function parseRows<TRow>(
+  candidates: readonly unknown[],
+  schema: z.ZodType<TRow>,
+): ParsedRows<TRow> {
+  const rows: TRow[] = [];
+  let unreadableCount = 0;
+  for (const candidate of candidates) {
+    const parsed = schema.safeParse(candidate);
+    if (parsed.success) {
+      rows.push(parsed.data);
+    } else {
+      unreadableCount += 1;
+    }
+  }
+  return { rows, unreadableCount };
 }

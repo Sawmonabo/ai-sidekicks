@@ -50,6 +50,69 @@ import {
 } from "./schema-fields.js";
 import { schemaRootAsksOutsideNamedValues } from "./schema-root-shape.js";
 
+/**
+ * Turn one input schema into the form the console draws for it.
+ *
+ * Total over every input: an unreadable schema, an empty one, and one carrying a member
+ * outside the render set all resolve to the raw arm, which is what makes "never a
+ * refusal" a property of the type rather than a promise in a comment.
+ */
+export function planSchemaForm(inputSchema: unknown): SchemaFormPlan {
+  const schema = asRecord(inputSchema);
+  // The root's own shape is `schema-root-shape.ts`'s reading and not a second one here:
+  // that module decides which roots this console can answer at all, and a schema it
+  // refuses must not also reach the raw editor.
+  if (schema === undefined || schemaRootAsksOutsideNamedValues(inputSchema)) {
+    return {
+      shape: "raw",
+      fallback: {
+        cause: "root-not-an-object",
+        memberPath: [],
+        detail:
+          "This phase asks for something other than a set of named answers, so it is answered as JSON.",
+      },
+    };
+  }
+  const properties = asRecord(schema["properties"]);
+  if (properties === undefined || Object.keys(properties).length === 0) {
+    return {
+      shape: "raw",
+      fallback: {
+        cause: "no-members",
+        memberPath: [],
+        detail: "This phase's schema names no members, so there is nothing to draw a control for.",
+      },
+    };
+  }
+  const required = requiredKeysOf(schema);
+  const entries: SchemaFormEntry[] = [];
+  for (const [key, memberSchema] of Object.entries(properties)) {
+    const child = asRecord(memberSchema);
+    // One read of this level's `required` set, whichever shape the member turned out to
+    // be: a group carries it onto its legend exactly as a scalar and a list carry it onto
+    // their own.
+    const isRequired = required.has(key);
+    const planned =
+      child !== undefined && declaredType(child) === "object"
+        ? planGroup(child, [key], key, isRequired)
+        : planLeaf(memberSchema, [key], key, isRequired);
+    if (isFallback(planned)) {
+      return { shape: "raw", fallback: planned };
+    }
+    entries.push(planned);
+  }
+  // LAST, BECAUSE IT IS ASKED OF THE CONTROLS THAT WERE ACTUALLY DRAWN. Every member the
+  // root's own constraints can require has to reach one of them; a name that reaches none
+  // is a finding reported against the whole answer with nothing on the screen to clear it.
+  // The enclosing path is empty here — this is the depth-0 call of the check each drawn
+  // group has already made of its own constraints.
+  const undrawnConstraint = undrawnConstraintFallback(schema, [], entries);
+  if (undrawnConstraint !== undefined) {
+    return { shape: "raw", fallback: undrawnConstraint };
+  }
+  return { shape: "fields", entries };
+}
+
 /** The raw-editor answer for one member that could not be drawn. */
 function outOfSet(memberPath: SchemaMemberPath): SchemaFallback {
   return {
@@ -289,67 +352,4 @@ function undrawnConstraintFallback(
   const drawn = drawnMemberNames(entries);
   const undrawn = membersConstraintsCanRequire(schema).find((memberName) => !drawn.has(memberName));
   return undrawn === undefined ? undefined : undrawableConstraint([...enclosingPath, undrawn]);
-}
-
-/**
- * Turn one input schema into the form the console draws for it.
- *
- * Total over every input: an unreadable schema, an empty one, and one carrying a member
- * outside the render set all resolve to the raw arm, which is what makes "never a
- * refusal" a property of the type rather than a promise in a comment.
- */
-export function planSchemaForm(inputSchema: unknown): SchemaFormPlan {
-  const schema = asRecord(inputSchema);
-  // The root's own shape is `schema-root-shape.ts`'s reading and not a second one here:
-  // that module decides which roots this console can answer at all, and a schema it
-  // refuses must not also reach the raw editor.
-  if (schema === undefined || schemaRootAsksOutsideNamedValues(inputSchema)) {
-    return {
-      shape: "raw",
-      fallback: {
-        cause: "root-not-an-object",
-        memberPath: [],
-        detail:
-          "This phase asks for something other than a set of named answers, so it is answered as JSON.",
-      },
-    };
-  }
-  const properties = asRecord(schema["properties"]);
-  if (properties === undefined || Object.keys(properties).length === 0) {
-    return {
-      shape: "raw",
-      fallback: {
-        cause: "no-members",
-        memberPath: [],
-        detail: "This phase's schema names no members, so there is nothing to draw a control for.",
-      },
-    };
-  }
-  const required = requiredKeysOf(schema);
-  const entries: SchemaFormEntry[] = [];
-  for (const [key, memberSchema] of Object.entries(properties)) {
-    const child = asRecord(memberSchema);
-    // One read of this level's `required` set, whichever shape the member turned out to
-    // be: a group carries it onto its legend exactly as a scalar and a list carry it onto
-    // their own.
-    const isRequired = required.has(key);
-    const planned =
-      child !== undefined && declaredType(child) === "object"
-        ? planGroup(child, [key], key, isRequired)
-        : planLeaf(memberSchema, [key], key, isRequired);
-    if (isFallback(planned)) {
-      return { shape: "raw", fallback: planned };
-    }
-    entries.push(planned);
-  }
-  // LAST, BECAUSE IT IS ASKED OF THE CONTROLS THAT WERE ACTUALLY DRAWN. Every member the
-  // root's own constraints can require has to reach one of them; a name that reaches none
-  // is a finding reported against the whole answer with nothing on the screen to clear it.
-  // The enclosing path is empty here — this is the depth-0 call of the check each drawn
-  // group has already made of its own constraints.
-  const undrawnConstraint = undrawnConstraintFallback(schema, [], entries);
-  if (undrawnConstraint !== undefined) {
-    return { shape: "raw", fallback: undrawnConstraint };
-  }
-  return { shape: "fields", entries };
 }

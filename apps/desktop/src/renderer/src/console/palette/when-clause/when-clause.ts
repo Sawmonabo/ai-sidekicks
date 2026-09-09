@@ -76,15 +76,6 @@ export type WhenClauseNode =
   | { readonly kind: "or"; readonly left: WhenClauseNode; readonly right: WhenClauseNode };
 
 /**
- * What a clause is worth when the context may not answer every key it names.
- *
- * Module-private: every caller outside this file asks a yes/no question about
- * whether to offer a control, and a third value escaping into the registry or the
- * keybinding table would be a second thing each of them had to decide.
- */
-type WhenClauseTruth = boolean | "unknown";
-
-/**
  * Evaluate a parsed clause.
  *
  * The boundary of the three-valued evaluation described in the file header: an
@@ -93,54 +84,6 @@ type WhenClauseTruth = boolean | "unknown";
  */
 export function evaluateWhenClause(node: WhenClauseNode, context: WhenClauseContext): boolean {
   return resolveWhenClauseTruth(node, context) === true;
-}
-
-/**
- * Strong Kleene evaluation over the clause grammar.
- *
- * Written as explicit truth tables rather than with `&&` / `||` because
- * JavaScript's own operators are exactly what the two-valued version got wrong:
- * `"unknown"` is a truthy string, so `a && b` would answer `"unknown"` for a
- * conjunction one supplied `false` already decides, and `!a` would answer `false`
- * for a negation whose operand nobody computed.
- */
-function resolveWhenClauseTruth(node: WhenClauseNode, context: WhenClauseContext): WhenClauseTruth {
-  switch (node.kind) {
-    case "identifier": {
-      // Read once, and typed rather than compared against `true`: absent and
-      // "present but not a boolean" are one case — the context does not answer
-      // this key — and both must reach the unknown arm rather than the false one.
-      const value = context[node.name];
-      return typeof value === "boolean" ? value : "unknown";
-    }
-    case "not": {
-      const operand = resolveWhenClauseTruth(node.operand, context);
-      return operand === "unknown" ? "unknown" : !operand;
-    }
-    case "and": {
-      // Short-circuits on the only value that decides a conjunction on its own.
-      const left = resolveWhenClauseTruth(node.left, context);
-      if (left === false) {
-        return false;
-      }
-      const right = resolveWhenClauseTruth(node.right, context);
-      if (right === false) {
-        return false;
-      }
-      return left === "unknown" || right === "unknown" ? "unknown" : true;
-    }
-    case "or": {
-      const left = resolveWhenClauseTruth(node.left, context);
-      if (left === true) {
-        return true;
-      }
-      const right = resolveWhenClauseTruth(node.right, context);
-      if (right === true) {
-        return true;
-      }
-      return left === "unknown" || right === "unknown" ? "unknown" : false;
-    }
-  }
 }
 
 /** Every context key the clause reads, sorted and de-duplicated. */
@@ -187,6 +130,63 @@ export function formatWhenClause(node: WhenClauseNode): string {
       return `${formatWhenClauseOperand(node.left, "and")} && ${formatWhenClauseOperand(node.right, "and")}`;
     case "or":
       return `${formatWhenClauseOperand(node.left, "or")} || ${formatWhenClauseOperand(node.right, "or")}`;
+  }
+}
+
+/**
+ * What a clause is worth when the context may not answer every key it names.
+ *
+ * Module-private: every caller outside this file asks a yes/no question about
+ * whether to offer a control, and a third value escaping into the registry or the
+ * keybinding table would be a second thing each of them had to decide.
+ */
+type WhenClauseTruth = boolean | "unknown";
+
+/**
+ * Strong Kleene evaluation over the clause grammar.
+ *
+ * Written as explicit truth tables rather than with `&&` / `||` because
+ * JavaScript's own operators are exactly what the two-valued version got wrong:
+ * `"unknown"` is a truthy string, so `a && b` would answer `"unknown"` for a
+ * conjunction one supplied `false` already decides, and `!a` would answer `false`
+ * for a negation whose operand nobody computed.
+ */
+function resolveWhenClauseTruth(node: WhenClauseNode, context: WhenClauseContext): WhenClauseTruth {
+  switch (node.kind) {
+    case "identifier": {
+      // Read once, and typed rather than compared against `true`: absent and
+      // "present but not a boolean" are one case — the context does not answer
+      // this key — and both must reach the unknown arm rather than the false one.
+      const value = context[node.name];
+      return typeof value === "boolean" ? value : "unknown";
+    }
+    case "not": {
+      const operand = resolveWhenClauseTruth(node.operand, context);
+      return operand === "unknown" ? "unknown" : !operand;
+    }
+    case "and": {
+      // Short-circuits on the only value that decides a conjunction on its own.
+      const left = resolveWhenClauseTruth(node.left, context);
+      if (left === false) {
+        return false;
+      }
+      const right = resolveWhenClauseTruth(node.right, context);
+      if (right === false) {
+        return false;
+      }
+      return left === "unknown" || right === "unknown" ? "unknown" : true;
+    }
+    case "or": {
+      const left = resolveWhenClauseTruth(node.left, context);
+      if (left === true) {
+        return true;
+      }
+      const right = resolveWhenClauseTruth(node.right, context);
+      if (right === true) {
+        return true;
+      }
+      return left === "unknown" || right === "unknown" ? "unknown" : false;
+    }
   }
 }
 

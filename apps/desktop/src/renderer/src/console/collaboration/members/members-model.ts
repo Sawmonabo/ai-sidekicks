@@ -129,11 +129,6 @@ export const MEMBERSHIP_STATE_IS_LIVE: Readonly<Record<MembershipState, boolean>
   revoked: false,
 };
 
-/** Whether a value is one of the wire's four membership states. */
-export function isMembershipState(value: unknown): value is MembershipState {
-  return typeof value === "string" && Object.hasOwn(MEMBERSHIP_STATE_IS_LIVE, value);
-}
-
 /** One membership as the section renders it. */
 export interface MembershipRow {
   /** Wire-verbatim, and the row's identity on screen. */
@@ -142,6 +137,11 @@ export interface MembershipRow {
   readonly membershipId: string | undefined;
   readonly role: MembershipRole | undefined;
   readonly state: MembershipState | undefined;
+}
+
+/** Whether a value is one of the wire's four membership states. */
+export function isMembershipState(value: unknown): value is MembershipState {
+  return typeof value === "string" && Object.hasOwn(MEMBERSHIP_STATE_IS_LIVE, value);
 }
 
 /** The four things an owner can ask of one membership. */
@@ -245,6 +245,41 @@ export function deriveMembershipRows(
   return [...projected, ...readOnly];
 }
 
+/**
+ * Whether this membership is one a session can still address.
+ *
+ * `undefined` IS LIVE, and that asymmetry is the whole rule. A state neither source
+ * has stated is exactly the ordinary case — `membership.created` states none by
+ * design, and the roster read refuses until its wire lands — so reading absence as
+ * "not live" would empty every surface that asks this question in a console that is
+ * working. What the predicate is for is the row that has been stated ENDED, and
+ * `MEMBERSHIP_STATE_IS_LIVE` is where those two values are declared.
+ */
+export function isLiveMembership(row: MembershipRow): boolean {
+  return row.state === undefined || MEMBERSHIP_STATE_IS_LIVE[row.state];
+}
+
+/**
+ * The participants of this session's live memberships, from the log alone.
+ *
+ * The one derivation behind every surface that offers an ACT against another member —
+ * the direct-channel picker is the first — as opposed to the surfaces that report on
+ * memberships, which render the ended ones too because a suspended membership is
+ * still a row. Both go through {@link deriveMembershipRows}, so a surface offering an
+ * act and a surface reporting one can never disagree about who is in the session.
+ *
+ * The roster read is deliberately not a parameter: the picker's own section holds no
+ * membership read, and a second call to the one the members section already performs
+ * would be two reads answering one question in one window.
+ */
+export function liveMembershipParticipantIds(
+  participantEntities: Readonly<Record<string, ConsoleEntity>>,
+): readonly string[] {
+  return deriveMembershipRows(participantEntities)
+    .filter(isLiveMembership)
+    .map((row) => row.participantId);
+}
+
 /** What the log alone says about one participant. */
 function rowFromEntity(entity: ConsoleEntity): MembershipRow {
   const body = entity.body;
@@ -283,41 +318,6 @@ function mergeMembershipRow(
     role: logged.role ?? (isMembershipRole(entry.role) ? entry.role : undefined),
     state: logged.state ?? (isMembershipState(entry.state) ? entry.state : undefined),
   };
-}
-
-/**
- * Whether this membership is one a session can still address.
- *
- * `undefined` IS LIVE, and that asymmetry is the whole rule. A state neither source
- * has stated is exactly the ordinary case — `membership.created` states none by
- * design, and the roster read refuses until its wire lands — so reading absence as
- * "not live" would empty every surface that asks this question in a console that is
- * working. What the predicate is for is the row that has been stated ENDED, and
- * `MEMBERSHIP_STATE_IS_LIVE` is where those two values are declared.
- */
-export function isLiveMembership(row: MembershipRow): boolean {
-  return row.state === undefined || MEMBERSHIP_STATE_IS_LIVE[row.state];
-}
-
-/**
- * The participants of this session's live memberships, from the log alone.
- *
- * The one derivation behind every surface that offers an ACT against another member —
- * the direct-channel picker is the first — as opposed to the surfaces that report on
- * memberships, which render the ended ones too because a suspended membership is
- * still a row. Both go through {@link deriveMembershipRows}, so a surface offering an
- * act and a surface reporting one can never disagree about who is in the session.
- *
- * The roster read is deliberately not a parameter: the picker's own section holds no
- * membership read, and a second call to the one the members section already performs
- * would be two reads answering one question in one window.
- */
-export function liveMembershipParticipantIds(
-  participantEntities: Readonly<Record<string, ConsoleEntity>>,
-): readonly string[] {
-  return deriveMembershipRows(participantEntities)
-    .filter(isLiveMembership)
-    .map((row) => row.participantId);
 }
 
 /** A row the log never projected: the participant, and three facts it cannot state. */

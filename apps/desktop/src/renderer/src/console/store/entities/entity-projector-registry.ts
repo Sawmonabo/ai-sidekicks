@@ -33,13 +33,6 @@
 import { KeyedRegistry } from "../../core/index.js";
 import type { EntityProjector, EntityProjectorRegistry } from "./entities.js";
 
-/** One family's claim on one event kind. */
-interface EntityProjectorClaim {
-  readonly project: EntityProjector;
-  /** The family that owns it, so a conflict and an unprojected kind both name someone. */
-  readonly owner: string;
-}
-
 export class ConsoleEntityProjectorRegistry {
   readonly #claimsByEventKind = new KeyedRegistry<string, EntityProjectorClaim>({
     duplicatePolicy: "owner-scoped",
@@ -91,6 +84,13 @@ export class ConsoleEntityProjectorRegistry {
   public ownerOf(eventKind: string): string | undefined {
     return this.#claimsByEventKind.get(eventKind)?.owner;
   }
+}
+
+/** One family's claim on one event kind. */
+interface EntityProjectorClaim {
+  readonly project: EntityProjector;
+  /** The family that owns it, so a conflict and an unprojected kind both name someone. */
+  readonly owner: string;
 }
 
 /**

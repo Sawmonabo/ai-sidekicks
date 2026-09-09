@@ -59,6 +59,19 @@ export const DEFINITION = {
 };
 
 /**
+ * What either test daemon below exposes to the bridge.
+ *
+ * `answer` rather than `call`, and held to that name deliberately: this object is a
+ * per-method reply script, not the bridge every surface shares. A stand-in whose
+ * operation were named `call` on a holder named for the daemon would be
+ * indistinguishable in source text from a surface reaching the real call door —
+ * which is what a reviewer sweeping for one would flag, and it would flag this file.
+ */
+export interface ScriptedDaemon {
+  readonly answer: (method: string, params?: unknown) => Promise<unknown>;
+}
+
+/**
  * A daemon that answers the picker's read and holds `agent.attach` open.
  *
  * The count is the whole assertion: "one agent exists" is also true of a column
@@ -68,15 +81,6 @@ export class HeldAttachDaemon {
   #attachCallCount = 0;
   #attachRequest: unknown;
   readonly #heldReplies: ((reading: unknown) => void)[] = [];
-
-  public get attachCallCount(): number {
-    return this.#attachCallCount;
-  }
-
-  /** What the column actually put on the wire, not what the form believed. */
-  public get attachRequest(): unknown {
-    return this.#attachRequest;
-  }
 
   public readonly answer = async (method: string, params?: unknown): Promise<unknown> => {
     if (method === "sidekick.definitionList") {
@@ -100,6 +104,15 @@ export class HeldAttachDaemon {
     throw new Error(`the test daemon scripts no reply for ${method}`);
   };
 
+  public get attachCallCount(): number {
+    return this.#attachCallCount;
+  }
+
+  /** What the column actually put on the wire, not what the form believed. */
+  public get attachRequest(): unknown {
+    return this.#attachRequest;
+  }
+
   /** Settle the OLDEST held reply — the one a reversed order lands last. */
   public async settle(agentId: string): Promise<void> {
     await this.#release(this.#heldReplies.shift(), agentId);
@@ -118,19 +131,6 @@ export class HeldAttachDaemon {
     await Promise.resolve();
     await Promise.resolve();
   }
-}
-
-/**
- * What either test daemon below exposes to the bridge.
- *
- * `answer` rather than `call`, and held to that name deliberately: this object is a
- * per-method reply script, not the bridge every surface shares. A stand-in whose
- * operation were named `call` on a holder named for the daemon would be
- * indistinguishable in source text from a surface reaching the real call door —
- * which is what a reviewer sweeping for one would flag, and it would flag this file.
- */
-export interface ScriptedDaemon {
-  readonly answer: (method: string, params?: unknown) => Promise<unknown>;
 }
 
 /**
@@ -175,6 +175,80 @@ export function bridgeCalling(scriptedDaemon: ScriptedDaemon): ConsoleBridge {
 }
 
 const openedModels: AgentConsoleModels[] = [];
+
+/**
+ * A daemon that answers the roster and catalog reads and holds either BINDING MOVE
+ * open — `agent.configUpdate` and `agent.detach` — counting how often each was called.
+ *
+ * The count is the whole assertion for the double press, and holding the call open is
+ * what makes the failure visible: a reply delivered on the next microtask makes every
+ * ordering look correct. Both moves share one held slot because the column gives them
+ * one latch: two outstanding at once is the state the latch exists to make impossible.
+ */
+export class HeldBindingMoveDaemon {
+  #updateCallCount = 0;
+  #detachCallCount = 0;
+  #release: ((reading: unknown) => void) | undefined;
+  #reject: ((reason: unknown) => void) | undefined;
+  readonly #roster: readonly unknown[];
+
+  public readonly answer = async (method: string): Promise<unknown> => {
+    if (method === "agent.list") {
+      return { agents: this.#roster };
+    }
+    if (method === "driver.listModels") {
+      return DRIVER_CATALOG_FIXTURE.models;
+    }
+    if (method === "driver.listCapabilities") {
+      return DRIVER_CATALOG_FIXTURE.capabilities;
+    }
+    if (method === "sidekick.definitionList") {
+      return [DEFINITION];
+    }
+    if (method === "agent.configUpdate") {
+      this.#updateCallCount += 1;
+      return await this.#hold();
+    }
+    if (method === "agent.detach") {
+      this.#detachCallCount += 1;
+      return await this.#hold();
+    }
+    throw new Error(`the test daemon scripts no reply for ${method}`);
+  };
+
+  public constructor(roster: readonly unknown[]) {
+    this.#roster = roster;
+  }
+
+  public get updateCallCount(): number {
+    return this.#updateCallCount;
+  }
+
+  /** How often `agent.detach` reached the wire. */
+  public get detachCallCount(): number {
+    return this.#detachCallCount;
+  }
+
+  public async settle(reply: unknown): Promise<void> {
+    this.#release?.(reply);
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  /** Refuse the held call, so a case can read what the column does with a refusal. */
+  public async refuse(reason: unknown): Promise<void> {
+    this.#reject?.(reason);
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  async #hold(): Promise<unknown> {
+    return await new Promise<unknown>((resolve, reject) => {
+      this.#release = resolve;
+      this.#reject = reject;
+    });
+  }
+}
 
 /**
  * Dispose every models object a case opened. Each suite calls it from its own
@@ -233,80 +307,6 @@ export async function openReadyAttachForm(
   const submit = currentSubmitControl();
   expect(submit.disabled).toBe(false);
   return submit;
-}
-
-/**
- * A daemon that answers the roster and catalog reads and holds either BINDING MOVE
- * open — `agent.configUpdate` and `agent.detach` — counting how often each was called.
- *
- * The count is the whole assertion for the double press, and holding the call open is
- * what makes the failure visible: a reply delivered on the next microtask makes every
- * ordering look correct. Both moves share one held slot because the column gives them
- * one latch: two outstanding at once is the state the latch exists to make impossible.
- */
-export class HeldBindingMoveDaemon {
-  #updateCallCount = 0;
-  #detachCallCount = 0;
-  #release: ((reading: unknown) => void) | undefined;
-  #reject: ((reason: unknown) => void) | undefined;
-  readonly #roster: readonly unknown[];
-
-  public constructor(roster: readonly unknown[]) {
-    this.#roster = roster;
-  }
-
-  public get updateCallCount(): number {
-    return this.#updateCallCount;
-  }
-
-  /** How often `agent.detach` reached the wire. */
-  public get detachCallCount(): number {
-    return this.#detachCallCount;
-  }
-
-  public readonly answer = async (method: string): Promise<unknown> => {
-    if (method === "agent.list") {
-      return { agents: this.#roster };
-    }
-    if (method === "driver.listModels") {
-      return DRIVER_CATALOG_FIXTURE.models;
-    }
-    if (method === "driver.listCapabilities") {
-      return DRIVER_CATALOG_FIXTURE.capabilities;
-    }
-    if (method === "sidekick.definitionList") {
-      return [DEFINITION];
-    }
-    if (method === "agent.configUpdate") {
-      this.#updateCallCount += 1;
-      return await this.#hold();
-    }
-    if (method === "agent.detach") {
-      this.#detachCallCount += 1;
-      return await this.#hold();
-    }
-    throw new Error(`the test daemon scripts no reply for ${method}`);
-  };
-
-  public async settle(reply: unknown): Promise<void> {
-    this.#release?.(reply);
-    await Promise.resolve();
-    await Promise.resolve();
-  }
-
-  /** Refuse the held call, so a case can read what the column does with a refusal. */
-  public async refuse(reason: unknown): Promise<void> {
-    this.#reject?.(reason);
-    await Promise.resolve();
-    await Promise.resolve();
-  }
-
-  async #hold(): Promise<unknown> {
-    return await new Promise<unknown>((resolve, reject) => {
-      this.#release = resolve;
-      this.#reject = reject;
-    });
-  }
 }
 
 export const AGENT_ON_CLAUDE = {

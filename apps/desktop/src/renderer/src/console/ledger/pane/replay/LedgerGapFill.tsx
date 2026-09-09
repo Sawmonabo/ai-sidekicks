@@ -41,20 +41,6 @@ export interface LedgerGapFillProps {
 }
 
 /**
- * The first log position of the oldest hole standing, or nothing where none is.
- *
- * A number rather than the gap row itself, and the narrowing is what keeps this a
- * stable selector: the store's `gaps` array re-identifies on every transition that
- * touches it, so a selector answering the row would re-render this on transitions that
- * changed nothing about the hole. The oldest is `gaps[0]` — the store records them
- * oldest first — and a replay opens after one position and runs forward, so the oldest
- * is the only one worth asking from.
- */
-function readOldestMissingSequence(state: SessionStoreState): number | undefined {
-  return state.gaps[0]?.fromSequence;
-}
-
-/**
  * The replay this window can ask for, or nothing at all.
  *
  * `null` for a window with nothing missing, and for the interval an ask is in flight.
@@ -110,4 +96,18 @@ export function LedgerGapFill(props: LedgerGapFillProps): React.JSX.Element | nu
   // Spread, so the code and the sentence are the refusal's own — rule 9 renders the
   // code verbatim and writes no second sentence explaining what it meant.
   return <RefusalBanner {...fill.refusal} />;
+}
+
+/**
+ * The first log position of the oldest hole standing, or nothing where none is.
+ *
+ * A number rather than the gap row itself, and the narrowing is what keeps this a
+ * stable selector: the store's `gaps` array re-identifies on every transition that
+ * touches it, so a selector answering the row would re-render this on transitions that
+ * changed nothing about the hole. The oldest is `gaps[0]` — the store records them
+ * oldest first — and a replay opens after one position and runs forward, so the oldest
+ * is the only one worth asking from.
+ */
+function readOldestMissingSequence(state: SessionStoreState): number | undefined {
+  return state.gaps[0]?.fromSequence;
 }

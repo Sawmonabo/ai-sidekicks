@@ -58,12 +58,6 @@ export function isSendableGoalText(text: string): boolean {
 
 const goalPayloadSchema = z.object({ goal: z.object({ text: z.string() }) });
 
-/** The goal text a goal payload carries, or `undefined` for one that carries none. */
-export function readGoalPayloadText(payload: unknown): string | undefined {
-  const parsed = goalPayloadSchema.safeParse(payload);
-  return parsed.success ? parsed.data.goal.text : undefined;
-}
-
 /**
  * The origin keys the accepting daemon stamps on every goal payload.
  *
@@ -81,6 +75,12 @@ export function readGoalPayloadText(payload: unknown): string | undefined {
 export interface GoalOriginKeys {
   readonly originNodeId: string;
   readonly originSeq: number;
+}
+
+/** The goal text a goal payload carries, or `undefined` for one that carries none. */
+export function readGoalPayloadText(payload: unknown): string | undefined {
+  const parsed = goalPayloadSchema.safeParse(payload);
+  return parsed.success ? parsed.data.goal.text : undefined;
 }
 
 const goalOriginKeysSchema = z.object({

@@ -22,30 +22,6 @@ import { InlineRefusal, WireFigure } from "../../../primitives/index.js";
 import type { TakeTheFloorOutcome } from "../../../seats/index.js";
 import type { StepInState } from "./step-in-state.js";
 
-/**
- * What the deck answered about this run's checkout, as a sentence or as nothing.
- *
- * A total switch over the disposition rather than a chain of conditionals, so a fifth
- * arm added to the seat fails to compile here instead of rendering as silence. The
- * `opened` arm is the one that says nothing: the pane is on screen, which is the whole
- * of the report.
- */
-function worktreeSentence(floor: TakeTheFloorOutcome): string | undefined {
-  if (floor.status === "no-deck") {
-    return "No deck of panes is open in this window, so nothing was put on screen.";
-  }
-  switch (floor.worktree) {
-    case "opened":
-      return undefined;
-    case "unnamed":
-      return "This run names no live checkout, so no worktree pane opened.";
-    case "ambiguous":
-      return "More than one live checkout names this run, so none was opened.";
-    case "unreadable":
-      return "The execution roots could not be read, so no worktree pane opened.";
-  }
-}
-
 /** What happened, said once, in the daemon's own figures. */
 export function StepInReceipt(props: {
   readonly agentLabel: string;
@@ -69,4 +45,28 @@ export function StepInReceipt(props: {
       {aside === undefined ? null : ` ${aside}`}
     </span>
   );
+}
+
+/**
+ * What the deck answered about this run's checkout, as a sentence or as nothing.
+ *
+ * A total switch over the disposition rather than a chain of conditionals, so a fifth
+ * arm added to the seat fails to compile here instead of rendering as silence. The
+ * `opened` arm is the one that says nothing: the pane is on screen, which is the whole
+ * of the report.
+ */
+function worktreeSentence(floor: TakeTheFloorOutcome): string | undefined {
+  if (floor.status === "no-deck") {
+    return "No deck of panes is open in this window, so nothing was put on screen.";
+  }
+  switch (floor.worktree) {
+    case "opened":
+      return undefined;
+    case "unnamed":
+      return "This run names no live checkout, so no worktree pane opened.";
+    case "ambiguous":
+      return "More than one live checkout names this run, so none was opened.";
+    case "unreadable":
+      return "The execution roots could not be read, so no worktree pane opened.";
+  }
 }

@@ -163,40 +163,6 @@ function machinesOf(script: CollaborationRuntimeNodeScript): readonly Collaborat
 /** The instant the runner's last heartbeat landed, shared by the beat and the read. */
 const RUNNER_LAST_HEARTBEAT_MS = 635;
 
-/** One beat before it is given its position in the log. */
-interface UnnumberedBeat {
-  readonly atMs: number;
-  readonly event: Omit<ScenarioBeat["event"], "sequence">;
-}
-
-/**
- * Put the beats in the order they fall due and number them from there.
- *
- * The four groups below are written one KIND at a time, which is how they are
- * legible — every registration together, then every declaration — and that is not
- * the order they happen in: the second machine registers at 460ms after the first
- * has already declared at 460ms too. The engine consumes beats in array order as the
- * frozen clock reaches them, so a group-ordered array delivers a beat later than it
- * is scripted for, and a log position assigned per group then disagrees with the
- * order it is delivered in. Both are defects `scenario/wire-truth/wire-truth.ts` reports.
- *
- * So the due order is computed rather than hand-maintained, and the sequence is
- * assigned from it. The sort is stable, so two beats at one tick keep the order the
- * groups put them in — which is the causal one: a machine registers before another
- * declares at the same instant.
- */
-function numberedInDueOrder(
-  beats: readonly UnnumberedBeat[],
-  firstSequence: number,
-): readonly ScenarioBeat[] {
-  return [...beats]
-    .sort((left, right) => left.atMs - right.atMs)
-    .map((beat, beatIndex) => ({
-      atMs: beat.atMs,
-      event: { ...beat.event, sequence: firstSequence + beatIndex },
-    }));
-}
-
 /**
  * Every `runtime_node.*` beat these machines play, in log order.
  *
@@ -305,31 +271,6 @@ export function collaborationRuntimeNodeBeats(
   );
 }
 
-/** One roster row, with the members every machine here shares already filled in. */
-function rosterRow(
-  machine: CollaborationRuntimeNode,
-  reading: {
-    readonly state: RuntimeNodeRosterEntry["state"];
-    readonly healthState: RuntimeNodeRosterEntry["healthState"];
-    readonly lastHeartbeatAtMs: number;
-  },
-): RuntimeNodeRosterEntry {
-  return {
-    nodeId: machine.nodeId,
-    participantId: machine.participantId,
-    state: reading.state,
-    healthState: reading.healthState,
-    lastHeartbeatAt: occurredAt(reading.lastHeartbeatAtMs),
-    // DERIVED at read time from `clientVersion` against the session floor, and the
-    // roster is the only place that verdict is legible: no event carries it. A
-    // below-floor node is admitted read-only and stays in the set.
-    readOnly: machine.clientVersion === CLIENT_VERSION_BELOW_FLOOR,
-    capabilities: { [machine.capability]: { available: true } },
-    clientVersion: machine.clientVersion,
-    attachedAt: occurredAt(machine.registeredAtMs),
-  };
-}
-
 /**
  * The roster as the registered read answers it, at the three ticks it changes.
  *
@@ -394,4 +335,63 @@ export function collaborationRuntimeNodeRoster(
       ],
     },
   ];
+}
+
+/** One beat before it is given its position in the log. */
+interface UnnumberedBeat {
+  readonly atMs: number;
+  readonly event: Omit<ScenarioBeat["event"], "sequence">;
+}
+
+/**
+ * Put the beats in the order they fall due and number them from there.
+ *
+ * The four groups below are written one KIND at a time, which is how they are
+ * legible — every registration together, then every declaration — and that is not
+ * the order they happen in: the second machine registers at 460ms after the first
+ * has already declared at 460ms too. The engine consumes beats in array order as the
+ * frozen clock reaches them, so a group-ordered array delivers a beat later than it
+ * is scripted for, and a log position assigned per group then disagrees with the
+ * order it is delivered in. Both are defects `scenario/wire-truth/wire-truth.ts` reports.
+ *
+ * So the due order is computed rather than hand-maintained, and the sequence is
+ * assigned from it. The sort is stable, so two beats at one tick keep the order the
+ * groups put them in — which is the causal one: a machine registers before another
+ * declares at the same instant.
+ */
+function numberedInDueOrder(
+  beats: readonly UnnumberedBeat[],
+  firstSequence: number,
+): readonly ScenarioBeat[] {
+  return [...beats]
+    .sort((left, right) => left.atMs - right.atMs)
+    .map((beat, beatIndex) => ({
+      atMs: beat.atMs,
+      event: { ...beat.event, sequence: firstSequence + beatIndex },
+    }));
+}
+
+/** One roster row, with the members every machine here shares already filled in. */
+function rosterRow(
+  machine: CollaborationRuntimeNode,
+  reading: {
+    readonly state: RuntimeNodeRosterEntry["state"];
+    readonly healthState: RuntimeNodeRosterEntry["healthState"];
+    readonly lastHeartbeatAtMs: number;
+  },
+): RuntimeNodeRosterEntry {
+  return {
+    nodeId: machine.nodeId,
+    participantId: machine.participantId,
+    state: reading.state,
+    healthState: reading.healthState,
+    lastHeartbeatAt: occurredAt(reading.lastHeartbeatAtMs),
+    // DERIVED at read time from `clientVersion` against the session floor, and the
+    // roster is the only place that verdict is legible: no event carries it. A
+    // below-floor node is admitted read-only and stays in the set.
+    readOnly: machine.clientVersion === CLIENT_VERSION_BELOW_FLOOR,
+    capabilities: { [machine.capability]: { available: true } },
+    clientVersion: machine.clientVersion,
+    attachedAt: occurredAt(machine.registeredAtMs),
+  };
 }

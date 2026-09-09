@@ -128,6 +128,12 @@ const GEOMETRY_BINDING_DISPOSAL: SubjectScopedDisposal<BoundGeometryPublisher> =
   isClosed: isGeometryBindingClosed,
 };
 
+/** One publisher, the host it writes to, and the subject both were resolved under. */
+export interface BoundGeometryPublisher extends PaneSubject {
+  readonly host: PaneViewHost;
+  readonly publisher: PaneGeometryPublisher;
+}
+
 /**
  * Publish this pane's rectangle for the life of the mount, and RENDER what the host
  * said back.
@@ -200,10 +206,4 @@ export function useGeometryPublisher(
   }, [publisher]);
 
   return { hostRef, outcome };
-}
-
-/** One publisher, the host it writes to, and the subject both were resolved under. */
-export interface BoundGeometryPublisher extends PaneSubject {
-  readonly host: PaneViewHost;
-  readonly publisher: PaneGeometryPublisher;
 }

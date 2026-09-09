@@ -32,11 +32,6 @@ export class ResourceLedger {
   readonly #closed: string[] = [];
   readonly #closedResources = new WeakSet<OpenResource>();
 
-  public open(name: string): OpenResource {
-    this.#opened.push(name);
-    return { name };
-  }
-
   /**
    * Bound, because the hook takes it as a dependency.
    *
@@ -61,6 +56,11 @@ export class ResourceLedger {
    */
   public readonly isClosed = (resource: OpenResource): boolean =>
     this.#closedResources.has(resource);
+
+  public open(name: string): OpenResource {
+    this.#opened.push(name);
+    return { name };
+  }
 
   public get opened(): readonly string[] {
     return [...this.#opened];

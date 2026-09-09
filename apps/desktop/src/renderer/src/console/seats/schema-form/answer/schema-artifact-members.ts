@@ -68,6 +68,20 @@ import type { SchemaFieldKind } from "../plan/schema-fields.js";
  */
 const ARTIFACT_FIELD_KIND: SchemaFieldKind = "artifact-reference";
 
+/**
+ * The attachment ids this answer carries, in the order its schema declares them.
+ *
+ * Empty where the phase asks for no artifact at all, which is the common case and the
+ * one the submit surface omits the carrier for — and empty for a schema that is not a
+ * record, or declares no members, since neither names an artifact anywhere.
+ */
+export function attachmentArtifactIdsIn(
+  inputSchema: unknown,
+  answer: SchemaFormAnswer,
+): readonly string[] {
+  return artifactIdsUnder(inputSchema, answer);
+}
+
 /** One answered artifact id, or nothing where that member was left alone. */
 function answeredArtifactId(value: unknown): string | undefined {
   // Wire-verbatim and never trimmed: an artifact id is opaque, so the only reading this
@@ -117,18 +131,4 @@ function artifactIdsUnder(memberSchema: unknown, answeredValue: unknown): readon
   return (answeredValue as readonly unknown[]).flatMap((entry) =>
     artifactIdsUnder(entrySchema, entry),
   );
-}
-
-/**
- * The attachment ids this answer carries, in the order its schema declares them.
- *
- * Empty where the phase asks for no artifact at all, which is the common case and the
- * one the submit surface omits the carrier for — and empty for a schema that is not a
- * record, or declares no members, since neither names an artifact anywhere.
- */
-export function attachmentArtifactIdsIn(
-  inputSchema: unknown,
-  answer: SchemaFormAnswer,
-): readonly string[] {
-  return artifactIdsUnder(inputSchema, answer);
 }

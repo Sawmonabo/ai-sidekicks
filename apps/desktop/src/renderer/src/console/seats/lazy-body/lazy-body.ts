@@ -124,6 +124,26 @@ export class LoadedLazyBody<TContext extends object> {
    */
   #resolvedBody: ((context: TContext) => React.ReactNode) | undefined;
 
+  /**
+   * The descriptor's `render`, so every mount site is unchanged.
+   *
+   * Returns an ELEMENT rather than calling the body, which is the shape a component-form
+   * registration already produces: the body's hooks belong to the body, and a render
+   * that invoked it inline would splice them into whichever host called `render`.
+   */
+  public render = (context: TContext): React.ReactNode =>
+    createElement(LazyBody<TContext>, {
+      Body: this.#component,
+      // Read at RENDER time, so a mount that begins after a completed preload is handed
+      // the settled body and never suspends. `LazyBody` pins whichever arm it was handed
+      // for the life of that mount — see its own `useState` and the reason there — so a
+      // body that started cold does not have its component identity swapped underneath
+      // it when the module lands mid-flight.
+      resolvedBody: this.#resolvedBody,
+      fallback: this.#fallback,
+      context,
+    });
+
   public constructor(
     loader: LazyBodyLoader<TContext>,
     fallback: (context: TContext) => React.ReactNode,
@@ -204,24 +224,4 @@ export class LoadedLazyBody<TContext extends object> {
   #mintComponent(): LazyExoticComponent<(context: TContext) => React.ReactNode> {
     return lazy(async () => ({ default: (await this.load()).Body }));
   }
-
-  /**
-   * The descriptor's `render`, so every mount site is unchanged.
-   *
-   * Returns an ELEMENT rather than calling the body, which is the shape a component-form
-   * registration already produces: the body's hooks belong to the body, and a render
-   * that invoked it inline would splice them into whichever host called `render`.
-   */
-  public render = (context: TContext): React.ReactNode =>
-    createElement(LazyBody<TContext>, {
-      Body: this.#component,
-      // Read at RENDER time, so a mount that begins after a completed preload is handed
-      // the settled body and never suspends. `LazyBody` pins whichever arm it was handed
-      // for the life of that mount — see its own `useState` and the reason there — so a
-      // body that started cold does not have its component identity swapped underneath
-      // it when the module lands mid-flight.
-      resolvedBody: this.#resolvedBody,
-      fallback: this.#fallback,
-      context,
-    });
 }

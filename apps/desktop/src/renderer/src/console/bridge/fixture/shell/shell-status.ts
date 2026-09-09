@@ -68,18 +68,6 @@ import type { ScenarioEngine, ScenarioShellStatusFrame } from "../../scenario/ru
 export const SHELL_STATUS_SCRIPT: string = "shellStatus";
 
 /**
- * A report a control published, and the scenario tick it was published at.
- *
- * The stamp is the whole of what makes an override supersedable. Without it the
- * channel holds a report with no place in the scenario's own order, and the only
- * comparison left — "is there an override?" — answers yes forever.
- */
-interface StampedShellOverride {
-  readonly report: ShellReport;
-  readonly publishedAtMs: number;
-}
-
-/**
  * The shell's condition for one running fixture port, and the controls that move it.
  *
  * A class rather than a closure over a `let`, because it owns three things that have
@@ -174,6 +162,28 @@ export class FixtureShellChannel {
   }
 }
 
+/** The report a stop produces: the shell as it was, deliberately turned off. */
+export function stoppedReport(current: ShellReport): ShellReport {
+  return { ...current, connection: { kind: "stopped" } };
+}
+
+/** The report a start or a restart produces. Never `connected`. */
+export function startingReport(current: ShellReport): ShellReport {
+  return { ...current, connection: { kind: "starting" } };
+}
+
+/**
+ * A report a control published, and the scenario tick it was published at.
+ *
+ * The stamp is the whole of what makes an override supersedable. Without it the
+ * channel holds a report with no place in the scenario's own order, and the only
+ * comparison left — "is there an override?" — answers yes forever.
+ */
+interface StampedShellOverride {
+  readonly report: ShellReport;
+  readonly publishedAtMs: number;
+}
+
 /**
  * One consumer's view of the channel.
  *
@@ -246,14 +256,4 @@ class ChannelShellStatusStream implements GrowthStream<ShellReport> {
       });
     }
   }
-}
-
-/** The report a stop produces: the shell as it was, deliberately turned off. */
-export function stoppedReport(current: ShellReport): ShellReport {
-  return { ...current, connection: { kind: "stopped" } };
-}
-
-/** The report a start or a restart produces. Never `connected`. */
-export function startingReport(current: ShellReport): ShellReport {
-  return { ...current, connection: { kind: "starting" } };
 }

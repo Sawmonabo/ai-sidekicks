@@ -87,18 +87,18 @@ export const REPOS_DIFF_ARTIFACT_CREATE_CALL = "gitflow.diffArtifactCreate";
 /** The CAS handle the deferred arm hands back instead of bytes. */
 const DEFERRED_PAYLOAD_HANDLE = "sha256:6d1f0b8c2a4e7d3f9b5c0a1e8d2f4c6b";
 
+/** The two states one scripted change set is taken between. */
+export interface ScenarioComparedStates {
+  readonly baseRef: string;
+  readonly headRef: string;
+}
+
 /** The member of a request this module reads, without trusting the request's shape. */
 function requestedValue(request: unknown, member: string): unknown {
   if (typeof request !== "object" || request === null) {
     return undefined;
   }
   return (request as Readonly<Record<string, unknown>>)[member];
-}
-
-/** The two states one scripted change set is taken between. */
-export interface ScenarioComparedStates {
-  readonly baseRef: string;
-  readonly headRef: string;
 }
 
 /**
