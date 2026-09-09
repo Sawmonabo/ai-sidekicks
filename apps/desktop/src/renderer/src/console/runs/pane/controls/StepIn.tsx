@@ -1,8 +1,16 @@
 // Step in: take the work from an agent in one move.
 //
-// One control, three acts: pause the run, focus the run's own pane, and focus the
-// composer addressed to it. The person presses once; the console does the three
-// things they would otherwise do in sequence and then tells them what happened.
+// One control, three acts: pause the run, put the run's execution root on the deck,
+// and open this run's own detail in the pane that mounts the control. The person
+// presses once; the console does the three things they would otherwise do in sequence
+// and then tells them what happened.
+//
+// ONE OF THE THREE BELONGS TO ANOTHER FAMILY, AND TRAVELS AS A SEAT. Which panes are
+// open and which one is focused are facts about the deck, and the composer resolves
+// what it is addressed to from the focused pane — so that act is the workspace's,
+// reached through `seats/slots/take-the-floor-seat.ts` rather than through an import a
+// sibling view family may not make. An unfilled seat means no deck is mounted in this
+// window, which the receipt states rather than swallowing.
 //
 // THE PAUSE IS `run.pause`, NOT AN INTERVENTION ARM. The registered intervention
 // payload is a discriminated union over `steer | interrupt | cancel | rollback`,
@@ -32,20 +40,28 @@
 // rule `run-control-dispatch.ts` states for the six controls, and this is the sixth
 // entry point rather than an exception to it.
 //
-// WHAT THE CONTROL STILL HOLDS is the token its own dispatch was admitted under, and
-// nothing else: the in-flight reading and the settlement record both belong to the
-// surface, which already rotates them by bridge. The token is held under
-// `(bridge, targetRunId)` so a replaced transport — and a row reused for another run
-// — reads that subject's own seed rather than the previous one's answer.
+// WHAT THE CONTROL STILL HOLDS is the token its own dispatch was admitted under and
+// the deck's answer to the act that token settled, and nothing else: the in-flight
+// reading and the settlement record both belong to the surface, which already rotates
+// them by bridge. Both are held under `(bridge, targetRunId)` so a replaced transport
+// — and a row reused for another run — reads that subject's own seed rather than the
+// previous one's answer.
 
 import { useCallback, useEffect } from "react";
 import { type ConsoleBridge } from "../../../bridge/index.js";
 import { Glyph, useLatestRef } from "../../../primitives/index.js";
+import { takeTheFloor, type TakeTheFloorOutcome } from "../../../seats/index.js";
 import { GLYPH_SIZE_ROW } from "../../../tokens/index.js";
 import { useSubjectScopedState } from "../../../store/index.js";
 import { StepInReceipt } from "./StepInReceipt.js";
 import { readStepInState } from "./step-in-state.js";
 import { type RunControlSurface } from "./run-control-surface.js";
+
+/** The deck's answer, kept beside the token whose settlement asked for it. */
+interface SettledFloor {
+  readonly dispatchToken: string;
+  readonly outcome: TakeTheFloorOutcome;
+}
 
 export interface StepInProps {
   /** Holds the token this control dispatched under, and rotates it with the transport. */
@@ -58,13 +74,12 @@ export interface StepInProps {
   /** Whose work it is, as the session named them. Rendered, never composed. */
   readonly agentLabel: string;
   /**
-   * Focus the run's pane and the composer addressed to it.
+   * Open this run's own detail in the pane that mounts this control.
    *
-   * One callback for both moves rather than two, because they are one act from the
-   * person's side and because the surface that mounts this control is the only
-   * thing that knows where either target is. Called only after the pause settles:
-   * moving focus while the request is still in flight would put the cursor in a
-   * composer addressed to a run that is still running.
+   * The pane-LOCAL half, and the only half the runs family owns: the deck's act
+   * travels through the floor seat instead. Called only after the pause settles, for
+   * the reason that act is — disclosing a run's history while the pause is still in
+   * flight would show a run that is still running under a control that says it is not.
    */
   readonly onTakeTheFloor: () => void;
 }
@@ -74,7 +89,18 @@ export function StepIn(props: StepInProps): React.JSX.Element {
   const { value: dispatchToken, publish: publishDispatchToken } = useSubjectScopedState<
     string | undefined
   >(bridge, targetRunId, () => undefined);
-  const state = readStepInState(surface, targetRunId, dispatchToken);
+  const { value: settledFloor, publish: publishSettledFloor } = useSubjectScopedState<
+    SettledFloor | undefined
+  >(bridge, targetRunId, () => undefined);
+  const state = readStepInState(
+    surface,
+    targetRunId,
+    dispatchToken,
+    // Read back only for the token that ASKED for it. A row reused for a second
+    // step-in on the same subject would otherwise draw the previous pause's checkout
+    // sentence beside the new pause's figures.
+    settledFloor?.dispatchToken === dispatchToken ? settledFloor?.outcome : undefined,
+  );
 
   const stepIn = useCallback(() => {
     const admission = surface.dispatch(targetRunId, "pause", (dispatcher) =>
@@ -92,14 +118,28 @@ export function StepIn(props: StepInProps): React.JSX.Element {
   // The floor moves on THIS control's own acknowledgment and on nothing else. Read
   // through a latest-ref so a re-rendered host handing over a fresh callback does not
   // re-run the effect and move focus a second time for one settlement.
-  const takeTheFloor = useLatestRef(onTakeTheFloor);
+  const takeTheFloorHandler = useLatestRef(onTakeTheFloor);
   const acknowledgedToken = state.phase === "paused" ? dispatchToken : undefined;
   useEffect(() => {
     if (acknowledgedToken === undefined) {
       return;
     }
-    takeTheFloor.current();
-  }, [acknowledgedToken, takeTheFloor]);
+    takeTheFloorHandler.current();
+    // THE DECK'S ANSWER LANDS ONLY WHERE THE PAUSE DID. The publisher was captured at
+    // the render that dispatched, so a settlement measured against a retired transport
+    // or a re-addressed row is dropped rather than drawn — the same rule that keeps a
+    // stale receipt off the render.
+    let stillMounted = true;
+    void takeTheFloor({ runId: targetRunId }).then((outcome) => {
+      if (!stillMounted) {
+        return;
+      }
+      publishSettledFloor({ dispatchToken: acknowledgedToken, outcome });
+    });
+    return () => {
+      stillMounted = false;
+    };
+  }, [acknowledgedToken, publishSettledFloor, takeTheFloorHandler, targetRunId]);
 
   return (
     <div className="meridian-step-in">

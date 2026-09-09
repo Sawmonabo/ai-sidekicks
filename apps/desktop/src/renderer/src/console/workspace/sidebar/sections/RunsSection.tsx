@@ -30,33 +30,41 @@
 // unrecognized group and renders its own string, which is the fail-closed
 // projection rule.
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 
 import { type RunState } from "@ai-sidekicks/contracts";
 
-import {
-  Chip,
-  DerivedFigure,
-  Nothing,
-  formatCount,
-  type ChipTone,
-} from "../../../primitives/index.js";
+import { Nothing, type ChipTone } from "../../../primitives/index.js";
 import {
   useSessionDegradedCause,
   useSessionInitialised,
   useSessionPartition,
   type ConsoleEntity,
 } from "../../../store/index.js";
-import { type SidebarSectionContext } from "../../../seats/index.js";
-import { compareInstants, parseInstant } from "../../../core/index.js";
+import {
+  SidebarSectionList,
+  groupSectionRows,
+  groupedRowCount,
+  normaliseFilterQuery,
+  type ConsolePaneAddress,
+  type SectionListGroup,
+  type SidebarRollupGroup,
+  type SidebarRollupNode,
+  type SidebarSectionContext,
+} from "../../../seats/index.js";
+import { type SidebarSectionAttention } from "../model/sidebar-model.js";
+import { readSectionRollup, sectionRowDragBinding } from "./section-rollup-nodes.js";
+
+/** The pane every row of this section opens, whether pressed or dropped. */
+const RUNS_PANE: ConsolePaneAddress = { kind: "runs" };
 
 /**
  * Which group a run's state sorts into, total over the registered union.
  *
  * `needs-attention` is the amber-or-red half of the grouping above and is also what
- * the section reports through the seat, so one table decides both — a section
- * that grouped by one rule and reported attention by another could show a red
- * mark over a list with nothing red in it.
+ * {@link runsSectionRollup} answers from, so one table decides both — a section
+ * that grouped by one rule and answered attention by another could show a mark over
+ * a list with nothing wrong in it.
  *
  * `pinned`, the first of those four groups, is absent because nothing in the
  * corpus pins a run: no wire member and no persisted value class carries it. A
@@ -96,31 +104,35 @@ const GROUP_TONE: Readonly<Record<RunGroup, ChipTone>> = {
   unrecognized: "failure",
 };
 
+/**
+ * Which of the column's four rollup groups each of this section's groups reports as.
+ *
+ * The column's set is the design track's closed four and this section's is its own
+ * closed four, so the mapping is stated rather than assumed. `unrecognized` reports as
+ * `rest`: it is neither calling for anybody nor running, and the alternative — inventing
+ * a fifth column-level group for it — would reopen a shared enumeration so that one
+ * section could describe a state no build should be meeting. The section's own body
+ * still draws it under its own heading, where it is visible as itself.
+ *
+ * `pinned` is unreachable from here for the reason `GROUP_BY_RUN_STATE` gives: nothing
+ * in the corpus pins a run, and a group with no source is a heading always empty.
+ */
+const ROLLUP_GROUP_BY_RUN_GROUP: Readonly<Record<RunGroup, SidebarRollupGroup>> = {
+  "needs-attention": "needs-attention",
+  running: "running",
+  rest: "rest",
+  unrecognized: "rest",
+};
+
 export function RunsSection(context: SidebarSectionContext): React.JSX.Element {
   const runsById = useSessionPartition(context.sessionStore, "run");
   const isInitialised = useSessionInitialised(context.sessionStore);
   const degradedCause = useSessionDegradedCause(context.sessionStore);
 
   const grouped = useMemo(
-    () => groupRuns(Object.values(runsById), context.filterQuery ?? ""),
+    () => groupRuns(Object.values(runsById), context.filterQuery),
     [runsById, context.filterQuery],
   );
-
-  const { reportAttention } = context;
-  useEffect(() => {
-    if (reportAttention === undefined) {
-      return;
-    }
-    // Only an answered read may raise a mark. A store that has not loaded, or one
-    // the daemon has told us is incomplete, knows nothing about whether a run
-    // needs attention — and a mark raised from that would be the badge
-    // `SidebarSection.tsx` refuses to synthesise.
-    if (!isInitialised || degradedCause !== undefined) {
-      reportAttention("calm");
-      return;
-    }
-    reportAttention(grouped.get("needs-attention") === undefined ? "calm" : "amber");
-  }, [reportAttention, isInitialised, degradedCause, grouped]);
 
   if (!isInitialised) {
     return <Nothing kind="not-loaded" title="Reading the session's runs." />;
@@ -138,13 +150,12 @@ export function RunsSection(context: SidebarSectionContext): React.JSX.Element {
     );
   }
 
-  const totalRunCount = [...grouped.values()].reduce((count, runs) => count + runs.length, 0);
-  if (totalRunCount === 0) {
+  if (groupedRowCount(grouped) === 0) {
     return (
       <Nothing
         kind="empty"
         title={
-          (context.filterQuery ?? "") === ""
+          normaliseFilterQuery(context.filterQuery) === ""
             ? "No run has been started in this session."
             : "No run matches the filter."
         }
@@ -153,91 +164,99 @@ export function RunsSection(context: SidebarSectionContext): React.JSX.Element {
     );
   }
 
-  return (
-    <div className="meridian-sidebar-runs">
-      <p className="meridian-sidebar-runs__count">
-        <DerivedFigure text={`${formatCount(totalRunCount)} runs`} />
-      </p>
-      {RUN_GROUPS.map((group) => {
-        const runs = grouped.get(group);
-        return runs === undefined ? null : (
-          <section
-            className="meridian-sidebar-runs__group"
-            key={group}
-            aria-label={GROUP_LABEL[group]}
-          >
-            <h3 className="meridian-sidebar-runs__group-heading">
-              <Chip tone={GROUP_TONE[group]} label={GROUP_LABEL[group]} />
-              <DerivedFigure text={formatCount(runs.length)} />
-            </h3>
-            <ul className="meridian-sidebar-runs__list">
-              {runs.map((run) => (
-                <li className="meridian-sidebar-runs__row" key={run.id}>
-                  <button
-                    type="button"
-                    className="meridian-sidebar-runs__open"
-                    onClick={() => {
-                      // The session's runs pane, not an inspector over this row. No
-                      // pane kind is a view of one run — `seats/pane/pane-address.ts`
-                      // settles which entity kinds each kind admits, and the
-                      // inspector's are the five sidebar-card kinds the spec
-                      // enumerates — so a row opens the surface that holds every run
-                      // rather than an address the deck would have to refuse.
-                      context.openPane({ kind: "runs" });
-                    }}
-                  >
-                    <span className="meridian-sidebar-runs__id">{run.id}</span>
-                    <Chip mono label={run.state ?? "unknown"} tone={GROUP_TONE[group]} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-        );
-      })}
-    </div>
-  );
+  const groups: SectionListGroup[] = [];
+  for (const group of RUN_GROUPS) {
+    const runs = grouped.get(group);
+    if (runs === undefined) {
+      continue;
+    }
+    groups.push({
+      id: group,
+      label: GROUP_LABEL[group],
+      tone: GROUP_TONE[group],
+      rows: runs.map((run) => ({
+        id: run.id,
+        stateLabel: run.state ?? "unknown",
+        openLabel: `${GROUP_LABEL[group]}: run ${run.id}`,
+        // The session's runs pane, not an inspector over this row. No pane kind is
+        // a view of one run — `seats/pane/pane-address.ts` settles which entity kinds
+        // each kind admits, and the inspector's are the five sidebar-card kinds the
+        // spec enumerates — so a row opens the surface that holds every run rather
+        // than an address the deck would have to refuse.
+        open: () => {
+          context.openPane(RUNS_PANE);
+        },
+        // The drag opens what the press opens, through the column's own binder. A
+        // sidebar handed no binder — an older composition, or a harness that renders
+        // this section alone — simply has rows nobody bound, which is the reason the
+        // seam is optional on both sides rather than defaulted to a no-op here.
+        ...sectionRowDragBinding(context.dragRow, {
+          sectionId: "runs",
+          entityId: run.id,
+          label: `run ${run.id}`,
+          opens: RUNS_PANE,
+        }),
+      })),
+    });
+  }
+
+  return <SidebarSectionList countNoun="runs" groups={groups} />;
+}
+
+/**
+ * This section's runs as the tree the sidebar folds while the section is shut.
+ *
+ * A PULL rather than a push, and that is what makes the sidebar's rule reachable at
+ * all: a collapsed section is not mounted, so a section in trouble could never report
+ * from inside itself and the rule that opens it could never fire. Called by the sidebar
+ * during its own render, over state this family already holds — never a read, never a
+ * subscription.
+ *
+ * THE TREE RATHER THAN A LEVEL, which is the seat's own precedence: a section supplying
+ * a rollup has its level FOLDED from it and answers `attention` as well only if it has
+ * something the fold cannot reach. This one does not — the fold's strongest level over
+ * these nodes is exactly what a per-section reader would have returned — and the tree
+ * additionally gives the column the grouped counts it draws on the shut header, which a
+ * single level cannot carry.
+ *
+ * `failure` is deliberately unreachable here. A run that failed is a run this session
+ * is waiting on a person for, which is `attention`; `failure` names the section's own
+ * read having broken, and a broken read supplies no nodes at all rather than a level.
+ */
+export function runsSectionRollup(
+  context: Omit<SidebarSectionContext, "isOpen" | "openPane">,
+): readonly SidebarRollupNode[] {
+  return readSectionRollup(context, {
+    partition: "run",
+    group: (run) => ROLLUP_GROUP_BY_RUN_GROUP[groupOf(run.state)],
+    attention: (run) => attentionOf(run.state),
+    label: (run) => `run ${run.id}`,
+    opens: RUNS_PANE,
+  });
+}
+
+/** What one run is calling for: the amber half of the grouping table, and nothing else. */
+function attentionOf(state: string | undefined): SidebarSectionAttention | undefined {
+  return groupOf(state) === "needs-attention" ? "attention" : undefined;
 }
 
 /**
  * Split the runs into their groups, dropping the ones the filter excludes.
  *
- * A `Map` keyed by group with absent rather than empty entries, so a caller
- * renders a heading only for a group that has rows — the alternative, four
- * headings of which three say nothing, is the chrome the sidebar's counts-not-lists
- * density rule exists to avoid.
+ * The fold itself is `section-grouping.ts`'s, shared with the other section bodies;
+ * what stays here is the three answers only this section can give — which group a
+ * run belongs to, what its filter matches, and what it is ordered by.
  */
 function groupRuns(
   runs: readonly ConsoleEntity[],
-  filterQuery: string,
+  filterQuery: string | undefined,
 ): ReadonlyMap<RunGroup, readonly ConsoleEntity[]> {
-  const normalisedQuery = filterQuery.trim().toLocaleLowerCase();
-  const grouped = new Map<RunGroup, ConsoleEntity[]>();
-  for (const run of runs) {
-    if (normalisedQuery !== "" && !matchesFilter(run, normalisedQuery)) {
-      continue;
-    }
-    const group = groupOf(run.state);
-    const existing = grouped.get(group);
-    if (existing === undefined) {
-      grouped.set(group, [run]);
-    } else {
-      existing.push(run);
-    }
-  }
-  for (const rows of grouped.values()) {
-    // Newest first within a group, ordered as MOMENTS. Lexical order agrees with
-    // instant order only while every stamp carries the same offset, and the console
-    // does not get to assume the wire never sends another one.
-    rows.sort((left, right) =>
-      compareInstants(
-        parseInstant(left.touchedAt ?? ""),
-        parseInstant(right.touchedAt ?? ""),
-        "newest-first",
-      ),
-    );
-  }
-  return grouped;
+  const normalisedQuery = normaliseFilterQuery(filterQuery);
+  return groupSectionRows(runs, {
+    groupOf: (run) => groupOf(run.state),
+    matches: (run) => normalisedQuery === "" || matchesFilter(run, normalisedQuery),
+    orderedBy: (run) => run.touchedAt,
+  });
 }
 
 /** The sidebar filter runs over titles and paths; a run's are its identifier and

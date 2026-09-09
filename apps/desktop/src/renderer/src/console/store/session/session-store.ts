@@ -38,30 +38,48 @@
 //   • **A re-entrant apply is queued, drained, and reported.** A subscriber that
 //     writes during notification is a defect; losing its event would be a second
 //     one, so the event is kept and the tripwire fires.
+//   • **The log grows at the head through one door, and only backwards.** A session's
+//     stream replays from the position this participant was last acknowledged at, so
+//     the rows below `windowHeadCursor` exist and were never delivered here.
+//     `prependEarlierEvents` is where a read of them lands, and it is not a second
+//     apply chokepoint: it admits no row at or above the log's head, moves no cursor,
+//     runs no projector, and clears no degraded flag. `earlier-window.ts` owns the
+//     fold and says why each of those is a property rather than an omission. A read
+//     of those rows is addressed from a head this store can move underneath it, so
+//     `windowGeneration` publishes which window a page was asked under and the merge
+//     is settled through it.
+//   • **What is outstanding outlives the window.** The `timeline` above is one window
+//     and it is capped, so a fold over it loses an approval the moment the row that
+//     opened it is pruned or thrown away by the next read. `outstanding-asks/outstanding-ask-journal.ts`
+//     holds those lifecycles instead — seeded from each base state, advanced by every
+//     admitted row and every recovered one, and cleared by nothing this class does.
 
 import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
 
 import { reportTripwire } from "../../core/index.js";
 import { ParticipantHueAllocator } from "../../tokens/index.js";
+import { foldAppliedBatch } from "./applied-batch-fold.js";
 import { worstDegradedCause, type SessionDegradedCause } from "../degradation.js";
+import { foldEarlierWindowPage, type EarlierWindowMerge } from "./earlier-window.js";
 import {
-  emptyPartitions,
   EntityProjectionRunner,
-  mergeUpsert,
   type ConsoleSessionEvent,
   type EntityProjectorRegistry,
-  type SessionPartitions,
 } from "../entities/index.js";
-import { toReadableStore, type ConsoleReadableStore } from "../readable.js";
+import { GenerationLatch, type CurrentGenerationClaim } from "../read/generation-latch.js";
+import { OutstandingAskJournal, type OutstandingAskLedger } from "./outstanding-asks/index.js";
 import { PreInitialisationBuffer } from "./pre-initialisation-buffer.js";
+import { toReadableStore, type ConsoleReadableStore } from "../readable.js";
+import { SequenceReconciler, orderBatchBySequence } from "./sequence-reconciler.js";
 import {
-  SequenceReconciler,
-  isReconcilableSequence,
-  orderBatchBySequence,
-} from "./sequence-reconciler.js";
-import { admitsSnapshotAt } from "./session-state.js";
+  admitsSnapshotAt,
+  establishedState,
+  uninitialisedState,
+  type TimelineRetainedEnd,
+} from "./session-state.js";
 import type { SessionSnapshot, SessionStoreState } from "./session-state.js";
+import { NOTHING_APPLIED, type ApplyOutcome } from "./apply-outcome.js";
 
 // The store's own vocabulary, re-exported from the door consumers already use: the
 // declarations moved to the collaborators that own them, the names a caller writes
@@ -71,6 +89,7 @@ import type { SessionSnapshot, SessionStoreState } from "./session-state.js";
 export type { SessionDegradedCause } from "../degradation.js";
 export type { SessionSnapshot, SessionStoreState } from "./session-state.js";
 export { selectEntity, selectPartition } from "./selectors.js";
+export type { EarlierWindowMerge } from "./earlier-window.js";
 
 /** Construction inputs. */
 export interface SessionStoreOptions {
@@ -81,37 +100,10 @@ export interface SessionStoreOptions {
   readonly timelineCap?: number;
 }
 
-/** What one `applyBatch` call did. Returned so callers can count rather than infer. */
-export interface ApplyOutcome {
-  readonly admitted: number;
-  readonly duplicates: number;
-  readonly buffered: number;
-  readonly refusedForeignSession: number;
-  readonly gapDetected: boolean;
-  /** Buffered events this batch pushed past `PRE_INITIALISATION_BUFFER_CAP`. */
-  readonly droppedBeforeInitialisation: number;
-  /**
-   * Events refused because their sequence cannot be reconciled with this store's:
-   * a jump past `MAX_REPAIRABLE_SEQUENCE_GAP` of accumulated loss, or a value no
-   * cursor arithmetic can survive.
-   */
-  readonly refusedDivergedSequence: number;
-  /** Events whose registered projector threw. The event landed; its entities did not. */
-  readonly projectionFailures: number;
-}
-
 const SITE = "console/store/session-store.ts";
 
-/** Nothing reached the state. `buffered` is the caller's, because only it knows. */
-const NOTHING_APPLIED: Omit<ApplyOutcome, "buffered"> = {
-  admitted: 0,
-  duplicates: 0,
-  refusedForeignSession: 0,
-  gapDetected: false,
-  droppedBeforeInitialisation: 0,
-  refusedDivergedSequence: 0,
-  projectionFailures: 0,
-};
+/** The one key the window generation is claimed under. A store has one window. */
+const WINDOW_GENERATION_KEY = "window";
 
 export class SessionStore {
   readonly #sessionId: string;
@@ -121,23 +113,48 @@ export class SessionStore {
   readonly #reconciler = new SequenceReconciler();
   readonly #preInitialisationBuffer = new PreInitialisationBuffer();
   readonly #projectionRunner: EntityProjectionRunner;
+  /**
+   * What is still waiting on a person, held apart from the window it was learned from.
+   *
+   * Constructed here rather than handed in, because its lifetime is this store's and its
+   * inputs are this store's: it is advanced by exactly the rows the apply chokepoint
+   * admits and the rows the backward walk recovers, and a caller able to supply a second
+   * register could publish a count over a session whose rows it never saw.
+   */
+  readonly #outstandingAsks = new OutstandingAskJournal();
   readonly #reentrantQueue: ConsoleSessionEvent[] = [];
   #applying = false;
+  /**
+   * Rows this store holds that arrived from behind its window's head.
+   *
+   * Private, and read by exactly one thing: `#retainedEnd`, which is the whole of what
+   * the count is for — a log that has grown at its head is capped from the other end.
+   * A count rather than a flag because zero is the same fact as "no backward page has
+   * landed", and it resets on `initialise`, which is the one act that re-establishes
+   * where the window starts.
+   */
+  #earlierEventCount = 0;
+  readonly #windowGenerations = new GenerationLatch();
+  /**
+   * Which window this store's log is currently a view of.
+   *
+   * Re-taken by `initialise` and by nothing else, so it goes stale on exactly the act
+   * that re-establishes where the window starts — including the read that answered at
+   * the SAME position and still threw the old log away, which no comparison of head
+   * cursors can see.
+   */
+  #windowGeneration: CurrentGenerationClaim = this.#windowGenerations.supersedeAndClaim(
+    this,
+    WINDOW_GENERATION_KEY,
+  );
 
   public constructor(options: SessionStoreOptions) {
     this.#sessionId = options.sessionId;
     this.#timelineCap = options.timelineCap;
     this.#projectionRunner = new EntityProjectionRunner(options.projectors ?? {});
-    this.#store = createStore<SessionStoreState>(() => ({
-      sessionId: options.sessionId,
-      initialised: false,
-      partitions: emptyPartitions(),
-      timeline: [],
-      cursor: -1,
-      degradedCause: undefined,
-      gaps: [],
-      revision: 0,
-    }));
+    this.#store = createStore<SessionStoreState>(() =>
+      uninitialisedState({ sessionId: options.sessionId, revision: 0 }),
+    );
   }
 
   /** The session this store is bound to. */
@@ -176,6 +193,48 @@ export class SessionStore {
   }
 
   /**
+   * What this session still has open, as of every row this store has ever been given.
+   *
+   * A GETTER RATHER THAN A STATE MEMBER, on `paging-binding.ts`' precedent: the ledger
+   * only ever moves on an act that also bumps `revision`, so a reader subscribed to that
+   * re-asks exactly when it could have changed — and a mirror on the committed state
+   * would be a second copy of a value whose whole point is that it is the register's.
+   */
+  public get outstandingAskLedger(): OutstandingAskLedger {
+    return this.#outstandingAsks.ledger;
+  }
+
+  /**
+   * A handle on the window this log is a view of, for a caller settling against it.
+   *
+   * FOR THE READER THAT ASKS FOR ROWS THIS WINDOW DOES NOT HOLD. Such a read is
+   * addressed FROM a window head, and it can answer after a completed read has moved
+   * that head — at which point its page names rows before a window this store has
+   * left. Taking this claim at issue and settling through it is what lets that page be
+   * discarded, and it is a handle rather than a number so the caller cannot re-derive
+   * the comparison and get it wrong.
+   *
+   * The NARROW half of a claim: a reader may ask whether its round is still live and
+   * may settle against it, and may not give the key back — the window is the store's
+   * and ends when the next read re-establishes it.
+   */
+  public get windowGeneration(): CurrentGenerationClaim {
+    return this.#windowGeneration;
+  }
+
+  /**
+   * Which end of an over-cap log survives, right now.
+   *
+   * A backward page moves it, and that is the whole of the rule: a reader who asked
+   * for the rows before the window's head has moved to the head, so the cap cuts the
+   * end they left rather than the end they went to. Cutting the other way would
+   * discard the page as it landed, and every press after it.
+   */
+  get #retainedEnd(): TimelineRetainedEnd {
+    return this.#earlierEventCount > 0 ? "oldest" : "newest";
+  }
+
+  /**
    * Establish the base state from a read response and drain anything that arrived
    * first.
    *
@@ -192,28 +251,44 @@ export class SessionStore {
       this.#hueAllocator.admit(participantId);
     }
 
-    let partitions: SessionPartitions = emptyPartitions();
-    for (const entity of snapshot.entities) {
-      partitions = mergeUpsert(partitions, entity);
-    }
-
+    // A completed read re-establishes where the window STARTS, so whatever a backward
+    // walk had re-admitted below the previous head is no longer a fact about this
+    // window: the rows are re-delivered by the read itself or they are once again
+    // outside it, and either way the count that decides the retained end is stale.
+    this.#earlierEventCount = 0;
+    // And the window itself is a NEW one, which is the same fact stated where a caller
+    // can act on it: a backward read still in flight was addressed from the head this
+    // act just replaced, so the claim it took at issue stops being current here and
+    // its page settles nowhere.
+    this.#windowGeneration = this.#windowGenerations.supersedeAndClaim(this, WINDOW_GENERATION_KEY);
+    // AND THE OUTSTANDING LEDGER TAKES WHAT THIS READ ESTABLISHED WITHOUT LOSING WHAT IT
+    // ALREADY HELD. The read re-establishes the WINDOW and says nothing about a request
+    // it did not carry, so a register cleared here would throw away exactly the older
+    // asks it exists to hold — which is the defect this whole seam answers. What the
+    // seed does move is the window-head fact, because that is a property of this read.
+    this.#outstandingAsks.seedFrom({
+      entities: snapshot.entities,
+      cursor: snapshot.cursor,
+      windowHeadCursor: snapshot.readFromCursor,
+    });
     const timeline = orderBatchBySequence(snapshot.timeline ?? []);
+    this.#outstandingAsks.admit(timeline);
     this.#reconciler.rebaseTo(
       snapshot.cursor,
       timeline.map((event) => event.sequence),
     );
 
-    this.#store.setState({
-      sessionId: this.#sessionId,
-      initialised: true,
-      partitions,
-      timeline: capTimeline(timeline, this.#timelineCap),
-      cursor: snapshot.cursor,
-      // A re-pull is exactly what clears the sticky flag.
-      degradedCause: undefined,
-      gaps: [],
-      revision: current.revision + 1,
-    });
+    // A re-pull is exactly what clears the sticky flag, and the builder is where that
+    // happens: every other path merges the cause upward and never drops it.
+    this.#store.setState(
+      establishedState({
+        sessionId: this.#sessionId,
+        snapshot,
+        orderedTimeline: timeline,
+        timelineCap: this.#timelineCap,
+        revision: current.revision + 1,
+      }),
+    );
 
     const buffered = this.#preInitialisationBuffer.drain();
     if (buffered.length > 0) {
@@ -259,7 +334,21 @@ export class SessionStore {
 
     this.#applying = true;
     try {
-      return this.#applyBatchInner(events);
+      const current = this.#store.getState();
+      const { outcome, nextState } = foldAppliedBatch(current, events, {
+        sessionId: this.#sessionId,
+        reconciler: this.#reconciler,
+        projectionRunner: this.#projectionRunner,
+        preInitialisationBuffer: this.#preInitialisationBuffer,
+        hueAllocator: this.#hueAllocator,
+        outstandingAsks: this.#outstandingAsks,
+        timelineCap: this.#timelineCap,
+        retainedEnd: this.#retainedEnd,
+      });
+      if (nextState !== undefined) {
+        this.#store.setState(nextState);
+      }
+      return outcome;
     } finally {
       this.#applying = false;
       const queued = this.#reentrantQueue.splice(0, this.#reentrantQueue.length);
@@ -274,121 +363,33 @@ export class SessionStore {
     return this.applyBatch([event]);
   }
 
-  #applyBatchInner(events: readonly ConsoleSessionEvent[]): ApplyOutcome {
+  /**
+   * Grow the log at its head with a page read from behind
+   * {@link SessionStoreState.windowHeadCursor}.
+   *
+   * NOT A SECOND APPLY CHOKEPOINT, and `earlier-window.ts` states every difference
+   * from `applyBatch` as a property rather than a shortcut — no sequence reconciled,
+   * no projector run, no cursor moved, no gap recorded, and the degraded flag neither
+   * set nor cleared. What it DOES advance is the outstanding-ask register, because a
+   * recovered row is the one thing a backward page is worth to it.
+   *
+   * Answers what the merge did, so a caller can tell an exhausted walk (nothing
+   * admitted, nothing overlapping) from a page asked for at the wrong position
+   * (nothing admitted, every row refused as not-earlier).
+   */
+  public prependEarlierEvents(events: readonly ConsoleSessionEvent[]): EarlierWindowMerge {
     const current = this.#store.getState();
-    let admitted = 0;
-    let duplicates = 0;
-    let buffered = 0;
-    let refusedForeignSession = 0;
-    let gapDetected = false;
-    let droppedBeforeInitialisation = 0;
-    let refusedDivergedSequence = 0;
-    let projectionFailures = 0;
-
-    let partitions = current.partitions;
-    let appended: ConsoleSessionEvent[] | undefined;
-
-    for (const event of orderBatchBySequence(events)) {
-      if (event.sessionId !== this.#sessionId) {
-        refusedForeignSession += 1;
-        continue;
-      }
-      if (!isReconcilableSequence(event.sequence)) {
-        // Refused BEFORE the buffer: no base state makes such a sequence
-        // applicable, so buffering it would only defer the same refusal.
-        refusedDivergedSequence += 1;
-        continue;
-      }
-      if (!current.initialised) {
-        buffered += 1;
-        if (this.#preInitialisationBuffer.push(event)) {
-          droppedBeforeInitialisation += 1;
-        }
-        continue;
-      }
-
-      const admission = this.#reconciler.reconcile(event.sequence);
-      if (admission.outcome === "duplicate") {
-        duplicates += 1;
-        continue;
-      }
-      if (admission.outcome === "diverged") {
-        refusedDivergedSequence += 1;
-        continue;
-      }
-      if (admission.openedGap !== undefined) {
-        gapDetected = true;
-      }
-
-      const projected = this.#projectionRunner.run(partitions, event);
-      if (projected === undefined) {
-        projectionFailures += 1;
-      } else {
-        partitions = projected;
-      }
-
-      if (event.actorId !== undefined) {
-        this.#hueAllocator.admit(event.actorId);
-      }
-      appended ??= [...current.timeline];
-      appended.push(event);
-      admitted += 1;
-    }
-
-    // The dedupe set answers only for sequences the cursor cannot. Released here
-    // rather than never, so a session that runs all day holds a batch's worth of
-    // numbers instead of its whole history.
-    this.#reconciler.releaseSequencesAtOrBelowCursor();
-
-    const outcome: ApplyOutcome = {
-      admitted,
-      duplicates,
-      buffered,
-      refusedForeignSession,
-      gapDetected,
-      droppedBeforeInitialisation,
-      refusedDivergedSequence,
-      projectionFailures,
-    };
-    if (
-      admitted === 0 &&
-      !gapDetected &&
-      droppedBeforeInitialisation === 0 &&
-      refusedDivergedSequence === 0
-    ) {
-      return outcome;
-    }
-
-    this.#store.setState({
-      ...current,
-      partitions,
-      timeline:
-        appended === undefined ? current.timeline : capTimeline(appended, this.#timelineCap),
-      cursor: this.#reconciler.cursor,
-      // A drop at the cap is a known-incomplete projection for the same reason a
-      // skipped sequence is, so it takes the same cause. The sequences it cost are
-      // deliberately NOT recorded here — the drain re-derives them against the base
-      // state as an ordinary range.
-      degradedCause: worstDegradedCause(
-        current.degradedCause,
-        refusedDivergedSequence > 0 ? "stream-diverged" : undefined,
-        gapDetected || droppedBeforeInitialisation > 0 ? "sequence-gap" : undefined,
-        projectionFailures > 0 ? "projection-failed" : undefined,
-      ),
-      gaps: this.#reconciler.gaps(),
-      revision: current.revision + 1,
+    const { merge, nextState } = foldEarlierWindowPage(current, events, {
+      sessionId: this.#sessionId,
+      hueAllocator: this.#hueAllocator,
+      outstandingAsks: this.#outstandingAsks,
+      timelineCap: this.#timelineCap,
     });
-
-    return outcome;
+    if (nextState === undefined) {
+      return merge;
+    }
+    this.#earlierEventCount += merge.admitted;
+    this.#store.setState(nextState);
+    return merge;
   }
-}
-
-function capTimeline(
-  timeline: readonly ConsoleSessionEvent[],
-  cap: number | undefined,
-): readonly ConsoleSessionEvent[] {
-  if (cap === undefined || timeline.length <= cap) {
-    return timeline;
-  }
-  return timeline.slice(timeline.length - cap);
 }

@@ -14,8 +14,9 @@
 //
 // WHAT A FAMILY DOES
 //
-// A family exports `register<Family>Panes(registry: ConsolePaneRegistry): void`
-// from its own `index.ts`, claims its pane kinds inside that function, and replaces
+// A family exports `register<Family>Panes(registry: ConsolePaneRegistry, …): void`
+// from its own family door — `<family>/index.ts`, the same door `console/families.ts`
+// calls for its surfaces — claims its pane kinds inside that function, and replaces
 // its own placeholder line below with the import and the call. The task marker rides
 // the call rather than being dropped with the comment, so a filled seat is still a
 // seat and the board reads the same whether a family has landed or not. Each line
@@ -60,6 +61,13 @@
 // suite; `console-panes-hold-no-body` holds the first half of that and the barrel
 // census the second.
 //
+// A FAMILY MAY BE HANDED A COMPOSITION ARGUMENT HERE, on `console/families.ts`' terms
+// and for its reason: this is one of the two files allowed to name more than one view
+// family, so a body one family needs from another is named here rather than imported
+// there. Nothing needs one today — the pane FRAME every family wears is
+// `seats/ConsolePaneChrome`, reached downward through the seat door rather than handed
+// across from a sibling — and a family that does gets its argument here.
+//
 // WHAT A FAMILY DOES NOT DO
 //
 // A family never edits `seats/pane/pane-registry.ts` or `seats/pane/pane-kinds.ts`. The
@@ -84,6 +92,7 @@ import { registerAgentConsolePane } from "../agents/index.js";
 import { registerApprovalsPane } from "../approvals/index.js";
 import { registerBrowserPanes } from "../browser/index.js";
 import { registerInspectorPane } from "../inspector/index.js";
+import { registerLedgerPanes } from "../ledger/index.js";
 import { registerReposPanes } from "../repos/index.js";
 import { registerRunsPane } from "../runs/index.js";
 import type { ConsolePaneRegistry } from "../seats/index.js";
@@ -99,7 +108,7 @@ import { registerWorkflowPanes } from "../workflows/index.js";
  * second code path.
  */
 export function registerConsolePanes(registry: ConsolePaneRegistry): void {
-  // T-023p-1C-2 timeline
+  registerLedgerPanes(registry); // T-023p-1C-2 timeline
   registerRunsPane(registry); // T-023p-1C-3 runs
   registerApprovalsPane(registry); // T-023p-1C-3 approvals
   registerInspectorPane(registry); // T-023p-1C-3 inspector

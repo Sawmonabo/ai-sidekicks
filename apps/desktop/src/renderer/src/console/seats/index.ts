@@ -77,6 +77,7 @@
 // imports the symbol — a tag that outlives its consumer fails the run.
 
 import "./pane-chrome.css";
+import "./sidebar-section-list.css";
 // The schema form seat's rules are deliberately NOT here. That directory carries a
 // lazily-loaded chunk now, so it owns its own sheet and admits it at that chunk's root —
 // `apps/desktop/AGENTS.md`'s rule read from the owner's side. It loads with the first
@@ -140,17 +141,16 @@ export {
 export type { ConsolePaneContext } from "./pane/pane-context.js";
 export type { ConsoleSurfaceContext } from "./surface/surface-context.js";
 
+// `PANE_KINDS` and `EPHEMERAL_PANE_KINDS` are deliberately absent: every reader of
+// either SET is inside this family or is a suite that drives the kinds directly, and
+// both take `seats/pane-kinds.js` by its own specifier. A door line no production
+// module reads is one the barrel census fails, so the sets leave rather than being
+// tagged. Their two predicates stay, because the deck asks both of them.
 export {
   /** @consumedBy T-023p-1C-2 */
   DETACHABLE_PANE_KINDS,
-  /** @consumedBy T-023p-1C-2 */
-  EPHEMERAL_PANE_KINDS,
-  /** @consumedBy T-023p-1C-2 */
-  PANE_KINDS,
   isDetachablePaneKind,
-  /** @consumedBy T-023p-1C-2 */
   isEphemeralPaneKind,
-  /** @consumedBy T-023p-1C-2 */
   isPaneKind,
   type PaneKind,
 } from "./pane/pane-kinds.js";
@@ -233,14 +233,41 @@ export {
 // `pendingPaneBodiesIn` still have none and still take the leaf directly, for the reason
 // above: their only consumer outside this directory is that helper.
 //
+// `reservedBodyRegion` is on the same line for the same reason and one more: the bodies
+// that take it are a view family's own overlay cards, so the attribute and the element
+// that carries it leave this directory together rather than as a string a family then
+// spells into an element of its own.
+//
 // `LazyBodyBoard` and `LazyBodyModule` stay absent — named only by the boards and the
 // walk in this directory — and a family declaring a loader beside its registration writes
 // `body: () => import("./x-body.js")` inline, which names no type at all.
-export { PENDING_PANE_BODY_ATTRIBUTE } from "./pane/pending-pane-body.js";
+export { PENDING_PANE_BODY_ATTRIBUTE, reservedBodyRegion } from "./pane/pending-pane-body.js";
 export { LoadedLazyBody, type LazyBodyLoader } from "./lazy-body/lazy-body.js";
 
 export {
-  /** @consumedBy T-023p-1C-2 */
+  actorFollowHandler,
+  registerActorFollowHandler,
+  unregisterActorFollowHandler,
+  type ActorFollowHandler,
+  type ActorFollowOutcome,
+  type ActorFollowRequest,
+} from "./slots/actor-follow-seat.js";
+
+// The floor seat — the deck's half of "Step in", filled by the family that owns the
+// deck and called by the family that owns the run controls. The release call is on the
+// door and the composer seat's is not, because this handler closes over one live deck
+// and one live transport: the workspace withdraws it on unmount, where the composer's
+// body is registered once for the life of the window.
+export {
+  registerTakeTheFloorHandler,
+  takeTheFloor,
+  unregisterTakeTheFloorHandler,
+  type FloorWorktreeDisposition,
+  type TakeTheFloorHandler,
+  type TakeTheFloorOutcome,
+} from "./slots/take-the-floor-seat.js";
+
+export {
   composerSeatRenderer,
   registerComposerSeat,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
@@ -252,7 +279,13 @@ export {
 // The other direction: a surface that told a person to type something asking the
 // mounted composer for the caret. Through the door because the asker and the answerer
 // are two view families that name each other nowhere.
-export { requestComposerFocus, subscribeToComposerFocus } from "./composer/composer-focus.js";
+// The shell's own ingress into that seam rides the same door: main answers the chord
+// an auxiliary window cannot, and the frame is what binds this window to it.
+export {
+  requestComposerFocus,
+  subscribeToComposerFocus,
+  useShellComposerFocusRequests,
+} from "./composer/composer-focus.js";
 
 export {
   SIDEBAR_SECTION_IDS,
@@ -260,10 +293,25 @@ export {
   sidebarSectionRegistry,
   /** @consumedBy T-023p-1C-3 */
   sidebarSectionRenderer,
-  type SidebarSectionAttention,
   type SidebarSectionContext,
   type SidebarSectionDescriptor,
   type SidebarSectionId,
+} from "./slots/sidebar-sections.js";
+
+// The rollup tree and the bulk-selection seam, published beside the sections they
+// belong to. Two of the three type names below are read by the sidebar's own fold and
+// runner; the two enumerations are what a view family derives its groups and acts from
+// rather than restating them.
+export {
+  SIDEBAR_ROLLUP_GROUPS,
+  type SidebarBulkAct,
+  type SidebarBulkItem,
+  type SidebarBulkOutcome,
+  type SidebarBulkSelection,
+  type SidebarRollupGroup,
+  type SidebarRollupNode,
+  type SidebarRowDragBinder,
+  type SidebarRowDragTarget,
 } from "./slots/sidebar-sections.js";
 
 // The window's one overlay body, filled by the family that owns it and read by the
@@ -280,25 +328,30 @@ export {
 export {
   /** @consumedBy T-023p-1C-2 */
   TIMELINE_ROW_DENSITIES,
-  /** @consumedBy T-023p-1C-2 */
   registerTimelineRowRenderer,
-  /** @consumedBy T-023p-1C-2 */
   timelineRowRenderer,
-  /** @consumedBy T-023p-1C-2 */
-  unregisterTimelineRowRenderer,
-  /** @consumedBy T-023p-1C-2 */
   type TimelineRowDensity,
-  /** @consumedBy T-023p-1C-2 */
   type TimelineRowRenderer,
-  /** @consumedBy T-023p-1C-2 */
   type TimelineRowSlotProps,
 } from "./slots/timeline-row-slot.js";
+
+// The footer seat publishes only what a PRODUCTION reader takes: the shell's
+// registration, the ledger's mount, and the two types both name. Its slot contract,
+// its row-type tuple, and its release call are read by its own suite alone, which
+// reaches the declaring module directly — a door line without a production reader is
+// what `barrel-census.test.ts` fails.
+export {
+  registerTimelineRowFooterRenderer,
+  rowTakesFooter,
+  timelineRowFooterRenderer,
+  type TimelineRowFooterRenderer,
+  type TimelineRowFooterSlotProps,
+} from "./slots/timeline-row-footer-seat.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */
   INLINE_CARD_KINDS,
   InlineCardSeatRegistry,
-  /** @consumedBy T-023p-1C-2 */
   inlineCardBody,
   inlineCardSeatRegistry,
   type ArtifactInlineCardProps,
@@ -312,38 +365,25 @@ export {
   type InlineCardKind,
   /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
   type InlineCardPropsByKind,
-  /** @consumedBy T-023p-1C-2 */
   type InlineCardSeatProps,
 } from "./slots/inline-card-seats.js";
 
-// The pane chrome and the seam its two host controls travel on, and four markers now
-// in two different states — which is the marker rule working rather than two spellings
-// of one thing.
-//
-// The chrome's three lines carry NOTHING. A shipped pane body imports all three, which
-// is the event those claims named, and a surviving `@consumedBy` would fail the
-// dead-code gate under `--treat-tag-hints-as-errors` rather than exempt anything.
-//
-// `PaneControlsContext` carries the `// Consumed by` LINE rather than a tag, which is
-// the other half of the same rule. The agent console is one of the kinds the window
-// model can open, so whether its deck mount reaches the chrome decides whether the
-// detach control can be drawn at all — and the only honest way to assert that is to
-// provide the host's controls through the seam a deck provides them through, which its
-// mounts' suite now does. A test reader makes knip's exemption unnecessary and is not
-// the production reader the barrel census wants, so the claim sits on the marker the
-// package standard pairs with exactly that case. `PaneControls` keeps its TAG: the
-// value a deck constructs is still nobody's until the deck lands, and that reader hands
-// the provider an inline object rather than naming the type.
-//
-// `OwnerSlotContract` carries NEITHER any more. A shipped family names the type on every
-// slot it declares, which is the event its tag reserved the export for, and a marker
-// that outlives its consumer fails the dead-code gate under `--treat-tag-hints-as-errors`
-// rather than exempt anything — so the tag leaves in the diff that imports the symbol.
+// The pane chrome and the seam its two host controls travel on. No marker on any of
+// these lines, and every half of the reason has now happened: shipped pane bodies
+// import the chrome and narrow through `paneBodyForKind`; the deck — the one host that
+// provides the two controls — ships and mounts every pane inside `PaneControlsContext`
+// and names `PaneControls` on the value it builds, so the agent console's detach
+// control is drawn through the seam a deck provides it through rather than asserted by
+// a test; and two shipped families name the owner slot's contract on the slots they
+// declare — the ledger's message card and timeline pane, and the workflows family's own
+// slot table. A surviving marker would fail the run under `--treat-tag-hints-as-errors`.
 export {
   ConsolePaneChrome,
   paneBodyForKind,
   type PaneContextOf,
 } from "./pane/ConsolePaneChrome.js";
+
+export { PaneControlsContext, type PaneControls } from "./pane/pane-controls.js";
 
 // The block one pane pins above its body, and the board a family fills it through.
 // The registry and the board travel, exactly as the sidebar's and the inline cards' do:
@@ -357,13 +397,6 @@ export {
 // module reads.
 export { PinnedPaneRegionRegistry, pinnedPaneRegionRegistry } from "./pane/pinned-pane-regions.js";
 
-export {
-  // Consumed by T-023p-1C-2
-  PaneControlsContext,
-  /** @consumedBy T-023p-1C-2 */
-  type PaneControls,
-} from "./pane/pane-controls.js";
-
 export type { OwnerSlotContract, OwnerSlotProps } from "./slots/owner-slot.js";
 
 // The session vocabulary, straight from the module that DECLARES it rather than
@@ -374,6 +407,8 @@ export type { OwnerSlotContract, OwnerSlotProps } from "./slots/owner-slot.js";
 // not to bind at all. Both gates were green on that for reasons neither intends — the
 // module's own test keeps it reachable, and it imports two families so it is no
 // orphan — which is why the census below is the thing that says who owes the rebind.
+// The hook's claim is retired: the ledger's pane holds its chapter disclosure and
+// both of its row-retention tables through this line.
 export { isCurrentSessionSubject, useSessionScopedState } from "./session-subject.js";
 export type {
   /** @consumedBy T-023p-1C-3 */
@@ -418,6 +453,24 @@ export type { SessionDirectoryState } from "./session-directory.js";
 export { autoPinDecision } from "./pinning/auto-pin.js";
 export type { AutoPinDecision, SessionOriginEvidence } from "./pinning/auto-pin.js";
 export { recordConsoleStartedSession, settleFirstSendAutoPin } from "./pinning/session-auto-pin.js";
+
+// The composed new-session draft's seat: the props the control takes, and the props
+// type as a component the composition root hands over.
+//
+// Beside the auto-pin record above for the same reason it is here — two view families
+// meet on it. The workspace family declares the control against these props and the
+// sessions family mounts a component that satisfies them, and neither may import the
+// other, so a second spelling in either would be a contract with two homes and one
+// reader. The module beside this line carries no runtime value at all: what a settled
+// start DOES is the sessions family's act, and this seat carries only the id.
+// `NewSessionBlockedAct` travels the same line for the same reason: it is the shape
+// the mounting family composes and the declaring family renders, so it belongs to
+// neither of them and to the seat they meet on.
+export type {
+  NewSessionBlockedAct,
+  NewSessionControlComponent,
+  NewSessionControlProps,
+} from "./slots/new-session-seat.js";
 
 // The read discipline every live wire read in this console follows — subscribe
 // first, answer a push with a fresh read, one read per burst through the refresh
@@ -527,6 +580,28 @@ export {
 // the absorbed view's own presence channel does not carry.
 export { useNodeRosterReReadTriggers } from "./node-roster/node-roster-triggers.js";
 
+// The shared body every sidebar section draws with: the count, the group headings, and
+// the rows that open panes, plus the fold that splits a section's rows into groups.
+//
+// On this door and not in any family's subtree because three DIFFERENT families own the
+// eight section bodies — the composer family's `runs` and `approvals`, the collaboration
+// family's `channels`, `agents` and `members`, the repos family's `repos` and
+// `artifacts` — and one view family may not import another. This is the layer that
+// already owns the sidebar-section contract, so the markup that contract implies and
+// the fold every body performs leave through the same door the contract does.
+//
+// `SectionListRow`, `SidebarSectionListProps` and `RowGroupingRules` are deliberately
+// absent: a section body composes the groups and names the component, and no reader
+// outside this family spells either of those types, so a line for one would be a door
+// specifier no production module reads.
+export { SidebarSectionList } from "./slots/SidebarSectionList.js";
+export type { SectionListGroup } from "./slots/SidebarSectionList.js";
+export {
+  groupSectionRows,
+  groupedRowCount,
+  normaliseFilterQuery,
+} from "./slots/section-grouping.js";
+
 // THE JSON-SCHEMA FORM SEAT — the mapper, the six Meridian field controls, the two
 // composed surfaces and the schema-validated raw editor behind them. Here for the reason
 // every other seat is here: an owning family needs a form, and a form is not that
@@ -534,11 +609,13 @@ export { useNodeRosterReReadTriggers } from "./node-roster/node-roster-triggers.
 // pane answers a parked one, and the input-ask card's structured-options arm is the next
 // reader — three surfaces, one drawing of what a schema means.
 //
-// WHAT LEAVES IS A COMPOSED SURFACE AND NEVER THE KIT. `useSchemaForm`, `planSchemaForm`
-// and `compileSchemaValidator` stay inside, and their absence is the boundary rather than
-// an omission: a caller assembling those three itself would be a second answer to what a
-// schema draws, and the one place a schema is drawn is `SchemaForm.tsx`. So the composers
-// live WITH the parts and leave through this door.
+// WHAT LEAVES IS A COMPOSED SURFACE AND NEVER THE KIT. `useSchemaForm` and
+// `planSchemaForm` stay inside, and their absence is the boundary rather than an omission:
+// a caller assembling them itself would be a second answer to what a schema draws, and the
+// one place a schema is drawn is `SchemaForm.tsx`. So the composers live WITH the parts and
+// leave through this door. What checks an answer against a schema is not in the kit at all
+// — a validator lives in `bridge/`, and the kit reaches the compiler through the loader
+// that family's door publishes, so this seat holds no reading of a schema library either.
 //
 // AND THE SEAT DOES NOT DECIDE WHAT AN ANSWER MEANS. `SchemaFormAnswer` carries the
 // prompt, the controls and the one act that sends what they compose; the mounting body
@@ -554,10 +631,13 @@ export { useNodeRosterReReadTriggers } from "./node-roster/node-roster-triggers.
 // AND ALL THREE LEAVE THROUGH A LOADER, which is the one thing about this seat that is
 // not like the others. Every surface that draws a schema is itself a loader-backed body,
 // so a static line here would assign the whole kit to the STATIC chunk on the rule
-// `apps/desktop/AGENTS.md` §Module shape states — measured at thirty-one modules of that
-// directory, the JSON-Schema validator behind them, and its stylesheet, on the document
-// of every session that never opens a form. So what this door publishes is the mounts
-// and the chunk's loader; `schema-form-body.ts` is the chunk root they reach.
+// `apps/desktop/AGENTS.md` §Module shape states — every module of that directory, the
+// JSON-Schema validator behind them and the zod entry point it reaches, and its
+// stylesheet, on the document of every session that never opens a form. Count-free
+// deliberately: a number written here is a claim about a directory that goes stale the
+// next time the kit grows a field, and the one that stood here had. So what this door
+// publishes is the mounts and the chunk's loader; `schema-form-body.ts` is the chunk
+// root they reach.
 export {
   schemaFormAnswerMount,
   schemaFormChunk,

@@ -37,6 +37,10 @@ export type {
 
 export { mapGrowthServed, type GrowthOutcome } from "./growth-outcome.js";
 
+// `settledGrowthCall` is deliberately absent: every reader of it is a view family or
+// the frame, which take it from `bridge/index.ts` like every other family name. A name
+// no SIBLING of this sub-module reaches is a dead export the barrel census fails, so
+// this door is never widened for symmetry.
 export { createRefusingGrowthPort, type GrowthPort } from "./growth-port.js";
 
 export {

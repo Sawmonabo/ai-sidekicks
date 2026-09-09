@@ -6,11 +6,12 @@
 // segments, and that a valid answer comes back clean — because a wrapper that swallowed
 // everything would pass the throwing case and be useless.
 //
-// AND ONE PAIR IS ABOUT THE PATH REPRESENTATION ITSELF. A path joined with a dot is not
-// injective, so the cases below pin the two properties that replace it: that a property
-// whose own name reads like an array position stays apart from that position, and that
-// the pointer encoding escapes rather than collapses the two characters its grammar
-// reserves.
+// AND ONE CASE IS ABOUT THE PATHS THIS WRAPPER PRODUCES. A path joined with a dot is not
+// injective, so the case below pins that the reader's own findings come back addressed
+// apart: a property whose name reads like an array position, and that position, are two
+// members and arrive as two paths. What the REPRESENTATION guarantees — the encoding and
+// the comparison — is `schema-member-path.test.ts`, beside the module that declares them;
+// this file uses the encoder to spell a path and asserts nothing about it.
 //
 // AND ONE PAIR IS ABOUT WHAT A CLEAN VERDICT IS ABOUT. Checking reads an answer rather
 // than inspecting it, so a schema with a `default` accepts `{}` and accepts it as
@@ -20,7 +21,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { compileSchemaValidator, encodeMemberPointer } from "./json-schema-check.js";
+import { compileSchemaValidator } from "./json-schema-check.js";
+import { encodeMemberPointer } from "./schema-member-path.js";
 
 /** A schema over one required string and one optional number. */
 const TWO_MEMBER_SCHEMA = {
@@ -103,14 +105,6 @@ describe("the schema validator wrapper", () => {
       ["items", 0],
       ["items.0"],
     ]);
-  });
-
-  it("escapes the two characters an RFC 6901 reference token cannot carry literally", () => {
-    // Order is what this pins: escaping the separator first would re-escape the tilde this
-    // step just wrote and turn `a/b` into `a~01b`, a token decoding to something nobody
-    // wrote. The empty path is the pointer grammar's own name for the whole document.
-    expect(encodeMemberPointer(["a/b", "c~d", 0])).toBe("/a~1b/c~0d/0");
-    expect(encodeMemberPointer([])).toBe("");
   });
 
   it("carries the value the schema accepted, which is not the value it was handed", () => {

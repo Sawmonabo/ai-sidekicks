@@ -17,7 +17,7 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import type { GrowthPortAnswer } from "../../bridge/growth-port/growth-port.js";
 import { fixtureBridgeWithGrowth } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
-import { PARTICIPANT_YOU } from "../../bridge/scenarios/repos-fixture-data.js";
+import { PARTICIPANT_YOU } from "../../bridge/scenarios/repos/repos-fixture-data.js";
 import { ManualClock } from "../../core/index.js";
 import { manualGate } from "../held-calls.test-support.js";
 import type { ProposalGateReader } from "./proposal-gate-reader.js";

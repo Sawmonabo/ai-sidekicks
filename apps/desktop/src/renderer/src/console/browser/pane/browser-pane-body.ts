@@ -1,7 +1,7 @@
 // The browser pane's body, as the deck's registry loads it.
 //
 // A LOADER-BACKED BODY, so none of this pane reaches the initial import graph. The
-// family door registers it as `body: () => import("./pane/browser-pane-body.js")`, and
+// family door registers it as `body: () => import("./browser-pane-body.js")`, and
 // the bundler splits everything this module reaches — the pane, its geometry, its
 // bounds bridge, its policy rows — into a chunk that is fetched when the pane is about
 // to open or on the idle warm after the first frame, whichever comes first. The rule is

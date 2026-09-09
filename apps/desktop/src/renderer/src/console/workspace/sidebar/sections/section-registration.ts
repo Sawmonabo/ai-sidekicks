@@ -7,16 +7,19 @@
 // own through the same seat — which is the whole reason the seat exists, because
 // eight bodies edited into one component would be seven merge conflicts.
 //
-// OF THIS FAMILY'S THREE, TWO HAVE BODIES HERE: `runs` and `goal`. The goal's own
-// density rule puts one line in the session sidebar showing the goal clamped to a
-// measure, with the editor opening in place on the surface that owns it — so the
-// section is a READING and the approvals pane keeps the two mutations, which is
-// what stops one session having two editors over a contract that admits one
-// in-flight change. `approvals` still renders the sidebar's own "reserved, not
-// stubbed" answer, exactly as an unlanded family's sections do: pending decisions
-// are a whole surface a person navigates to rather than an independently loaded
-// section, and seating it is a body this list grows rather than a contract anyone
-// has to reopen.
+// ALL THREE HAVE A BODY HERE. `runs` and `approvals` are the sidebar's own
+// independently loaded reads — the seat's own header states why the approvals PANE was
+// never a substitute for the section, the pane being a whole surface a person navigates
+// to and the section being what this session is waiting on — and `goal` is a READING
+// under its own density rule: one line showing the goal clamped to a measure, with the
+// editor opening in place on the surface that owns it, which is what stops one session
+// having two editors over a contract that admits one in-flight change.
+//
+// `goal` carries neither a rollup nor an attention claim, and that is a third
+// disposition rather than an omission: one line has nothing to fold and reports no
+// urgency of its own. The two that do carry a rollup carry only that, because the seat
+// takes an explicit `attention` as a section's own claim and the fold over its `rollup`
+// as the fallback, so a descriptor carrying both would answer one question twice.
 //
 // A CALL, NOT A MODULE SIDE EFFECT, for `shell/index.ts`'s reason: registering at
 // module top level would fill an owner-scoped seat for anyone who imported this
@@ -29,8 +32,9 @@ import {
   type SidebarSectionDescriptor,
   type SidebarSectionRegistry,
 } from "../../../seats/index.js";
+import { ApprovalsSection, approvalsSectionRollup } from "./ApprovalsSection.js";
 import { GoalSection } from "./GoalSection.js";
-import { RunsSection } from "./RunsSection.js";
+import { RunsSection, runsSectionRollup } from "./RunsSection.js";
 
 /**
  * The descriptors this family contributes.
@@ -48,6 +52,27 @@ const COMPOSER_SIDEBAR_SECTIONS: readonly SidebarSectionDescriptor[] = [
     // `createElement` rather than JSX: this is a `.ts` module, and the naming
     // rule reserves `.tsx` for a single PascalCase component per file.
     render: (context) => createElement(RunsSection, context),
+    // The rollup the sidebar reads while this section is COLLAPSED, which is when
+    // the rule that opens it has to decide. Seated here beside the body rather than
+    // reached for from the sidebar, so one registration carries both halves of what
+    // this family owns about its section.
+    //
+    // THE TREE AND NOT ALSO AN `attention` CLAIM. The seat takes an explicit level as
+    // the section's own answer and the fold as its fallback, so a section that supplied
+    // both would be answering one question twice — and the two would disagree the first
+    // time either was edited alone. The fold over these nodes reaches the same level,
+    // and the tree carries the grouped counts a single level cannot.
+    rollup: runsSectionRollup,
+  },
+  {
+    id: "approvals",
+    owner: "composer-family",
+    render: (context) => createElement(ApprovalsSection, context),
+    // Its rollup, seated beside its body for the reason the runs row gives: one
+    // registration carries both halves of what this family owns about its section,
+    // the sidebar reads it while the section is COLLAPSED, which is when the rule that
+    // opens it has to decide, and it is the tree rather than also an explicit level.
+    rollup: approvalsSectionRollup,
   },
   {
     id: "goal",

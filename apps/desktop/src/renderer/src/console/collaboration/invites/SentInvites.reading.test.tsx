@@ -17,7 +17,7 @@ import { fixtureBridgeWithGrowth } from "../../bridge/fixture/call-plane/bridge.
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { formatClockTime, formatDateTime } from "../../primitives/index.js";
 import type { FrameStore } from "../../store/index.js";
-import { quietShell } from "../shell-condition.test-support.js";
+import { quietShell } from "../../store/shell-condition.test-support.js";
 import { SentInvites } from "./SentInvites.js";
 import {
   EMPTY_SCENARIO,

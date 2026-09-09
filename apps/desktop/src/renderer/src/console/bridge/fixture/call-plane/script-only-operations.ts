@@ -74,6 +74,7 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "onboardingComplete",
   "onboardingPresentChoice",
   "onboardingTelemetryPrompt",
+  "healthStatusRead",
   "healthFailureDetailRead",
   "healthStuckRunInspect",
   "healthRecoveryActionRequest",

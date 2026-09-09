@@ -32,7 +32,7 @@
  * observer exists to catch. Every entry is a paint-time property: it changes what a
  * box looks like and can change neither its size nor where it sits.
  *
- * A TUPLE AND NOT A `Set`, on `browser/geometry/geometry-publisher.ts`'s
+ * A TUPLE AND NOT A `Set`, on `primitives/clipping-ancestors.ts`'s
  * `CLIPPING_OVERFLOW_VALUES` shape and for the reason `apps/desktop/AGENTS.md`
  * states: a module-level collection is mutable for the life of the process while
  * what it holds is a constant, and `ReadonlySet` restricts only the binding rather

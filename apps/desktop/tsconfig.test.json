@@ -64,6 +64,23 @@
     "src/renderer/**",
     "test/console/console-harness.tsx",
     "test/console/phase-graph-settled.ts",
+    // The visible-text monotonicity recorder, excluded for `console-harness.tsx`'
+    // reason: it watches a real `MutationObserver` over an `HTMLElement`, which this
+    // Node-lib config has no types for.
+    "test/console/visible-text-monotonicity.ts",
+    // The scenario-clock driver, excluded for the same reason: it settles each
+    // advance inside `act`, and it names the running scenario's handle, which pulls
+    // the fixture's own bridge surface into whatever program holds it — renderer
+    // modules that reach `window` and `document`.
+    "test/console/scenario-clock.ts",
+    // The benchmark ledger moved to `tsconfig.console-bench-test.json` for the
+    // architecture tier's reason: its two `.bench.ts` files import the markdown
+    // pipeline and the store's entity kinds on purpose — a benchmark that timed a
+    // local copy would be measuring the copy — so whatever those modules reach is
+    // in this program too. It compiled clean only while that reach happened to stay
+    // clear of a browser global, which is a property of the graph below it rather
+    // than of anything the tier wrote.
+    "test/console/bench/**",
     // The architecture tier moved to `tsconfig.console-architecture-test.json` when
     // its wire-truth test started IMPORTING console source rather than reading it:
     // that pulls `store/shell/location-hash.ts` into the program, which reaches `window`. Same

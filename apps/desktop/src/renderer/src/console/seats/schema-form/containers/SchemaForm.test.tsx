@@ -21,8 +21,8 @@ import { composedAnswer, renderForm } from "./SchemaFormHost.test-support.js";
 afterEach(cleanup);
 
 describe("the control a member shape draws", () => {
-  it("draws one labelled control for each of the six kinds", () => {
-    renderForm({
+  it("draws one labelled control for each of the six kinds", async () => {
+    await renderForm({
       type: "object",
       properties: {
         title: { type: "string", title: "Title" },
@@ -48,8 +48,8 @@ describe("the control a member shape draws", () => {
     expect(screen.getByLabelText("Evidence")).toHaveProperty("type", "text");
   });
 
-  it("offers the enumeration's members and one unanswered option that is not one of them", () => {
-    renderForm({
+  it("offers the enumeration's members and one unanswered option that is not one of them", async () => {
+    await renderForm({
       type: "object",
       properties: { severity: { type: "string", enum: ["low", "high"], title: "Severity" } },
     });
@@ -62,8 +62,8 @@ describe("the control a member shape draws", () => {
     expect(options.map((option) => option.value)).toEqual(["", "0", "1"]);
   });
 
-  it("draws an optional yes-or-no as a three-state choice, so it can be left unanswered", () => {
-    const container = renderForm({
+  it("draws an optional yes-or-no as a three-state choice, so it can be left unanswered", async () => {
+    const container = await renderForm({
       type: "object",
       properties: { notify: { type: "boolean", title: "Notify" } },
     });
@@ -80,8 +80,8 @@ describe("the control a member shape draws", () => {
     expect(composedAnswer(container)).toEqual({});
   });
 
-  it("says which members the schema requires without deciding whether they are answered", () => {
-    const container = renderForm({
+  it("says which members the schema requires without deciding whether they are answered", async () => {
+    const container = await renderForm({
       type: "object",
       properties: { title: { type: "string", title: "Title" } },
       required: ["title"],
@@ -94,8 +94,8 @@ describe("the control a member shape draws", () => {
 });
 
 describe("the value a control puts in the answer", () => {
-  it("submits an enumeration member the schema spells empty rather than reading it as no answer", () => {
-    const container = renderForm({
+  it("submits an enumeration member the schema spells empty rather than reading it as no answer", async () => {
+    const container = await renderForm({
       type: "object",
       properties: { severity: { type: "string", enum: ["", "high"], title: "Severity" } },
     });
@@ -109,8 +109,8 @@ describe("the value a control puts in the answer", () => {
     expect(composedAnswer(container)).toEqual({ severity: "" });
   });
 
-  it("writes the boolean a person picked rather than the word the option showed", () => {
-    const container = renderForm({
+  it("writes the boolean a person picked rather than the word the option showed", async () => {
+    const container = await renderForm({
       type: "object",
       properties: { notify: { type: "boolean", title: "Notify" } },
     });
@@ -124,12 +124,12 @@ describe("the value a control puts in the answer", () => {
     expect(composedAnswer(container)).toEqual({ notify: true });
   });
 
-  it("takes an optional text member back out of the answer when its box is cleared", () => {
+  it("takes an optional text member back out of the answer when its box is cleared", async () => {
     // The untouched box and the cleared one look identical, so the answer has to say the
     // same thing about both. Writing `""` for the cleared one made the form reachable into
     // a state it could not reach back out of, with no UI action that restores the absence
     // it opened with.
-    const container = renderForm({
+    const container = await renderForm({
       type: "object",
       properties: { note: { type: "string", title: "Note" } },
     });
@@ -143,11 +143,11 @@ describe("the value a control puts in the answer", () => {
     expect(composedAnswer(container)).toEqual({});
   });
 
-  it("keeps a figure the numeric control cannot carry out of the answer altogether", () => {
+  it("keeps a figure the numeric control cannot carry out of the answer altogether", async () => {
     // End to end, because the divergence was between two layers: the control turned
     // `1e309` into `Infinity`, the box went blank because it cannot render one, and the
     // composed answer serialized it to `null` — three different readings of one keystroke.
-    const container = renderForm({
+    const container = await renderForm({
       type: "object",
       properties: { ratio: { type: "number", title: "Ratio" } },
     });
@@ -158,11 +158,11 @@ describe("the value a control puts in the answer", () => {
     expect(screen.getByLabelText("Ratio")).toHaveProperty("value", "1e309");
   });
 
-  it("negative control: an unchecked box is still the answer `false` and never an absence", () => {
+  it("negative control: an unchecked box is still the answer `false` and never an absence", async () => {
     // The one control with no unanswered state, and the reason the rule is about what a
     // control can DISPLAY: unchecked says no, so the member stays in the answer where a
     // cleared text box leaves it.
-    const container = renderForm({
+    const container = await renderForm({
       type: "object",
       properties: { approved: { type: "boolean", title: "Approved" } },
       required: ["approved"],

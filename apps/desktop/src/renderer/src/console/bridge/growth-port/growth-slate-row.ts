@@ -4,7 +4,7 @@
 // SPLIT OFF `growth-slate.ts` ON `growth-entry.ts`'S OWN SEAM. That module states the
 // rule this one applies: a row's CONTENT is its table's and a row's SHAPE is a
 // type-only module's, because a type-only module has no reason to change when a row
-// lands. The ledger is prose — four sentences per row, fifty-eight rows — and carrying
+// lands. The ledger is prose — four sentences per row, sixty rows — and carrying
 // this vocabulary beside it put two concepts in one module.
 //
 // THE UNION IS HERE AND THE ROWS ARE NEXT DOOR, WHICH THE COMPILER STILL PAIRS.
@@ -16,6 +16,11 @@
 // `growth-operations/` and `growth-prerequisites.ts`, the outcome ledger, and the
 // scenario manifest. Only a reader that needs the ROWS reaches `growth-slate.ts`,
 // which is the edge that keeps the ledger's churn out of everything downstream of it.
+//
+// AND THE ROW CARRIES ONLY WHAT A RUNNING CONSOLE READS. `consumingSurface` left for
+// `growth-slate-consumers.ts` — a split by CONSUMER and not by size — because no module
+// in the shipped renderer has ever read it, so carrying it here put sixty sentences
+// written for a reader of the plan on the document every session downloads.
 
 /** A row's stable identifier. Used by port entries and by the manifest. */
 export type GrowthSlateRowId =
@@ -47,7 +52,6 @@ export type GrowthSlateRowId =
   | "approval-amendment-arm"
   | "session-goal-methods"
   | "session-search"
-  | "window-control-namespace"
   | "provider-session-import"
   | "attention-plane"
   | "workflow-run-control"
@@ -58,6 +62,9 @@ export type GrowthSlateRowId =
   | "hydrated-event-read"
   | "cost-receipt-read"
   | "workflow-version-chain"
+  | "health-status-read"
+  | "daemon-version-negotiation"
+  | "timeline-live-resubscribe"
   | "workspace-execution-context"
   | "mount-health-identity-verdict"
   | "channel-lifecycle-verbs"
@@ -84,8 +91,6 @@ export interface GrowthSlateRow {
   readonly wire: string;
   /** The document that owns registering it. */
   readonly owningDocument: string;
-  /** The console surface family that consumes it. */
-  readonly consumingSurface: string;
   /**
    * Always false while the row is on the slate. Present as a field rather than
    * implied so the test's assertion reads as a check rather than a tautology, and

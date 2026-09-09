@@ -35,6 +35,7 @@ import { OpenSessionEntry, type OpenSessionEntryOptions } from "./open-session-e
 // publishes the hooks that reach this module.
 import type { RefreshReason } from "../read/refresh-scheduler.js";
 import type { SessionDegradedCause, SessionStore } from "./session-store.js";
+import type { TimelineResumeDecision } from "./timeline-resume.js";
 
 /** The origin every refusal this module raises names. */
 export const SESSION_REGISTRY_ORIGIN = "session-store-registry";
@@ -48,17 +49,36 @@ export interface SessionRegistryChange {
 /**
  * Construction inputs.
  *
- * An alias rather than a second declaration: the registry hands its options
- * straight through to every entry it opens, so the two shapes are one shape and
- * this name exists to keep the public one a caller reaches for. Declaring the
+ * Derived from the entry's shape rather than declared a second time: the registry
+ * hands its options straight through to every entry it opens, so the two are one shape
+ * and this name exists to keep the public one a caller reaches for. Declaring the
  * fields again here would be a copy that can drift.
+ *
+ * ONE MEMBER IS SUBTRACTED, and it is subtracted rather than overridden.
+ * `onTimelineResumeSettled` is this registry's own wiring — it is how an entry tells
+ * the set that a decision moved — so a caller supplying one would be handed straight
+ * to the entry and silently replace the fan-out every reading subscribes through. A
+ * member a caller may not usefully pass is not on the shape a caller fills in.
  */
-export type SessionStoreRegistryOptions = OpenSessionEntryOptions;
+export type SessionStoreRegistryOptions = Omit<OpenSessionEntryOptions, "onTimelineResumeSettled">;
 
 export class SessionStoreRegistry {
   readonly #options: SessionStoreRegistryOptions;
   readonly #entriesBySessionId = new Map<string, OpenSessionEntry>();
   readonly #changes = new Emitter<SessionRegistryChange>("session registry change");
+  /**
+   * Fan-out for "one session's resume decision settled", carrying whose.
+   *
+   * A SECOND emitter beside the change one, and the two are deliberately not merged:
+   * one says the open SET moved, the other says something a read decided about one
+   * session. A reading of either would otherwise be woken by the other's traffic, and
+   * `useOpenSessionIds` is subscribed for the life of every window.
+   *
+   * It exists because the store's revision bump is not a sound notification for this
+   * fact — `open-session-entry.ts` states the case where a read settles a decision and
+   * the store admits no snapshot, so the revision does not move.
+   */
+  readonly #resumeSettlements = new Emitter<string>("session resume settlement");
   // The open set as an array, rebuilt only when the set itself changes.
   //
   // Load-bearing rather than a micro-optimisation: `useSyncExternalStore` compares
@@ -96,7 +116,12 @@ export class SessionStoreRegistry {
         ),
       );
     }
-    const entry = new OpenSessionEntry(sessionId, this.#options);
+    const entry = new OpenSessionEntry(sessionId, {
+      ...this.#options,
+      onTimelineResumeSettled: () => {
+        this.#resumeSettlements.emit(sessionId);
+      },
+    });
     this.#entriesBySessionId.set(sessionId, entry);
     this.#forgetOpenSessionIds();
     this.#changes.emit({ sessionId, change: "opened" });
@@ -112,6 +137,11 @@ export class SessionStoreRegistry {
     return this.#entriesBySessionId.has(sessionId);
   }
 
+  /**
+   * How many sessions are open. An assertion seam: tests read it, and every surface
+   * that needs the SET reads `openSessionIds`, whose identity is stable enough to
+   * subscribe through — which a count is not.
+   */
   public get openCount(): number {
     return this.#entriesBySessionId.size;
   }
@@ -140,6 +170,10 @@ export class SessionStoreRegistry {
     this.#entriesBySessionId.delete(sessionId);
     this.#forgetOpenSessionIds();
     this.#changes.emit({ sessionId, change: "closed" });
+    // A resume reading for this session is now answered `undefined`, and nothing
+    // else would wake it: the store's revision does not move for a session that no
+    // longer has one.
+    this.#resumeSettlements.emit(sessionId);
     return true;
   }
 
@@ -214,12 +248,50 @@ export class SessionStoreRegistry {
     }
   }
 
-  /** How many reads a session's scheduler has performed. The coalescing assertion. */
+  /**
+   * What the newest completed read of one session said about resuming its stream,
+   * or `undefined` when that session is not open or no read has landed on it.
+   *
+   * The registry's own seam onto the entry's decision, so a surface that holds a
+   * session id can reach it without holding the entry — which nothing outside this
+   * family does, by design.
+   */
+  public timelineResumeFor(sessionId: string): TimelineResumeDecision | undefined {
+    return this.#entriesBySessionId.get(sessionId)?.timelineResume;
+  }
+
+  /**
+   * Be told when any open session settles a resume decision.
+   *
+   * Not keyed by session, and that is the cheaper shape rather than the lazier one. A
+   * subscription taken per session would have to survive that session opening AFTER
+   * the subscriber mounted, which is the ordinary order the workspace mounts in — so
+   * it would need its own registration bookkeeping for a fact the reader answers by
+   * asking {@link timelineResumeFor} anyway. A reading woken for another session
+   * re-reads its own decision, gets the identical object back, and React's own
+   * comparison ends the pass without a render.
+   */
+  public subscribeToTimelineResume(onSettled: (sessionId: string) => void): Unsubscribe {
+    return this.#resumeSettlements.subscribe(onSettled);
+  }
+
+  /**
+   * How many reads a session's scheduler has performed. The coalescing assertion.
+   *
+   * An assertion seam: its readers are tests, and no surface renders it. Said here
+   * rather than left to be inferred, because a member with no production reader and
+   * no stated intention is indistinguishable from one whose consumer was forgotten.
+   */
   public refreshCountFor(sessionId: string): number {
     return this.#entriesBySessionId.get(sessionId)?.refreshScheduler.performCount ?? 0;
   }
 
-  /** How many drains a session's queue has performed. The coalescing assertion. */
+  /**
+   * How many drains a session's queue has performed. The coalescing assertion.
+   *
+   * An assertion seam, on the same terms as the read count above: tests read it and
+   * no surface does.
+   */
   public applyDrainCountFor(sessionId: string): number {
     return this.#entriesBySessionId.get(sessionId)?.applyQueue.drainCount ?? 0;
   }
@@ -239,6 +311,22 @@ export class SessionStoreRegistry {
   /** Listeners attached. Read by tests and by the diagnostics surface. */
   public get listenerCount(): number {
     return this.#changes.sinkCount;
+  }
+
+  /**
+   * Resume-settlement listeners attached. The sibling of the count above, and it
+   * exists because the two fan-outs are dropped by the same teardown and only one of
+   * them could be asked about.
+   *
+   * An assertion seam on the same terms as the read and drain counts: its readers are
+   * tests and no surface renders it. `disposeAll` clearing this emitter is otherwise
+   * unobservable from outside — every entry is closed in the same act, so no later
+   * settlement can be raised to prove the sinks went with them, and a subscriber left
+   * attached to a disposed registry would keep a React tree's closure alive with
+   * nothing ever reporting it.
+   */
+  public get resumeSettlementListenerCount(): number {
+    return this.#resumeSettlements.sinkCount;
   }
 
   /** True once `disposeAll` has run. A disposed registry opens nothing. */
@@ -278,6 +366,10 @@ export class SessionStoreRegistry {
       this.close(sessionId);
     }
     this.#changes.clear();
+    // Both fan-outs, because a window is going away and either one left holding a
+    // sink keeps that sink's closure — and every one of them closes over a React
+    // subscription belonging to a tree that has already unmounted.
+    this.#resumeSettlements.clear();
     this.#disposed = true;
   }
 

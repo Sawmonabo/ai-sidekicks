@@ -147,12 +147,13 @@ const CONSUMER_OWED_BY_ANOTHER_LANE: Readonly<Record<string, string>> = {
   // covers the row.
   "approval-remembered-rule": "approvals lane — the approvals pane",
   "approval-amendment-arm": "approvals lane — the approvals pane",
-  // shell lane — the window controls the workspace deck and auxiliary windows take,
-  // and the node's own attach declaration, whose console consumer is built and whose
-  // CARRIER is not: the declaration is a member on the bridge the attach control
-  // already holds rather than a call, so the operation-derived check below cannot
-  // reach it either way.
-  "window-control-namespace": "shell lane — the workspace deck and auxiliary windows",
+  // shell lane — the node's own attach declaration, whose console consumer is built
+  // and whose CARRIER is not: the declaration is a member on the bridge the attach
+  // control already holds rather than a call, so the operation-derived check below
+  // cannot reach it either way. `window-control-namespace` left the SLATE entirely
+  // when the auxiliary-window wire landed: `SidekicksBridge.window` is on the preload
+  // contract and `src/main/auxiliary-window-ipc.ts` serves it, so there is no longer a
+  // row for this list — or for the derived check — to cover.
   "node-self-declaration": "shell lane — the settings runtime-nodes page's attach control",
 };
 

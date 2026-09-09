@@ -52,6 +52,16 @@
 // dialog. So this publishes into the window store through the same hook the sign-in
 // card takes, and the frame folds the two.
 //
+// AND THE WALKTHROUGH ITSELF ARRIVES ON ITS OWN CHUNK. What is on this module — the two
+// commands, the activation subscription, the lock reading, the modal lifetime, and the
+// two models — is what nobody can wait for and what has to be live before anyone presses
+// anything; every STEP is drawn only once one of the three openings has fired, which is
+// the question `apps/desktop/AGENTS.md` §Module shape makes a registration answer.
+// `onboarding-walkthrough-mount.ts` is the loader and `onboarding-walkthrough-body.ts`
+// is the split point. The models deliberately stay here: they live outside
+// `Dialog.Portal`, which unmounts its children on close, and the flow's reading is what
+// the close control's own label is composed from.
+//
 // THE MODELS ARE PER BRIDGE AND SUPERSEDED, held through the console's one
 // subject-scoped holder. A replacement bridge retires both — their unsettled calls
 // would answer over a transport that no longer exists — and unmount retires them too,
@@ -74,7 +84,7 @@
 import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 
 import { Dialog } from "@base-ui/react/dialog";
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { Fragment, useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { consoleCommands, registerConsoleCommands } from "../palette/index.js";
 import { OverlayDialogPopup } from "../primitives/index.js";
@@ -91,7 +101,7 @@ import {
   type OnboardingActivation,
 } from "./onboarding-activation.js";
 import { OnboardingFlow, type OnboardingReading } from "./onboarding-flow.js";
-import { OnboardingWalkthrough } from "./OnboardingWalkthrough.js";
+import { onboardingWalkthroughMount } from "./onboarding-walkthrough-mount.js";
 import { ProviderReadinessModel } from "./provider-readiness/provider-readiness.js";
 import { RESUME_OPENING } from "./steps/step-model.js";
 
@@ -312,38 +322,43 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
       >
         <Dialog.Title className="meridian-onboarding__heading">Set up this node</Dialog.Title>
         {activation === undefined ? null : (
-          <OnboardingWalkthrough
-            key={activationSequence}
-            flow={models.flow}
-            readiness={models.readiness}
-            openAtStep={activation.openAtStep}
-            transportReconnect={bridge.transportReconnect}
-            onOpenAccountRegistry={(providerName) => {
-              // The registry's own page owns registration and defaults; this step
-              // is a view. Closing first, because leaving the walkthrough open over
-              // a rail move would put two surfaces on screen for one act — and
-              // landing on the SECTION, because the control names it.
-              //
-              // The PROVIDER rides the address rather than any state this file keeps:
-              // a row's action names one and the step's own button names none, and
-              // the page reads it off the route it was opened on. Composed through
-              // the routing family's constructor, which is the one place the
-              // omit-versus-set-to-`undefined` rule that keeps the address
-              // round-tripping is decided.
-              setActivation(undefined);
-              frameStore.navigate(settingsRoute(ACCOUNT_REGISTRY_SECTION, providerName));
-            }}
-            // The way out the provider step's **Not now** puts this away into, and
-            // `undefined` where this dialog refuses to close at all. One condition,
-            // read once: the lock the dismissal path already answers to.
-            onDismiss={
-              isLocked
+          /* KEYED HERE AND NOT INSIDE THE MOUNT. The walkthrough arrives on its own
+             chunk — `onboarding-walkthrough-body.ts` states why — and `render` composes
+             a descriptor that takes no key, so the remount-per-activation this file has
+             always relied on rides a keyed fragment around it. Same element identity
+             rule, same consequence: a new activation gets a new walkthrough, opened
+             where it asked. */
+          <Fragment key={activationSequence}>
+            {onboardingWalkthroughMount.render({
+              flow: models.flow,
+              readiness: models.readiness,
+              openAtStep: activation.openAtStep,
+              transportReconnect: bridge.transportReconnect,
+              onOpenAccountRegistry: (providerName) => {
+                // The registry's own page owns registration and defaults; this step
+                // is a view. Closing first, because leaving the walkthrough open over
+                // a rail move would put two surfaces on screen for one act — and
+                // landing on the SECTION, because the control names it.
+                //
+                // The PROVIDER rides the address rather than any state this file keeps:
+                // a row's action names one and the step's own button names none, and
+                // the page reads it off the route it was opened on. Composed through
+                // the routing family's constructor, which is the one place the
+                // omit-versus-set-to-`undefined` rule that keeps the address
+                // round-tripping is decided.
+                setActivation(undefined);
+                frameStore.navigate(settingsRoute(ACCOUNT_REGISTRY_SECTION, providerName));
+              },
+              // The way out the provider step's **Not now** puts this away into, and
+              // `undefined` where this dialog refuses to close at all. One condition,
+              // read once: the lock the dismissal path already answers to.
+              onDismiss: isLocked
                 ? undefined
                 : () => {
                     setActivation(undefined);
-                  }
-            }
-          />
+                  },
+            })}
+          </Fragment>
         )}
         <Dialog.Close
           className="meridian-onboarding__act meridian-onboarding__act--secondary"

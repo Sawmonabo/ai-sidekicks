@@ -9,7 +9,8 @@
 import { useRunControlSurface, type RunControlSurface } from "./run-control-surface.js";
 import { StepIn } from "./StepIn.js";
 import { type ConsoleBridge } from "../../../bridge/index.js";
-import type { ConsoleScenario, ScenarioReply } from "../../../bridge/scenario-runtime/scenario.js";
+import type { ScenarioReply } from "../../../bridge/scenario-runtime/scenario-reply.js";
+import type { ConsoleScenario } from "../../../bridge/scenario-runtime/scenario.js";
 
 /** A real UUID, because the registered run identifier is a branded UUID. */
 export const TARGET_RUN_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";

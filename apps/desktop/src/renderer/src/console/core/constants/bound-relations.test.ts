@@ -18,7 +18,7 @@
 // module it names would be the second home for a claim that this directory exists
 // to keep singular, so the cases live here and reach each declaring module by name.
 
-import { MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts";
+import { MAX_MESSAGE_BYTES, TIMELINE_READ_LIMIT_MAX } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "./artifact-caps.js";
@@ -38,6 +38,15 @@ import {
   INLINE_DIFF_CARD_HEIGHT_CAP_PX,
 } from "./diff-caps.js";
 import { SCENARIO_PENDING_REPLY_CAP, SCENARIO_TICK_MS } from "./fixture-caps.js";
+import {
+  LEDGER_EARLIER_PAGE_ROWS,
+  LEDGER_PARKED_LEASE_CAP,
+  LEDGER_WINDOW_ROW_CAP,
+  REVEAL_CHECKPOINT_TAIL_CAP,
+  REVEAL_FRAME_CHARACTER_BUDGET,
+  REVEAL_LITERAL_BACKTRACK_CAP,
+} from "./ledger-frame-caps.js";
+import { CHAPTER_VISIBLE_ROW_CAP, FIND_MATCH_CAP } from "./ledger-structure-caps.js";
 import {
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
@@ -97,6 +106,14 @@ const COUNTING_BOUNDS: readonly (readonly [string, number])[] = [
   ["RESTORE_PATH_VISIBLE_ROW_CAP", RESTORE_PATH_VISIBLE_ROW_CAP],
   ["RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX", RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX],
   ["WORKFLOW_CANCEL_REASON_BYTE_CAP", WORKFLOW_CANCEL_REASON_BYTE_CAP],
+  ["LEDGER_WINDOW_ROW_CAP", LEDGER_WINDOW_ROW_CAP],
+  ["LEDGER_EARLIER_PAGE_ROWS", LEDGER_EARLIER_PAGE_ROWS],
+  ["LEDGER_PARKED_LEASE_CAP", LEDGER_PARKED_LEASE_CAP],
+  ["CHAPTER_VISIBLE_ROW_CAP", CHAPTER_VISIBLE_ROW_CAP],
+  ["FIND_MATCH_CAP", FIND_MATCH_CAP],
+  ["REVEAL_FRAME_CHARACTER_BUDGET", REVEAL_FRAME_CHARACTER_BUDGET],
+  ["REVEAL_CHECKPOINT_TAIL_CAP", REVEAL_CHECKPOINT_TAIL_CAP],
+  ["REVEAL_LITERAL_BACKTRACK_CAP", REVEAL_LITERAL_BACKTRACK_CAP],
 ];
 
 function isWholeCount(value: number): boolean {
@@ -329,5 +346,60 @@ describe("console bounds — the phase graph's zoom range", () => {
     // is a range the surface never actually offers.
     expect(PHASE_GRAPH_MIN_ZOOM).toBeLessThan(1);
     expect(PHASE_GRAPH_MAX_ZOOM).toBeGreaterThan(1);
+  });
+});
+
+describe("console bounds — the ledger's five caps describe one window", () => {
+  it("parks exactly one window's worth of leases", () => {
+    // `LEDGER_PARKED_LEASE_CAP`'s own rationale states the bound as a RELATION —
+    // "parking one window's worth covers a page back and no more" — so the two
+    // numbers being equal is the claim, not a coincidence. Above the window's cap it
+    // would hold leases for rows a page back cannot reach; below it, paging back one
+    // window would find rows that had silently collapsed.
+    expect(LEDGER_PARKED_LEASE_CAP).toBe(LEDGER_WINDOW_ROW_CAP);
+  });
+
+  it("keeps one chapter's body shorter than the whole retained window", () => {
+    // A chapter is one entry INSIDE the window and a nested scroller of its own. At
+    // or above the window's cap a single run could mount as many rows as the entire
+    // ledger retains, and "scrolling inside a chapter is reading rather than paging"
+    // would be describing the ledger rather than the chapter.
+    expect(CHAPTER_VISIBLE_ROW_CAP).toBeLessThan(LEDGER_WINDOW_ROW_CAP);
+  });
+
+  it("fetches a page the window can hold, and the wire will serve", () => {
+    // TWO RELATIONS, and both are the reason this number is not free. At or above the
+    // window's row cap one press would deliver a page the cap has to trim before the
+    // reader can reach the end of it — the round trip spent on rows nobody sees. And
+    // past the wire's own ceiling the request is refused by the contract rather than
+    // answered, so the control would offer a walk that never takes a step.
+    expect(LEDGER_EARLIER_PAGE_ROWS).toBeLessThan(LEDGER_WINDOW_ROW_CAP);
+    expect(LEDGER_EARLIER_PAGE_ROWS).toBeLessThanOrEqual(TIMELINE_READ_LIMIT_MAX);
+  });
+
+  it("ranks more matches than the window can hold rows", () => {
+    // The find field searches the loaded window, and its own rationale says a
+    // one-character query "matches most of it". At or below the window's row cap, a
+    // query matching every retained row would be truncated by the cap rather than by
+    // the window — so the counter's denominator would understate a set the walk can
+    // in fact reach, which is the opposite of the promise that cap exists to keep.
+    expect(FIND_MATCH_CAP).toBeGreaterThan(LEDGER_WINDOW_ROW_CAP);
+  });
+});
+
+describe("console bounds — the reveal engine's three per-frame bounds", () => {
+  it("keeps the literal backtrack far inside one frame's published characters", () => {
+    // The gate walks back from a candidate ceiling inside the characters this frame
+    // is publishing. A backtrack cap at or above the frame budget could walk the
+    // whole frame's output, which is exactly the scan its rationale says it "refuses
+    // to become".
+    expect(REVEAL_LITERAL_BACKTRACK_CAP).toBeLessThan(REVEAL_FRAME_CHARACTER_BUDGET);
+  });
+
+  it("retains more than one checkpoint, so the tail is history rather than a latch", () => {
+    // A checkpoint re-anchors a commit that arrived out of band. A tail of one holds
+    // only the newest, so any commit that is not the newest has nothing to
+    // re-anchor against and the retention stops being a tail at all.
+    expect(REVEAL_CHECKPOINT_TAIL_CAP).toBeGreaterThan(1);
   });
 });

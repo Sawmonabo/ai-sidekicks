@@ -173,6 +173,22 @@ export type DaemonEventCanonicalBytesExceededCode = "daemon.event_canonical_byte
 export const DAEMON_EVENT_CANONICAL_BYTES_EXCEEDED_CODE: DaemonEventCanonicalBytesExceededCode =
   "daemon.event_canonical_bytes_exceeded";
 
+// Event-read cursor refusal code. Registered at 400 in error-contracts.md
+// §Event Log — an `EventCursor` submitted to `readAfterCursor` / `readWindow`
+// that `decodeEventCursor` cannot resolve to a log position (a non-integer, a
+// value `< -1`, a legacy SDK-synthesized UUID) under the Plan-006 T4.3
+// predecessor-position cursor model.
+//
+// Exported HERE rather than spelled at each end because the daemon raises it and
+// the desktop console classifies on it, and a wire string with one home on each
+// side of the wire is a string that can drift on one side without the other
+// failing to compile. It carries no `*Schema`: the registration is code+message
+// only (the same registry-only convention as the runtime-node 409s above), so
+// what this constant ships is the EXACT literal both ends compare against.
+export type EventCursorUnresolvableCode = "event.cursor_unresolvable";
+export const EVENT_CURSOR_UNRESOLVABLE_CODE: EventCursorUnresolvableCode =
+  "event.cursor_unresolvable";
+
 // --------------------------------------------------------------------------
 // Per-field length caps — defense-in-depth bounds (see also event.ts header).
 // --------------------------------------------------------------------------

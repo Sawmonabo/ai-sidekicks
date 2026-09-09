@@ -25,9 +25,13 @@
 // with the first schema form and never before.
 //
 // WHAT IT PUBLISHES IS WHAT THE DOOR PUBLISHED, unchanged: the two composed surfaces and
-// the attachment carrier's reading. `useSchemaForm`, `planSchemaForm` and
-// `compileSchemaValidator` stay inside for the reason `seats/index.ts` gives — a caller
-// assembling those itself would be a second answer to what a schema draws.
+// the attachment carrier's reading. `useSchemaForm` and `planSchemaForm` stay inside for
+// the reason `seats/index.ts` gives — a caller assembling them itself would be a second
+// answer to what a schema draws. The schema COMPILER is not one of them and never was one
+// of this kit's exports: it lives in `bridge/`, which is the family that may hold a
+// validator, and this kit reaches it through the loader that door publishes — a second
+// chunk fetched when a form is first drawn, which is why the module list this root pulls
+// onto the initial graph never included the schema library.
 
 import "./schema-form.css";
 

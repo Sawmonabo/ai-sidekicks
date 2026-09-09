@@ -6,9 +6,9 @@
 // family's sub-modules — `RouteSurface.tsx` beside it resolves a route to a surface
 // and `rail-navigation.ts` beside it builds the rail, `frame/frame-commands.ts` at the
 // family root carries the frame's own commands and chords, `session/` owns the
-// session registry, and `bindings/` owns the durable store's life and the colour
-// scheme end to end — and every decision below is one the rest of the substrate
-// depends on:
+// session registry, and `bindings/` owns the durable store's life, the window's focus
+// transition, and the colour scheme end to end — and every decision below is one the
+// rest of the substrate depends on:
 //
 //   • **One store per window, created once.** `useRef` rather than `useMemo`: a
 //     memo may be discarded and recomputed, and a recreated `SessionStore` would
@@ -49,7 +49,7 @@
 //     and down with it, so a destination that used to hold such a read is now a
 //     reader of it and navigating away no longer ends it.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 
 import { type ConsoleBridge } from "../../bridge/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../core/index.js";
@@ -62,6 +62,7 @@ import {
   frameBindingRegistry,
   mountFrameBindings,
   sessionOpenerFor,
+  useShellComposerFocusRequests,
   windowOverlayRenderer,
   type FrameBindingContext,
 } from "../../seats/index.js";
@@ -76,6 +77,10 @@ import {
   useShellState,
 } from "../../store/index.js";
 import { AppFrame } from "./AppFrame.js";
+import { AuxiliaryReturn } from "../auxiliary-return/AuxiliaryReturn.js";
+import { DemoScenarioMark } from "../first-launch/DemoScenarioMark.js";
+import { playsTheDemonstrationScenario } from "../first-launch/first-launch.js";
+import { useFirstLaunchOpening } from "../first-launch/first-launch-opening.js";
 import { describeScope, useFrameCommandSurface } from "../frame-commands.js";
 import {
   applyConsoleScheme,
@@ -83,6 +88,7 @@ import {
   useLazyBodyIdleWarm,
   useSchemePreference,
   useUiStateStore,
+  useWindowFocusRefresh,
 } from "../bindings/index.js";
 import {
   railEntriesWithAttention,
@@ -91,6 +97,12 @@ import {
 } from "./rail-navigation.js";
 import { ShellChrome, useDaemonStartAction, useShellStateBinding } from "../shell-state/index.js";
 import { RouteSurface } from "./RouteSurface.js";
+import { VersionBanner } from "../version-banner/VersionBanner.js";
+import {
+  VERSION_BANNER_ID,
+  useConsoleVersionReading,
+  useVersionBannerRaise,
+} from "../version-banner/version-banner.js";
 import { useActiveSessionStore, useSessionStoreRegistry } from "../session/index.js";
 import { type ConsoleSurfaceContext } from "../../seats/index.js";
 
@@ -114,11 +126,25 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   frameStoreRef.current ??= new FrameStore({ initialRoute: parseRoute(hash) });
   const frameStore = frameStoreRef.current;
 
+  // The hash the window was BORN at, held for the one consumer that needs it after
+  // the first render. `hash` above is a subscription and moves with every
+  // navigation, and the first-launch rule turns on what the window was ASKED for
+  // rather than on where it has since been.
+  const openedAtHashRef = useRef(hash);
+
   // A hook rather than a ref, because this store owns a database connection and a
   // ref has nowhere to close one from. `frame/bindings/ui-state-lifecycle.ts` says what an unclosed
   // one costs; `UiStateStore.opening` still returns immediately, so first paint
   // waits on no storage.
   const uiStateStore = useUiStateStore();
+
+  // Which scripted composition this window is playing, or `undefined` where it plays
+  // none — the release build's only answer, since `bridge.scenarioEngine` exists only
+  // under the `define`-gated fixture. Read here and narrowed by the rule beside the
+  // first-launch opening, so which composition counts as the demonstration is decided
+  // in one module rather than restated by the component that marks it.
+  const playingScenario = props.bridge.scenarioEngine?.scenario;
+  const scenario = playsTheDemonstrationScenario(playingScenario?.id) ? playingScenario : undefined;
 
   // A ref is right for this one: a draft store owns a `Map` and nothing outside its
   // own memory, so the window dropping it is the whole of its teardown.
@@ -152,6 +178,23 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   // owner. `frame/bindings/hash-route-binding.ts` says why one owner and not two effects here.
   useHashRouteBinding(frameStore, hash);
 
+  // And the one opening that is not the hash's: the very first launch of an install
+  // goes into the scripted session rather than to the sessions list. It navigates
+  // through the same store, so the binding above publishes it like any other move.
+  useFirstLaunchOpening({
+    bridge: props.bridge,
+    frameStore,
+    uiStateStore,
+    openedAtHash: openedAtHashRef.current,
+  });
+
+  // And the one ask that does not come from inside this window at all: a composer
+  // chord pressed in an auxiliary window is answered by the main process, which
+  // brings this window forward and then asks it for the caret. Bound once per window,
+  // beside the openings above, because it is the same kind of fact — something
+  // outside the render tree deciding where this window should be pointing.
+  useShellComposerFocusRequests(props.bridge);
+
   // Every loader-backed body on both boards, warmed once after this window's first
   // frame. `frame/bindings/lazy-body-warm-binding.ts` says why this is what a loader costs a person
   // rather than a launch: the chunks are fetched on idle callbacks, so the first open
@@ -178,36 +221,19 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
     [railAttentionCount],
   );
 
-  // Window focus is a refresh reason, not a poll.
-  //
-  // The re-read rides the TRANSITION into focus rather than the event itself. A
-  // window that never lost focus missed nothing, so re-reading every open session
-  // on a focus event a person did not cause would be the poll this design refuses;
-  // a window that WAS blurred may have missed a delivery or a read while nobody was
-  // looking, and its open stores are stale until something asks for them again.
-  //
-  // Whether the window was focused is read back from the store rather than kept in
-  // a ref beside it. The store already holds that fact — `isWindowFocused` is what
-  // the scheduler's `window-focus` reason is named for — and a second copy would be
-  // the same value recorded twice, free to disagree.
-  useEffect(() => {
-    const onFocus = (): void => {
-      if (frameStore.getState().isWindowFocused) {
-        return;
-      }
-      frameStore.setWindowFocused(true);
-      sessionStoreRegistry.requestRefreshOfEverySession("window-focus");
-    };
-    const onBlur = (): void => {
-      frameStore.setWindowFocused(false);
-    };
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("blur", onBlur);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("blur", onBlur);
-    };
-  }, [frameStore, sessionStoreRegistry]);
+  // Window focus is a refresh reason, not a poll. `window-focus-refresh.ts` owns both
+  // edges and says why the re-read rides the TRANSITION rather than the event.
+  useWindowFocusRefresh(frameStore, sessionStoreRegistry);
+
+  // What this console and the local runtime agreed to speak. One read per bridge, put
+  // through the console's growth-read chokepoint and followed by no timer — see
+  // `version-banner.ts` for why a handshake has no session-event trigger to watch.
+  const versionReading = useConsoleVersionReading(props.bridge.growth);
+  // Raised into the frame's own banner list rather than drawn into the surface tree,
+  // so the refusal is announced exactly once by the announcer every other banner goes
+  // through. The hook owns both edges — the raise and the clear — because a banner
+  // outlives the render that put it there.
+  useVersionBannerRaise(frameStore, versionReading);
 
   const activeSessionId = frameStore.activeSessionId;
 
@@ -264,6 +290,20 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
     draftStore,
   };
 
+  // The window's own return control, which draws nothing unless this window is one a
+  // deck asked for. Its refusal goes to the frame's banner list, the one rendering
+  // available to an act with no surface of its own — and this act has none in the
+  // strongest sense, since what it asks for is this window's end.
+  const windowControls = (
+    <AuxiliaryReturn
+      route={route}
+      auxiliaryWindows={props.bridge.auxiliaryWindows}
+      onRefused={(refusal) => {
+        frameStore.raiseRefusalBanner(refusal);
+      }}
+    />
+  );
+
   // What the window's family-owned frame-lifetime reads are handed. Three identities,
   // every one stable for the window's whole life — which is why the surface context
   // beside it is deliberately not what travels here: that one is composed fresh on
@@ -297,11 +337,20 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
             frameStore.navigate(routeForDestination(destination));
           }}
           modalOverlayOpen={commandSurface.paletteOpen || isModalSurfaceOpen}
+          windowControls={windowControls}
           shellChrome={<ShellChrome frameStore={frameStore} onRetry={startDaemon} />}
           banners={banners}
           onDismissBanner={(bannerId) => {
             frameStore.dismissBanner(bannerId);
           }}
+          // The two facts a `FrameBanner` cannot carry, drawn beneath the mismatch row and
+          // beneath no other. Matched on the id the raise used, so the pair belongs to that
+          // banner rather than to whichever one happens to be raised.
+          renderBannerSupplement={(banner) =>
+            banner.id === VERSION_BANNER_ID && versionReading.phase === "refused" ? (
+              <VersionBanner mismatch={versionReading.mismatch} />
+            ) : null
+          }
           overlays={
             <>
               <PaletteOverlay
@@ -322,6 +371,12 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
             </>
           }
         >
+          {/* The demonstration mark, above every surface rather than inside one: what it
+              claims is true of the whole window, and a mark that lived in the workspace
+              would vanish the moment somebody navigated to the sessions list and back.
+              Under the live bridge there is no scenario engine, so this is `null` and the
+              release build carries nothing. */}
+          {scenario === undefined ? null : <DemoScenarioMark scenarioLabel={scenario.label} />}
           <RouteSurface context={surfaceContext} />
         </AppFrame>,
       )}

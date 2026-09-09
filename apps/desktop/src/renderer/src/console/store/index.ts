@@ -63,6 +63,17 @@ export {
 } from "./entities/entity-projector-registry.js";
 
 export { SessionStore, type SessionStoreState } from "./session/session-store.js";
+// What the session still has open, from the module that HOLDS it rather than from the
+// store that publishes one reading of it. It leaves the family because the cast bar
+// renders the strip's all-clear line, and that line is a claim about lifecycles rather
+// than about rows: the journal is kept apart from the window precisely so a pruned or
+// re-read timeline cannot silently clear an approval, and a surface reading the window
+// instead would put the defect straight back. The journal CLASS stays inside — one
+// writer per store, constructed by the store itself — so what leaves is the reading.
+// The two record types stay inside for the barrel census's rule: the fold above reads
+// them by iterating the ledger's own maps and names neither, so a door line for either
+// would be a re-export with no reader.
+export type { OutstandingAskLedger } from "./session/outstanding-asks/outstanding-ask-journal.js";
 // The base state a read establishes. Exported because the composition root now
 // builds one — the adapter over the growth port's session read lives there, which
 // is where a family that may reach the bridge is allowed to be.
@@ -128,20 +139,30 @@ export type {
 //
 // `currentShellBlock` ships beside `shellBlockForMethod` because a dispatching surface
 // needs both and they answer different questions: the rendered block draws the control,
-// and the current one decides whether the call is put. Four surfaces take it — the
-// membership ledger, the sent-invite ledger, the invitation mint, and the onboarding
-// step's re-check — and a family that could not reach it through this door would spell
+// and the current one decides whether the call is put. Six surfaces take it — the
+// membership ledger, the sent-invite ledger, the invitation mint, the sessions
+// destination's act block, the onboarding step's re-check, and the ledger's answer to a
+// provider-raised ask — and a family that could not reach it through this door would spell
 // `getState().shellState` for itself, which is the second reading of which cell carries
 // the shell condition.
 export {
   MUTATING_DAEMON_METHODS,
-  currentShellBlock,
   /** @consumedBy T-023p-1C-3, T-023p-1C-5 — the run controls and the composer's send. */
   isMutatingDaemonMethod,
   shellBlockForMethod,
+  // The same question asked where the call is PUT rather than where the control was
+  // drawn. A dispatching surface reads it in its handler, because a block that lands
+  // between the render and the press leaves a render-captured one fail-open.
+  currentShellBlock,
   shellBlocksAreEqual,
   shellMutationBlock,
 } from "./shell/shell-mutation-block.js";
+// The refusal a block becomes, and the predicate that recognises one. Both leave the
+// family because both producers of a blocked dispatch are VIEW families and siblings
+// cannot reach each other: the invitation mint settles one, and so does the ledger's
+// ask answer. The origin string itself stays inside — it is the seam these two names
+// exist to keep from being spelled twice.
+export { isShellBlockRefusal, shellBlockRefusal } from "./shell/shell-mutation-block.js";
 export type { MutatingDaemonMethod, ShellMutationBlock } from "./shell/shell-mutation-block.js";
 export { useRailAttentionCount, useShellState } from "./shell/frame-hooks.js";
 // Every open session's projection as one signal, and the one fold the frame takes
@@ -275,12 +296,41 @@ export { useLocationHash } from "./shell/location-hash.js";
 export {
   useOpenSessionIds,
   useOpenSessionStore,
-  useSessionDegraded,
-  useSessionDegradedCause,
-  useSessionInitialised,
   useSessionPartition,
   useSessionStore,
 } from "./session/session-hooks.js";
+// `useSessionEntity` joins them for its own reason rather than theirs: it is the
+// NARROWEST subscription this family offers — one row, re-rendering when that row
+// changes and not when its neighbour does — and the surfaces that want one are view
+// families. The cast bar's participant card is the first: it reads one roster entry
+// out of the `participant` partition, and reaching for the partition instead would
+// re-render every open card whenever any member's row moved.
+export { useSessionEntity } from "./session/session-hooks.js";
+// The readings ABOUT a projection, from the module that holds them. Declared in a
+// second line rather than folded into the one above because they come from a second
+// module — a door re-exports a symbol from the module that DECLARES it, never through
+// a sibling that happens to re-export it.
+export {
+  useSessionDegraded,
+  useSessionDegradedCause,
+  useSessionInitialised,
+  useSessionProjectionRevision,
+} from "./session/session-projection-hooks.js";
+
+// The peer-invocation grant, read off the session partition. Through this door
+// because its two readers are VIEW families and siblings cannot reach each other:
+// the agent console draws the control the grant belongs to, and the ledger's empty
+// window says why a session with the grant off holds no handoff rows. The fold is
+// one implementation for both — a second copy that answered `false` for an absent
+// member would present an enabled session as safe.
+// `peerInvocationEnabledIn` itself stays off this door: the hook is what both
+// surfaces read, the fold is the hook's own, and a door line whose only importer is
+// a test is a re-export with no production reader.
+export {
+  NOTHING_PROJECTED,
+  usePeerInvocationProjection,
+} from "./session/peer-invocation-projection.js";
+export type { PeerInvocationProjection } from "./session/peer-invocation-projection.js";
 
 // The wall-clock wake-up. In this family rather than in `primitives/` because it is
 // a scheduling decision — the console's other two, `read/refresh-scheduler.ts` and
@@ -303,7 +353,7 @@ export { earliestFutureDeadline, useDeadlineWake } from "./subject-scoped/deadli
 // bound to; `store/read/generation-latch.ts` answers whether an act may be dispatched at all,
 // which a handler settles inside its own tick. `test/console/architecture/
 // subject-state-chokepoint.test.ts` fails the build on a second implementation of
-// either.
+// either, which is why reaching them is a door line and not a deep import.
 //
 // The `@consumedBy` tags are the dead-code gate's one exemption, on this package's
 // terms: they name the task that imports the symbol, and they are deleted in the PR
@@ -387,6 +437,19 @@ export type {
   CallerMembershipRoleResult,
   CallerParticipantReader,
 } from "./session/caller-membership-role.js";
+
+// The resume reading. Its consumer is the ledger surface that mounts a session's
+// workspace: the refused arm says the position this session was last read up to could
+// not be resolved and the log was re-read from the beginning of its window, which is a
+// real degradation of what the console remembered and reaches nobody unless a surface
+// renders it. Through this door rather than a deep import, on the family's
+// one-subscription-path rule.
+//
+// The DECISION TYPE is deliberately not published beside it: the hook's return type
+// is inferred at every call site, so a door line for the name would be a line with no
+// reader — which is the dead export the census fails, and the type is reached deep
+// inside this family by the registry that forwards it.
+export { useTimelineResume } from "./session/session-projection-hooks.js";
 // The degradation cause itself, beside the hook that answers it. Without this line
 // a consumer could reach the closed set only by reflecting on the hook's return
 // type — which derives the set from a CONSUMER of it, so widening the hook's

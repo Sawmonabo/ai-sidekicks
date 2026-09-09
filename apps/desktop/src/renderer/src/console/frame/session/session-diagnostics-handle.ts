@@ -13,14 +13,15 @@
 // what the handle answers — it is handed a frozen object and puts it on the page — so
 // there is no second opinion here about what "bound" or "applied" counts.
 
-import { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "../../core/index.js";
+import { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, type LedgerWindowReading } from "../../core/index.js";
 
 /**
  * What a fixture build exposes to the endurance tier, and nothing more.
  *
- * Three reads, no writes and no handles: a tier driving a real window from outside
- * the renderer can ask what is open, what is bound, and how much has flowed, and
- * cannot open a session, close one, or apply an event.
+ * Four reads, no writes and no handles: a tier driving a real window from outside
+ * the renderer can ask what is open, what is bound, how much has flowed, and what one
+ * session's ledger is showing of it — and cannot open a session, close one, or apply
+ * an event.
  */
 export interface ConsoleSessionDiagnostics {
   /** Sessions the registry currently holds a store for, in open order. */
@@ -44,6 +45,20 @@ export interface ConsoleSessionDiagnostics {
   appliedEventCountFor: (sessionId: string) => number;
   /** Sessions the binder currently holds a wire subscription for. */
   boundSessionIds: () => readonly string[];
+  /**
+   * What one session's ledger viewport is showing, or `null` where none is mounted.
+   *
+   * The reading a windowing claim has to be made against, because a row count taken
+   * off the document answers one question with three states collapsed into it: a
+   * window that mounted its rows, a window with nothing to mount, and a viewport the
+   * browser measured at no height, which computes no range and mounts nothing however
+   * long anybody waits. The five figures separate them, and `null` separates all
+   * three from a route with no ledger on it at all.
+   *
+   * Not the binder's own state and deliberately not composed here: it is read from
+   * the mounted viewport that registered it, through the floor's registry.
+   */
+  ledgerWindowFor: (sessionId: string) => LedgerWindowReading | null;
 }
 
 /*

@@ -34,10 +34,12 @@ export const BASE_UI_ENTRY_POINTS: readonly string[] = [
   `${BASE_UI_PACKAGE}/combobox`,
   `${BASE_UI_PACKAGE}/dialog`,
   `${BASE_UI_PACKAGE}/menu`,
-  `${BASE_UI_PACKAGE}/radio`,
+  `${BASE_UI_PACKAGE}/popover`,
   `${BASE_UI_PACKAGE}/radio-group`,
+  `${BASE_UI_PACKAGE}/radio`,
   `${BASE_UI_PACKAGE}/select`,
   `${BASE_UI_PACKAGE}/switch`,
+  `${BASE_UI_PACKAGE}/tooltip`,
 ];
 
 /**

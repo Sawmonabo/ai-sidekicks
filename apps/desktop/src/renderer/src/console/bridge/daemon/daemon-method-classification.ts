@@ -48,7 +48,9 @@ import { CONSOLE_DAEMON_METHODS, type ConsoleDaemonMethod } from "./daemon-reply
  * call starts, changes, or stops a run, or the queue of turns that becomes one. Pause
  * and resume move a run between states; the four intervention arms reach a running
  * one; the interrupt and the compaction are run-addressed on the driver plane and
- * both change the run they name. `false` is everything else, and several of them are
+ * both change the run they name; and the ask answer is the same shape — it is
+ * addressed by `runId`, and the run it names is blocked until it arrives, so
+ * delivering one advances that run and nothing else. `false` is everything else, and several of them are
  * worth stating because they are mutations all the same: `repo.executionModeSelect`
  * records a WORKSPACE's execution mode and names no run; `session.create`,
  * `session.join`, `membership.update`, `invite.create` and `invite.revoke` change the
@@ -60,9 +62,9 @@ import { CONSOLE_DAEMON_METHODS, type ConsoleDaemonMethod } from "./daemon-reply
  *
  * WHICH IS ALSO WHY IT IS NOT THE DOOR'S READ-VERSUS-RECORD RULE. That question has a
  * map of its own below, and thirteen registered methods change no run and are no reading
- * either — every repo prepare, bind, select, retire, and dispose act, the four roster
+ * either — every repo prepare, bind, select, retire, and dispose act, the five roster
  * writes, and the account probe. Reading this map's `false` as "a reading" would exempt
- * all twelve from the signal rule at once.
+ * all thirteen from the signal rule at once.
  */
 const CHANGES_A_RUN: { readonly [MethodName in ConsoleDaemonMethod]: boolean } = Object.freeze({
   "run.queueCreate": true,
@@ -73,6 +75,7 @@ const CHANGES_A_RUN: { readonly [MethodName in ConsoleDaemonMethod]: boolean } =
   "run.intervene": true,
   "driver.interruptRun": true,
   "driver.compactContext": true,
+  "driver.respondToRequest": true,
   "driver.listProviderCommands": false,
   "driver.listCapabilities": false,
   "driver.listModels": false,
@@ -97,6 +100,9 @@ const CHANGES_A_RUN: { readonly [MethodName in ConsoleDaemonMethod]: boolean } =
   "invite.revoke": false,
   "providerAccount.list": false,
   "providerAccount.probe": false,
+  "timeline.reasoningSurfaceRead": false,
+  "timeline.childRunExpand": false,
+  "timeline.read": false,
 });
 
 /**
@@ -124,7 +130,9 @@ const CHANGES_A_RUN: { readonly [MethodName in ConsoleDaemonMethod]: boolean } =
  * took, so it does not. `run.queueList` reads a queue whose neighbours all move it.
  * And every `repo.*` prepare, bind, select, retire, and dispose act is a record: they
  * change mounts, workspaces, and execution roots, and none of them may be abandoned
- * once the daemon has it.
+ * once the daemon has it. `driver.respondToRequest` delivers an answer a run is
+ * blocked on, so it is a record too; the three `timeline.*` calls ask for rows and
+ * change nothing, so they read.
  */
 const IS_A_READING: { readonly [MethodName in ConsoleDaemonMethod]: boolean } = Object.freeze({
   "run.queueCreate": false,
@@ -135,6 +143,7 @@ const IS_A_READING: { readonly [MethodName in ConsoleDaemonMethod]: boolean } = 
   "run.intervene": false,
   "driver.interruptRun": false,
   "driver.compactContext": false,
+  "driver.respondToRequest": false,
   "driver.listProviderCommands": true,
   "driver.listCapabilities": true,
   "driver.listModels": true,
@@ -159,6 +168,9 @@ const IS_A_READING: { readonly [MethodName in ConsoleDaemonMethod]: boolean } = 
   "invite.revoke": false,
   "providerAccount.list": true,
   "providerAccount.probe": false,
+  "timeline.reasoningSurfaceRead": true,
+  "timeline.childRunExpand": true,
+  "timeline.read": true,
 });
 
 /**

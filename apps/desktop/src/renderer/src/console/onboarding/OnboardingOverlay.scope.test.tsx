@@ -28,9 +28,12 @@ import { ONBOARDING_SCENARIO } from "../bridge/scenarios/onboarding.js";
 import { CommittedFrameRecorder } from "../core/committed-frame.test-support.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { FrameStore } from "../store/index.js";
-import { onboardingActivation } from "./onboarding-activation.js";
 import { OnboardingOverlay } from "./OnboardingOverlay.js";
-import { contextOver, unregisterOnboardingCommands } from "./OnboardingOverlay.test-support.js";
+import {
+  activateAt,
+  contextOver,
+  unregisterOnboardingCommands,
+} from "./OnboardingOverlay.test-support.js";
 
 /** The readiness read every activation puts, whichever account it is scoped to. */
 const READINESS_CALL = "providerAccount.list";
@@ -64,18 +67,15 @@ function readScopes(calls: readonly RecordedCall[]): readonly (string | undefine
     .map((call) => (call.params as { readonly accountId?: string }).accountId);
 }
 
-/** Raise one activation and let the walkthrough's own opening reads settle. */
+/**
+ * Raise one activation at an account and let the walkthrough's own opening reads settle.
+ *
+ * Through the family's own `activateAt` rather than a second copy of the raise: the
+ * walkthrough arrives on its own chunk now, so the wait has a step in it that this
+ * suite must not spell differently from the two beside it.
+ */
 async function activateAtAccount(accountId: string): Promise<void> {
-  await act(async () => {
-    onboardingActivation.request({
-      openAtStep: "providers",
-      accountScope: readProviderAccountId(accountId),
-    });
-    await crossMacrotaskBoundary();
-  });
-  await act(async () => {
-    await crossMacrotaskBoundary();
-  });
+  await activateAt("providers", readProviderAccountId(accountId));
 }
 
 afterEach(() => {

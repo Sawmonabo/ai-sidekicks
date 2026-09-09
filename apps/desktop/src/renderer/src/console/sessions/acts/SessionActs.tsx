@@ -37,8 +37,12 @@ import { useState } from "react";
 import { Menu } from "@base-ui/react/menu";
 
 import { AutoPinSetting } from "./AutoPinSetting.js";
-import { JoinSessionForm } from "./JoinSessionForm.js";
-import { ProviderImportPanel } from "./ProviderImportPanel.js";
+// The two disclosed bodies arrive through their MOUNTS and never by name: each is
+// absent from the tree until a press, so each is a chunk of its own rather than code
+// every session downloads. `act-body-mounts.ts` holds the two loaders; a static import
+// of either component here would put it back on the initial graph, because a symbol
+// reachable both statically and dynamically is assigned to the STATIC chunk.
+import { joinSessionFormMount, providerImportPanelMount } from "./act-body-mounts.js";
 import { useProviderImport } from "./provider-import-model.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { OverlayMenuPopup } from "../../primitives/index.js";
@@ -160,12 +164,16 @@ export function SessionActs(props: SessionActsProps): React.JSX.Element {
         <p className="meridian-session-acts__blocked">{disclosureBlockedReason}</p>
       )}
 
-      {disclosed === "join" ? (
-        <JoinSessionForm bridge={bridge} onJoined={onJoined} blockedReason={blockedReason} />
-      ) : null}
-      {disclosed === "import" ? (
-        <ProviderImportPanel model={providerImport} blockedReason={blockedReason} />
-      ) : null}
+      {/* The mount's own render and not an element built here: what a loader-backed
+          body renders is the board's decision — the settled module where a chunk has
+          already landed, the reserved region where it has not — and this bar's job is
+          to say which props it takes. */}
+      {disclosed === "join"
+        ? joinSessionFormMount.render({ bridge, onJoined, blockedReason })
+        : null}
+      {disclosed === "import"
+        ? providerImportPanelMount.render({ model: providerImport, blockedReason })
+        : null}
 
       <AutoPinSetting preferences={preferences} />
     </div>

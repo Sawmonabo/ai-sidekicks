@@ -135,6 +135,12 @@ export {
   rememberedScopeKindPhrase,
   type RememberedScopeKind,
 } from "./approvals/approval-vocabulary.js";
+// The state union itself, beside the narrowing and the two tables already published
+// here. A surface that grouped by state could reach the narrowing and the phrases and
+// still had no way to write a table TOTAL over the five, so it would have had to
+// restate them — which is the second spelling of a wire vocabulary this door exists
+// to prevent. The sidebar's approvals section is its first reader.
+export type { ApprovalState } from "./approvals/approval-vocabulary.js";
 export { registerApprovalFlowProjectors } from "./approvals/approval-flow-projection.js";
 
 // The goal payload readings. Through this door because the approvals surface is a
@@ -239,7 +245,7 @@ export { createFixtureBridge } from "./fixture/call-plane/bridge.js";
 export {
   abandonedReadRefusal,
   callDaemon,
-  // Consumed by T-023p-1C-2
+  // Consumed by T-023p-1C-4
   DAEMON_REPLY_REFUSAL_ORIGIN,
 } from "./daemon/daemon-reply.js";
 export type { DaemonReply, DaemonReplyRefusalCode } from "./daemon/daemon-reply.js";
@@ -263,12 +269,18 @@ export { heldIdAsWireId } from "./daemon/wire-ids.js";
 // outside the session directory, which is the distinction the reading layer drew when
 // it took both off. A directory read settles through `readings/read-settlement.js`
 // below and keeps the daemon's own code, so nothing on that path mints a port refusal
-// or names the type. Two families since reach past that path: `repos/growth-call.ts`
+// or names the type. Three families since reach past that path: `repos/growth-call.ts`
 // catches a REJECTED call — the one path the port never answers on — and hands the
-// rejection to the builder, returning the type, and the workflow run pane's control
+// rejection to the builder, returning the type; the workflow run pane's control
 // dispatch names the outcome's refusal arm for a port answer it did not settle
-// through a hook. So both travel, and the rule that took them off is unchanged: a
-// door line stands while a production module reaches it, and these two are reached.
+// through a hook; and the workspace family's auxiliary hand-off reaches the type from
+// the act side, translating a growth refusal into its own vocabulary by branching on
+// which growth code was raised, so it names the union rather than a settled read's
+// `SettledReadRefusal`. So both travel, and the rule that took them off is unchanged:
+// a door line stands while a production module reaches it, and these two are reached.
+// `settledGrowthCall` travels beside them and on the same rule — it is what every
+// growth ACT settles through, and the auxiliary pane hand-off and its error watch are
+// the production callers that make the line a door line rather than a claim.
 // `GrowthSessionSummary` leaves through the module that DECLARES it, never through
 // `growth-values/index.js`. That inner barrel is the bridge's own sub-module door,
 // reached deep by the three modules inside this family that read several planes at
@@ -279,6 +291,7 @@ export {
   growthUnavailable,
   growthUnavailableFromRejection,
 } from "./growth-port/growth-refusals.js";
+export { settledGrowthCall } from "./growth-port/growth-port.js";
 // `GrowthPortRefusalCode` stays OFF this door beside it. The closed code union is
 // what the port's own refusal arms are written in, and nothing outside
 // `growth-port/growth-outcome.ts` names it at all, so a door line for it would
@@ -316,6 +329,13 @@ export {
 // The outcome union itself. A caller outside this family narrows on it; its refusal
 // ARM does not travel, for the reason stated above the growth-port block.
 export type { GrowthOutcome } from "./growth-port/growth-outcome.js";
+// The auxiliary-window plane's two answer shapes. The workspace family's hand-off
+// narrows every answer on the outcome union and translates the refusal into its own
+// vocabulary, so both are reached from outside this family. The PORT type itself is
+// not: the one module that names it takes it off `ConsoleBridge["auxiliaryWindows"]`,
+// which is the member a bridge actually carries — and the shell adapter and the
+// fixture's arm selection stay in here, because a bridge is what builds those.
+export type { AuxiliaryWindowOutcome, AuxiliaryWindowRefusal } from "./auxiliary-window-port.js";
 // The served shape of a growth SUBSCRIPTION, published beside the outcome for the
 // same reason: the deep-link path's owner drains one, and a view family that had to
 // name the shape itself would be declaring a second reading of what this port
@@ -518,6 +538,14 @@ export type { GrowthReading } from "./growth-port/growth-outcome.js";
 // from the port's word for it rather than from a second literal that would drift.
 export { WIRE_UNREGISTERED_REFUSAL_CODE } from "./growth-port/growth-outcome.js";
 
+// The growth ledger's row lookup, through the door this file's header already claims
+// it for ("the ledger that makes those refusals checkable"). A view family that must
+// render an absence names the row that would fill it, and reading the row through the
+// barrel is what keeps a family out of this one's interior — the deep import a card
+// would otherwise take is exactly the reach past a door the layout rules forbid.
+export { growthSlateRow } from "./growth-port/growth-slate.js";
+export type { GrowthSlateRow } from "./growth-port/growth-slate-row.js";
+
 // How a growth read ENDS when its seam can also REJECT. It lives in this family
 // because it settles a promise the growth port returned and knows nothing about any
 // surface, and in `readings/` because what it is about is the READING rather than any
@@ -599,31 +627,37 @@ export {
   serializeWorkflowDefinitionFile,
 } from "./wire-shapes/workflow-definition-file-codec.js";
 
+// How an answer's members are ADDRESSED, and it leaves eagerly because everything above
+// reads it before anything is compiled: `SchemaMemberPath` is the one representation a
+// descriptor and an issue both carry, `isSameMemberPath` is how a control finds the
+// findings that are about it, and `encodeMemberPointer` is the single string spelling
+// anything keyed on a path may take. All three sit in one module, because a second
+// reading of a path is exactly how two spellings of one member come apart.
+export { encodeMemberPointer, isSameMemberPath } from "./wire-shapes/schema-member-path.js";
+export type { SchemaMemberPath } from "./wire-shapes/schema-member-path.js";
+
 // The other validator this family holds, and the reason it is here rather than beside
 // the form it serves: a schema the wire delivered, compiled once into something a
 // locally composed draft can be checked against. Every family above this one is barred
 // from importing a schema library at all, which is a claim about the LAYER — a validator
 // sits below every surface, so no surface can hold a second reading of one.
 //
-// `SchemaValidationIssue` IS published, and it was not while every caller only READ a
-// report. The schema form now composes findings of its own — a drawn row the projection
-// dropped, which the answer has no way to express and the schema therefore never sees —
-// and folds them into the report the surface renders, so it constructs issues rather than
-// mapping them and needs the shape. One production importer, one door line.
+// AND THROUGH THE LOADER RATHER THAN THE COMPILER ITSELF, because this door is on the
+// initial import graph and the compiler carries a schema library's JSON-Schema entry
+// point behind it. Its only production readers are inside the schema form seat, which is
+// a loader-backed chunk — so a runtime line for `compileSchemaValidator` assigned that
+// library to the STATIC chunk, on the rule `apps/desktop/AGENTS.md` §Module shape states,
+// and put it on the document of every session that never draws a form. Measured, that
+// line alone carried the initial graph past its budget. The loader is one awaited function
+// body; the module's own header says why the deferral is on this side of the door.
 //
-// The member-path trio DOES leave, because the surfaces that read a report address their
-// controls by those same paths: `SchemaMemberPath` is the one representation a descriptor
-// and an issue both carry, `isSameMemberPath` is how a control finds the findings that are
-// about it, and `encodeMemberPointer` is the single string spelling anything keyed on a
-// path may take. All three sit beside the producer, because a second reading of a path is
-// exactly how two spellings of one member come apart.
-export {
-  compileSchemaValidator,
-  encodeMemberPointer,
-  isSameMemberPath,
-} from "./wire-shapes/json-schema-check.js";
+// THE TYPES ARE FREE AND STAY, because a type reference erases: the seat names the
+// validator and the report it renders, and the loader's own signature names the validator
+// it resolves to. `SchemaValidationIssue` is published for a reader that CONSTRUCTS one —
+// the schema form composes findings of its own, a drawn row the projection dropped, which
+// the answer has no way to express and the schema therefore never sees.
+export { loadSchemaValidatorCompiler } from "./wire-shapes/json-schema-check-loader.js";
 export type {
-  SchemaMemberPath,
   SchemaValidationIssue,
   SchemaValidationReport,
   SchemaValidator,
@@ -637,10 +671,22 @@ export type {
 // another process that imports the module directly.
 export { ScenarioSelection } from "./scenario-runtime/scenario-selection.js";
 
+// What a window plays when the launch named no scenario. Through the same door and
+// from the module that declares it, because the first-launch rule in `frame/` asks
+// whether the composition it is about to open into is the one nobody chose — and a
+// named scenario is an ask that rule must not override.
+export { DEFAULT_SCENARIO_ID } from "./scenario-runtime/scenario-selection.js";
+
 // The decode boundary for a delivered session-event envelope. Through the door
 // because the frame's binder is the reader and the parse is this family's job: the
 // wire's own shapes are read here and nowhere above.
 export { readConsoleSessionEvent } from "./daemon/session-event-payload.js";
+export { readRollbackBoundaryPayload } from "./daemon/rollback-boundary-payload.js";
+// And the boundary for the OTHER frame a session's log arrives in: one backward
+// `timeline.read` window. Through the door for the same reason — the ledger's walk
+// back past its window head is the reader, and a family above this one may not read a
+// `TimelineRow`.
+export { readEarlierTimelinePage } from "./daemon/timeline-page.js";
 
 // The three body reads that narrow a wire shape, all through the door because each
 // has a production reader above this family. `membershipRoleOf` is the injected

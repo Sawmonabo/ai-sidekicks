@@ -23,7 +23,10 @@ import type { ConsoleScenario } from "../../scenario-runtime/scenario.js";
 import { CONSOLE_SCENARIOS } from "../../scenarios/index.js";
 import { FLAGSHIP_SCENARIO } from "../../scenarios/flagship.js";
 import { REPOS_SCENARIO } from "../../scenarios/repos.js";
-import { GIT_WORKSPACE_ID, IMPLEMENTER_WORKTREE_ID } from "../../scenarios/repos-fixture-data.js";
+import {
+  GIT_WORKSPACE_ID,
+  IMPLEMENTER_WORKTREE_ID,
+} from "../../scenarios/repos/repos-fixture-data.js";
 import { createLiveBridge } from "../../live-bridge.js";
 import { createTier1Bridge } from "@ai-sidekicks/contracts";
 

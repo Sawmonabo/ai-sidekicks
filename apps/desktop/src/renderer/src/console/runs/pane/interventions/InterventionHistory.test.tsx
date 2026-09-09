@@ -7,7 +7,7 @@
 // is not something it can read, rather than inferring either.
 
 import { act, fireEvent, render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import type { RollbackCompositeRejectionGuard } from "@ai-sidekicks/contracts";
 
@@ -15,9 +15,21 @@ import type { ConsoleBridge } from "../../../bridge/index.js";
 import { createFixture } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { refuse } from "../../../core/index.js";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
+import { resolveFileRestoreDisclosure } from "../controls/file-restore-mount.test-support.js";
 import { InterventionHistory } from "./InterventionHistory.js";
 import type { RunControlRecord } from "../controls/run-control-surface.js";
 import { OTHER_RUN_ID, RUN_ID } from "../runs-pane.test-support.js";
+
+// The working-tree half of a settled rollback arrives on its own chunk, so this file
+// warms it ONCE before anything renders — through the mount's own wait home, which is
+// where `apps/desktop/AGENTS.md` §Tests puts it. After this the mount renders the settled
+// body directly, so `renderHistory` below stays synchronous and every case reads the
+// disclosure it means to. Asked for the whole file rather than in the three cases that
+// touch it: a warm memo costs a resolved promise, and a case added later that forgets
+// would assert an absence the fetch produced.
+beforeAll(async () => {
+  await resolveFileRestoreDisclosure();
+});
 
 const INTERVENTION_ID = "d5f2c3e4-6071-4182-ac93-1e4f50617283";
 

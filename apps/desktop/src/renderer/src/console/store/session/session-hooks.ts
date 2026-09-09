@@ -26,6 +26,13 @@
 // these hooks are the callers of), and derivation happens in the component under
 // `useMemo`.
 //
+// WHAT IS NOT HERE. `session-projection-hooks.ts` holds the readings that answer a
+// question ABOUT a session's projection rather than out of it — whether a base state
+// landed, whether the projection moved, whether it is known incomplete, and what the
+// newest read said about resuming the stream. This file resolves stores and selects
+// content; that one reports on the read behind the content, and it is the half whose
+// inputs stop being "a store and a selector".
+//
 // WHAT IS DELIBERATELY NOT HERE. `caller-membership-role.ts` beside this module is
 // a bridge read wearing a hook, with a refusal vocabulary of its own; the frame
 // store's hooks are `shell/frame-hooks.ts`'s. Three jobs in one module is what this
@@ -40,7 +47,6 @@ import type { SessionStoreRegistry } from "./session-store-registry.js";
 import {
   selectEntity,
   selectPartition,
-  type SessionDegradedCause,
   type SessionStore,
   type SessionStoreState,
 } from "./session-store.js";
@@ -124,56 +130,4 @@ export function useSessionEntity(
     [kind, id],
   );
   return useStore(store.readable, select);
-}
-/** Whether the store has been initialised, so a surface can tell "not loaded" apart. */
-export function useSessionInitialised(store: SessionStore): boolean {
-  return useStore(store.readable, readInitialised);
-}
-
-function readInitialised(state: SessionStoreState): boolean {
-  return state.initialised;
-}
-
-/**
- * Whether this session's projection is known-incomplete — the store's own sticky
- * flag, SUBSCRIBED rather than sampled.
- *
- * Two sidebar sections read this fact beside a read of their own and each of them
- * sampled `snapshot().degradedCause` in its render body, which is a read with no
- * subscription behind it: a store entering or leaving its degraded state without
- * that section's read settling — a sequence gap in an unrelated partition, a closed
- * subscription — moved the flag and re-rendered nothing, so the warning stayed
- * absent, or stayed on screen after a re-pull had cleared it.
- *
- * A boolean rather than the cause, because these readers ask only whether one is
- * standing, and a primitive is compared by value under zustand v5's `Object.is` —
- * so a transition between two causes costs no render to a surface that renders
- * neither. A reader that renders the cause itself takes
- * {@link useSessionDegradedCause} below, which is the same subscription narrowed one
- * step less.
- */
-export function useSessionDegraded(store: SessionStore): boolean {
-  return useStore(store.readable, readDegraded);
-}
-
-function readDegraded(state: SessionStoreState): boolean {
-  return state.degradedCause !== undefined;
-}
-
-/**
- * Why the projection is known-incomplete, or `undefined` while it is whole.
- *
- * A hook of its own rather than a `useSessionStore` call at each surface, for the
- * reason this family's header gives: the selector has to return a stored
- * reference, and one written per surface is one more chance to build a value and
- * re-render every frame. A sidebar section renders "unavailable" from this rather
- * than rendering a zero, which is the distinction `Spec-023 §Console Design
- * (Meridian)` draws between an answered empty read and a read that never landed.
- */
-export function useSessionDegradedCause(store: SessionStore): SessionDegradedCause | undefined {
-  return useStore(store.readable, readDegradedCause);
-}
-
-function readDegradedCause(state: SessionStoreState): SessionDegradedCause | undefined {
-  return state.degradedCause;
 }

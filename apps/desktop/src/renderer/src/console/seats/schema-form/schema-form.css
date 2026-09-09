@@ -308,6 +308,18 @@
 }
 
 /*
+ * The act while the form has no verdict yet — the schema compiler is on its own chunk and
+ * has not landed. Quieted and un-pressable rather than hidden, on the start menu's rule:
+ * the control is arriving and not missing, so the place it will be stays where a person is
+ * already looking, and the pointer stops advertising a press that would send an answer
+ * nothing has checked.
+ */
+.meridian-schema-answer__submit:disabled {
+  color: var(--meridian-text-muted);
+  cursor: default;
+}
+
+/*
  * What the daemon answered the last press. Declared here beside the act it settles,
  * rendered by the run pane's submit channel BENEATH the form rather than inside it:
  * the settlement is the seat's reading of the daemon's reply and not part of the answer,

@@ -7,6 +7,12 @@
 // result type can express and which the one shipped caller (the scheme preference,
 // written without `await`) turns into an unhandled rejection nobody sees.
 //
+// AND A READ THAT FAILS IS A THIRD ANSWER RATHER THAN A SECOND NOTHING. `read`
+// resolved `undefined` for a record that was never written and for a read the adapter
+// could not perform, so a caller deciding what to WRITE on the strength of an absence
+// was told nothing had ever been saved by a store that did not know. `readOutcome`
+// separates them; the cases at the foot of this file hold it to that.
+//
 // The write chokepoint itself is `ui-state-store.test.ts`; what the console says
 // when there is no durable store at all is `ui-state-store.degradation.test.ts`.
 
@@ -18,6 +24,7 @@ import {
   MemoryPersistenceAdapter,
   type MemoryPersistenceAdapterOptions,
 } from "./memory-adapter.js";
+import { ReadFailureAdapter } from "./read-failure-adapter.test-support.js";
 import { UiStateStore } from "./ui-state-store.js";
 import { refusePersistence } from "./value-classes.js";
 
@@ -152,3 +159,45 @@ class BookkeepingFailureAdapter extends MemoryPersistenceAdapter {
       : super.trimPartitions(keepSessionPartitions);
   }
 }
+
+describe("a read that failed is not a record that was never written", () => {
+  it("answers `failed` where the record is unreachable and `absent` where it is not there", async () => {
+    const adapter = new ReadFailureAdapter();
+    const store = new UiStateStore({ adapter, clock: new ManualClock(1_000) });
+    expect((await store.write("session-1", "expansion", "expansion", ["run-01"])).outcome).toBe(
+      "written",
+    );
+
+    // The record IS there and the adapter cannot say so, which is the whole
+    // distinction: one answer for "unreachable", another for "not there".
+    expect((await store.readOutcome("session-1", "expansion")).outcome).toBe("failed");
+    adapter.stopFailingReads();
+    expect((await store.readOutcome("session-1", "expansion")).outcome).toBe("present");
+    expect((await store.readOutcome("session-1", "never-written")).outcome).toBe("absent");
+  });
+
+  it("counts the failure on the store's health and still never throws", async () => {
+    const store = new UiStateStore({
+      adapter: new ReadFailureAdapter(),
+      clock: new ManualClock(1_000),
+    });
+
+    expect((await store.readOutcome("session-1", "expansion")).outcome).toBe("failed");
+
+    expect((await store.health()).failedReadCount).toBe(1);
+  });
+
+  it("negative control: the lossy projection still reports both nothings as one", async () => {
+    // `read` and `readGlobal` are documented as the lossy form and a number of
+    // callers take them deliberately. Without this the union could have been added
+    // beside a `read` that had quietly started throwing or reporting a record.
+    const adapter = new ReadFailureAdapter();
+    const store = new UiStateStore({ adapter, clock: new ManualClock(1_000) });
+    await store.write("session-1", "expansion", "expansion", ["run-01"]);
+
+    expect(await store.read("session-1", "expansion")).toBeUndefined();
+    adapter.stopFailingReads();
+    expect(await store.read("session-1", "never-written")).toBeUndefined();
+    expect(await store.read("session-1", "expansion")).toBeDefined();
+  });
+});

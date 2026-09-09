@@ -46,3 +46,12 @@ export {
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
   type ConsoleSessionDiagnostics,
 } from "../../src/renderer/src/console/frame/session/session-diagnostics-handle.js";
+
+/**
+ * What one of those reads answers with.
+ *
+ * From the floor rather than through the handle's own module: the reading is the
+ * mounted viewport's shape and `session-diagnostics-handle.ts` only carries it, so a
+ * tier naming the type reads it where it is declared.
+ */
+export { type LedgerWindowReading } from "../../src/renderer/src/console/core/ledger-window-diagnostics.js";

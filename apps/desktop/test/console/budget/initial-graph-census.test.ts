@@ -90,9 +90,24 @@ const rendererOutputDirectory: string =
 /**
  * The assets a launch fetches before it can paint, named without their content hashes.
  *
- * Four: the entry chunk and its stylesheet, `routing`, which the entry and every body
- * that reads an address both reach, and `core`, hoisted out BECAUSE it is shared with
- * lazy bodies and therefore initial by construction.
+ * Six: the entry chunk and its stylesheet, `routing`, which the entry and every body
+ * that reads an address both reach, `core`, hoisted out BECAUSE it is shared with lazy
+ * bodies and therefore initial by construction, `chunk` — rolldown's shared
+ * CommonJS-interop runtime (`__commonJS` / `__toESM`), hoisted into a chunk of its own
+ * once the lazy bodies shared it, imported by the entry, and holding no module at all
+ * (the bundler's own table says so, and `MODULE_FREE_CHUNKS` below pins that reading) —
+ * and `preload-helper`, Vite's `__vitePreload`, which fetches a dynamically imported
+ * chunk's own stylesheet and shared dependencies before handing the module back.
+ *
+ * THE HELPER IS THE SECOND KIND OF MOVE AND NOT THE FIRST. The entry has performed
+ * dynamic imports carrying stylesheet dependencies for as long as bodies have been
+ * loader-backed, so this runtime was always ON the initial graph; what changed when the
+ * file-restore disclosure moved behind the primitives door's loader is that the bundler
+ * stopped INLINING it in the entry and emitted it as the shared chunk five other chunks
+ * already reach — it appears in no other chunk's source now, and it appeared in no chunk
+ * of its own before. The reading that decides whether that is a regression is the budget
+ * gate's total next door, which FELL in the same build that added this row: the helper's
+ * bytes moved out of the entry rather than arriving beside it.
  *
  * WHAT MOVES THIS LIST, AND WHAT MUST NOT. A chunk appearing here that names a view
  * family is the eager import this census exists to catch, and the check names the
@@ -104,7 +119,25 @@ const rendererOutputDirectory: string =
  * a regression, and it is why the total gzip figure the budget gate reads is the
  * measurement of record; this list is the membership.
  */
-const INITIAL_GRAPH_CHUNKS: readonly string[] = ["core.js", "index.css", "index.js", "routing.js"];
+const INITIAL_GRAPH_CHUNKS: readonly string[] = [
+  "chunk.js",
+  "core.js",
+  "index.css",
+  "index.js",
+  "preload-helper.js",
+  "routing.js",
+];
+
+/**
+ * The initial chunks the bundler compiled out of no file — exactly two today.
+ *
+ * Both are runtimes rather than code this repository wrote: rolldown's CommonJS interop
+ * and Vite's dynamic-import preloader. Pinned so a third is a red check: a module-free
+ * chunk moves no module and no byte worth a budget row, so it is invisible to every
+ * other reading here, and a change in how the bundler splits its runtimes is still a
+ * change somebody should look at.
+ */
+const MODULE_FREE_CHUNKS: readonly string[] = ["chunk.js", "preload-helper.js"];
 
 /**
  * A module in a directory the initial graph must not hold, for the negative controls.
@@ -137,6 +170,10 @@ describe("renderer initial-graph census", () => {
 
   it("fetches exactly the chunks a launch is known to need", () => {
     expect(census.chunkNames).toStrictEqual(INITIAL_GRAPH_CHUNKS);
+  });
+
+  it("carries exactly the module-free chunks the build is known to emit", () => {
+    expect(census.moduleFreeChunks).toStrictEqual(MODULE_FREE_CHUNKS);
   });
 
   it("holds exactly the modules this repository pinned, under exactly those owners", () => {

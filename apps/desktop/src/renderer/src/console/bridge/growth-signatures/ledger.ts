@@ -41,4 +41,25 @@ export interface LedgerGrowthSignatures {
     value: GrowthCostReceipt;
   };
   orchestrationBudgetRead: { request: { readonly sessionId: string }; value: GrowthBudgetState };
+  // live gap fill
+  //
+  // The request is the registered one, narrowed to the two members this console can
+  // honestly supply: the session, and a position the daemon itself issued and this
+  // console kept. The channel filter the wire also carries is deliberately absent —
+  // a gap is in the session's log rather than in one channel's view of it, and a
+  // filter added here would be a narrowing nothing asked for.
+  //
+  // AND THE VALUE IS THE ACKNOWLEDGEMENT, NOT A STREAM. The registered reply is a
+  // subscription id and the rows travel on the stream the store already owns, so a
+  // served answer here says the replay was accepted and hands the caller nothing to
+  // drain. Typing it as a stream would put the log's delivery in a pane's hands,
+  // which is the one thing the store's single-subscriber rule exists to prevent.
+  //
+  // The cursor is a bounded opaque string here for the reason `store/session/timeline-resume.ts`
+  // gives: its structure is the daemon's and the console orders nothing by it. It is
+  // relayed exactly as it arrived or it is not sent at all.
+  timelineSubscribe: {
+    request: { readonly sessionId: string; readonly afterCursor: string };
+    value: { readonly subscriptionId: string };
+  };
 }

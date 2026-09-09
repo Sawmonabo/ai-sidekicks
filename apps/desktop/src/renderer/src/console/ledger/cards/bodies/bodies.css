@@ -1,0 +1,221 @@
+/* `ledger/cards/bodies/`'s styles — the machine-authored body, the reasoning surface,
+ * and the input-ask card.
+ *
+ * ONE SHEET PER DIRECTORY, and this directory carries a door, so it owns its own rules
+ * and enters them through that door rather than through its parent's sheet. That is the
+ * same shape `markdown/` and `tool-families/` beside it already have: a sub-module with
+ * an `index.ts` is an owner, and a parent reaching into one would make one directory the
+ * reason another is styled at all.
+ *
+ * WHAT SPLIT AND WHAT DID NOT. `cards.css` keeps the frames — the ANSI command output,
+ * the message card and its receipt row, and the tool card — because those are what the
+ * cards root itself renders, and `ansi/` carries no door, so its sheet is genuinely the
+ * parent's. What moved is what goes INSIDE a frame, which is this directory's whole
+ * seam. The two class sets are disjoint, checked selector by selector before the split:
+ * no rule here and no rule there selects one element at equal specificity, so the load
+ * order this move changes decides nothing.
+ *
+ * Markdown prose, code blocks, and math are `cards/markdown/markdown.css`'s, the
+ * directory that renders them.
+ */
+
+/* --- Cards: the machine-authored body ------------------------------------ */
+
+.meridian-machine-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+/*
+ * The empty body of an unreadable turn. It occupies the turn's position — that is the
+ * whole of what `cards/bodies/MachineBody.tsx` asks for — and carries no text, because
+ * the named absence beside it is where the reason is stated.
+ */
+.meridian-machine-body__empty {
+  margin: 0;
+  min-height: 1lh;
+}
+
+/*
+ * A body its producer declared plain text. `pre-wrap` is the whole reason this rule
+ * exists: the arm renders the bytes verbatim, so the line breaks and the runs of spaces
+ * a producer wrote are content rather than whitespace to collapse. `anywhere` is the
+ * ledger's own treatment for a run with no break opportunity in it — a path, a token, a
+ * hash — which would otherwise widen the row past the column.
+ */
+.meridian-machine-body__plain {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* --- Cards: the reasoning surface ---------------------------------------- */
+
+.meridian-reasoning-surface {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+/*
+ * The sliding tail while a turn streams. Capped in the MODEL rather than here — a
+ * CSS clip would hide lines the component still mounted, so the DOM and the screen
+ * would disagree about how much reasoning is on the row. The list keeps its ordinal
+ * marker off: the numbers would restart at one every time the window slid.
+ */
+.meridian-reasoning-surface__tail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-reasoning-surface__tail-line {
+  overflow-wrap: anywhere;
+}
+
+.meridian-reasoning-surface__entries {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.meridian-reasoning-surface__entry {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A body's own offer. Secondary by weight, per the density rule that puts a row's
+   secondary controls one click away rather than in the reader's path.
+
+   TWO SELECTORS, ONE BLOCK, because it is one shape and not two: the reasoning
+   surface's "show reasoning" and the truncation notice's "show all" are the same
+   control — an inline offer inside a machine-authored body — and a second copy of
+   these eight declarations would be the duplication the package standard forbids,
+   drifting the first time somebody adjusts one of them. */
+.meridian-reasoning-surface__expand,
+.meridian-truncation-notice__show-all {
+  align-self: flex-start;
+  background: none;
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+  font: inherit;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+}
+
+/* --- Cards: the input-ask card ------------------------------------------- */
+
+.meridian-input-ask {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-input-ask__prompt {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.meridian-input-ask__countdown {
+  margin: 0;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-input-ask__arms {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-input-ask__options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * TWO PARTS ON ONE ROW: the provider's label, and the value the answer is composed
+ * from. The value is never dropped at any width — it is what actually travels — so
+ * the row wraps rather than truncating either half.
+ */
+.meridian-input-ask__option {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  width: 100%;
+  background: none;
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  text-align: start;
+}
+
+/*
+ * Every answer control dims together while one answer is on the wire or has already
+ * reached the driver. The refusal arm is deliberately NOT one of those states — rule
+ * 9 keeps the control that produced a refusal on screen and pressable.
+ */
+
+.meridian-input-ask__option:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.meridian-input-ask__free-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  align-items: flex-start;
+}
+
+.meridian-input-ask__field {
+  width: 100%;
+  background: var(--meridian-surface-sunken);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  color: inherit;
+  font: inherit;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  resize: vertical;
+}
+
+.meridian-input-ask__field:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.meridian-input-ask__send {
+  background: none;
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+}
+
+.meridian-input-ask__send:disabled {
+  cursor: default;
+  opacity: 0.5;
+}

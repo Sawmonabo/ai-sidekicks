@@ -71,6 +71,9 @@
 // The roster now arrives with the base state (`session-snapshot.ts`), so the identity
 // this read serves resolves to the role the scenario declares for it.
 
+import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
+
+import type { WireErrorEnvelope } from "../../../core/index.js";
 import { directorySessionsOf } from "./session-directory.js";
 import { fixtureSessionSnapshot } from "./session-snapshot.js";
 import { growthUnavailable, type GrowthPort } from "../../growth-port/index.js";
@@ -105,10 +108,34 @@ export function fixtureSessionAnswers(
   engine: ScenarioEngine,
 ): Pick<GrowthPort, FixtureServedSessionOperationId> {
   return {
-    sessionRead: async (request) => ({
-      status: "served",
-      value: fixtureSessionSnapshot(engine.scenario, request.sessionId),
-    }),
+    // The base state, and — for a scenario that declares it — the one refusal the
+    // console's resume cycle can actually receive.
+    //
+    // REFUSED ON THE ARM THAT CARRIES A POSITION AND SERVED ON THE ARM THAT DOES NOT,
+    // which is what makes the console's recovery observable rather than merely
+    // asserted: the entry forgets the refused position, re-reads the same session
+    // through the same reader with none, and records the refusal for the surface. A
+    // scenario that refused both arms would leave the store with no base state at all
+    // and report an outage instead of a lost place.
+    //
+    // THROWN AS THE WIRE'S OWN ENVELOPE, unwrapped, on the rule
+    // `../growth/scripted-answer.ts` states for its refused settlement: a scripted
+    // refusal is the DAEMON's, and paraphrasing it into a growth-scoped code would
+    // teach a surface a shape the live seam never sends — here specifically it would
+    // put the refusal past `isUnresolvableCursorRejection`, which reads the daemon's
+    // own code, and the recovery this arm exists to drive would never run.
+    sessionRead: async (request) => {
+      if (
+        request.fromCursor !== undefined &&
+        engine.scenario.refusesSubmittedResumeCursor === true
+      ) {
+        throw unresolvableResumeCursorRefusal();
+      }
+      return {
+        status: "served",
+        value: fixtureSessionSnapshot(engine.scenario, request.sessionId),
+      };
+    },
     sessionList: async () => ({
       status: "served",
       value: directorySessionsOf(engine.scenario),
@@ -132,5 +159,25 @@ export function fixtureSessionAnswers(
       }
       return { status: "served", value: { participantId: viewingParticipantId } };
     },
+  };
+}
+
+/**
+ * The daemon's refusal of a position it could not resolve.
+ *
+ * The code is imported from the module that declares it rather than spelled here:
+ * `store/session/timeline-resume.ts` is the console's single home for the string, and
+ * the entry's recovery arm recognises the refusal by comparing against that same
+ * constant. A literal here would be a second spelling, and the two would only have to
+ * disagree once for the refusal to reach the store as an ordinary read failure.
+ *
+ * The message NAMES NO CURSOR. It stands in for a sentence a daemon writes, and the
+ * console renders what it is sent — but the value that was refused is the console's
+ * own and repeating it back adds nothing a surface may show.
+ */
+function unresolvableResumeCursorRefusal(): WireErrorEnvelope {
+  return {
+    code: EVENT_CURSOR_UNRESOLVABLE_CODE,
+    message: "the submitted cursor could not be resolved to a position in this log",
   };
 }

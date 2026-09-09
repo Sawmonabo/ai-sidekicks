@@ -15,7 +15,7 @@
 // the palette's row shares, so a stub of it would be a stub of the claim.
 
 import { fireEvent, render, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
 import { withDaemonCall } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
@@ -25,9 +25,15 @@ import {
   ACKNOWLEDGED_PAUSE,
   AGENT_LABEL,
   StepInHost,
+  TARGET_RUN_ID,
   scenarioReplying,
   stepInTrigger,
 } from "./step-in.test-support.js";
+import {
+  registerTakeTheFloorHandler,
+  unregisterTakeTheFloorHandler,
+  type TakeTheFloorOutcome,
+} from "../../../seats/index.js";
 
 function renderStepIn(replies: ConsoleScenario["replies"]): {
   readonly container: HTMLElement;
@@ -43,6 +49,74 @@ function renderStepIn(replies: ConsoleScenario["replies"]): {
   );
   return { container, trigger: stepInTrigger(container), onTakeTheFloor };
 }
+
+afterEach(() => {
+  // The floor seat is module scope, so a case that filled it would leak into the next.
+  unregisterTakeTheFloorHandler();
+});
+
+describe("StepIn — the deck's act", () => {
+  it("asks the deck for the floor only after the pause is acknowledged, and says what moved", async () => {
+    // The whole of Step in, in order: the pause settles, the deck is asked once with
+    // this run's identifier, and the receipt claims the floor because the deck said the
+    // composer is addressed. A request sent on dispatch would move the deck under a run
+    // that is still running.
+    const asked: string[] = [];
+    registerTakeTheFloorHandler("workspace-deck", async (request) => {
+      asked.push(request.runId);
+      return Promise.resolve<TakeTheFloorOutcome>({
+        status: "moved",
+        composerAddressed: true,
+        worktree: "opened",
+      });
+    });
+    const { container, trigger } = renderStepIn([ACKNOWLEDGED_PAUSE]);
+    fireEvent.click(trigger);
+    expect(asked).toStrictEqual([]);
+
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-step-in__receipt")?.textContent ?? "").toContain(
+        "You have the floor.",
+      );
+    });
+    expect(asked).toStrictEqual([TARGET_RUN_ID]);
+  });
+
+  it("never claims the floor when the deck could not address the composer", async () => {
+    // A run whose agent this session's store has never seen leaves the composer on the
+    // channel path, and the pause still happened — so the receipt reports the pause and
+    // withholds the claim rather than reporting an act the console did not perform.
+    registerTakeTheFloorHandler("workspace-deck", async () =>
+      Promise.resolve<TakeTheFloorOutcome>({
+        status: "moved",
+        composerAddressed: false,
+        worktree: "unnamed",
+      }),
+    );
+    const { container, trigger } = renderStepIn([ACKNOWLEDGED_PAUSE]);
+    fireEvent.click(trigger);
+
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-step-in__receipt")?.textContent ?? "").toContain(
+        "no worktree pane opened",
+      );
+    });
+    const receipt = container.querySelector(".meridian-step-in__receipt")?.textContent ?? "";
+    expect(receipt).toContain("paused");
+    expect(receipt).not.toContain("You have the floor.");
+  });
+
+  it("says so when no deck is mounted, rather than doing two thirds in silence", async () => {
+    const { container, trigger } = renderStepIn([ACKNOWLEDGED_PAUSE]);
+    fireEvent.click(trigger);
+
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-step-in__receipt")?.textContent ?? "").toContain(
+        "No deck of panes is open in this window",
+      );
+    });
+  });
+});
 
 describe("StepIn — the floor moves on the acknowledgment, never on the dispatch", () => {
   it("renders the daemon's own state and version once the pause is acknowledged", async () => {

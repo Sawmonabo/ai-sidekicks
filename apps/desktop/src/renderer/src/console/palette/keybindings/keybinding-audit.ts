@@ -21,17 +21,29 @@
 // console hoists on the second use, and this is the lowest family both readers
 // already import.
 //
-// PLATFORM-RESERVED CHORDS ARE STATED NARROWLY OR NOT AT ALL
+// A CHORD IS UNAVAILABLE FOR TWO DIFFERENT REASONS, AND BOTH ARE ANSWERED HERE
 //
 // The table below names chords the OPERATING SYSTEM consumes before any application
-// sees them. It deliberately does not try to enumerate this application's own menu
-// accelerators: those live in the main process, the renderer has no read for them,
-// and a guessed list would be wrong in exactly the direction that matters — telling
-// somebody a chord is free when the menu bar will take it.
+// sees them. This application's own menu bar takes a second set, one layer further
+// in, and until the accelerators moved to `src/shared/auxiliary-menu-chords.ts` this
+// module said it could not enumerate them: "those live in the main process, the
+// renderer has no read for them, and a guessed list would be wrong in exactly the
+// direction that matters — telling somebody a chord is free when the menu bar will
+// take it." The read now exists, so the guess is not needed and the second reason is
+// reported beside the first — the wrong direction that sentence named is exactly what
+// the silence produced, and a `CmdOrCtrl+Shift+T` accelerator sat on top of a live
+// ledger binding for as long as nobody could ask.
+//
+// The two are compared through the console's own chord parser rather than by string,
+// because the menu table is written in the same `tinykeys` grammar the bindings use
+// and `$mod+Shift+t` and `$mod+Shift+KeyT` are one keystroke. A `toLowerCase()`
+// comparison would answer "free" for the second spelling of a chord it holds.
 
 import { CommandRegistry, type KeyBinding } from "../commands/index.js";
+import { normalizePressForComparison, parseChord } from "./keybinding-chord.js";
 import { KeyBindingTable } from "./keybindings.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "../../primitives/index.js";
+import { AUXILIARY_MENU_CHORD_LIST } from "../../../../../shared/auxiliary-menu-chords.js";
 
 /** One chord the host consumes before this application can see it. */
 interface ReservedChord {
@@ -44,8 +56,9 @@ interface ReservedChord {
  *
  * Only entries that hold on a default installation of the platform itself are
  * listed. A chord this application's own menu bar owns is ALSO unavailable and is
- * not here, because the menu belongs to the main process and this renderer has no
- * read that would enumerate it.
+ * deliberately not here: it is a different layer with a different answer, it is the
+ * same on every platform, and it is read from the accelerators themselves by
+ * {@link menuAcceleratorReason} rather than restated as rows in this table.
  */
 const RESERVED_CHORDS_BY_PLATFORM: Readonly<Record<ChordPlatform, readonly ReservedChord[]>> = {
   darwin: [
@@ -73,14 +86,51 @@ const RESERVED_CHORDS_BY_PLATFORM: Readonly<Record<ChordPlatform, readonly Reser
   ],
 };
 
-/** The reason this chord is unavailable on this host, or `undefined`. */
+/**
+ * The one comparison key for a chord, or `undefined` when it does not parse.
+ *
+ * The service's own normalisation, so a menu accelerator and a binding that name one
+ * keystroke in two spellings collide here exactly as two bindings would.
+ */
+function chordComparisonKey(chord: string): string | undefined {
+  const parsed = parseChord(chord);
+  return parsed.ok ? normalizePressForComparison(parsed.press) : undefined;
+}
+
+/**
+ * The reason the menu bar takes this chord, or `undefined`.
+ *
+ * A linear scan over a two-entry list rather than a held index: the accelerators are
+ * a closed record over the route set, and a module-level cache would be state this
+ * module has no other reason to own.
+ */
+function menuAcceleratorReason(chord: string): string | undefined {
+  const candidateKey = chordComparisonKey(chord);
+  if (candidateKey === undefined) {
+    return undefined;
+  }
+  const taken = AUXILIARY_MENU_CHORD_LIST.some(
+    (menuChord) => chordComparisonKey(menuChord) === candidateKey,
+  );
+  return taken
+    ? "This application's own menu bar takes this chord before the page sees it."
+    : undefined;
+}
+
+/**
+ * The reason this chord is unavailable on this host, or `undefined`.
+ *
+ * The host is asked first. A chord the operating system consumes never reaches this
+ * process at all, so naming the menu bar for one would report the wrong layer.
+ */
 export function reservedChordReason(
   chord: string,
   platform: ChordPlatform = HOST_CHORD_PLATFORM,
 ): string | undefined {
-  return RESERVED_CHORDS_BY_PLATFORM[platform].find(
+  const platformReason = RESERVED_CHORDS_BY_PLATFORM[platform].find(
     (reserved) => reserved.chord.toLowerCase() === chord.toLowerCase(),
   )?.reason;
+  return platformReason ?? menuAcceleratorReason(chord);
 }
 
 /** A binding the keybinding service refused to install, with its own reason. */

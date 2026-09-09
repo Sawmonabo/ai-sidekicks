@@ -44,10 +44,11 @@ const implementedRoutesMock = vi.hoisted(() => {
   };
 });
 
-// Only the implemented-route list is stubbed. `formatAuxiliaryFragment` and
-// `isAuxiliaryRouteName` come from the real module through `importOriginal`, so
-// the fragment shape every URL assertion below reads is production's and not a
-// copy of it.
+// Only the implemented-route list is stubbed, and only the module that declares
+// it. `isAuxiliaryRouteName` comes from the real module through
+// `importOriginal`, and `formatAuxiliaryFragment` is not mocked at all — it
+// lives in `../shared/auxiliary-route-fragment.js`, untouched — so the fragment
+// shape every URL assertion below reads is production's and not a copy of it.
 vi.mock("../shared/auxiliary-routes.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../shared/auxiliary-routes.js")>();
   return { ...actual, IMPLEMENTED_AUXILIARY_ROUTES: implementedRoutesMock.routes };
@@ -269,6 +270,34 @@ describe("the auxiliary window factory", () => {
       ]);
     });
 
+    it("stamps the shell's window handle into both routes' fragments", async () => {
+      // The detach path's descriptor, and the only thing that tells a window which
+      // window it IS. Without it a detached window can address none of the shell's
+      // window operations and its only way out is to close itself, leaving the deck
+      // holding a placeholder for a window that no longer exists.
+      const { auxiliary } = await loadFactories();
+      const windowId = "aux-window-7";
+
+      const timelineWindow = auxiliary.createAuxiliaryWindow({
+        route: "timeline",
+        sessionId: SESSION_ID,
+        windowId,
+      });
+      const agentConsoleWindow = auxiliary.createAuxiliaryWindow({
+        route: "agent-console",
+        sessionId: SESSION_ID,
+        agentId: AGENT_ID,
+        windowId,
+      });
+
+      expect(asMockWindow(timelineWindow).loadedUrls).toEqual([
+        `${INDEX_URL}#/window/timeline/${SESSION_ID}/${windowId}`,
+      ]);
+      expect(asMockWindow(agentConsoleWindow).loadedUrls).toEqual([
+        `${INDEX_URL}#/window/agent-console/${SESSION_ID}/${AGENT_ID}/${windowId}`,
+      ]);
+    });
+
     // Every refusal arm asserts BOTH halves: the typed throw, and that the
     // construction log is still empty. The second half is the one that matters —
     // a throw after `new BrowserWindow(...)` would leave a live window loading
@@ -316,10 +345,20 @@ describe("the auxiliary window factory", () => {
         reason: "agentId supplied without sessionId",
       },
       {
+        label: "a window handle that is not one route segment",
+        launch: { route: "timeline", sessionId: SESSION_ID, windowId: "aux/window" },
+        reason: "windowId is not a window handle",
+      },
+      {
+        label: "a window handle with no context for the window to show",
+        launch: { route: "timeline", windowId: "aux-window-7" },
+        reason: "windowId supplied without sessionId",
+      },
+      {
         label: "a route outside the closed set",
         // Cast: the compile-time union already refuses this, and the runtime
-        // check exists for the renderer-initiated detach on the growth slate,
-        // which arrives over IPC where a type is a claim and not a guarantee.
+        // check exists for the renderer-initiated detach, which arrives over IPC
+        // where a type is a claim and not a guarantee.
         launch: { route: "settings" } as unknown as Parameters<
           AuxiliaryWindowModule["createAuxiliaryWindow"]
         >[0],

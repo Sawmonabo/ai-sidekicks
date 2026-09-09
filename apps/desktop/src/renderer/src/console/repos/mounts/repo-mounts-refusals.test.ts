@@ -21,7 +21,7 @@ import type { ExecutionMode, SessionEventType, WorkspaceId } from "@ai-sidekicks
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { withDaemonCall } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
-import { GIT_WORKSPACE_ID } from "../../bridge/scenarios/repos-fixture-data.js";
+import { GIT_WORKSPACE_ID } from "../../bridge/scenarios/repos/repos-fixture-data.js";
 import { ManualClock } from "../../core/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { ParkedCalls } from "../held-calls.test-support.js";

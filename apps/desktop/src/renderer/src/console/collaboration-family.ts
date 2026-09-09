@@ -37,8 +37,12 @@ import type {
   FrameBindingRegistry,
   SidebarSectionRegistry,
 } from "./seats/index.js";
-import { registerAgentConsoleSurface } from "./agents/index.js";
-import { registerSessionAttentionBinding, registerSessionsSurface } from "./sessions/index.js";
+import { registerAgentConsoleSurface, registerAgentsSidebarSection } from "./agents/index.js";
+import {
+  registerSessionAttentionBinding,
+  registerSessionsSurface,
+  type SessionsSurfaceComposition,
+} from "./sessions/index.js";
 import { registerSettingsSurface } from "./settings/index.js";
 
 /**
@@ -65,18 +69,30 @@ import { registerSettingsSurface } from "./settings/index.js";
  * two compositions would leak sections into each other, and an auxiliary window
  * could not compose a subset however it asked. A board a caller supplies has none of
  * those failures, and a test composing this family owns what it asserts against.
+ *
+ * The fifth argument is a COMPOSITION rather than a board, on the terms `families.ts`
+ * names one under: the sessions destination offers a composed draft beside the shipped
+ * probe, and that control is the workspace family's — a view family this one may not
+ * import — so the root names which component fills the place and this file hands it on.
  */
 export function registerCollaborationFamily(
   surfaces: ConsoleSurfaceRegistry,
   sidebarSections: SidebarSectionRegistry,
   projectors: ConsoleEntityProjectorRegistry,
   frameBindings: FrameBindingRegistry,
+  sessionsComposition: SessionsSurfaceComposition,
 ): void {
-  registerSessionsSurface(surfaces);
+  registerSessionsSurface(surfaces, sessionsComposition);
   registerSessionAttentionBinding(frameBindings);
   registerSettingsSurface(surfaces);
   registerAgentConsoleSurface(surfaces);
   registerCollaborationSections(sidebarSections);
+  // The third of this family's sidebar sections, and the one whose body lives in the
+  // agents subtree rather than in `collaboration/`: it renders the agent roster, so it
+  // belongs to the family that owns that vocabulary. Seated here for the same reason
+  // everything else in this file is — naming two view families is what a composition
+  // site is for.
+  registerAgentsSidebarSection(sidebarSections);
   registerCollaborationProjectors(projectors);
   // The window's one overlay body: the deep-link invite lifecycle, which is
   // bridge-scoped rather than session-scoped and therefore belongs to the window and

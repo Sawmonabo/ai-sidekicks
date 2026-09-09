@@ -81,6 +81,24 @@ import {
   type ReadingClassCensus,
 } from "./reading-census.js";
 
+/**
+ * Classes that hold the bridge to WRITE, and so have no read that can go stale.
+ *
+ * Pinned by name beside the census for the same reason the census is pinned: the next
+ * one lands here first, and the entry has to say what it sends. The distinction is the
+ * gate's own subject read exactly — every sentence in this header is about a read
+ * becoming stale, and a class whose only daemon call is a MUTATION has nothing to
+ * refresh. Wiring one to a scheduler would not be useless, it would be a defect: the
+ * draft's single call is `session.create`, so a reconnect trigger would mint a second
+ * session for a person who asked for one.
+ *
+ * This is not a route around the rule for readings. A class listed here that later
+ * grows a read is a class whose entry is now false, and the honest way to notice is
+ * that its removal is a one-line diff a reviewer reads — which is the same review the
+ * census forces on every arrival.
+ */
+const BRIDGE_HOLDING_WRITERS: ReadonlySet<string> = new Set(["NewSessionDraft"]);
+
 /** The readings that exist today, by class name. The next lands here before it ships. */
 const EXPECTED_READINGS: readonly string[] = [
   "AgentRosterReading",
@@ -149,7 +167,14 @@ const CONSOLE_READINGS: readonly ReadingClassCensus[] = CONSOLE_MODULE_TEXTS.fla
     censusClasses(entry.displayPath, entry.source).map((census) =>
       withInheritance(census, CONSOLE_MODULE_INDEX),
     ),
-  ).filter((reading) => !OWNED_INTERIOR_READINGS.has(reading.className)),
+  ).filter(
+    (reading) =>
+      !OWNED_INTERIOR_READINGS.has(reading.className) &&
+      // Subtracted HERE and not inside `readingsIn`, so the controls below still drive
+      // the unnarrowed rule and a name on the writer list cannot make the gate stop
+      // biting.
+      !BRIDGE_HOLDING_WRITERS.has(reading.className),
+  ),
 );
 
 describe("every published wire reading is refreshable", () => {

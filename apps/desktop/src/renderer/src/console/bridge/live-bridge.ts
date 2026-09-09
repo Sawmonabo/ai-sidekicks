@@ -16,6 +16,7 @@
 
 import type { SidekicksBridge } from "@ai-sidekicks/contracts";
 import { isWireRecord } from "../core/index.js";
+import { createShellAuxiliaryWindowPort } from "./auxiliary-window-port.js";
 import { SIDEKICKS_BRIDGE_NAMESPACES } from "./bridge-shape.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 import { createRefusingGrowthPort } from "./growth-port/index.js";
@@ -58,6 +59,11 @@ export function createLiveBridge(sidekicks: SidekicksBridge): ConsoleBridge {
       readRuntimeNodeRosterOverControlPlane(sidekicks, request),
     runtimeNodePresenceSubscribe: (sessionId, onPresenceChange) =>
       subscribeRuntimeNodePresence(sidekicks, sessionId, onPresenceChange),
+    // The auxiliary-window plane, over the preload namespace the shell serves. Not
+    // refused the way a growth operation is, for the roster read's reason: this one
+    // is on the wire, and a console that refused it would be declining to use a
+    // handler its own main process has registered.
+    auxiliaryWindows: createShellAuxiliaryWindowPort(sidekicks),
     // No attention signal, and that is this bridge's honest answer rather than a
     // stub. The attention projection is a growth-slate wire, so the refusing port
     // above declines the read outright here — a signal that woke that read would be

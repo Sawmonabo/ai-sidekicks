@@ -50,7 +50,7 @@
 
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
-import { REPOS_SCENARIO_STARTED_AT_ISO, reposBeat } from "./repos-beats.js";
+import { REPOS_SCENARIO_STARTED_AT_ISO, reposBeat } from "./repos/repos-beats.js";
 import {
   AGENT_IMPLEMENTER,
   AGENT_REVIEWER,
@@ -69,11 +69,11 @@ import {
   REPOS_AGENTS,
   REPOS_ATTACHMENTS,
   SESSION_ID,
-} from "./repos-fixture-data.js";
-import { REPOS_RUNTIME_NODE_ROSTER } from "./repos-node-roster.js";
-import { REPOS_SCENARIO_REPLIES } from "./repos-replies.js";
+} from "./repos/repos-fixture-data.js";
+import { REPOS_RUNTIME_NODE_ROSTER } from "./repos/repos-node-roster.js";
+import { REPOS_SCENARIO_REPLIES } from "./repos/repos-replies.js";
 
-export { REPOS_WORKTREE_STATUS_REPLY } from "./repos-replies.js";
+export { REPOS_WORKTREE_STATUS_REPLY } from "./repos/repos-replies.js";
 
 export const REPOS_SCENARIO_ID = "repos";
 

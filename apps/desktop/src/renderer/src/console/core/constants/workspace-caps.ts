@@ -1,42 +1,42 @@
-// The workspace chrome's bounds: the cast bar's chip fold, the sidebar's width range,
-// and the load hairline's progress range.
+// The workspace chrome's bounds: the cast bar's chip fold, the sidebar's width
+// ceiling, the deck's restored pane cap, and the load hairline's progress range.
 //
-// Three surfaces of one frame, and two of them are RANGES — a floor and a ceiling that
-// a clamp reads together, which is why each range keeps one home.
+// Four surfaces of one frame, and one of them is a RANGE — a floor and a ceiling that
+// a clamp reads together, which is why that range keeps one home.
 
 /**
  * Participant chips the cast bar shows before folding to "+N" (rule 7).
  *
- * Consumed by T-023p-1C-2, which builds the cast bar; every other bound in this
- * file has a live spender today and this one does not. It is kept rather than
- * deferred to that task because the number is a decision `Spec-023 §Console
- * Design (Meridian)` already fixed, and a bound re-derived at the point of use is
- * a bound that can come back different.
+ * The number is a decision `Spec-023 §Meridian, the design language` rule 7 already
+ * fixed — "the cast bar shows up to eight chips, then `+N`" — and a bound re-derived
+ * at the point of use is a bound that can come back different.
  */
 export const CAST_BAR_CHIP_CAP = 8;
 
-// `SIDEBAR_MAX_WIDTH_PX` is the bound of the three and is what brought them here; the
-// other two came with it because the width is clamped between them on every read, and
-// a range split across two modules is a clamp a reviewer opens two files to check.
+/**
+ * The widest the sidebar may be kept at, in percent.
+ *
+ * DERIVED FROM THE DECK, not chosen for the sidebar: the deck is the side whose own
+ * density floor is measured in pixels, and forty percent is the share that still
+ * leaves a two-pane deck above its preset's minimum on the narrowest window the
+ * presets are drawn for. So it is written here as the sidebar's ceiling and read from
+ * here as the deck's floor, rather than declared twice at two ends of one band and
+ * left to agree by inspection.
+ */
+export const SIDEBAR_MAXIMUM_WIDTH_PERCENT = 40;
 
 /**
- * How wide the sidebar opens when nobody has resized it. Wide enough for a section
- * title plus its count without wrapping at the default type scale.
+ * Panes one saved deck layout may restore.
+ *
+ * This family's own decision, like the third of the three restore rules
+ * `workspace/deck/model/deck-snapshot.ts` states — no committed document fixes the
+ * number, and the cap is about untrusted input rather than performance: a persisted
+ * record is a file on disk, and without a bound a corrupted or hand-edited one mounts
+ * panes until the window stops responding. Twelve is past any arrangement a person
+ * builds on a display the density presets below are drawn for, so the cap binds a
+ * defect and never a session.
  */
-export const SIDEBAR_DEFAULT_WIDTH_PX = 288;
-
-/**
- * The narrowest the sidebar may be dragged. Below this the disclosure glyph, the
- * section glyph, and a two-word title stop fitting on one line, and the sidebar
- * becomes a column of ellipses rather than a navigation.
- */
-export const SIDEBAR_MIN_WIDTH_PX = 208;
-
-/**
- * The widest. Past this the sidebar is competing with the deck for the window rather
- * than pointing into it, and that sidebar's density rule is counts, not lists.
- */
-export const SIDEBAR_MAX_WIDTH_PX = 480;
+export const DECK_RESTORED_PANE_CAP = 12;
 
 // `LOAD_PROGRESS_MAX` is the bound of the two and is what brought them here; the
 // floor came with it on the sidebar range's rule above, because the hairline clamps

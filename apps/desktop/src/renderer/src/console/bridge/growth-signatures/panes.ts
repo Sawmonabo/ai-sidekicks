@@ -4,9 +4,7 @@
 // One plane of `GrowthOperationSignatures`, composed into it by `index.ts`. The
 // rows here are the ones addressed to a PANE rather than to the session behind it:
 // the browser namespace and its tool relay, the terminal namespace and its write
-// lease, the dev-server probe a browser pane makes before it navigates, and the
-// window operations that detach a pane into an auxiliary window and report the
-// errors it raises there.
+// lease, and the dev-server probe a browser pane makes before it navigates.
 
 import type { GrowthStream } from "../growth-port/growth-outcome.js";
 import type {
@@ -14,7 +12,6 @@ import type {
   GrowthBrowserPage,
   GrowthBrowserPageList,
   GrowthNavigationState,
-  GrowthPaneError,
   GrowthTerminalChunk,
   GrowthToolCall,
 } from "../growth-values/index.js";
@@ -243,11 +240,4 @@ export interface PaneGrowthSignatures {
     value: { readonly controlHolder: string | null };
   };
   devServerProbe: { request: { readonly port: number }; value: { readonly listening: boolean } };
-  windowDetachPane: { request: { readonly paneId: string }; value: { readonly windowId: string } };
-  windowFocusAuxiliary: { request: { readonly windowId: string }; value: void };
-  windowCloseAuxiliary: { request: { readonly windowId: string }; value: void };
-  windowSubscribePaneErrors: {
-    request: Record<string, never>;
-    value: GrowthStream<GrowthPaneError>;
-  };
 }

@@ -12,6 +12,7 @@
 // selectors — is read only from inside it or from the family door, so it is not
 // published here.
 
-export { useSessionDegradedCause, useSessionStore } from "./session-hooks.js";
+export { useSessionStore } from "./session-hooks.js";
+export { useSessionDegradedCause } from "./session-projection-hooks.js";
 export { useSessionStoreRebind, type SessionStoreScoped } from "./session-store-rebind.js";
 export { SessionStore, type SessionStoreState } from "./session-store.js";

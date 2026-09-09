@@ -1,0 +1,265 @@
+/* The cast bar: who is in this session, and what each of them is doing.
+ *
+ * Imported from `workspace/index.ts` beside the family's other sheets, so the rules
+ * land once per bundle and in the family's own order.
+ *
+ * Every colour is a Meridian custom property and every space a step on the scale,
+ * so the bar follows the scheme attribute with no conditional in JSX.
+ */
+
+/* --- The cast bar ------------------------------------------------------- */
+
+/*
+ * One line, and it stays one line: the members list scrolls sideways rather than
+ * wrapping, because a cast bar that grows to two rows moves the deck under a
+ * person's cursor every time somebody joins.
+ */
+.meridian-cast-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-cast-bar__identity {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  flex: 0 0 auto;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-cast-bar__members {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.meridian-cast-bar__all-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  /* Right-aligned, which is this bar's own placement decision: the all-clear line
+   * `Spec-023 §The surface set` asks for is the last thing on the bar and the one a
+   * person's eye should be able to find without reading the rest. */
+  margin-inline-start: auto;
+  flex: 0 0 auto;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-cast-bar__all-clear-line {
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-cast-bar__fold {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+/* --- One participant chip ----------------------------------------------- */
+
+/*
+ * `--meridian-cast-hue` is set per chip from the participant's wheel step. It is
+ * read only by the ring below: the hue answers "who" and never "how urgent", so
+ * nothing here uses an attention colour and the ring never changes with state.
+ *
+ * The ring TREATMENT carries the wrap lap (`data-ring`), which is what tells two
+ * participants who share a step apart past twelve — rule 2's own answer, and the
+ * reason the chip does not dim or brighten a repeated hue.
+ */
+.meridian-cast-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  max-width: 22ch;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-cast-hue);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-cast-chip:hover {
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-cast-chip:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-cast-chip[data-ring="dashed"] {
+  border-inline-start-style: dashed;
+}
+
+.meridian-cast-chip[data-ring="double"] {
+  border-inline-start-style: double;
+}
+
+.meridian-cast-chip[data-ring="dotted"] {
+  border-inline-start-style: dotted;
+}
+
+/*
+ * NO CHIP GROUND FOR ATTENTION, AND THAT ABSENCE IS THE RULE.
+ *
+ * This block used to paint the amber triple — ground, mark, text — on the chip of
+ * whoever was blocked. `Spec-023 §The four bars` spends the two-hue rule on IDENTITY
+ * here: `border-inline-start` is that participant's wheel step, and a second colour
+ * on the same chip made one element answer two questions. Worse, it put the amber
+ * vocabulary on a surface nobody acts from — the act is on the approval card, the
+ * sidebar row, and the rail tick, and those keep their amber.
+ *
+ * What survives is the OTHER half of the same sentence in that spec: attention is
+ * steered "by luminance and the two-hue rule". The chip says the state in words, and
+ * this is the luminance that gives those words their weight — the clause reads at
+ * full strength where the derived verb reads muted, which is a contrast every reader
+ * gets on every display, including a monochrome one.
+ */
+.meridian-cast-chip[data-attention="true"] .meridian-cast-chip__verb {
+  color: var(--meridian-text);
+}
+
+.meridian-cast-chip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * The verb truncates to one clause in CSS rather than in JavaScript: a wire-derived
+ * string put through a transformation would break the figure rules, and an ellipsis
+ * the browser draws is not a change to the value.
+ */
+.meridian-cast-chip__verb {
+  overflow: hidden;
+  max-width: 14ch;
+  color: var(--meridian-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A frozen verb reads as frozen: the projection is known-incomplete and says so. */
+.meridian-cast-chip__verb[data-stale="true"] {
+  color: var(--meridian-text-faint);
+  font-style: italic;
+}
+
+/* --- The identity, the status mark, and the figure ----------------------- */
+
+/*
+ * The display title sits between the id and the state chip and gives way first: the
+ * id is the session's only unambiguous name and the state is one short word, so when
+ * the bar runs out of room it is the title that ellipses rather than either of them.
+ */
+.meridian-cast-bar__session-title {
+  overflow: hidden;
+  min-width: 0;
+  max-width: 24ch;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-cast-bar__status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  flex: 0 0 auto;
+}
+
+.meridian-cast-bar__spend {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+}
+
+/*
+ * The qualifier reads as a qualifier: smaller and muted beside the figure, never
+ * mistakable for part of it. It says the accountant could not price every debit, so
+ * the number is a floor — a fact about the figure and not a second figure.
+ */
+.meridian-cast-bar__spend-qualifier {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+/*
+ * A skeleton chip is the SHAPE of a chip and nothing else: the same height and a
+ * plausible width, so the bar's height is settled before the first member arrives.
+ * No animation — a row of pulsing pills on a surface that is about to fill with real
+ * ones is motion that reports nothing, and `Spec-023 §Meridian, the design language`
+ * spends motion on things that carry meaning.
+ */
+.meridian-cast-chip--skeleton {
+  display: inline-block;
+  width: 9ch;
+  height: var(--meridian-space-6);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+}
+
+/* --- The participant card, behind a chip's hover and focus. ---------------- */
+
+.meridian-cast-chip__card {
+  max-width: 20rem;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-participant-card__name {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-participant-card__id {
+  margin: 0 0 var(--meridian-space-2);
+  color: var(--meridian-text-muted);
+}
+
+/* Two columns, so the four facts read as a table rather than as a paragraph: the
+   label column is fixed and the value column takes the rest, which is what keeps a
+   long run identifier from pushing its own label off the card. */
+.meridian-participant-card__facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--meridian-space-1) var(--meridian-space-2);
+  margin: 0;
+}
+
+.meridian-participant-card__facts dt {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-participant-card__facts dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.meridian-participant-card__run {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+}

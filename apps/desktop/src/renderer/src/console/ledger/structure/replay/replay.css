@@ -1,0 +1,84 @@
+/* `ledger/structure/replay/`'s styles — the replay dock: its transport buttons, the
+ * speed chips, the scrubber, and the granularity readout.
+ *
+ * ONE SHEET PER DIRECTORY, imported from `ledger/index.ts` and nowhere else.
+ */
+
+/* --- The replay dock ------------------------------------------------------ */
+
+/*
+ * Docked over the rail and hidden until reached — the dock's density rule. `hidden`
+ * is the mechanism, so the control is inert to the pointer and to assistive
+ * technology at once; the base rule below styles it only when it is shown.
+ */
+
+.meridian-replay {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-replay__primary,
+.meridian-replay__seam,
+.meridian-replay__from-here,
+.meridian-replay__speed {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 var(--meridian-space-1);
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-replay__primary:hover,
+.meridian-replay__seam:hover,
+.meridian-replay__from-here:hover,
+.meridian-replay__speed:hover {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text);
+}
+
+.meridian-replay__primary:focus-visible,
+.meridian-replay__seam:focus-visible,
+.meridian-replay__from-here:focus-visible,
+.meridian-replay__speed:focus-visible,
+.meridian-replay__scrub:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+/* The chosen speed is marked by `aria-pressed`, so the styling reads the same
+   attribute assistive technology does and there is no second "is selected" class. */
+
+.meridian-replay__speed[aria-pressed="true"] {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-accent-text);
+}
+
+.meridian-replay__speeds {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.meridian-replay__scrub {
+  flex: 1 1 auto;
+  min-width: 6rem;
+  accent-color: var(--meridian-accent);
+}
+
+.meridian-replay__granularity {
+  color: var(--meridian-text-faint);
+  white-space: nowrap;
+}

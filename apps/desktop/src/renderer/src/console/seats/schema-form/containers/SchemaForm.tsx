@@ -2,10 +2,13 @@
 // reason it has none.
 //
 // TWO ARMS AND NO THIRD. The arm reaches this component already decided, from a hook that
-// read both the mapper and the compiled validator, and it is total over every input — so
-// this branch is exhaustive by construction: there is no "could not read the schema" and
-// no "drew controls nothing can check" state to render, because both ARE the raw arm,
-// each carrying its own reason.
+// read both the mapper and the validator, and it is total over every input — so this
+// branch is exhaustive by construction: there is no "could not read the schema" and no
+// "drew controls nothing can check" state to render, because both ARE the raw arm, each
+// carrying its own reason. The compiler arriving on its own chunk does not add a third:
+// the hook keeps the mapper's arm while it is in flight and moves at most once, when a
+// schema turns out not to compile, and what is withheld in the meantime is the ACT rather
+// than the form — `SchemaFormAnswer` owns that, because this component submits nothing.
 //
 // A FINDING IS ADDRESSED TO WHAT IT IS ABOUT, AND A GROUP IS SOMETHING. A schema requiring
 // a nested object reports the missing member at the group's own path, not at any of its

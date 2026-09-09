@@ -168,6 +168,64 @@
       "median": 0.37760834000000615,
       "percentile95": 0.42244000000002413,
       "maximum": 0.46381250000002183
+    },
+    {
+      "benchmarkId": "streaming-layer.library",
+      "label": "Library path — whole-message re-parse per delta (control)",
+      "unit": "ms/delta",
+      "gitCommitSha": "16b51a3b05fd678278321161e7023ec798db63ba",
+      "recordedAt": "2026-09-07T12:08:40.697Z",
+      "runtimeEnvironment": {
+        "nodeVersion": "v24.18.0",
+        "platform": "darwin-arm64",
+        "cpuModel": "Apple M1 Pro",
+        "cpuCount": 8,
+        "totalMemoryBytes": 17179869184
+      },
+      "context": {
+        "laneCount": 12,
+        "deltasPerLane": 40,
+        "deltasPerSample": 480,
+        "warmUpSamplesDiscarded": 2,
+        "nodeVersion": "v24.18.0",
+        "platform": "darwin-arm64",
+        "measures": "parse and segmentation cost only; no frame time, no retained heap",
+        "path": "parseVolatileTail(cumulativeSource)"
+      },
+      "sampleCount": 9,
+      "minimum": 1.7720913187499983,
+      "median": 1.804575260416666,
+      "percentile95": 1.8596555562499997,
+      "maximum": 1.8596555562499997
+    },
+    {
+      "benchmarkId": "streaming-layer.own",
+      "label": "Own layer — incremental segmentation with a memoised settled-block parse",
+      "unit": "ms/delta",
+      "gitCommitSha": "16b51a3b05fd678278321161e7023ec798db63ba",
+      "recordedAt": "2026-09-07T12:08:40.697Z",
+      "runtimeEnvironment": {
+        "nodeVersion": "v24.18.0",
+        "platform": "darwin-arm64",
+        "cpuModel": "Apple M1 Pro",
+        "cpuCount": 8,
+        "totalMemoryBytes": 17179869184
+      },
+      "context": {
+        "laneCount": 12,
+        "deltasPerLane": 40,
+        "deltasPerSample": 480,
+        "warmUpSamplesDiscarded": 2,
+        "nodeVersion": "v24.18.0",
+        "platform": "darwin-arm64",
+        "measures": "parse and segmentation cost only; no frame time, no retained heap",
+        "path": "MarkdownBlockSegmenter + parseSettledBlock + parseVolatileTail(tail)"
+      },
+      "sampleCount": 9,
+      "minimum": 0.3260242187500012,
+      "median": 0.34093046874999877,
+      "percentile95": 0.3576552958333347,
+      "maximum": 0.3576552958333347
     }
   ]
 }

@@ -24,8 +24,15 @@ import { SessionEventBinder } from "./session-event-binder.js";
 /** The session every suite drives, named by the scenario rather than by a literal. */
 export const SESSION_ID: string = FLAGSHIP_SCENARIO.sessionId;
 
-/** The whole scenario is delivered by this much frozen time; its last beat is at 400. */
-export const PAST_EVERY_BEAT_MS = 500;
+/**
+ * The frozen time by which the whole scenario has been delivered, read off the script
+ * rather than restated beside it.
+ *
+ * A literal here was a copy of the flagship's own timings, and it went stale the first
+ * time the script grew: the advance stopped part-way through and every count asserted
+ * against `FLAGSHIP_SCENARIO.beats.length` was measuring the copy instead.
+ */
+export const PAST_EVERY_BEAT_MS: number = (FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0) + 100;
 
 export interface BinderHarness {
   readonly registry: SessionStoreRegistry;

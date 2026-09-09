@@ -92,8 +92,3 @@ export interface GrowthTerminalChunk {
   readonly terminalId: string;
   readonly data: string;
 }
-
-export interface GrowthPaneError {
-  readonly paneId: string;
-  readonly reason: string;
-}

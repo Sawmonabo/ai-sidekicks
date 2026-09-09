@@ -25,7 +25,18 @@
 // imperative act on a DOM element, and routing it through rendered state would mean
 // holding a "wanted focus" flag that has to be cleared, can be read twice, and shows
 // up in every snapshot of a store that is otherwise about what is on screen.
+//
+// THE SHELL ASKS THROUGH THE SAME SEAM, and that is why the ingress is here. A
+// composer chord pressed in an auxiliary window is answered by the main process,
+// which brings this window forward and then asks it for the caret — an ask that
+// arrives on the bridge rather than from a surface, and is otherwise the same ask.
+// Landing it in this emitter rather than in a second one is what keeps the composer's
+// single subscription the whole of "what focusing means": a second path would be a
+// second answer, and the two would drift the first time either changed.
 
+import { useEffect } from "react";
+
+import type { ConsoleBridge } from "../../bridge/index.js";
 import { Emitter, type Unsubscribe } from "../../core/index.js";
 
 /** The one thing the ask carries: that somebody asked. */
@@ -62,4 +73,30 @@ export function subscribeToComposerFocus(takeFocus: () => void): Unsubscribe {
 /** How many composers are listening. Read by tests; never a branch in shipped code. */
 export function composerFocusListenerCount(): number {
   return composerFocusRequests.sinkCount;
+}
+
+/**
+ * Land the shell's composer-focus requests in this window, for as long as it is open.
+ *
+ * ONE PER WINDOW, bound by the frame. A binding per composer would ask this window's
+ * bridge for a second subscription every time a composer mounted, and a window with
+ * two composers open would answer one shell request twice.
+ *
+ * THE BRIDGE IS A PARAMETER RATHER THAN A CONTEXT READ. Every other seat in this
+ * directory takes what it needs from its caller, and the frame that binds this
+ * already holds a RESOLVED bridge — reading the context here would make this hook
+ * raise in a window whose preload never ran, which is a state the frame renders
+ * rather than a state the composer seat gets to fail on.
+ *
+ * The subscription is released on unmount and re-taken when the bridge is replaced,
+ * which is a real event: `bridge/BridgeProvider.tsx` swaps its resolution in place.
+ */
+export function useShellComposerFocusRequests(bridge: ConsoleBridge): void {
+  useEffect(
+    () =>
+      bridge.sidekicks.shell.subscribeToComposerFocusRequest(() => {
+        requestComposerFocus();
+      }),
+    [bridge],
+  );
 }

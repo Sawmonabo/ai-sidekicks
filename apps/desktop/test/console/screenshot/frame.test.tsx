@@ -67,7 +67,12 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emulateSystemScheme, pressKeys, renderSettled } from "../console-harness.js";
+import {
+  emulateSystemScheme,
+  pressKeys,
+  renderSettled,
+  resetDurableConsoleState,
+} from "../console-harness.js";
 import {
   requireCapturedElement,
   screenshotUpdateMode,
@@ -87,7 +92,12 @@ import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens
 /** What the console's outermost mounted element is, and what this file captures. */
 const FRAME_SELECTOR = ".meridian-frame";
 
-beforeEach(() => {
+beforeEach(async () => {
+  // The database this window opens outlives the file that opened it: browser mode
+  // gives every file in a session one origin, so a scheme preference or a sidebar
+  // arrangement another file persisted would be restored into these mounts and
+  // photographed here.
+  await resetDurableConsoleState();
   document.location.hash = "";
   installMeridianTokens(document);
 });

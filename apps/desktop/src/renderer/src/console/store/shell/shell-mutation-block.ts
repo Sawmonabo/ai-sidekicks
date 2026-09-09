@@ -10,6 +10,7 @@
 // mutating operations are blocked while the supervisor is not serving, and read-only
 // subscriptions continue.
 
+import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import type { FrameStore } from "./frame-store.js";
 import type { ShellState } from "./shell-state.js";
 
@@ -206,4 +207,41 @@ export function currentShellBlock(
   method: string,
 ): ShellMutationBlock | undefined {
   return shellBlockForMethod(frameStore.getState().shellState, method);
+}
+
+/**
+ * Names the shell's own refusal, when it is the shell that ends an act.
+ *
+ * HERE RATHER THAN AT A DISPATCHER, and the move is the point: the string used to be
+ * a `const` inside the invitation mint, so the second surface to abort on a block —
+ * the ledger's ask answer — would have spelled `"shell"` again a family away, and the
+ * predicate below would then have been true of one producer's refusals and not the
+ * other's. The subsystem that refused is the SUPERVISOR, whose condition this module
+ * owns, so the origin belongs where the condition does.
+ */
+const SHELL_BLOCK_ORIGIN = "shell";
+
+/**
+ * One block, as the refusal every surface renders it through.
+ *
+ * The console's own refusal shape rather than a second one, so a control draws a
+ * blocked dispatch through the same `InlineRefusal` it draws a daemon refusal
+ * through — {@link ShellMutationBlock}'s own two members carry straight across.
+ */
+export function shellBlockRefusal(block: ShellMutationBlock): ConsoleRefusal {
+  return refuse(SHELL_BLOCK_ORIGIN, block.code, block.detail);
+}
+
+/**
+ * Whether a refusal is a shell block — the one reason the window already says.
+ *
+ * The predicate travels with the producer above for the reason the invitation mint
+ * first wrote it down: a consumer that decides whether to RETAIN such a refusal is
+ * answering a question about the store's own condition, and the store clears that
+ * condition when the runtime comes back while a retained copy would not follow. Two
+ * spellings of the origin — one at the producer, one at the consumer — is that seam
+ * split across two modules.
+ */
+export function isShellBlockRefusal(refusal: ConsoleRefusal): boolean {
+  return refusal.origin === SHELL_BLOCK_ORIGIN;
 }

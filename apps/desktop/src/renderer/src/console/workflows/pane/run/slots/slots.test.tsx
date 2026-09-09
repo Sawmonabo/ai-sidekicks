@@ -79,7 +79,7 @@ describe("an unfilled slot is reserved, not stubbed", () => {
     },
   );
 
-  it("negative control: the contracts really do carry that prose, so the case is not vacuous", () => {
+  it("negative control: the contracts really do carry that prose, so the case is not vacuous", async () => {
     // Every contract names its owning task. If none did, the assertion above would
     // hold over a component that rendered the whole contract verbatim. The owner is
     // named by SUBJECT rather than by number, which is what a runtime string in this
@@ -95,7 +95,7 @@ describe("a filled slot receives exactly what the mount promised", () => {
   // `toHaveBeenCalledWith`: React owns the argument list of a component it renders,
   // and an assertion on its ARITY would be a claim about React rather than about the
   // mount this file is checking.
-  it("hands the run detail the run and, on an unserved read, no snapshot key at all", () => {
+  it("hands the run detail the run and, on an unserved read, no snapshot key at all", async () => {
     // Absent rather than present-and-empty: the key's PRESENCE is the arm the pane
     // was on, so a body reading it can never be shown a run the daemon never
     // described. `toStrictEqual` is what makes that bite — it separates an absent
@@ -106,7 +106,7 @@ describe("a filled slot receives exactly what the mount promised", () => {
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
   });
 
-  it("hands the run detail the served snapshot beside the run", () => {
+  it("hands the run detail the served snapshot beside the run", async () => {
     // The obligation this slot is under is that the run pane supplies the run
     // snapshot. Handed over rather than left for the body to re-read: a body that
     // issued its own run read would put one question twice and hold two answers to
@@ -128,29 +128,29 @@ describe("a filled slot receives exactly what the mount promised", () => {
     expect(body.mock.calls[0]?.[0].snapshot).toBe(WORKFLOWS_PARKED_RUN);
   });
 
-  it("hands the human form the open phase, revision included, and the seat's submit", () => {
+  it("hands the human form the open phase, revision included, and the seat's submit", async () => {
     // The resolved phase VERBATIM, plus the one member the pane cannot resolve: the
     // bound submit the seat keeps. `toStrictEqual` is what makes that exact — a body
     // handed a member this slot did not promise is as much a defect as a missing one.
     const body = vi.fn((_mount: HumanFormMount) => <p>form body</p>);
-    renderSwitchableSlot({ phase: OPEN_PHASE, body });
+    await renderSwitchableSlot({ phase: OPEN_PHASE, body });
     expect(body.mock.calls[0]?.[0]).toStrictEqual({
       ...OPEN_PHASE,
       submit: expect.any(Function),
     });
   });
 
-  it("calls no human-form body while no phase is open", () => {
+  it("calls no human-form body while no phase is open", async () => {
     // A form rendered against a phase nobody resolved would be answerable in
     // appearance and unsubmittable in fact, so the body is not called at all rather
     // than called with a placeholder.
     const body = vi.fn(() => <p>form body</p>);
-    const { container } = renderSwitchableSlot({ phase: undefined, body });
+    const { container } = await renderSwitchableSlot({ phase: undefined, body });
     expect(body).not.toHaveBeenCalled();
     expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
   });
 
-  it("negative control: an unfilled slot calls nothing and keeps its shell", () => {
+  it("negative control: an unfilled slot calls nothing and keeps its shell", async () => {
     const body = vi.fn(() => <p>run detail body</p>);
     const { container } = render(<RunDetailSlot workflowRunId="wfr-01" />);
     expect(body).not.toHaveBeenCalled();
@@ -182,18 +182,18 @@ describe("a body that uses hooks keeps its own hook boundary", () => {
     };
   }
 
-  it("tears the body down when the phase closes and reopens it on the next one", () => {
+  it("tears the body down when the phase closes and reopens it on the next one", async () => {
     const recordTeardown = vi.fn();
     const body = statefulFormBody(recordTeardown);
-    const slot = renderSwitchableSlot({ phase: undefined, body });
-    slot.switchTo(OPEN_PHASE);
+    const slot = await renderSwitchableSlot({ phase: undefined, body });
+    await slot.switchTo(OPEN_PHASE);
     expect(slot.container.textContent).toContain(OPEN_PHASE.phaseId);
 
-    slot.switchTo(undefined);
+    await slot.switchTo(undefined);
     expect(slot.container.querySelector(".meridian-nothing--empty")).not.toBeNull();
     expect(recordTeardown).toHaveBeenCalledTimes(1);
 
-    slot.switchTo(SECOND_PHASE);
+    await slot.switchTo(SECOND_PHASE);
     expect(slot.container.textContent).toContain(SECOND_PHASE.phaseId);
     expect(slot.container.textContent).not.toContain(OPEN_PHASE.phaseId);
   });
@@ -222,7 +222,7 @@ describe("a body that uses hooks keeps its own hook boundary", () => {
     };
   }
 
-  it("negative control: the direct-call shape refuses the render the phase clears on", () => {
+  it("negative control: the direct-call shape refuses the render the phase clears on", async () => {
     // Without this, the case above would pass over a wrapper that had never been at
     // risk. The body's `useState` sits in the wrapper's own hook list, which is two
     // long while a phase is open and one long when it clears — and React refuses the
@@ -268,13 +268,13 @@ describe("the human-form mount composes the registered submit on its own", () =>
     } satisfies WorkflowHumanFormSubmitRequest;
   }
 
-  it("hands the body a mount every member of the submit is read from", () => {
+  it("hands the body a mount every member of the submit is read from", async () => {
     const composed: WorkflowHumanFormSubmitRequest[] = [];
     const body = (mount: HumanFormMount): React.JSX.Element => {
       composed.push(submitRequestFor(mount, { approved: true }));
       return <p>form body</p>;
     };
-    renderSwitchableSlot({ phase: OPEN_PHASE, body });
+    await renderSwitchableSlot({ phase: OPEN_PHASE, body });
 
     expect(composed).toStrictEqual([
       {
@@ -288,7 +288,7 @@ describe("the human-form mount composes the registered submit on its own", () =>
     ]);
   });
 
-  it("negative control: the mount without the run id cannot compose that request", () => {
+  it("negative control: the mount without the run id cannot compose that request", async () => {
     // Without this the case above would pass over any mount at all — it reads the
     // members it was given and asserts them back. This is the shape the mount HAD:
     // reading the run off it is a type error, so the directive below is what fails

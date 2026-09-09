@@ -18,12 +18,12 @@ import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
 import {
   UNSCRIPTED_COMPARISON_REFUSAL_CODE,
   WORKSPACE_FALLBACK_COMPARED_STATES,
-} from "../../../bridge/scenarios/repos-diff-replies.js";
+} from "../../../bridge/scenarios/repos/repos-diff-replies.js";
 import {
   GIT_WORKSPACE_ID,
   REVIEWER_WORKTREE_ID,
   SESSION_ID,
-} from "../../../bridge/scenarios/repos-fixture-data.js";
+} from "../../../bridge/scenarios/repos/repos-fixture-data.js";
 import { SessionStore } from "../../../store/index.js";
 import { advanceScenarioUntil } from "../../../bridge/scenario-runtime/scenario-clock.test-support.js";
 import type { ConsoleDiffModel } from "../diff-model.js";

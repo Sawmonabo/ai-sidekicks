@@ -1,0 +1,55 @@
+/* `ledger/pane/window/`'s styles — what a window says about its own read: the shells
+ * it draws before the first one lands, and the mark it carries while it is behind.
+ *
+ * ONE SHEET PER DIRECTORY, imported from this directory's door and nowhere else.
+ */
+
+/* --- The window's read state --------------------------------------------- */
+
+/*
+ * The shells a window draws before its first read lands.
+ *
+ * A column of row-shaped bars rather than a spinner: the shape on screen is the shape
+ * the rows will take, so the first read replaces a skeleton with its own content
+ * instead of swapping one kind of surface for another.
+ */
+
+.meridian-ledger-window-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+}
+
+/*
+ * One shell. The pulse is the primitive absence's own keyframe rather than a second
+ * one written here — one animation for every skeleton in the console, so a shell in
+ * the ledger and a shell in a card breathe together.
+ */
+
+.meridian-ledger-window-skeleton__row {
+  height: var(--meridian-space-4);
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  animation: meridian-skeleton-pulse 1100ms var(--meridian-ease-settle) infinite alternate;
+}
+
+/*
+ * The catching-up mark. It stands for as long as the store's cause stands, which is
+ * until the re-read that closes the hole completes — so nothing here fades it out.
+ */
+
+.meridian-ledger-window-catch-up {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  padding-inline: var(--meridian-space-3);
+}
+
+.meridian-ledger-window-catch-up__cause {
+  color: var(--meridian-text-muted);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+}

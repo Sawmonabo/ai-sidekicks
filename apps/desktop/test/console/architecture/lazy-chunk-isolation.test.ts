@@ -1,4 +1,4 @@
-// A settings page's body is not on the graph every launch pays for.
+// A loader-backed body is not on the graph every launch pays for.
 //
 // WHAT THIS IS FOR. A registration written as `body: () => import("./x-body.js")` reads
 // like a boundary and is not one on its own. The bundler assigns a module reachable BOTH
@@ -13,6 +13,15 @@
 // deck's `browser` kind. Both pages and both stylesheets therefore sat on the initial
 // graph of every launch, including every launch that never opened settings — one defect
 // with one shape, which is why the claim below is a TABLE rather than a second file.
+//
+// AND THE SAME DEFECT LANDED A THIRD TIME, from a family door rather than a console-root
+// registration, which is why this file holds a third claim beside the table. `ledger/index.ts`
+// imported ONE component — the gap-fill banner it mounts above the session workspace — through
+// `pane/replay/index.ts`, which put the replay engine and everything the engine reads on every
+// launch beside it. Not a new rule: a door is an edge to every module it re-exports from, and
+// this is the shape the first paragraph describes. The table's closure below quantifies over
+// console-root registrations, and the ledger's loader sits on the family door instead, so that
+// claim is stated on its own and names the one legitimate overlap its directory has.
 //
 // WHY THE GATES BESIDE IT DID NOT REPORT IT.
 // `stylesheet-chunk-root-ownership.test.ts` asks whether any module a sheet's owning
@@ -35,13 +44,17 @@
 // share the diff renderer. A renderer an eager card mounts BELONGS in the entry chunk, so
 // the general form's finding there is a true statement about the graph and a false
 // statement about the defect. Nothing structural separates the two cases — one directory
-// holding an eager body and a lazy one is a legal arrangement — so the claim is made about
-// subtrees that have no eager body rather than pinned as a list of exceptions that would
-// have to be re-derived every time a diff component is added.
+// holding an eager body and a lazy one is a legal arrangement — so the claims are made about
+// subtrees whose legitimate overlap can be NAMED rather than pinned as a list of exceptions
+// that would have to be re-derived every time a component is added. The two table rows have
+// no eager body at all and assert the empty set; the ledger's directory has exactly one, the
+// banner its own root mounts, so that claim names the pair and reports a third module as a
+// failure.
 //
 // EACH SUBTREE IS READ FROM ITS REGISTRATION, not written here. The loader specifier in
-// each console-root registration names the chunk root; its directory is what must stay off
-// the eager graph. So moving a page moves the claim with it, and deleting a loader fails
+// each registration — a console-root page registration or the ledger's family door — names
+// the chunk root; its directory is what must stay off the eager graph. So moving a body
+// moves the claim with it, and deleting a loader fails
 // the derivation rather than quietly asserting nothing. The TABLE itself is closed against
 // the tree by its own case below, so a third page registered through a loader is a red
 // check naming the registration rather than a claim silently made about two of three.
@@ -108,6 +121,34 @@ const LOADER_BACKED_SETTINGS_PAGES: readonly LoaderBackedSettingsPage[] = [
   },
 ];
 
+/** The ledger family's door, which holds the timeline pane's loader. */
+const LEDGER_FAMILY_DOOR = "ledger/index.ts";
+
+/**
+ * What the ledger's own chunk directory is still allowed to have on the eager graph.
+ *
+ * A PIN AND NOT AN EMPTY CLAIM, because `ledger/pane/` is the mixed case the header
+ * describes: the family root mounts the gap-fill banner above the session workspace —
+ * `ledger/index.ts` names `./pane/replay/LedgerGapFill.js` and that surface is eager by
+ * design — while every other module under `pane/` belongs to the timeline body's chunk.
+ * The banner and the hook it composes are the whole of the legitimate overlap, so naming
+ * them is what makes a THIRD module a failure. The comparison is equality, so a module
+ * that stops being reached without leaving this list fails too.
+ *
+ * It held five before the root stopped reaching `pane/replay/index.ts` for that one
+ * component — the barrel, the reveal derivation and the replay engine beside these two —
+ * and the list UNDERSTATES what that edge cost, because a prefix filter cannot see what
+ * the engine went on to reach: `ledger/structure/` and `ledger/cards/` left the entry
+ * chunk in the same change, measured on the built bundle rather than argued. A door is an
+ * edge to every module it re-exports from, and the root names the declaring module
+ * directly now, which is the form `apps/desktop/AGENTS.md` §Module shape already states
+ * for a family door.
+ */
+const LEDGER_EAGER_PANE_MODULES: readonly string[] = [
+  "ledger/pane/replay/LedgerGapFill.tsx",
+  "ledger/pane/replay/ledger-gap-fill.ts",
+];
+
 /**
  * The directory a resolved tree path sits in, as a prefix a tree path starts with.
  *
@@ -124,28 +165,41 @@ function chunkDirectoryOf(resolvedModulePath: string): string {
 }
 
 /**
- * The directory one page's chunk root lives in, read from that page's own loader.
+ * The directory a registration's chunk root lives in, read from its own loader.
  *
  * Throws rather than answering `undefined` when the registration carries no loader: that
  * is the state this file exists to reject, and a derivation that returned nothing would
  * turn the claims below into assertions about an empty set.
+ *
+ * ONE DERIVATION FOR EVERY REGISTRATION THIS FILE PINS, taken by parameter rather than
+ * copied per page: three modules register a loader-backed body whose subtree this tier
+ * quantifies over, and three copies of one walk are how the three claims would come to
+ * disagree about what a chunk directory is while all of them stayed green.
  */
-function settingsPageChunkDirectory(registration: string): string {
-  const source = CONSOLE_STYLESHEET_TREE.read(registration);
-  const specifiers = dynamicImportSpecifiers(registration, source);
+function chunkDirectoryFrom(registrationModulePath: string): string {
+  const source = CONSOLE_STYLESHEET_TREE.read(registrationModulePath);
+  const specifiers = dynamicImportSpecifiers(registrationModulePath, source);
   const [specifier] = specifiers;
   if (specifiers.length !== 1 || specifier === undefined) {
     throw new Error(
-      `${registration} must carry exactly one dynamic import — the settings page's chunk ` +
+      `${registrationModulePath} must carry exactly one dynamic import — the body's chunk ` +
         `root — and carries ${String(specifiers.length)}. A registration that reaches its ` +
-        "body statically puts the page on every launch's initial graph.",
+        "body statically puts that body on every launch's initial graph.",
     );
   }
-  const resolved = resolveStylesheet(registration, specifier);
+  const resolved = resolveStylesheet(registrationModulePath, specifier);
   if (resolved === undefined) {
     throw new Error(`the loader specifier ${specifier} resolves to nothing in the console tree`);
   }
   return chunkDirectoryOf(resolved);
+}
+
+/** Every module under one chunk directory that the eager graph reaches, sorted. */
+function eagerlyReachedUnder(chunkDirectory: string): readonly string[] {
+  const index = new StylesheetReachIndex(CONSOLE_STYLESHEET_TREE);
+  return [...eagerlyReachedModules(CONSOLE_STYLESHEET_TREE, index)]
+    .filter((modulePath) => modulePath.startsWith(chunkDirectory))
+    .sort();
 }
 
 /** Every module directly under `console/` that defers anything, read off the tree. */
@@ -163,13 +217,9 @@ describe.each(LOADER_BACKED_SETTINGS_PAGES)(
   "the settings page registered by $registration",
   ({ registration, chunkDirectory, familyDoor, deferredModule }) => {
     it("has no module of its own reachable without crossing its loader", () => {
-      const directory = settingsPageChunkDirectory(registration);
-      const index = new StylesheetReachIndex(CONSOLE_STYLESHEET_TREE);
-      const eagerlyReached = [...eagerlyReachedModules(CONSOLE_STYLESHEET_TREE, index)]
-        .filter((modulePath) => modulePath.startsWith(directory))
-        .sort();
+      const directory = chunkDirectoryFrom(registration);
       expect(
-        eagerlyReached,
+        eagerlyReachedUnder(directory),
         `${directory} is behind a loader, so nothing in it may be on the initial graph. ` +
           "The usual cause is a family-door re-export: a door another family imports eagerly " +
           "carries every module it names into the entry chunk, whichever form the " +
@@ -195,7 +245,7 @@ describe.each(LOADER_BACKED_SETTINGS_PAGES)(
       // What the derivation is worth is what it names. A specifier resolving to some other
       // subtree would make the claim above true about a directory nobody registers from,
       // which is the shape a moved page leaves behind.
-      expect(settingsPageChunkDirectory(registration)).toBe(chunkDirectory);
+      expect(chunkDirectoryFrom(registration)).toBe(chunkDirectory);
     });
   },
 );
@@ -231,5 +281,23 @@ describe("the loader-backed settings pages, as a set", () => {
     const windowsSpelling = win32.join("agents", "definitions", "SidekickDefinitionsPage.tsx");
     expect(windowsSpelling).not.toContain(posix.sep);
     expect(chunkDirectoryOf(toPosixSeparators(windowsSpelling))).toBe("agents/definitions/");
+  });
+});
+
+describe("the ledger's timeline pane", () => {
+  it("has nothing but the family root's own banner reachable without crossing its loader", () => {
+    const directory = chunkDirectoryFrom(LEDGER_FAMILY_DOOR);
+    expect(
+      eagerlyReachedUnder(directory),
+      `${directory} is behind a loader apart from the two modules the family root mounts ` +
+        "above the session workspace. Anything else on this list arrived through a barrel: " +
+        "a door is an edge to every module it re-exports from, so importing one component " +
+        "through `pane/replay/index.ts` put the replay engine — and everything the engine " +
+        "reads — on every launch's initial graph.",
+    ).toStrictEqual(LEDGER_EAGER_PANE_MODULES);
+  });
+
+  it("resolves its chunk root to the pane directory inside the ledger family", () => {
+    expect(chunkDirectoryFrom(LEDGER_FAMILY_DOOR)).toBe("ledger/pane/");
   });
 });

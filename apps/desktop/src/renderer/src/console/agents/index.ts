@@ -71,3 +71,12 @@ export {
   registerAgentConsolePane,
   registerAgentConsoleSurface,
 } from "./agent-console/agent-console-mounts.js";
+
+// This family's sidebar section — the roster, as the column's `agents` body.
+//
+// Through this door because the file that SEATS it is `collaboration-family.ts`, the
+// composition site that already names this family: `seats/slots/sidebar-sections.ts` files
+// `agents` with the collaboration family's sections, and that composition may name more
+// than one view family where a family door may not. The body itself is this family's,
+// because a body belongs to the family whose vocabulary it renders.
+export { registerAgentsSidebarSection } from "./agents-sidebar-section.js";

@@ -19,8 +19,8 @@ import { renderForm } from "./SchemaFormHost.test-support.js";
 afterEach(cleanup);
 
 describe("the raw JSON arm of a schema-derived form", () => {
-  it("opens the raw editor for a schema outside the drawn set, and never a refusal", () => {
-    const container = renderForm({
+  it("opens the raw editor for a schema outside the drawn set, and never a refusal", async () => {
+    const container = await renderForm({
       type: "object",
       properties: { rows: { type: "array", items: { type: "object", properties: {} } } },
     });
@@ -32,12 +32,12 @@ describe("the raw JSON arm of a schema-derived form", () => {
     expect(container.querySelector(".meridian-refusal")).toBeNull();
   });
 
-  it("attaches the raw editor's own findings to the editor, as a drawn control does", () => {
+  it("attaches the raw editor's own findings to the editor, as a drawn control does", async () => {
     // Focus stays in the textarea while somebody types, so a reader whose document had
     // just become invalid was told neither that it was invalid nor what the schema said —
     // on the one arm where the whole answer is typed into a single control. Same primitive
     // and same attribute the drawn fields use, not a second mechanism beside them.
-    const container = renderForm({
+    const container = await renderForm({
       type: "object",
       properties: { rows: { type: "array", items: { type: "object", properties: {} } } },
       required: ["rows"],
@@ -55,8 +55,8 @@ describe("the raw JSON arm of a schema-derived form", () => {
     ).not.toBeNull();
   });
 
-  it("negative control: a raw document the schema accepts carries neither reading", () => {
-    const container = renderForm({
+  it("negative control: a raw document the schema accepts carries neither reading", async () => {
+    const container = await renderForm({
       type: "object",
       properties: { rows: { type: "array", items: { type: "object", properties: {} } } },
       required: ["rows"],
@@ -72,8 +72,8 @@ describe("the raw JSON arm of a schema-derived form", () => {
     expect(editor.getAttribute("aria-describedby")).toBeNull();
   });
 
-  it("says the schema itself could not be checked rather than showing a clean verdict", () => {
-    const container = renderForm({
+  it("says the schema itself could not be checked rather than showing a clean verdict", async () => {
+    const container = await renderForm({
       type: "object",
       properties: { linked: { $ref: "#/definitions/missing" } },
     });
@@ -83,8 +83,8 @@ describe("the raw JSON arm of a schema-derived form", () => {
     );
   });
 
-  it("answers a schema that compiled nowhere as JSON rather than in controls it cannot check", () => {
-    const container = renderForm({
+  it("answers a schema that compiled nowhere as JSON rather than in controls it cannot check", async () => {
+    const container = await renderForm({
       type: "object",
       properties: { title: { type: "string", title: "Title" } },
       // Drawable members and an unreadable ROOT construct: the mapper is happy, the

@@ -6,8 +6,12 @@
 // render rather than as an address that names nothing.
 
 import { render } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
+import {
+  duplicateKeyReports,
+  reportsWhileReactRan,
+} from "../../core/react-reports.test-support.js";
 import { PaneBreadcrumb, paneScopeCrumbs, type PaneScopeAddress } from "./PaneBreadcrumb.js";
 
 const NO_ADDRESS: PaneScopeAddress = {
@@ -113,19 +117,6 @@ describe("paneScopeCrumbs — what the address carries, and nothing else", () =>
   });
 });
 
-/** Every React warning raised while `act` ran, so a keying fault is read rather than logged. */
-function reactWarnings(): { readonly lines: () => readonly string[] } {
-  const raised: string[] = [];
-  vi.spyOn(console, "error").mockImplementation((...parts: readonly unknown[]) => {
-    raised.push(parts.map((part) => String(part)).join(" "));
-  });
-  return { lines: () => raised };
-}
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
-
 describe("PaneBreadcrumb — two scopes may carry one identifier", () => {
   // WHERE THE PROOF ACTUALLY LIVES, stated because it is not where it first appears to.
   // The `console-unit` project declares no `setupFiles` and fails on no warning, so
@@ -138,33 +129,35 @@ describe("PaneBreadcrumb — two scopes may carry one identifier", () => {
   // (asserted here); it is deliberately not asserted through a misbehaviour React
   // documents as unpredictable and could change between versions.
 
-  it("renders both crumbs and raises no duplicate-key warning", () => {
-    const warnings = reactWarnings();
-    const crumbs = renderTrail({
-      sessionId: "shared-id",
-      channelId: undefined,
-      runId: "shared-id",
-      entity: undefined,
-    });
+  it("renders both crumbs and raises no duplicate-key warning", async () => {
+    const { value: crumbs, reported } = await reportsWhileReactRan(() =>
+      renderTrail({
+        sessionId: "shared-id",
+        channelId: undefined,
+        runId: "shared-id",
+        entity: undefined,
+      }),
+    );
     // Two address crumbs plus the pane's own name. Before the fix React kept ONE of
     // the colliding pair, so this read two rather than three.
     expect(crumbTexts(crumbs)).toStrictEqual(["shared-id", "shared-id", "Inspector"]);
-    expect(warnings.lines().filter((line) => /same key/u.test(line))).toStrictEqual([]);
+    expect(duplicateKeyReports(reported)).toStrictEqual([]);
   });
 
-  it("negative control: the warning capture is wired, and reads a real duplicate key", () => {
+  it("negative control: the warning capture is wired, and reads a real duplicate key", async () => {
     // Without this the claim above passes over a spy that never saw anything — the
     // failure this class of assertion is most prone to. A list keyed on a repeated
     // value is exactly the pre-fix shape, planted here rather than described.
-    const warnings = reactWarnings();
-    render(
-      <ol>
-        {["shared-id", "shared-id"].map((value) => (
-          <li key={value}>{value}</li>
-        ))}
-      </ol>,
+    const { reported } = await reportsWhileReactRan(() =>
+      render(
+        <ol>
+          {["shared-id", "shared-id"].map((value) => (
+            <li key={value}>{value}</li>
+          ))}
+        </ol>,
+      ),
     );
-    expect(warnings.lines().filter((line) => /same key/u.test(line)).length).toBeGreaterThan(0);
+    expect(duplicateKeyReports(reported).length).toBeGreaterThan(0);
   });
 
   it("moves the right crumb when one scope of a colliding pair changes", () => {

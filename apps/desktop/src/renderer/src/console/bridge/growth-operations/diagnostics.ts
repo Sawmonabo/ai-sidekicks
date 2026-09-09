@@ -32,9 +32,14 @@ type DiagnosticsOperationId = Extract<
 export const DIAGNOSTICS_GROWTH_OPERATIONS: Readonly<
   Record<DiagnosticsOperationId, GrowthOperationEntry>
 > = {
+  // The one-shot status read serves `health-status-read` and not this plane's own
+  // row: that row IS this wire, and the console has two surfaces waiting on it — the
+  // cast bar's compact form and this page's banner. A wire named by two rows would be
+  // two records of one absence, so the row keyed on the wire carries both consumers
+  // and the row beside it carries the four reads that have no row of their own.
   healthStatusRead: op(
     "healthStatusRead",
-    "health-diagnostics-reads",
+    "health-status-read",
     "method",
     "read this machine's execution health — one verdict over its named components, each carrying its own reading — over the daemon JSON-RPC transport",
     "health.statusRead",

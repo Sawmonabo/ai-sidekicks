@@ -57,11 +57,11 @@ export async function settleReads(bridge: ConsoleBridge): Promise<void> {
   });
 }
 
-/** The session both projection suites read, so neither invents an id of its own. */
+/** The session this family's projection cases read, rather than an id per file. */
 export const PROJECTION_SESSION_ID = "session-9";
 
 /** One projected session row, under the id above. */
-export function sessionEntity(body: Readonly<Record<string, unknown>>): ConsoleEntity {
+function sessionEntity(body: Readonly<Record<string, unknown>>): ConsoleEntity {
   return { kind: "session", id: PROJECTION_SESSION_ID, body };
 }
 

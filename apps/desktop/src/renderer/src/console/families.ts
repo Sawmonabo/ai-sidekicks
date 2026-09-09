@@ -47,8 +47,10 @@ import { registerCollaborationFamily } from "./collaboration-family.js";
 import { registerComposerFamily } from "../shell/index.js";
 import { registerPaneHarnessSurface } from "./frame/pane-harness/PaneHarnessSurface.js";
 import { registerRunLifecycleProjectors } from "./frame/run-projection/run-lifecycle-projector.js";
+import { registerLedger } from "./ledger/index.js";
 import { registerConsolePanes } from "./panes/index.js";
 import { registerRepos } from "./repos/index.js";
+import { NewSessionControl, Workspace, registerWorkspaceFrameBindings } from "./workspace/index.js";
 import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
 import type {
   ConsolePaneRegistry,
@@ -125,15 +127,15 @@ export function registerConsoleFamilies(
   frameBindings: FrameBindingRegistry,
   pinnedRegions: PinnedPaneRegionRegistry,
 ): void {
-  // NO SHIPPED TIER-1 FAMILY CLAIMS A SLOT OF ITS OWN ANY MORE. Three of them are
+  // NO SHIPPED TIER-1 FAMILY CLAIMS A SLOT OF ITS OWN ANY MORE. Two of them are
   // absorbed by the console surfaces that mount them, through the helpers
   // `seats/surface/absorbed-surfaces.ts` publishes, so they reach the screen inside a
-  // console-authored surface rather than beside one. The fourth — the shipped
-  // participant roster — was the last slot claimant, and it is retired rather than
-  // re-homed: it rendered presence a second time in one application, and the
-  // collaboration family renders presence from the bridge the console resolved.
-  // The `workspace` slot is therefore RESERVED, which is what the frame renders for
-  // a slot no family has claimed, and it is the deck's to claim when it lands.
+  // console-authored surface rather than beside one. The shipped participant roster
+  // was the last slot claimant, and it is retired rather than re-homed: it rendered
+  // presence a second time in one application, and the collaboration family renders
+  // presence from the bridge the console resolved. The `workspace` slot it used to
+  // hold is the LEDGER's now, claimed at that family's own seat below, so the frame
+  // resolves a console-authored body there rather than a reservation.
   //
   // The deck's pane bodies have their own seat board, keyed by pane kind
   // rather than by surface slot. It is composed here so one call reaches the
@@ -147,6 +149,13 @@ export function registerConsoleFamilies(
   // the projector board this function was HANDED, so a composition writes its fold
   // where it writes its surfaces and its panes.
   registerRunLifecycleProjectors(projectors);
+  // The workspace family's frame-lifetime binding, on the same terms and for the
+  // lifetime a surface cannot give it: a pane moved into a window of its own stays
+  // there while a person navigates, so the record of which panes those are is held for
+  // the WINDOW rather than for whichever destination is on screen. It takes the
+  // binding board this function was HANDED, so a composition fills its bindings where
+  // it fills its surfaces.
+  registerWorkspaceFrameBindings(frameBindings);
   // The fixture-only pane harness, which is the one surface that mounts a
   // REGISTERED pane body in a running window. It takes both boards because it
   // resolves its body out of the pane board this composition owns, and it decides
@@ -175,16 +184,32 @@ export function registerConsoleFamilies(
   // The composer family claims no surface slot: its body is the composer SEAT under the
   // deck, and its panes are claimed through `panes/index.ts` above. What it does claim
   // is a fold — the approval-flow kinds the approvals pane reads entities from — and
-  // three of the sidebar's eight sections, so its seat passes those two boards and no
-  // other registry, because those are the only claims it makes.
+  // some of the sidebar's sections, so its seat passes those two boards and no other
+  // registry, because those are the only claims it makes.
+  //
+  // A seat may also be handed a COMPOSITION argument beside its boards: one view family
+  // may not import another, so this root — the one file allowed to name more than one —
+  // says which component a family's slot mounts. It is NAMED here rather than written
+  // into the seat, because a seat line passes identifiers and nothing else, which is
+  // what lets `seat-census.test-support.ts` read this block as a grammar rather than
+  // parse it.
+  const ledgerComposition = { workspace: Workspace };
+  // The sessions destination's composition, on the same terms one line up: that
+  // surface is the collaboration family's and the composed new-session draft is the
+  // workspace family's, and one view family may not import another — so the root says
+  // which component fills the place beside the shipped probe. Named for what it
+  // MOUNTS rather than `…Composition` because a seat is one line and the census
+  // reads it as one: with four boards beside it, the longer name is what pushes the
+  // call past the formatter's width and onto four lines the grammar cannot read.
+  const sessionsMount = { newSessionControl: NewSessionControl };
   //
   // NOTHING BUT SEATS BELOW THIS LINE. A paragraph between two seats reads to a
   // branch exactly like this one does above them, and only one of the two leaves
   // seven one-line diffs at seven distinct positions; `families.seat-board.test.ts`
   // reads the block as a census and refuses anything that is not a seat.
-  // T-023p-1C-2 ledger
+  registerLedger(surfaces, ledgerComposition); // T-023p-1C-2 ledger
   registerComposerFamily(projectors, sidebarSections); // T-023p-1C-3 composer
-  registerCollaborationFamily(surfaces, sidebarSections, projectors, frameBindings); // T-023p-1C-4 collaboration
+  registerCollaborationFamily(surfaces, sidebarSections, projectors, frameBindings, sessionsMount); // T-023p-1C-4 collaboration
   registerRepos(sidebarSections, inlineCardSeats); // T-023p-1C-5 repos
   registerWorkflowSurfaces(surfaces, pinnedRegions); // T-023p-1C-6 workflows
   // T-023p-1C-7 browser-terminal

@@ -15,8 +15,10 @@ import { consoleCommands } from "../palette/index.js";
 import { FrameStore } from "../store/index.js";
 import { onboardingActivation } from "./onboarding-activation.js";
 import { OnboardingOverlay } from "./OnboardingOverlay.js";
+import { onboardingWalkthroughMount } from "./onboarding-walkthrough-mount.js";
 import type { ConsoleSurfaceContext } from "../seats/index.js";
 import type { OnboardingOpening } from "./steps/step-model.js";
+import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 
 /**
  * The window this overlay is mounted in, over a REAL frame store.
@@ -45,10 +47,24 @@ export async function mount(
   });
 }
 
-/** Raise an activation and let the walkthrough's own opening reads settle. */
-export async function activateAt(openAtStep: OnboardingOpening): Promise<void> {
+/**
+ * Raise an activation and let the walkthrough's own opening reads settle.
+ *
+ * The walkthrough arrives on its own chunk, so the render that follows an activation
+ * draws the reserved region. Resolved through the MOUNT the overlay itself renders —
+ * one home for that wait rather than a per-suite race — and only then the boundaries
+ * the steps' own opening reads need.
+ */
+export async function activateAt(
+  openAtStep: OnboardingOpening,
+  accountScope?: ProviderAccountId,
+): Promise<void> {
   await act(async () => {
-    onboardingActivation.request({ openAtStep, accountScope: undefined });
+    onboardingActivation.request({ openAtStep, accountScope });
+    await crossMacrotaskBoundary();
+  });
+  await act(async () => {
+    await onboardingWalkthroughMount.load();
     await crossMacrotaskBoundary();
   });
   await act(async () => {

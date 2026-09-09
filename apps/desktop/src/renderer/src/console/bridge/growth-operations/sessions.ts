@@ -45,6 +45,18 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
       "read one session's snapshot, so its store can reach a base state and project the stream bound to it",
       "session.read",
     ),
+    // The identity a session header renders. A read of its own rather than a member on
+    // `sessionRead`, because that operation answers with the console's STORE-shaped
+    // snapshot: a base state for a projection, which carries a cursor and a roster and
+    // deliberately no display title and no session state. Widening it would make every
+    // store initialisation carry two unrelated jobs.
+    sessionIdentityRead: op(
+      "sessionIdentityRead",
+      "session-directory-read",
+      "method",
+      "read one session's display title and its wire-verbatim state, so a header names the session rather than only its identifier",
+      "session.read",
+    ),
     sessionList: op(
       "sessionList",
       "session-directory-read",
@@ -71,6 +83,21 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
       "method",
       "restart the daemon",
       "DaemonRestart",
+    ),
+    // A READ of the ack the shell already holds, and deliberately not the handshake.
+    // `daemon.hello` is registered and the daemon answers it, so naming it here would
+    // have looked like the honest transcription the rows above make — but a window
+    // that sent it would get `compatible: false` with reason
+    // `protocol.handshake_already_completed` and no supported set, because the daemon
+    // latches the first handshake per connection and refuses every later one. So this
+    // row declares NO expected wire method: the seam it needs is a bridge read of a
+    // reply the shell is holding, and no such read is registered anywhere. The fixture
+    // keys it on the operation id under the `growth:` prefix accordingly.
+    daemonNegotiationRead: op(
+      "daemonNegotiationRead",
+      "daemon-version-negotiation",
+      "method",
+      "read, through the bridge, the negotiated ack the shell holds — the protocol agreed with the local runtime, the versions that runtime supports, and the reason when the two do not meet",
     ),
     // The one act on this row that is NOT a call: a stopped daemon has no IPC
     // server to receive a start, so the shell spawns the process. It sits here

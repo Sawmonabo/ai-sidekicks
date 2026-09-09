@@ -20,12 +20,12 @@ import { composedAnswer, renderForm, reportedIssueTexts } from "./SchemaFormHost
 afterEach(cleanup);
 
 describe("the fieldset a group draws", () => {
-  it("draws a group as a named fieldset holding its own members", () => {
+  it("draws a group as a named fieldset holding its own members", async () => {
     // The same claim as before the draft tree, reached through the control that now says
     // whether an OPTIONAL section is being answered: unanswered, it draws its name and
     // that control and no members, because a control under a section nobody is answering
     // would be a control whose value reaches nothing.
-    const container = renderForm({
+    const container = await renderForm({
       type: "object",
       properties: {
         release: {
@@ -51,11 +51,11 @@ describe("the fieldset a group draws", () => {
     expect(composedAnswer(container)).toEqual({});
   });
 
-  it("says a group is required on its own legend, at the same depths a control says it", () => {
+  it("says a group is required on its own legend, at the same depths a control says it", async () => {
     // A group is a member like any other, and the requiredness a scalar and a list both
     // carry visibly was read for it and then dropped: the fieldset read optional beside
     // controls that read required, over a schema that demands the whole group.
-    const container = renderForm({
+    const container = await renderForm({
       type: "object",
       properties: {
         release: {
@@ -89,13 +89,13 @@ describe("the fieldset a group draws", () => {
     ).toBeNull();
   });
 
-  it("opens a required group whose members are all optional at the empty object it accepts", () => {
+  it("opens a required group whose members are all optional at the empty object it accepts", async () => {
     // The finding the group-addressed case next door used to be written over. `{ release:
     // {} }` is what this schema accepts, and the form now opens holding it: before, the
     // answer held `{}`, the fieldset carried "must have required property", and the only
     // way to reach the valid state was to type into `tag` and clear it again — which wrote
     // `{ tag: "" }` and left the form invalid for a different reason.
-    const container = renderForm({
+    const container = await renderForm({
       type: "object",
       properties: {
         release: {

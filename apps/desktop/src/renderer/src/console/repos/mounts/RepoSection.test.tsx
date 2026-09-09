@@ -13,7 +13,7 @@
 import { within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ScenarioReply } from "../../bridge/scenario-runtime/scenario.js";
+import type { ScenarioReply } from "../../bridge/scenario-runtime/scenario-reply.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { NOT_READ_TITLE } from "./repo-mounts-copy.js";
 import { CLONE_EXPIRY_COPY } from "./worktree-model.js";

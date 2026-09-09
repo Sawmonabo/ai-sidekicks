@@ -156,6 +156,12 @@ export const GROWTH_PREREQUISITES: Readonly<Record<GrowthPrerequisiteId, GrowthP
       "governing-document",
       "the spec that will govern provider-session import",
     ),
+    timelineResumeCursorMember: prerequisite(
+      "timelineResumeCursorMember",
+      "session-directory-read",
+      "type-member",
+      "the resume-position member on the session read's request — where the console asks the stream to be picked up from, absent from the strict request schema, which carries `sessionId` alone",
+    ),
     // The one entry whose row is unmet on the PRODUCING side rather than the
     // declaring one. The mount-health union carries all three verdicts today and the
     // console projects all three fail-closed; what does not exist is a daemon that can

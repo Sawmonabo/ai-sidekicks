@@ -14,6 +14,8 @@
 // node HAS, `approval-answers.ts` the two approvals reads and the two acts,
 // `invites/invite-answers.ts` the sent-invite ledger read and the pending lifecycle,
 // `shell/presence-answers.ts` the activity read and the node's control-plane host,
+// `collaboration/session-identity.ts` the header's own identity read,
+// `shell/auxiliary-windows.ts` models the shell's own window plane,
 // `attention-derivation.ts` folds beats into an attention projection,
 // `workflows/workflow-scope.ts` derives which workflow subjects a script can answer for,
 // `workflows/workflow-reads.ts` holds the workflow answers and the reasoning that governs
@@ -48,12 +50,15 @@ import { answerFromScriptedReply, answerScriptOnly } from "./scripted-answer.js"
 import { fixtureShellAnswers } from "../shell/shell-answers.js";
 import { fixturePresenceAnswers } from "../shell/presence-answers.js";
 import { fixtureSessionAnswers } from "../collaboration/session-answers.js";
+import { scenarioSessionIdentity } from "../collaboration/session-identity.js";
 import {
   createRefusingGrowthPort,
+  growthUnavailable,
   growthUnscriptedReply,
   mapGrowthServed,
   type GrowthPort,
 } from "../../growth-port/index.js";
+import { DAEMON_NEGOTIATION_READ_CALL } from "../../scenarios/negotiation-replies.js";
 import type { FixtureServedGrowthOperationId } from "../call-plane/served-operations.js";
 import { fixtureWorkflowReads } from "../workflows/workflow-reads.js";
 import {
@@ -67,8 +72,8 @@ import {
 import {
   REPOS_ARTIFACT_READ_CALL,
   REPOS_DIFF_ARTIFACT_CREATE_CALL,
-} from "../../scenarios/repos-diff-replies.js";
-import { REPOS_EXECUTION_CONTEXT_CALL } from "../../scenarios/repos-mutation-replies.js";
+} from "../../scenarios/repos/repos-diff-replies.js";
+import { REPOS_EXECUTION_CONTEXT_CALL } from "../../scenarios/repos/repos-mutation-replies.js";
 import type { ScenarioEngine } from "../../scenario-runtime/index.js";
 
 /**
@@ -109,6 +114,48 @@ export function createFixtureGrowthPort(
     ...fixtureApprovalAnswers(engine),
     ...fixtureInviteAnswers(engine, inviteLedger),
     ...fixturePresenceAnswers(engine),
+    // The header's identity, from the same scripted reply the base state comes from.
+    // REFUSED rather than answered emptily for a session this scenario is not
+    // playing or has said nothing about: a summary carries a required state, so
+    // there is no absence to serve, and inventing one would put a session state on
+    // screen that no author declared.
+    sessionIdentityRead: async (request) => {
+      const identity = scenarioSessionIdentity(engine.scenario, request.sessionId);
+      return identity === undefined
+        ? growthUnavailable("sessionIdentityRead")
+        : { status: "served", value: identity };
+    },
+    // The negotiated ack the shell holds, from a script and from nothing else — the
+    // health read's rule with a sharper edge. A negotiation outcome is an observation
+    // of two builds meeting, and the reply's `compatible` admits no empty form: a
+    // fabricated `true` would put the mismatch banner out of reach of every fixture
+    // window, and a fabricated `false` would raise it in all of them.
+    //
+    // Keyed on the operation and not on `daemon.hello`: this row registers no expected
+    // wire method, because the seam it needs is a bridge READ of a reply the shell
+    // already holds and a window that re-sent the handshake would be refused by the
+    // daemon's own per-connection latch. `negotiation-replies.ts` owns the key.
+    daemonNegotiationRead: async (request) =>
+      answerFromScriptedReply(
+        engine,
+        DAEMON_NEGOTIATION_READ_CALL,
+        "daemonNegotiationRead",
+        request,
+        () => growthUnavailable("daemonNegotiationRead"),
+      ),
+    // The one accountant's own figure, from a script and from nothing else. An empty
+    // form here would be a zero, and a zero is not an absence: it says this session
+    // has spent nothing, which is a statement about money that no author made. The
+    // receipt beside it stays unserved — a decomposition has the same problem three
+    // times over, and no console surface reads one.
+    orchestrationBudgetRead: async (request) =>
+      answerFromScriptedReply(
+        engine,
+        "orchestration.budgetRead",
+        "orchestrationBudgetRead",
+        request,
+        () => growthUnavailable("orchestrationBudgetRead"),
+      ),
     attentionProjectionRead: async (request) => ({
       status: "served",
       value:

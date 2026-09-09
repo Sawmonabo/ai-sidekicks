@@ -26,7 +26,7 @@ import {
   REPOS_SESSION_ID,
   REPOS_VIEWING_PARTICIPANT_ID,
 } from "./repos.js";
-import { REPOS_SCENARIO_STARTED_AT_ISO, scenarioInstant } from "./repos-beats.js";
+import { REPOS_SCENARIO_STARTED_AT_ISO, scenarioInstant } from "./repos/repos-beats.js";
 import {
   DRIFTED_MOUNT_ID,
   GIT_MOUNT_ID,
@@ -35,7 +35,7 @@ import {
   PLAIN_MOUNT_ID,
   PLAIN_WORKSPACE_ID,
   REVIEWER_WORKTREE_ID,
-} from "./repos-fixture-data.js";
+} from "./repos/repos-fixture-data.js";
 import { findScenarioWireTruthDefects } from "./wire-truth.js";
 import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
 

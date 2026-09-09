@@ -148,9 +148,18 @@ export type GrowthOperationId =
   | "sessionReactivate"
   | "sessionRead"
   | "sessionList"
+  // the identity a header renders: the session's display title and
+  // its wire-verbatim state, which the store-shaped snapshot read above drops.
+  | "sessionIdentityRead"
   | "daemonStatusRead"
   | "daemonStop"
   | "daemonRestart"
+  // a read of the negotiated ack the shell holds, put by a window rather
+  // than by the shell that performed the handshake: which protocol was negotiated,
+  // which set the daemon supports, and — when the two sides do not meet — why. The
+  // id names the READ and never `daemon.hello`, which a window must never re-issue:
+  // a second handshake on a live connection is refused by design.
+  | "daemonNegotiationRead"
   | "daemonStart"
   | "onboardingStateRead"
   | "onboardingStepAdvance"
@@ -173,10 +182,6 @@ export type GrowthOperationId =
   | "artifactAllowlistRead"
   | "artifactIngestAbort"
   | "sessionSearch"
-  | "windowDetachPane"
-  | "windowFocusAuxiliary"
-  | "windowCloseAuxiliary"
-  | "windowSubscribePaneErrors"
   | "providerSessionImportBegin"
   | "providerSessionImportSubscribe"
   | "attentionProjectionRead"
@@ -247,6 +252,8 @@ export type GrowthOperationId =
   | "hydratedEventRead"
   | "orchestrationCostReceiptRead"
   | "orchestrationBudgetRead"
+  // the live gap fill: re-open the stream after a position the caller states
+  | "timelineSubscribe"
   // the workspace execution context — the normalized checkout root and the
   // fallback-mode marker, neither of which any registered reply carries
   | "workspaceExecutionContextRead"
@@ -334,6 +341,7 @@ export type GrowthPrerequisiteId =
   | "agentProviderSwitchedEvent"
   | "nodeSelfDeclarationCarrier"
   | "providerSessionImportSpec"
+  | "timelineResumeCursorMember"
   | "mountHealthIdentityProjection"
   | "workflowParentContentHashMember"
   | "workflowHumanFormContentMembers";

@@ -28,6 +28,7 @@
 // a live store, which module scope cannot reach, so `ConsoleRoot` registers them in an
 // effect and removes them on unmount.
 
+import { COMPOSER_FOCUS_CHORD } from "../../../../../shared/composer-chord.js";
 import type { Unsubscribe } from "../../core/index.js";
 import { RAIL_DESTINATIONS, type RailDestination } from "../../routing/index.js";
 import {
@@ -101,20 +102,56 @@ export const RAIL_NAVIGATION_DETAILS: Readonly<Record<RailDestination, RailNavig
 };
 
 /**
- * Chords the frame itself binds. A family's chords ride its own registration.
+ * The act the composer chord runs, named once for the two modules that need it.
  *
- * Walked from `RAIL_DESTINATIONS` so the bound set and the rendered set are one
- * set. Nothing else is bound here: `frame.goToWorkspace` is offered in the palette
- * and carries no chord, because the three chords a person builds muscle memory for
- * are the three icons in front of them, and a fourth binding on a destination the
- * rail does not draw is a keystroke with nothing to point at.
+ * Declared here rather than in `frame/frame-commands.ts` beside the command it
+ * identifies, for the reason the rail's ids are here: a binding names a command by
+ * its id and nothing checks that the id resolves, so the binding table and the
+ * command list have to read one declaration or a rename leaves a chord pointing at
+ * nothing — a keystroke that silently does nothing, which is the exact symptom the
+ * chord already had.
  */
-export const FRAME_KEY_BINDINGS: readonly FrameKeyBinding[] = RAIL_DESTINATIONS.map(
-  (destination) => ({
+export const COMPOSER_FOCUS_COMMAND_ID = "frame.focusComposer";
+
+/**
+ * Chords the frame itself binds: one per rail destination, then the composer chord.
+ *
+ * The destinations are WALKED from `RAIL_DESTINATIONS` so the bound set and the
+ * rendered set are one set. `frame.goToWorkspace` is deliberately still chordless:
+ * the three chords a person builds muscle memory for are the three icons in front of
+ * them, and a fourth binding on a destination the rail does not draw is a keystroke
+ * with nothing to point at.
+ *
+ * THE COMPOSER CHORD IS THE FRAME'S AND NOT THE COMPOSER FAMILY'S, because the frame
+ * is what owns this window's chord table and the composer is mounted and unmounted
+ * inside it. A binding contributed by the composer would come and go with the surface
+ * that draws one, so the chord would answer in a session and be unbound everywhere
+ * else — while the ask itself is dropped by the seat when no composer is listening,
+ * which is the seat's own rule and needs no second statement as a `when` clause here.
+ *
+ * IT IS THE SAME CHORD THE MAIN PROCESS WATCHES FOR in an auxiliary window
+ * (`src/shared/composer-chord.ts`), read from that one declaration rather than
+ * spelled again: a window with no composer answers the press by asking THIS window,
+ * and the two halves have to be one keystroke or the person presses one chord in one
+ * window and a different chord in the other.
+ *
+ * `allowInTextInput`, and it is the one binding here that takes it. The chord's whole
+ * job is to move the caret from wherever it is to the composer, and the places a
+ * person most needs it from — a find field, a filter box, a form — are text inputs.
+ * A rail chord fires in none of them for the opposite reason: navigating away while
+ * somebody is typing loses what they typed.
+ */
+export const FRAME_KEY_BINDINGS: readonly FrameKeyBinding[] = [
+  ...RAIL_DESTINATIONS.map((destination) => ({
     chord: RAIL_NAVIGATION_DETAILS[destination].chord,
     commandId: RAIL_NAVIGATION_DETAILS[destination].commandId,
-  }),
-);
+  })),
+  {
+    chord: COMPOSER_FOCUS_CHORD,
+    commandId: COMPOSER_FOCUS_COMMAND_ID,
+    allowInTextInput: true,
+  },
+];
 
 /**
  * Every chord the window binds: the frame's own, then the families'.
