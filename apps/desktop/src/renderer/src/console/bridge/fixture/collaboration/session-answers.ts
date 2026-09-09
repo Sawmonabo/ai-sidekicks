@@ -21,6 +21,26 @@
 // unregistered. The live bridge keeps refusing both, so nothing about what a
 // release build renders changes.
 //
+// WHY THE SNAPSHOT IS NOT `SessionReadResponse` FROM `@ai-sidekicks/contracts`
+//
+// That is the registered reply and it is the wrong shape for this seam. It carries
+// `{ session, timelineCursors }` — a session's identity, state, config, metadata and
+// timestamps beside a `latest` cursor — and `SessionStore.initialise` takes the
+// console's own `SessionSnapshot` from `store/session/session-state.ts`: a numeric
+// `cursor`, the `entities` the read carried, and the `participantJoinLog` the hue
+// wheel is allocated in. The reply carries neither of the last two at all, and its
+// cursor is an opaque branded STRING whose internal structure Plan-006 owns and whose
+// schema is `min(1)` — so nothing here can order on it. Adopting the registered shape
+// would leave the adapter fabricating all three anyway.
+//
+// The brand is NOT part of that argument any more, and saying it was would be false
+// of this tree: a scenario's session id is a UUID now — several are minted through
+// `SessionIdSchema.parse` itself — rather than the scripted name it once was, so a
+// schema-valid `SessionId` costs no cast. The port's value is
+// the console's `SessionSnapshot` because of what the reply omits, and for no other
+// reason; the slate row names the registered request and reply as the half the corpus
+// already owns.
+//
 // WHAT THE BASE STATE HONESTLY IS — and why it is not derived here. Cursor zero,
 // the session's roster, and the memberships that roster holds, all of it
 // `session-snapshot.ts`'s, whose header carries the reasoning for each.
