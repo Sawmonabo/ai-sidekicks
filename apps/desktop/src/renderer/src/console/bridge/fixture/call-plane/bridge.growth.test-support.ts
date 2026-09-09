@@ -2,8 +2,8 @@
 //
 // Its counterpart for the daemon seam is `withDaemonCall`, next door in
 // `bridge.test-support.ts`, and this would sit beside it but for one fact:
-// that module is already past the package's line ceiling, and the four growth helpers
-// it still carries are what a later split moves out. This file is where they go, so
+// that module already carries a second concept, and the four growth helpers it still
+// carries are what a later split moves out. This file is where they go, so
 // adding the fifth here pays that split down instead of deepening it.
 
 import type { ConsoleBridge } from "../../console-bridge.js";

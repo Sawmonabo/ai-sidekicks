@@ -3,8 +3,8 @@
 //
 // It is a module of its own rather than a class at the top of `SidekickDefinitionsPage.tsx`
 // because the two are different jobs — one owns a state machine over the growth
-// port, the other renders whatever that machine settled on — and `apps/desktop`
-// AGENTS.md's length rule is where that shows up first. The page imports the hook
+// port, the other renders whatever that machine settled on — which is the seam
+// `apps/desktop` AGENTS.md §Module shape splits on. The page imports the hook
 // and reads a snapshot; it never calls the port itself.
 //
 // ONE CLASS RATHER THAN THREE PIECES OF COMPONENT STATE, because the three move

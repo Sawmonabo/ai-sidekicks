@@ -6,8 +6,8 @@
 // context, whether a terminator file or an extended-header file is included — and holds
 // the two attributions a fixture carries. Nothing here generates anything: the patch
 // text is `diff-fixture-patch.test-support.ts`'s and the model is `diff-fixture.test-support.ts`'s. Declared with
-// the builder, the shape and its generator could not be read apart, and the file was
-// over the size at which one module is doing two jobs.
+// the builder, the shape and its generator could not be read apart, which is the seam
+// this split was made on.
 //
 // THE SHAPES ARE GENERATED RATHER THAN TRANSCRIBED, because the endurance tier's
 // subject is a forty-file, five-thousand-line change set and a transcription of one

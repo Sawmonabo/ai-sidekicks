@@ -1,8 +1,8 @@
 // The repos scenario's cast: its identifiers, its two agents, and its three
 // attachments.
 //
-// Split out of `repos.ts` when that file passed the size the structure rules set,
-// and split along THIS seam rather than an arbitrary one: what a scenario IS
+// Split out of `repos.ts` along THIS seam rather than an arbitrary one, which is
+// the only kind of split the structure rules admit: what a scenario IS
 // divides into the record the beats and the replies are two views of, the beats
 // themselves, and the answers a call gets. The identifiers below are named by both
 // of the other two — a beat states that a worktree was created and a reply states

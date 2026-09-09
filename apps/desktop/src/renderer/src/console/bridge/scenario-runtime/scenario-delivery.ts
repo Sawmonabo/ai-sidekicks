@@ -6,8 +6,8 @@
 // arrives LATE, publishes an advance that crossed no beat, and appends a frame the
 // script does not carry. The first is a computation over the script; the second is a
 // fan-out over subscribers plus the record of what has actually landed. They met at
-// three statements and were otherwise independent, and one file carrying both was over
-// the size the structure rules set.
+// three statements and were otherwise independent, which is the seam the structure
+// rules split on.
 //
 // SO THE DIVIDING LINE IS: THE ENGINE DECIDES WHAT IS DUE, THIS DECIDES WHO GETS IT.
 // Nothing here reads a clock, holds an elapsed figure, or knows what a beat's `atMs`
