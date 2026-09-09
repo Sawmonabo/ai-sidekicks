@@ -26,9 +26,10 @@
 // one class name — so while both sheets were on the document the later one decided how
 // the WORKFLOWS run list drew a failed run's line, and which was later was a property of
 // the import graph rather than of either sheet. THE COLLISION IS SETTLED, and so is the
-// borrowed prefix behind it: all fifteen `meridian-run-row__*` names this pane spelled
+// borrowed prefix behind it: all seventeen `meridian-run-row__*` names this pane spelled
 // are `meridian-runs__*` now, prefixed for `.meridian-runs`, the block this sheet's own
-// file declares. Deferring these sheets onto the chunk root can no longer change a
+// file declares — two of them as `__detail-section` and `__detail-section-title`, because
+// the flat names were already this sheet's own for the pane's top-level sections. Deferring these sheets onto the chunk root can no longer change a
 // surface another family owns, so what remains is an ordinary bundle measurement rather
 // than a cascade one.
 //
