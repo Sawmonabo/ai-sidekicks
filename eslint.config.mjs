@@ -4,6 +4,22 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
+/**
+ * The daemon's `randomUUID` property ban, hoisted so a second block that also has to
+ * configure `no-restricted-properties` for a daemon file can RESTATE it rather than
+ * silently delete it.
+ *
+ * Flat config replaces a rule's options at the last matching config object, so the
+ * `worktree-projector.ts` clock block below — which is inside the daemon-wide scope this
+ * entry is declared for — would drop the v4 ban for exactly that file if it spelled out
+ * only its own entries.
+ */
+const DAEMON_RANDOM_UUID_PROPERTY = {
+  property: "randomUUID",
+  message:
+    "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and event ids must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts), which the contracts package's ID-format rule requires. An id that is genuinely an ephemeral token — no row and no event stores it — earns an entry in the exemption block beside this one, reviewed on the diff that adds it.",
+};
+
 export default tseslint.config(
   {
     ignores: [
@@ -267,14 +283,7 @@ export default tseslint.config(
     files: ["packages/runtime-daemon/src/**/*.ts"],
     ignores: ["packages/runtime-daemon/src/**/__tests__/**"],
     rules: {
-      "no-restricted-properties": [
-        "error",
-        {
-          property: "randomUUID",
-          message:
-            "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and event ids must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts), which the contracts package's ID-format rule requires. An id that is genuinely an ephemeral token — no row and no event stores it — earns an entry in the exemption block beside this one, reviewed on the diff that adds it.",
-        },
-      ],
+      "no-restricted-properties": ["error", DAEMON_RANDOM_UUID_PROPERTY],
       "no-restricted-imports": [
         "error",
         {
@@ -371,13 +380,52 @@ export default tseslint.config(
       ],
     },
   },
+  // Plan-005 T3.21 — the memo projection floor is the same PURITY claim as the two
+  // projectors above, stated the same way. `memo-projection.ts` is a fold over an
+  // already-read canonical projection: it builds the memo turn and hands it to a
+  // writer, and it persists nothing. Its import set is pinned at five specifiers
+  // (`@noble/hashes` twice, `@ai-sidekicks/contracts`, the outbound-frame module, and
+  // its own transform pipeline), so the allow-list ENUMERATES those five rather than
+  // admitting a shape. A relative-path shape was measured and rejected: `../../db/`
+  // reaches the database layer and is spelled exactly like the sibling this module
+  // legitimately carries, so a pattern that admitted relative specifiers would admit
+  // the one import the claim is about.
+  //
+  // The same replace-not-merge trade the projectors' block documents applies and lands
+  // the same way: the allow-list forbids `node:crypto` outright, so it is strictly
+  // stronger than the `randomUUID` import ban it displaces, and the
+  // `no-restricted-properties` half of that guard is on a different rule and still
+  // applies. The dynamic-`import()` residual is the same one, and is named there.
+  {
+    files: ["packages/runtime-daemon/src/provider/transcript/memo-projection.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex:
+                "^(?!(?:@ai-sidekicks/contracts|@noble/hashes/blake3\\.js|@noble/hashes/utils\\.js|\\./transform-pipeline\\.js|\\.\\./drivers/outbound-frame\\.js)$).*$",
+              message:
+                "The memo projection floor is pure (Plan-005 T3.21): it folds an already-read canonical projection into a turn and persists nothing, so its imports are the five this allow-list names and nothing else — a sibling that reaches the database or the filesystem pulls I/O into the fold behind it. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
+            },
+          ],
+        },
+      ],
+    },
+  },
   // I-010-20's daemon half, in its structural form: `worktree-projector.ts`
   // reports the expiry fields its caller read and derives no expiry of its own,
   // so clock math must be UNAVAILABLE to it rather than merely unwritten.
   // `no-restricted-globals` resolves the identifier, so a locally-shadowed
   // `Date` is not reported and a genuine global read is — which a text scan
-  // could not distinguish. Configured for no other daemon path in this file, so
-  // it displaces nothing.
+  // could not distinguish.
+  //
+  // `no-restricted-globals` sees an IDENTIFIER reference and nothing else, so
+  // `globalThis.Date.now()` reaches the same clock past it — measured. The
+  // property half beside it closes that, and it RESTATES the daemon-wide
+  // `randomUUID` entry (hoisted at the top of this file) because this block is
+  // inside that block's scope and flat config would otherwise drop it here.
   {
     files: ["packages/runtime-daemon/src/git/worktree-projector.ts"],
     rules: {
@@ -392,6 +440,22 @@ export default tseslint.config(
           name: "performance",
           message:
             "I-010-20: worktree-projector.ts reads no clock — it reports the expiry fields its caller handed it and derives no expiry of its own. Compute the instant in the caller and pass it in.",
+        },
+      ],
+      "no-restricted-properties": [
+        "error",
+        DAEMON_RANDOM_UUID_PROPERTY,
+        {
+          object: "globalThis",
+          property: "Date",
+          message:
+            "I-010-20: worktree-projector.ts reads no clock — reaching `Date` through the global object is the same read the identifier ban refuses. Compute the instant in the caller and pass it in.",
+        },
+        {
+          object: "globalThis",
+          property: "performance",
+          message:
+            "I-010-20: worktree-projector.ts reads no clock — reaching `performance` through the global object is the same read the identifier ban refuses. Compute the instant in the caller and pass it in.",
         },
       ],
     },
