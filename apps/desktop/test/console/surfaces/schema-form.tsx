@@ -14,14 +14,15 @@
 // different composition from the one either tier says it is looking at.
 //
 // AND THE WAIT IS ON A STATE, NEVER ON A COUNT OF TURNS. `phase-graph-settled.ts` states
-// the general reason and this surface supplies a sharper one: the compiler's door is not
-// memoised — `loadSchemaValidatorCompiler` runs a fresh `import()` per call and hands
-// back a fresh promise — so resolving the module registry ahead of the mount makes the
-// hook's own load CHEAP and does not make it synchronous. Under browser mode that
-// resolution has landed after `renderSettled`'s single macrotask boundary on every
-// measurement taken here, which is why warming alone left both cases exactly as red as
-// they were before it. What is waited for is the form's own answer to "do I have a
-// verdict yet", which it already publishes for a screen reader.
+// the general reason and this surface supplies a sharper one: the compiler's door is
+// memoised (`SchemaValidatorCompilerChunk` holds one module promise per renderer), and a
+// memoised promise is still a promise — the hook's own `then` lands on a later microtask
+// and installs the verdict through a state update, so resolving the compiler ahead of the
+// mount makes the hook's load CHEAP and does not make it synchronous. Before the memo
+// landed, that resolution reached the tree after `renderSettled`'s single macrotask
+// boundary on every measurement taken here, which is why warming alone left both cases
+// exactly as red as they were before it. What is waited for is the form's own answer to
+// "do I have a verdict yet", which it already publishes for a screen reader.
 //
 // THE MARKER IS THE FORM'S, NOT THIS MODULE'S. `SchemaFormAnswer` carries `aria-busy`
 // while its validator reads `compiling` and drops it on every settlement — a verdict, a
