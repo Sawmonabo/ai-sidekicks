@@ -21,11 +21,14 @@
 import { describe, expect, it } from "vitest";
 
 import { ConsoleRefusalError, refuse } from "../../core/index.js";
+import { GROWTH_OPERATIONS } from "../growth-operations/index.js";
+import type { GrowthOperationId } from "./growth-entry.js";
 import {
   growthScriptedReplyUnavailable,
   growthUnavailable,
   growthUnavailableFromRejection,
 } from "./growth-refusals.js";
+import { growthSlateRow } from "./growth-slate.js";
 
 /** The dotted code a JSON-RPC envelope carries at `data.type`. */
 const DAEMON_REFUSAL_CODE = "session.list_unavailable";
@@ -50,6 +53,41 @@ describe("the growth port's refusal builders", () => {
     // sentence a person reads.
     expect(refusal.owningDocument.length).toBeGreaterThan(0);
     expect(refusal.detail).not.toContain(refusal.owningDocument);
+  });
+
+  it("composes the unregistered sentence byte for byte, for every operation", () => {
+    // WHAT A PARTICIPANT READS, PINNED — over the whole table rather than one row,
+    // because the sentence is the same frame 145 times and the interesting failure is a
+    // single row composing a different one. The wire is read off the slate rather than
+    // spelled here: this pins the FRAME the builder wraps a wire in, and a copy of the
+    // ledger's prose in a test would be the second authoring surface the slate exists
+    // to prevent.
+    //
+    // Exactly two things are pinned: the frame's own text, and that the frame
+    // interpolates the wire of THIS row rather than some other row's — which the control
+    // below is what makes non-vacuous. Which slate row an operation names is NOT pinned
+    // here, and a loop over the table cannot pin it: both sides of the comparison read
+    // that one member, so a row mistyped in the ledger composes a sentence this accepts.
+    // Pinning it would take a second copy of the mapping, which is the authoring surface
+    // the ledger exists to avoid.
+    for (const operationId of Object.keys(GROWTH_OPERATIONS) as GrowthOperationId[]) {
+      const { wire } = growthSlateRow(GROWTH_OPERATIONS[operationId].slateRow);
+
+      expect(growthUnavailable(operationId).detail, operationId).toBe(
+        `Not checked — ${wire} is not registered on this build yet.`,
+      );
+    }
+  });
+
+  it("negative control: a sentence composed from another row is reported", () => {
+    // The pin above is an equality, so its control is a value that ought to fail it: the
+    // same frame around a DIFFERENT row's wire. Without this, a frame that had stopped
+    // interpolating at all would pass the loop for a table of one.
+    const wrongWire = growthSlateRow("terminal-pane").wire;
+
+    expect(growthUnavailable("sessionList").detail).not.toBe(
+      `Not checked — ${wrongWire} is not registered on this build yet.`,
+    );
   });
 
   it("carries the seam's own diagnosis when a scripted reply never came", () => {

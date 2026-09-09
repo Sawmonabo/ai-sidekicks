@@ -39,29 +39,14 @@ export const IDENTITY_GROWTH_OPERATIONS: Readonly<
   // `useCallerMembershipRole` chains this operation to it. A slate row for the role
   // would be asking a second wire for a fact a shipped partition owns, and the two
   // could disagree with nothing able to say which was right.
-  callerParticipantRead: op(
-    "callerParticipantRead",
-    "caller-participant-identity",
-    "method",
-    "read which of a session's participants this window is, so a members surface can address the sender and an approvals control can resolve the caller's own role rather than treating an unread one as read-only",
-  ),
-  callbackToolRegistryRead: op(
-    "callbackToolRegistryRead",
-    "callback-tool-registry-read",
-    "method",
-    "read the callback tools registered into a session, so the approvals pane can name what an agent may call rather than only what it has already been seen calling",
-  ),
+  callerParticipantRead: op("callerParticipantRead", "caller-participant-identity", "method"),
+  callbackToolRegistryRead: op("callbackToolRegistryRead", "callback-tool-registry-read", "method"),
   // The membership roster, which names no wire method because none is registered:
   // every shape that carries a `membershipId` answers a JOIN or a WRITE, so a window
   // that neither created nor joined the session in this process holds an identifier
   // for no membership but its own — and the four `membership.update` controls are
   // keyed by exactly that identifier.
-  membershipRosterRead: op(
-    "membershipRosterRead",
-    "membership-roster-read",
-    "method",
-    "read a membershipId beside each of a session's participants, so the membership controls are reachable on a session this window did not create",
-  ),
+  membershipRosterRead: op("membershipRosterRead", "membership-roster-read", "method"),
   // The per-device fan-out behind the aggregated presence summary. It DOES name a
   // registered method — the `participant.*` registry carries it — and it is the one
   // read whose refusal is specified as a projection rather than as an error: a caller
@@ -70,7 +55,6 @@ export const IDENTITY_GROWTH_OPERATIONS: Readonly<
     "participantPresenceDetailRead",
     "participant-presence-detail",
     "method",
-    "read one participant's per-device presence fan-out, which is the detail the roster's density rule promises one hover away and which no registered reply carries today",
     "participant.presenceDetail",
   ),
 };

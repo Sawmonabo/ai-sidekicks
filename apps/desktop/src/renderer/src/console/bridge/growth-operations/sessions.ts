@@ -29,22 +29,11 @@ type SessionOperationId = Extract<
 /** The session and shell rows, in the order the single table carried them. */
 export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, GrowthOperationEntry>> =
   {
-    sessionRename: op("sessionRename", "session-lifecycle-verbs", "method", "rename a session"),
-    sessionArchive: op("sessionArchive", "session-lifecycle-verbs", "method", "archive a session"),
-    sessionClose: op("sessionClose", "session-lifecycle-verbs", "method", "close a session"),
-    sessionReactivate: op(
-      "sessionReactivate",
-      "session-lifecycle-verbs",
-      "method",
-      "reactivate an archived session",
-    ),
-    sessionRead: op(
-      "sessionRead",
-      "session-directory-read",
-      "method",
-      "read one session's snapshot, so its store can reach a base state and project the stream bound to it",
-      "session.read",
-    ),
+    sessionRename: op("sessionRename", "session-lifecycle-verbs", "method"),
+    sessionArchive: op("sessionArchive", "session-lifecycle-verbs", "method"),
+    sessionClose: op("sessionClose", "session-lifecycle-verbs", "method"),
+    sessionReactivate: op("sessionReactivate", "session-lifecycle-verbs", "method"),
+    sessionRead: op("sessionRead", "session-directory-read", "method", "session.read"),
     // The identity a session header renders. A read of its own rather than a member on
     // `sessionRead`, because that operation answers with the console's STORE-shaped
     // snapshot: a base state for a projection, which carries a cursor and a roster and
@@ -54,36 +43,17 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
       "sessionIdentityRead",
       "session-directory-read",
       "method",
-      "read one session's display title and its wire-verbatim state, so a header names the session rather than only its identifier",
       "session.read",
     ),
-    sessionList: op(
-      "sessionList",
-      "session-directory-read",
-      "method",
-      "list the sessions on this node, so a surface can offer more than the set this window happens to have open",
-    ),
+    sessionList: op("sessionList", "session-directory-read", "method"),
     daemonStatusRead: op(
       "daemonStatusRead",
       "daemon-control-methods",
       "method",
-      "read the daemon's status for the settings daemon page",
       "DaemonStatusRead",
     ),
-    daemonStop: op(
-      "daemonStop",
-      "daemon-control-methods",
-      "method",
-      "stop the daemon",
-      "DaemonStop",
-    ),
-    daemonRestart: op(
-      "daemonRestart",
-      "daemon-control-methods",
-      "method",
-      "restart the daemon",
-      "DaemonRestart",
-    ),
+    daemonStop: op("daemonStop", "daemon-control-methods", "method", "DaemonStop"),
+    daemonRestart: op("daemonRestart", "daemon-control-methods", "method", "DaemonRestart"),
     // A READ of the ack the shell already holds, and deliberately not the handshake.
     // `daemon.hello` is registered and the daemon answers it, so naming it here would
     // have looked like the honest transcription the rows above make — but a window
@@ -93,47 +63,16 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
     // row declares NO expected wire method: the seam it needs is a bridge read of a
     // reply the shell is holding, and no such read is registered anywhere. The fixture
     // keys it on the operation id under the `growth:` prefix accordingly.
-    daemonNegotiationRead: op(
-      "daemonNegotiationRead",
-      "daemon-version-negotiation",
-      "method",
-      "read, through the bridge, the negotiated ack the shell holds — the protocol agreed with the local runtime, the versions that runtime supports, and the reason when the two do not meet",
-    ),
+    daemonNegotiationRead: op("daemonNegotiationRead", "daemon-version-negotiation", "method"),
     // The one act on this row that is NOT a call: a stopped daemon has no IPC
     // server to receive a start, so the shell spawns the process. It sits here
     // because the seam a surface reaches it through is the same one, and a second
     // seam for one operation would be the split this port exists to avoid.
-    daemonStart: op(
-      "daemonStart",
-      "daemon-control-methods",
-      "method",
-      "start a stopped daemon, which is a shell spawn rather than a call",
-      "DaemonStart",
-    ),
-    onboardingStateRead: op(
-      "onboardingStateRead",
-      "onboarding-methods",
-      "method",
-      "read first-run progress",
-    ),
-    onboardingStepAdvance: op(
-      "onboardingStepAdvance",
-      "onboarding-methods",
-      "method",
-      "record a completed first-run step",
-    ),
-    onboardingStepSkip: op(
-      "onboardingStepSkip",
-      "onboarding-methods",
-      "method",
-      "record a skipped first-run step",
-    ),
-    onboardingComplete: op(
-      "onboardingComplete",
-      "onboarding-methods",
-      "method",
-      "finish first-run setup",
-    ),
+    daemonStart: op("daemonStart", "daemon-control-methods", "method", "DaemonStart"),
+    onboardingStateRead: op("onboardingStateRead", "onboarding-methods", "method"),
+    onboardingStepAdvance: op("onboardingStepAdvance", "onboarding-methods", "method"),
+    onboardingStepSkip: op("onboardingStepSkip", "onboarding-methods", "method"),
+    onboardingComplete: op("onboardingComplete", "onboarding-methods", "method"),
     // NO SIXTH ONBOARDING OPERATION, and the absence is the contract rather than a
     // gap. `Spec-026 §Provider Authentication (Group B)` holds the five daemon methods
     // above "unchanged in name, count, and shape" and composes the provider step out of
@@ -147,87 +86,39 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
     // them would name two owners for one wire. Neither carries an expected wire
     // method, because neither IS one — a bridge method crosses the preload boundary
     // and never the JSON-RPC wire.
-    onboardingPresentChoice: op(
-      "onboardingPresentChoice",
-      "onboarding-desktop-surface",
-      "method",
-      "put the relay choice in front of the participant from the main process, so the self-host admin token is typed where the renderer cannot read it and only an opaque handle comes back",
-    ),
+    onboardingPresentChoice: op("onboardingPresentChoice", "onboarding-desktop-surface", "method"),
     onboardingTelemetryPrompt: op(
       "onboardingTelemetryPrompt",
       "onboarding-desktop-surface",
       "method",
-      "put the telemetry question in front of the participant as its own step, after the relay choice resolves and never bundled into it",
     ),
-    shellConfigRead: op(
-      "shellConfigRead",
-      "shell-config-preferences",
-      "method",
-      "read the shell-level preferences",
-    ),
-    shellConfigWrite: op(
-      "shellConfigWrite",
-      "shell-config-preferences",
-      "method",
-      "set one shell-level preference",
-    ),
-    invitesList: op(
-      "invitesList",
-      "invites-list",
-      "method",
-      "list pending invites",
-      "invites.list",
-    ),
-    healthSubscribe: op(
-      "healthSubscribe",
-      "health-subscribe",
-      "subscription",
-      "node health for the strip and the park banner",
-      "health.subscribe",
-    ),
-    sessionSearch: op(
-      "sessionSearch",
-      "session-search",
-      "method",
-      "search sessions from the palette and the all-sessions list",
-    ),
+    shellConfigRead: op("shellConfigRead", "shell-config-preferences", "method"),
+    shellConfigWrite: op("shellConfigWrite", "shell-config-preferences", "method"),
+    invitesList: op("invitesList", "invites-list", "method", "invites.list"),
+    healthSubscribe: op("healthSubscribe", "health-subscribe", "subscription", "health.subscribe"),
+    sessionSearch: op("sessionSearch", "session-search", "method"),
     // session goals — the owner/collaborator pair the goal card drives.
     sessionGoalUpdate: op(
       "sessionGoalUpdate",
       "session-goal-methods",
       "method",
-      "set the session's goal, which the daemon appends as `session.goal_updated` and every surface then reads off the log",
       "session.goalUpdate",
     ),
-    sessionGoalClear: op(
-      "sessionGoalClear",
-      "session-goal-methods",
-      "method",
-      "clear the session's goal — the distinct operation, never an update carrying empty text",
-      "session.goalClear",
-    ),
+    sessionGoalClear: op("sessionGoalClear", "session-goal-methods", "method", "session.goalClear"),
     providerSessionImportBegin: op(
       "providerSessionImportBegin",
       "provider-session-import",
       "method",
-      "start importing an existing provider session's history",
     ),
     providerSessionImportSubscribe: op(
       "providerSessionImportSubscribe",
       "provider-session-import",
       "subscription",
-      "progress for a running provider-session import",
     ),
     shellNotificationPermissionRead: op(
       "shellNotificationPermissionRead",
       "notification-permission-read",
       "method",
-      "whether this machine will display an OS notification, so the notification centre can say when it is the only surface and the notifications page can say what the machine has answered",
     ),
-    shellStatusSubscribe: op(
-      "shellStatusSubscribe",
-      "shell-status-signals",
-      "subscription",
-      "the shell's own condition as one feed — the supervisor's step and attempt count, the handshake ack, the transport it reached the daemon over, and whether this host has a usable keystore",
-    ),
+    shellStatusSubscribe: op("shellStatusSubscribe", "shell-status-signals", "subscription"),
   };

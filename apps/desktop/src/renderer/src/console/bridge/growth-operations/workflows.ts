@@ -34,86 +34,57 @@ export const WORKFLOW_GROWTH_OPERATIONS: Readonly<
     "workflowDefinitionList",
     "workflow-run-control",
     "method",
-    "enumerate the workflow definitions visible here, resolved most-specific-first, so the builder can name one it does not already hold an id for",
     "workflow.definitionList",
   ),
-  workflowRunStart: op(
-    "workflowRunStart",
-    "workflow-run-control",
-    "method",
-    "start a run against a pinned definition version",
-    "workflow.runStart",
-  ),
-  workflowRunRead: op(
-    "workflowRunRead",
-    "workflow-run-control",
-    "method",
-    "read one run's header and its per-phase projection, park surface included, so the pane renders a parked run from this one call",
-    "workflow.runRead",
-  ),
+  workflowRunStart: op("workflowRunStart", "workflow-run-control", "method", "workflow.runStart"),
+  workflowRunRead: op("workflowRunRead", "workflow-run-control", "method", "workflow.runRead"),
   workflowRunCancel: op(
     "workflowRunCancel",
     "workflow-run-control",
     "method",
-    "cancel a run, the operator control that is the only named producer of the cancelled status",
     "workflow.runCancel",
   ),
   workflowRunResume: op(
     "workflowRunResume",
     "workflow-run-control",
     "method",
-    "resume a parked run, carrying the explicit version re-pin as a request member rather than an operation of its own",
     "workflow.runResume",
   ),
   workflowPhaseOutputRead: op(
     "workflowPhaseOutputRead",
     "workflow-run-control",
     "method",
-    "read one phase's durable outputs, which stay addressable after the run ends",
     "workflow.phaseOutputRead",
   ),
   workflowGateResolve: op(
     "workflowGateResolve",
     "workflow-run-control",
     "method",
-    "resolve a phase-boundary gate and read back the appended chain row's anchor",
     "workflow.gateResolve",
   ),
   workflowHumanFormSubmit: op(
     "workflowHumanFormSubmit",
     "workflow-run-control",
     "method",
-    "submit a human phase's form under optimistic concurrency, so a stale submission is refused rather than silently overwriting",
     "workflow.humanFormSubmit",
   ),
   workflowGateChainVerify: op(
     "workflowGateChainVerify",
     "workflow-run-control",
     "method",
-    "verify a run's gate-resolution hash chain and report the first divergent sequence",
     "workflow.gateChainVerify",
   ),
   // The run enumeration, on its own row and naming no wire method — the corpus
   // registers none, and an invented string here would be a wire fact traceable to
   // nothing. It is why the section comment above scopes its count to the nine rows
   // it heads rather than to this block.
-  workflowRunList: op(
-    "workflowRunList",
-    "workflow-run-enumeration",
-    "method",
-    "enumerate the workflow runs a session holds, so a person can see what is running and what is parked without already holding a run id",
-  ),
+  workflowRunList: op("workflowRunList", "workflow-run-enumeration", "method"),
   // The version chain, on the same footing as the enumeration above and for the
   // mirror-image reason. The registry HAS a version read and it is addressed by
   // `(definitionId, versionNumber)`, which a caller holding one opaque version id
   // holds neither half of — so this names no wire method either, and inventing
   // `workflow.versionChainRead` here would be a string traceable to nothing.
-  workflowVersionChainRead: op(
-    "workflowVersionChainRead",
-    "workflow-version-chain",
-    "method",
-    "resolve the version chain one run's pinned version belongs to, so a resume can offer a re-pin target the operator chose rather than a version nobody read",
-  ),
+  workflowVersionChainRead: op("workflowVersionChainRead", "workflow-version-chain", "method"),
   // The definition plane's own three registry rows, on a slate row of their own. They
   // are registered method strings exactly as the nine above are, and they are NOT on
   // that row because its count — nine of thirteen — is the claim that the enumeration,
@@ -124,21 +95,18 @@ export const WORKFLOW_GROWTH_OPERATIONS: Readonly<
     "workflowDefinitionRead",
     "workflow-definition-authoring",
     "method",
-    "open one definition — its scope identity, its latest version, and the phase sequence that version holds — so a browser row leads somewhere rather than to a pane with nothing in it",
     "workflow.definitionRead",
   ),
   workflowVersionRead: op(
     "workflowVersionRead",
     "workflow-definition-authoring",
     "method",
-    "read one immutable version body with its content hash and schema marker, which is both what a detail pane shows and what an export serializes into the canonical file form",
     "workflow.versionRead",
   ),
   workflowDefinitionCreate: op(
     "workflowDefinitionCreate",
     "workflow-definition-authoring",
     "method",
-    "submit a definition body — the one write all five authoring acts ride, whose target scope and not whose gesture is what the daemon's operator-scope authorization keys on",
     "workflow.definitionCreate",
   ),
 };

@@ -33,22 +33,7 @@ type PresenceOperationId = Extract<
 export const PRESENCE_GROWTH_OPERATIONS: Readonly<
   Record<PresenceOperationId, GrowthOperationEntry>
 > = {
-  presenceActivityRead: op(
-    "presenceActivityRead",
-    "presence-activity-fields",
-    "method",
-    "read the session's live activity state — who is composing where, and which runs are working where — so the indicators beside a channel and a roster row have a producer at all",
-  ),
-  presenceComposingSet: op(
-    "presenceComposingSet",
-    "presence-activity-fields",
-    "method",
-    "say that this participant is composing in one channel, so the indicator the console renders for everyone else has a sender on this machine too",
-  ),
-  presenceComposingClear: op(
-    "presenceComposingClear",
-    "presence-activity-fields",
-    "method",
-    "say that this participant has stopped, so a reader's indicator ends on a signal rather than on the receiver's stale bound",
-  ),
+  presenceActivityRead: op("presenceActivityRead", "presence-activity-fields", "method"),
+  presenceComposingSet: op("presenceComposingSet", "presence-activity-fields", "method"),
+  presenceComposingClear: op("presenceComposingClear", "presence-activity-fields", "method"),
 };

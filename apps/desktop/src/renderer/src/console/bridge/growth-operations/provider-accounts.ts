@@ -29,21 +29,18 @@ export const PROVIDER_ACCOUNT_GROWTH_OPERATIONS: Readonly<
     "providerAccountLogin",
     "provider-account-signin-and-token",
     "method",
-    "ask the daemon to run the provider's own first-party sign-in against one account's credential home, and answer with where the operator completes it",
     "providerAccount.login",
   ),
   providerAccountLoginCancel: op(
     "providerAccountLoginCancel",
     "provider-account-signin-and-token",
     "method",
-    "cancel a brokered sign-in that is still in flight, named by the attempt it started",
     "providerAccount.loginCancel",
   ),
   providerAccountRegister: op(
     "providerAccountRegister",
     "provider-account-signin-and-token",
     "method",
-    "register an account, optionally carrying the one write-only non-interactive token member that appears on no reply",
     "providerAccount.register",
   ),
 };
