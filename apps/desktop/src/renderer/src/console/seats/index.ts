@@ -287,12 +287,12 @@ export {
   useShellComposerFocusRequests,
 } from "./composer/composer-focus.js";
 
+// `sidebarSectionRenderer` is deliberately absent: the registry hands a mounted sidebar its
+// rows and its one suite takes the declaring module, so the reservation held nothing.
 export {
   SIDEBAR_SECTION_IDS,
   SidebarSectionRegistry,
   sidebarSectionRegistry,
-  /** @consumedBy T-023p-1C-3 */
-  sidebarSectionRenderer,
   type SidebarSectionContext,
   type SidebarSectionDescriptor,
   type SidebarSectionId,
@@ -348,6 +348,9 @@ export {
   type TimelineRowFooterSlotProps,
 } from "./slots/timeline-row-footer-seat.js";
 
+// `InlineCardBodyDescriptor` is deliberately absent: a registrar hands `register` an
+// object literal and `inlineCardBody` answers already narrowed, so the reservation that
+// held the line named a task that landed and imported it nowhere.
 export {
   /** @consumedBy T-023p-1C-2 */
   INLINE_CARD_KINDS,
@@ -359,8 +362,6 @@ export {
   type DiffInlineCardProps,
   /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
   type InlineCardAttachmentRef,
-  /** @consumedBy T-023p-1C-5 */
-  type InlineCardBodyDescriptor,
   /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
   type InlineCardKind,
   /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
@@ -410,11 +411,10 @@ export type { OwnerSlotContract, OwnerSlotProps } from "./slots/owner-slot.js";
 // The hook's claim is retired: the ledger's pane holds its chapter disclosure and
 // both of its row-retention tables through this line.
 export { isCurrentSessionSubject, useSessionScopedState } from "./session-subject.js";
-export type {
-  /** @consumedBy T-023p-1C-3 */
-  SessionScopedKey,
-  SessionSubject,
-} from "./session-subject.js";
+// `SessionScopedKey` stays off the door with the hook's own claim: every caller passes a
+// session id rather than declaring the key type, so the reservation that held the line
+// named a task that landed and imported it nowhere.
+export type { SessionSubject } from "./session-subject.js";
 
 // The node's session directory — the read, the offer a picker draws from it, and the
 // one way a settled act says the node's list has moved.

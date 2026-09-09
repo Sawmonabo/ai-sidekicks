@@ -278,12 +278,16 @@ export {
 // The registered widenings of that shape. Through the door because a family rendering
 // a refusal's ledger reads the members, and a family that widened a refusal without
 // registering it here would have its members dropped by the normalizer's rebuild.
+//
+// TWO NAMES ARE DELIBERATELY ABSENT. `ConsoleRefusalExtensions` is the whole-extension
+// interface and `WireRetryHint` is one member's shape; every surface that renders a
+// refusal reaches them through `ExtendedConsoleRefusal` and the reading
+// `readRefusalExtensions` returns, and neither name is written out by any module
+// outside this family. They were reserved for consuming tasks that landed and imported
+// neither, and a reservation that outlives its task is a door line the barrel census
+// fails. The family that first names either one publishes it in its own diff.
 export {
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
-  type ConsoleRefusalExtensions,
   type ExtendedConsoleRefusal,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
-  type WireRetryHint,
   type WireReferencingArtifacts,
   readRefusalExtensions,
 } from "./refusal-extensions.js";

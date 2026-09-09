@@ -90,6 +90,13 @@ There is exactly one shared layer. `src/renderer/src/shared/` is not created; a 
 - React components are function components that render. Effects, subscriptions, derivations, and every store construction live in a class or a hook — never in a render body.
 - A closed set is declared once and every consumer derives from it — never a second union with a comment saying it mirrors the first.
 
+## Console design
+
+Neither rule below has a mechanical gate: one reads colour values out of stylesheets and the other reads the shape of a sentence, and both answers are judgments a checker gets wrong in the direction that costs the most — a finding about text nobody reads. They are held here, and in review.
+
+- **Two hues carry attention, and a third is never added.** Amber means a person is needed; red means something failed. Every attention colour is an `ATTENTION_TOKENS` entry in `tokens/palette.ts`, and the brand accent is the one desaturated cyan reserved for interactive affordances. A family stylesheet never paints an attention treatment from a hex, a named colour, or a raw `oklch()` of its own — that is how a third hue actually arrives, one green tick at a time. A raw `oklch(0% 0 0 / …)` in a `box-shadow` is an opacity rather than a hue and is not this rule's subject.
+- **Copy is sentence case, and it neither exclaims nor celebrates.** A receipt states what happened. No exclamation mark, no congratulation, and no Title Case run of three or more words — a heading written as a label reads as a different product beside the twenty calm rows above it.
+
 ## Executables
 
 - Every file under `scripts/**` and `build/**` is TypeScript (`.ts` or `.mts`), run under `node --experimental-strip-types`, and typechecked by `tsconfig.scripts.json` or `tsconfig.build.json`, both of which the `typecheck` script reaches. No `.js`, `.mjs`, or `.cjs` executable, and no hand-written `.d.mts` beside one: a declaration nothing checks against its implementation is a claim, not a type.
