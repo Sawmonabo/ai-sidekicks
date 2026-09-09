@@ -36,6 +36,13 @@ import {
  */
 const RUN_ATTRIBUTION_PAYLOAD_MEMBERS: readonly string[] = TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS;
 
+export type RunNamingPayloadMember = RunNamingMemberOf<
+  SessionEvent["payload"] | RunStateChangeEvent | RunRolledBackEvent | InterventionRequestPayload
+>;
+
+/** Whether a member names the run the event is ABOUT, or some other run. */
+export type RunAttributionRole = "this-run" | "another-run";
+
 /**
  * Every payload member in the registered shapes that NAMES a run, decided.
  *
@@ -67,13 +74,6 @@ const RUN_ATTRIBUTION_PAYLOAD_MEMBERS: readonly string[] = TIMELINE_RUN_ATTRIBUT
 type RunNamingMemberOf<TPayload> = TPayload extends unknown
   ? Extract<keyof TPayload, "runId" | `${string}RunId`>
   : never;
-
-export type RunNamingPayloadMember = RunNamingMemberOf<
-  SessionEvent["payload"] | RunStateChangeEvent | RunRolledBackEvent | InterventionRequestPayload
->;
-
-/** Whether a member names the run the event is ABOUT, or some other run. */
-export type RunAttributionRole = "this-run" | "another-run";
 
 /**
  * The decision, one row per run-naming member. A COMPILE GATE, and stated as one.

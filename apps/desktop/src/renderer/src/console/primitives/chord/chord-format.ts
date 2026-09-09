@@ -77,15 +77,26 @@ export type ChordPlatform = (typeof CHORD_PLATFORMS)[number];
  */
 export const HOST_CHORD_PLATFORM: ChordPlatform = detectHostChordPlatform();
 
-function detectHostChordPlatform(): ChordPlatform {
-  if (typeof navigator === "undefined") {
-    return "linux";
-  }
-  const signature = `${navigator.platform} ${navigator.userAgent}`;
-  if (/mac|iphone|ipad|ipod/i.test(signature)) {
-    return "darwin";
-  }
-  return /win/i.test(signature) ? "win32" : "linux";
+/**
+ * One key of a chord, in both of the forms a person can receive it.
+ *
+ * The two are NOT interchangeable and the split is the point: a screen reader
+ * pronounces ⌘ as "place of interest sign" and ⇧ as "upwards white arrow", so a
+ * keycap glyph read aloud is worse than no hint at all. Every table below fills in
+ * both, so the printed form and the spoken form are decided in one place and cannot
+ * drift apart the way two parallel tables would.
+ */
+export interface ChordKeyRendering {
+  /** What is printed on the keycap. May be a glyph. */
+  readonly glyph: string;
+  /** What assistive technology says. Always words. */
+  readonly spoken: string;
+}
+
+/** One press of a chord: its held modifiers, in print order, and its key. */
+export interface ChordPressRendering {
+  readonly modifiers: readonly ChordKeyRendering[];
+  readonly key: ChordKeyRendering;
 }
 
 /**
@@ -109,26 +120,15 @@ export function splitChordTokens(chord: string): { modifiers: readonly string[];
   return { modifiers: parts, key };
 }
 
-/**
- * One key of a chord, in both of the forms a person can receive it.
- *
- * The two are NOT interchangeable and the split is the point: a screen reader
- * pronounces ⌘ as "place of interest sign" and ⇧ as "upwards white arrow", so a
- * keycap glyph read aloud is worse than no hint at all. Every table below fills in
- * both, so the printed form and the spoken form are decided in one place and cannot
- * drift apart the way two parallel tables would.
- */
-export interface ChordKeyRendering {
-  /** What is printed on the keycap. May be a glyph. */
-  readonly glyph: string;
-  /** What assistive technology says. Always words. */
-  readonly spoken: string;
-}
-
-/** One press of a chord: its held modifiers, in print order, and its key. */
-export interface ChordPressRendering {
-  readonly modifiers: readonly ChordKeyRendering[];
-  readonly key: ChordKeyRendering;
+function detectHostChordPlatform(): ChordPlatform {
+  if (typeof navigator === "undefined") {
+    return "linux";
+  }
+  const signature = `${navigator.platform} ${navigator.userAgent}`;
+  if (/mac|iphone|ipad|ipod/i.test(signature)) {
+    return "darwin";
+  }
+  return /win/i.test(signature) ? "win32" : "linux";
 }
 
 /**
@@ -252,24 +252,6 @@ const PUNCTUATION_CODES: Readonly<Record<string, ChordKeyRendering>> = {
   Equal: { glyph: "=", spoken: "Equals" },
 };
 
-function modifierRendering(token: string, platform: ChordPlatform): ChordKeyRendering | undefined {
-  // `$mod` is resolved into a real token first, through the one map, so neither table
-  // needs a row for it and the printer cannot come to disagree with the predicate.
-  const resolved: string =
-    token === PLATFORM_MODIFIER_CHORD_TOKEN ? PLATFORM_MODIFIER_TOKEN[platform] : token;
-  if (platform === "darwin") {
-    return DARWIN_MODIFIERS[resolved];
-  }
-  if (resolved === "Meta") {
-    // No glyph off macOS: the key is branded differently per platform, and
-    // printing "⌘" on Windows would name a key that is not on the keyboard.
-    return platform === "win32"
-      ? { glyph: "Win", spoken: "Windows" }
-      : { glyph: "Super", spoken: "Super" };
-  }
-  return NON_DARWIN_MODIFIERS[resolved];
-}
-
 /**
  * Reduce a key token to the character or name it stands for.
  *
@@ -288,38 +270,6 @@ export function decodeChordKeyToken(key: string): string {
   return withoutKeyPrefix.startsWith("Digit") && withoutKeyPrefix.length === 6
     ? withoutKeyPrefix.slice(5)
     : withoutKeyPrefix;
-}
-
-function keyRendering(key: string, platform: ChordPlatform): ChordKeyRendering {
-  const decoded = decodeChordKeyToken(key);
-  const punctuation = PUNCTUATION_CODES[decoded];
-  if (punctuation !== undefined) {
-    return punctuation;
-  }
-  const named = (platform === "darwin" ? DARWIN_KEYS : NON_DARWIN_KEYS)[decoded];
-  if (named !== undefined) {
-    return named;
-  }
-  // A single character is a letter, a digit, or a punctuation key authored
-  // literally; upper-case it so `k` and `K` — which tinykeys treats as the same
-  // binding — print the same way.
-  const printed = decoded.length === 1 ? decoded.toUpperCase() : decoded;
-  return { glyph: printed, spoken: printed };
-}
-
-function renderSinglePress(press: string, platform: ChordPlatform): ChordPressRendering {
-  const { modifiers, key } = splitChordTokens(press);
-  const renderedModifiers: ChordKeyRendering[] = [];
-  for (const token of modifiers) {
-    // `[Shift]` — an OPTIONAL modifier — is what the chord TOLERATES, not what a
-    // person must press, so it is omitted rather than printed as an instruction
-    // to hold a key they do not need.
-    if (token.startsWith("[") && token.endsWith("]")) {
-      continue;
-    }
-    renderedModifiers.push(modifierRendering(token, platform) ?? { glyph: token, spoken: token });
-  }
-  return { modifiers: renderedModifiers, key: keyRendering(key, platform) };
 }
 
 /**
@@ -361,4 +311,54 @@ export function formatChordForPlatform(chord: string, platform: ChordPlatform): 
         : [...modifiers, press.key.glyph].join("+");
     })
     .join(" ");
+}
+
+function modifierRendering(token: string, platform: ChordPlatform): ChordKeyRendering | undefined {
+  // `$mod` is resolved into a real token first, through the one map, so neither table
+  // needs a row for it and the printer cannot come to disagree with the predicate.
+  const resolved: string =
+    token === PLATFORM_MODIFIER_CHORD_TOKEN ? PLATFORM_MODIFIER_TOKEN[platform] : token;
+  if (platform === "darwin") {
+    return DARWIN_MODIFIERS[resolved];
+  }
+  if (resolved === "Meta") {
+    // No glyph off macOS: the key is branded differently per platform, and
+    // printing "⌘" on Windows would name a key that is not on the keyboard.
+    return platform === "win32"
+      ? { glyph: "Win", spoken: "Windows" }
+      : { glyph: "Super", spoken: "Super" };
+  }
+  return NON_DARWIN_MODIFIERS[resolved];
+}
+
+function keyRendering(key: string, platform: ChordPlatform): ChordKeyRendering {
+  const decoded = decodeChordKeyToken(key);
+  const punctuation = PUNCTUATION_CODES[decoded];
+  if (punctuation !== undefined) {
+    return punctuation;
+  }
+  const named = (platform === "darwin" ? DARWIN_KEYS : NON_DARWIN_KEYS)[decoded];
+  if (named !== undefined) {
+    return named;
+  }
+  // A single character is a letter, a digit, or a punctuation key authored
+  // literally; upper-case it so `k` and `K` — which tinykeys treats as the same
+  // binding — print the same way.
+  const printed = decoded.length === 1 ? decoded.toUpperCase() : decoded;
+  return { glyph: printed, spoken: printed };
+}
+
+function renderSinglePress(press: string, platform: ChordPlatform): ChordPressRendering {
+  const { modifiers, key } = splitChordTokens(press);
+  const renderedModifiers: ChordKeyRendering[] = [];
+  for (const token of modifiers) {
+    // `[Shift]` — an OPTIONAL modifier — is what the chord TOLERATES, not what a
+    // person must press, so it is omitted rather than printed as an instruction
+    // to hold a key they do not need.
+    if (token.startsWith("[") && token.endsWith("]")) {
+      continue;
+    }
+    renderedModifiers.push(modifierRendering(token, platform) ?? { glyph: token, spoken: token });
+  }
+  return { modifiers: renderedModifiers, key: keyRendering(key, platform) };
 }

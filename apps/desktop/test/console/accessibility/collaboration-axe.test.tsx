@@ -52,7 +52,7 @@ import {
 import {
   COLLABORATION_SCENARIO,
   COLLABORATION_SCENARIO_ID,
-} from "../../../src/renderer/src/console/bridge/scenarios/collaboration.js";
+} from "../../../src/renderer/src/console/bridge/scenario/collaboration/collaboration.js";
 import { ActivityIndicatorRegistry } from "../../../src/renderer/src/console/collaboration/activity-model.js";
 import { ChannelList } from "../../../src/renderer/src/console/collaboration/channels/ChannelList.js";
 import { loaded as channelDirectory } from "../../../src/renderer/src/console/collaboration/channels/channels.test-support.js";

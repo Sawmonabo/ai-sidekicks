@@ -14,7 +14,7 @@ import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../bridge/index.js";
-import { REPOS_SCENARIO } from "../bridge/scenarios/repos.js";
+import { REPOS_SCENARIO } from "../bridge/scenario/repos/repos.js";
 import { ManualClock } from "../core/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { SessionStore } from "../store/index.js";

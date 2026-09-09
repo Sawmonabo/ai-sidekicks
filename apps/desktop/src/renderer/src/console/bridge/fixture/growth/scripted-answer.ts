@@ -23,7 +23,7 @@ import {
   type GrowthOutcome,
 } from "../../growth-port/index.js";
 import type { GrowthOperationSignatures } from "../../growth-signatures/index.js";
-import { settleScriptedReply, type ScenarioEngine } from "../../scenario-runtime/index.js";
+import { settleScriptedReply, type ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /**
  * Answer one served operation from the scenario's script, or from its own absence.

@@ -78,12 +78,12 @@ import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens
 import {
   LEDGER_QUIET_SCENARIO,
   LEDGER_QUIET_SCENARIO_ID,
-} from "../../../src/renderer/src/console/bridge/scenarios/ledger/ledger-quiet.js";
+} from "../../../src/renderer/src/console/bridge/scenario/ledger/ledger-quiet.js";
 import {
   FLAGSHIP_SCENARIO,
   FLAGSHIP_SCENARIO_ID,
-} from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
-import { LEDGER_SCENARIO_ID } from "../../../src/renderer/src/console/bridge/scenarios/ledger/ledger.js";
+} from "../../../src/renderer/src/console/bridge/scenario/flagship/flagship.js";
+import { LEDGER_SCENARIO_ID } from "../../../src/renderer/src/console/bridge/scenario/ledger/ledger.js";
 import { captureSettled } from "./settled-capture.js";
 
 /** What one opened fixture session hands back: the mount, and what to capture. */

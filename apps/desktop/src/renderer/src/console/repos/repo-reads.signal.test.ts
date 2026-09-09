@@ -19,8 +19,8 @@ import type { RepoMountId } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
-import { GIT_MOUNT_ID } from "../bridge/scenarios/repos/repos-fixture-data.js";
-import { REPOS_SCENARIO } from "../bridge/scenarios/repos.js";
+import { GIT_MOUNT_ID } from "../bridge/scenario/repos/repos-fixture-data.js";
+import { REPOS_SCENARIO } from "../bridge/scenario/repos/repos.js";
 import { ReadScope } from "../store/index.js";
 import { checkWorktreeReuse, readMountExecutionModeCapabilities } from "./repo-reads.js";
 

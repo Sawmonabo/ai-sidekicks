@@ -17,7 +17,7 @@ import { fireEvent, render } from "@testing-library/react";
 
 import { SidekicksBridgeProvider } from "../bridge/BridgeProvider.js";
 import { createFixtureBridge } from "../bridge/index.js";
-import { WORKFLOWS_SCENARIO } from "../bridge/scenarios/workflows.js";
+import { WORKFLOWS_SCENARIO } from "../bridge/scenario/workflows/workflows.js";
 import { ManualClock } from "../core/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import type { ConsoleRoute } from "../routing/index.js";

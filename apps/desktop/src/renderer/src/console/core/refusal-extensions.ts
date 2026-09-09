@@ -153,29 +153,6 @@ export interface WireReferencingArtifacts {
 export type ExtendedConsoleRefusal = ConsoleRefusal & ConsoleRefusalExtensions;
 
 /**
- * Assemble a hint from two candidate numbers, or answer none.
- *
- * The one assembler both hint readers share. They differ in WHERE the two numbers are
- * read from — the wire's spelling versus this console's own — and agree on what counts
- * as a bound, which is the half that would drift if it were written twice.
- */
-function retryHintOf(
-  afterSeconds: unknown,
-  atEpochMilliseconds: unknown,
-): WireRetryHint | undefined {
-  const hint: { afterSeconds?: number; atEpochMilliseconds?: number } = {};
-  if (typeof afterSeconds === "number" && Number.isFinite(afterSeconds) && afterSeconds >= 0) {
-    hint.afterSeconds = afterSeconds;
-  }
-  if (typeof atEpochMilliseconds === "number" && Number.isFinite(atEpochMilliseconds)) {
-    hint.atEpochMilliseconds = atEpochMilliseconds;
-  }
-  return hint.afterSeconds === undefined && hint.atEpochMilliseconds === undefined
-    ? undefined
-    : hint;
-}
-
-/**
  * The two positions a retry bound is registered at on the WIRE, as an extension.
  *
  * Not an extension READER: it takes the wire's own spelling off an envelope that is
@@ -205,6 +182,60 @@ export function wireRetryExtension(source: unknown): ConsoleRefusalExtensions {
 export function wireHolderExtension(source: unknown): ConsoleRefusalExtensions {
   const holder = readWireString(readGuardedProperty(source, "holderParticipantId"));
   return holder === undefined ? {} : { holderParticipantId: holder };
+}
+
+/**
+ * The failed bindings a WIRE envelope named, as an extension.
+ *
+ * The `data.fields` sibling of {@link wireRetryExtension}, and separate from the
+ * registry reader beside it for the same reason: this takes the wire's own position
+ * on an envelope that is not a refusal, while the reader takes a member off a
+ * candidate that already is one.
+ */
+export function wireFailedBindingsExtension(source: unknown): ConsoleRefusalExtensions {
+  const failedBindingIds = identifierListOf(readGuardedProperty(source, "failedBindingIds"));
+  return failedBindingIds === undefined ? {} : { failedBindingIds };
+}
+
+/**
+ * The referencing manifests a WIRE envelope named, as an extension.
+ *
+ * The `data.fields` / `details` sibling of {@link wireRetryExtension}, and separate
+ * from the registry reader beside it for the same reason: this takes the wire's own
+ * spelling — `referencingArtifactIds` and `referencingArtifactTotal`, the members
+ * `error-contracts.md §Artifact` registers on `artifact.delete_blocked` — off an
+ * envelope that is not a refusal, while the reader takes a member off a candidate that
+ * already is one.
+ */
+export function wireReferencingArtifactsExtension(source: unknown): ConsoleRefusalExtensions {
+  const referencingArtifacts = referencingArtifactsOf(
+    readGuardedProperty(source, "referencingArtifactIds"),
+    readGuardedProperty(source, "referencingArtifactTotal"),
+  );
+  return referencingArtifacts === undefined ? {} : { referencingArtifacts };
+}
+
+/**
+ * Assemble a hint from two candidate numbers, or answer none.
+ *
+ * The one assembler both hint readers share. They differ in WHERE the two numbers are
+ * read from — the wire's spelling versus this console's own — and agree on what counts
+ * as a bound, which is the half that would drift if it were written twice.
+ */
+function retryHintOf(
+  afterSeconds: unknown,
+  atEpochMilliseconds: unknown,
+): WireRetryHint | undefined {
+  const hint: { afterSeconds?: number; atEpochMilliseconds?: number } = {};
+  if (typeof afterSeconds === "number" && Number.isFinite(afterSeconds) && afterSeconds >= 0) {
+    hint.afterSeconds = afterSeconds;
+  }
+  if (typeof atEpochMilliseconds === "number" && Number.isFinite(atEpochMilliseconds)) {
+    hint.atEpochMilliseconds = atEpochMilliseconds;
+  }
+  return hint.afterSeconds === undefined && hint.atEpochMilliseconds === undefined
+    ? undefined
+    : hint;
 }
 
 /** A hint a refusal already carries, in this console's own spelling, read guardedly. */
@@ -255,19 +286,6 @@ function identifierListOf(source: unknown): readonly string[] | undefined {
 }
 
 /**
- * The failed bindings a WIRE envelope named, as an extension.
- *
- * The `data.fields` sibling of {@link wireRetryExtension}, and separate from the
- * registry reader beside it for the same reason: this takes the wire's own position
- * on an envelope that is not a refusal, while the reader takes a member off a
- * candidate that already is one.
- */
-export function wireFailedBindingsExtension(source: unknown): ConsoleRefusalExtensions {
-  const failedBindingIds = identifierListOf(readGuardedProperty(source, "failedBindingIds"));
-  return failedBindingIds === undefined ? {} : { failedBindingIds };
-}
-
-/**
  * Assemble a referencing-artifact reading from a list and a count, or answer none.
  *
  * The one assembler both readers share, on {@link retryHintOf}'s rule: they differ in
@@ -292,24 +310,6 @@ function referencingArtifactsOf(
   return typeof total === "number" && Number.isInteger(total) && total >= identifiers.length
     ? { ids: identifiers, total }
     : { ids: identifiers };
-}
-
-/**
- * The referencing manifests a WIRE envelope named, as an extension.
- *
- * The `data.fields` / `details` sibling of {@link wireRetryExtension}, and separate
- * from the registry reader beside it for the same reason: this takes the wire's own
- * spelling — `referencingArtifactIds` and `referencingArtifactTotal`, the members
- * `error-contracts.md §Artifact` registers on `artifact.delete_blocked` — off an
- * envelope that is not a refusal, while the reader takes a member off a candidate that
- * already is one.
- */
-export function wireReferencingArtifactsExtension(source: unknown): ConsoleRefusalExtensions {
-  const referencingArtifacts = referencingArtifactsOf(
-    readGuardedProperty(source, "referencingArtifactIds"),
-    readGuardedProperty(source, "referencingArtifactTotal"),
-  );
-  return referencingArtifacts === undefined ? {} : { referencingArtifacts };
 }
 
 /** The reading a refusal already carries, in this console's own spelling, read guardedly. */

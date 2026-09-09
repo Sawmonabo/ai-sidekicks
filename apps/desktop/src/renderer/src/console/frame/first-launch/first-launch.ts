@@ -64,20 +64,6 @@ export const FIRST_LAUNCH_SEEN_VALUE: { readonly [key: string]: string } = {
   opening: "first-sixty-seconds",
 };
 
-/**
- * Whether a record read back under that key says this install has seen the demo.
- *
- * The PRESENCE of the record is the mark, and this reads no member of it: the store
- * answers `undefined` for a key nothing wrote and for a read it could not perform,
- * and both of those mean the same thing here — nothing established that this console
- * has introduced itself. Erring toward showing the demo again is the safe direction:
- * the cost is one extra viewing, and the cost the other way is a first launch that
- * silently skipped the one surface designed for it.
- */
-export function hasSeenFirstLaunch(storedRecord: unknown): boolean {
-  return storedRecord !== undefined;
-}
-
 export interface FirstLaunchInputs {
   /** The hash the window was BORN at — never a later one. */
   readonly openedAtHash: string;
@@ -92,6 +78,20 @@ export interface FirstLaunchInputs {
   readonly playingScenarioId: string | undefined;
   /** Whether this install has already been shown the demo. */
   readonly hasSeenFirstLaunch: boolean;
+}
+
+/**
+ * Whether a record read back under that key says this install has seen the demo.
+ *
+ * The PRESENCE of the record is the mark, and this reads no member of it: the store
+ * answers `undefined` for a key nothing wrote and for a read it could not perform,
+ * and both of those mean the same thing here — nothing established that this console
+ * has introduced itself. Erring toward showing the demo again is the safe direction:
+ * the cost is one extra viewing, and the cost the other way is a first launch that
+ * silently skipped the one surface designed for it.
+ */
+export function hasSeenFirstLaunch(storedRecord: unknown): boolean {
+  return storedRecord !== undefined;
 }
 
 /**

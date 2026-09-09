@@ -44,44 +44,10 @@ import type { InviteState } from "@ai-sidekicks/contracts";
 
 import { parseInstant } from "../../../core/index.js";
 import type { GrowthInviteSummary } from "../../growth-values/index.js";
-import type { ScenarioEngine } from "../../scenario-runtime/index.js";
+import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /** The state the control plane gives an invitation the moment it mints one. */
 const MINTED_INVITE_STATE = "pending";
-
-/**
- * One ledger row as it reads at a given instant on the scenario's own clock.
- *
- * ONLY A PENDING ROW AGES, because only a pending invitation has a lifetime left to
- * run: `InviteState` moves `pending → expired` and every other state is terminal, so
- * ageing an accepted or revoked row would invent a transition the daemon never makes.
- *
- * AT the declared instant rather than after it. `expiresAt` is when the invitation
- * stops being usable, so a row read at exactly its own expiry is already past the point
- * where a person could redeem it, and answering `pending` there would offer Revoke on
- * an invitation nothing could accept.
- *
- * A row whose expiry is not a readable instant is answered EXACTLY as declared, rather
- * than aged on a stamp nothing could read — an unreadable expiry is an authoring
- * mistake in whichever table declared the row, and guessing a lifecycle from it here
- * would hide that mistake behind a plausible row.
- *
- * Idempotent, which is what lets it be applied without asking whether it already has:
- * an aged row is `expired` and no longer matches the one state this moves.
- *
- * MODULE-PRIVATE, because the fold below is the only way a row reaches a reader: an
- * exported ageing function would be a second way to ask what state a row is in, and a
- * caller taking it would be re-deriving what the ledger read already answers.
- */
-function ageInviteRow(
-  row: GrowthInviteSummary,
-  settledAtMilliseconds: number,
-): GrowthInviteSummary {
-  const expiry = parseInstant(row.expiresAt).epochMilliseconds;
-  return row.state === "pending" && expiry !== undefined && settledAtMilliseconds >= expiry
-    ? { ...row, state: "expired" }
-    : row;
-}
 
 /**
  * The invitations one bridge has minted and the state moves it has recorded.
@@ -182,4 +148,38 @@ export class FixtureInviteLedger {
       );
     });
   }
+}
+
+/**
+ * One ledger row as it reads at a given instant on the scenario's own clock.
+ *
+ * ONLY A PENDING ROW AGES, because only a pending invitation has a lifetime left to
+ * run: `InviteState` moves `pending → expired` and every other state is terminal, so
+ * ageing an accepted or revoked row would invent a transition the daemon never makes.
+ *
+ * AT the declared instant rather than after it. `expiresAt` is when the invitation
+ * stops being usable, so a row read at exactly its own expiry is already past the point
+ * where a person could redeem it, and answering `pending` there would offer Revoke on
+ * an invitation nothing could accept.
+ *
+ * A row whose expiry is not a readable instant is answered EXACTLY as declared, rather
+ * than aged on a stamp nothing could read — an unreadable expiry is an authoring
+ * mistake in whichever table declared the row, and guessing a lifecycle from it here
+ * would hide that mistake behind a plausible row.
+ *
+ * Idempotent, which is what lets it be applied without asking whether it already has:
+ * an aged row is `expired` and no longer matches the one state this moves.
+ *
+ * MODULE-PRIVATE, because the fold below is the only way a row reaches a reader: an
+ * exported ageing function would be a second way to ask what state a row is in, and a
+ * caller taking it would be re-deriving what the ledger read already answers.
+ */
+function ageInviteRow(
+  row: GrowthInviteSummary,
+  settledAtMilliseconds: number,
+): GrowthInviteSummary {
+  const expiry = parseInstant(row.expiresAt).epochMilliseconds;
+  return row.state === "pending" && expiry !== undefined && settledAtMilliseconds >= expiry
+    ? { ...row, state: "expired" }
+    : row;
 }

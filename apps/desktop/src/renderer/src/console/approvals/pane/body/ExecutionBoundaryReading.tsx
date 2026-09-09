@@ -18,13 +18,6 @@ import { type ApprovalRecord } from "../../../bridge/index.js";
 import { type ReadPhase } from "../approvals-reader.js";
 import { type AddressedRunPosture } from "../posture/addressed-run-postures.js";
 
-interface ExecutionBoundaryReadingProps {
-  /** The projection read the addressed runs were derived from. */
-  readonly phase: ReadPhase<ApprovalRecord>;
-  /** The runs the pending decisions name, each with the boundary daemon stamped. */
-  readonly addressed: readonly AddressedRunPosture[];
-}
-
 export function ExecutionBoundaryReading(props: ExecutionBoundaryReadingProps): React.JSX.Element {
   if (props.phase.status === "not-checked") {
     return (
@@ -75,4 +68,11 @@ export function ExecutionBoundaryReading(props: ExecutionBoundaryReadingProps): 
       ))}
     </>
   );
+}
+
+interface ExecutionBoundaryReadingProps {
+  /** The projection read the addressed runs were derived from. */
+  readonly phase: ReadPhase<ApprovalRecord>;
+  /** The runs the pending decisions name, each with the boundary daemon stamped. */
+  readonly addressed: readonly AddressedRunPosture[];
 }

@@ -42,34 +42,6 @@ export interface TabStripProps {
   readonly onReorder: (pageId: string, toIndex: number) => void;
 }
 
-/**
- * The tab's classes: the base, the selected mark, and the drop marker.
- *
- * THE SELECTED MARK IS A CLASS AND NOT AN ATTRIBUTE SELECTOR. `aria-current` belongs
- * on the interactive element, which is the face inside the item — so a rule keyed on
- * the ITEM's `aria-current` matches nothing and the selected tab is drawn exactly like
- * every other one. That is invisible in every unit case, because no cascade runs
- * there; the browser tier is where it is caught, and this is the shape that keeps the
- * accessible marker and the styling hook from having to be the same thing.
- */
-function tabClassName(isSelected: boolean, isDropTarget: boolean): string {
-  return [
-    "meridian-browser-tab",
-    isSelected ? "meridian-browser-tab--selected" : undefined,
-    isDropTarget ? "meridian-browser-tab--drop-before" : undefined,
-  ]
-    .filter((token) => token !== undefined)
-    .join(" ");
-}
-
-/** What a tab shows when the agent set no label: the page's own title, then its host. */
-function tabLabel(page: BrowserPage): string {
-  if (page.label !== null && page.label.length > 0) {
-    return page.label;
-  }
-  return page.title.length > 0 ? page.title : page.host;
-}
-
 export function TabStrip(props: TabStripProps): React.JSX.Element {
   const { reading, onSelect, onClose, onCreate, onReorder } = props;
   // The slot a drag is currently over, held only while a drag is in the air. It is
@@ -210,4 +182,32 @@ export function TabStrip(props: TabStripProps): React.JSX.Element {
       <ChromeControl label="New page" glyph="plus" onActivate={onCreate} />
     </div>
   );
+}
+
+/**
+ * The tab's classes: the base, the selected mark, and the drop marker.
+ *
+ * THE SELECTED MARK IS A CLASS AND NOT AN ATTRIBUTE SELECTOR. `aria-current` belongs
+ * on the interactive element, which is the face inside the item — so a rule keyed on
+ * the ITEM's `aria-current` matches nothing and the selected tab is drawn exactly like
+ * every other one. That is invisible in every unit case, because no cascade runs
+ * there; the browser tier is where it is caught, and this is the shape that keeps the
+ * accessible marker and the styling hook from having to be the same thing.
+ */
+function tabClassName(isSelected: boolean, isDropTarget: boolean): string {
+  return [
+    "meridian-browser-tab",
+    isSelected ? "meridian-browser-tab--selected" : undefined,
+    isDropTarget ? "meridian-browser-tab--drop-before" : undefined,
+  ]
+    .filter((token) => token !== undefined)
+    .join(" ");
+}
+
+/** What a tab shows when the agent set no label: the page's own title, then its host. */
+function tabLabel(page: BrowserPage): string {
+  if (page.label !== null && page.label.length > 0) {
+    return page.label;
+  }
+  return page.title.length > 0 ? page.title : page.host;
 }

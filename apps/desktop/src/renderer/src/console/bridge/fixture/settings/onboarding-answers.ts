@@ -36,7 +36,7 @@
 import { answerFromScriptedReply, answerScriptOnly } from "../growth/scripted-answer.js";
 import { mapGrowthServed, type GrowthOutcome, type GrowthPort } from "../../growth-port/index.js";
 import type { GrowthOperationSignatures } from "../../growth-signatures/index.js";
-import type { ScenarioEngine } from "../../scenario-runtime/scenario-engine.js";
+import type { ScenarioEngine } from "../../scenario/runtime/engine.js";
 
 /**
  * The six onboarding operations the fixture answers.
@@ -59,9 +59,6 @@ export const FIXTURE_SERVED_ONBOARDING_OPERATION_IDS = [
 /** One onboarding operation the fixture serves. Derived, so the set has one home. */
 export type FixtureServedOnboardingOperationId =
   (typeof FIXTURE_SERVED_ONBOARDING_OPERATION_IDS)[number];
-
-/** What the state read answers with, from the signature table rather than retyped. */
-type OnboardingStateReading = GrowthOperationSignatures["onboardingStateRead"]["value"];
 
 /**
  * What this port's caller has recorded since the scenario started playing.
@@ -208,3 +205,6 @@ export function fixtureOnboardingAnswers(
       ),
   };
 }
+
+/** What the state read answers with, from the signature table rather than retyped. */
+type OnboardingStateReading = GrowthOperationSignatures["onboardingStateRead"]["value"];

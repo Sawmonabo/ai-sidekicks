@@ -42,36 +42,6 @@ const PANE_ADDRESS_ORIGIN = "pane-address";
 const PANE_ENTITY_ID_MAX_LENGTH = IDENTIFIER_MAX_LENGTH;
 
 /**
- * The entity reference an untyped boundary supplied, or `undefined` when it supplied none.
- *
- * The id is held to the console's ONE identifier grammar rather than to `id.length`.
- * A non-empty check admits whitespace, a NUL, a path, and a string of any length, and
- * the parse then answered with a valid pane address whose body would query a store key
- * that can never exist — `Spec-023 §Console Design (Meridian)` §The surface set's "an
- * entity id that fails validation is rejected", unenforced.
- *
- * The grammar is `persistence/identifier-grammar.ts`'s, imported rather than restated:
- * the layout snapshot this parse reads back is written through that family's value
- * walk, so the durable boundary already holds this exact string to this exact
- * predicate. A second grammar here would let route resolution admit an id the layout
- * path refuses, which is one value with two answers.
- *
- * `packages/contracts` settles nothing broader for it. Its id schemas are per-entity
- * branded UUIDs (`SessionIdSchema` and its siblings), and `ConsoleEntityRef.id` is
- * deliberately kind-agnostic and wire-verbatim, so no contracts schema covers the
- * value this boundary holds — and none disagrees with the grammar that does.
- */
-function readEntityRefCandidate(candidate: unknown): ConsoleEntityRef | undefined {
-  if (typeof candidate !== "object" || candidate === null) {
-    return undefined;
-  }
-  const { kind, id } = candidate as { readonly kind?: unknown; readonly id?: unknown };
-  return typeof kind === "string" && typeof id === "string" && isSingleNameIdentifierShaped(id)
-    ? ({ kind, id } as ConsoleEntityRef)
-    : undefined;
-}
-
-/**
  * Admit one address that arrived untyped, or refuse it by name.
  *
  * The two callers are the boundaries where the compiler has no claim to make: a
@@ -146,4 +116,34 @@ export function parseConsolePaneAddress(
   // `entity.kind` is now known to be one this pane kind's row lists, which is
   // exactly the union the arm's `entity` member is narrowed to.
   return { kind: candidateKind, entity } as ConsolePaneAddress;
+}
+
+/**
+ * The entity reference an untyped boundary supplied, or `undefined` when it supplied none.
+ *
+ * The id is held to the console's ONE identifier grammar rather than to `id.length`.
+ * A non-empty check admits whitespace, a NUL, a path, and a string of any length, and
+ * the parse then answered with a valid pane address whose body would query a store key
+ * that can never exist — `Spec-023 §Console Design (Meridian)` §The surface set's "an
+ * entity id that fails validation is rejected", unenforced.
+ *
+ * The grammar is `persistence/identifier-grammar.ts`'s, imported rather than restated:
+ * the layout snapshot this parse reads back is written through that family's value
+ * walk, so the durable boundary already holds this exact string to this exact
+ * predicate. A second grammar here would let route resolution admit an id the layout
+ * path refuses, which is one value with two answers.
+ *
+ * `packages/contracts` settles nothing broader for it. Its id schemas are per-entity
+ * branded UUIDs (`SessionIdSchema` and its siblings), and `ConsoleEntityRef.id` is
+ * deliberately kind-agnostic and wire-verbatim, so no contracts schema covers the
+ * value this boundary holds — and none disagrees with the grammar that does.
+ */
+function readEntityRefCandidate(candidate: unknown): ConsoleEntityRef | undefined {
+  if (typeof candidate !== "object" || candidate === null) {
+    return undefined;
+  }
+  const { kind, id } = candidate as { readonly kind?: unknown; readonly id?: unknown };
+  return typeof kind === "string" && typeof id === "string" && isSingleNameIdentifierShaped(id)
+    ? ({ kind, id } as ConsoleEntityRef)
+    : undefined;
 }

@@ -60,6 +60,29 @@ import { SettingsPageRegistry } from "./settings-page-registry.js";
 import { SettingsSurface } from "./SettingsSurface.js";
 
 /**
+ * The settings surface, with its pages composed for this mount.
+ *
+ * `useState` with a lazy initialiser rather than a construction in the render body: the
+ * registry is state whose identity the surface reads across every re-render, and the
+ * package standard puts a construction in a hook rather than beside the JSX.
+ *
+ * A `.ts` MODULE COMPOSING WITH `createElement`, like every other chunk root beside it.
+ * This file is an entry point rather than a component — it names no component of its
+ * own, it holds the family's page roster and its stylesheet edges — and
+ * `apps/desktop/AGENTS.md` §Module shape reads a `.tsx` extension as the claim that a
+ * module DECLARES the component its filename names. One element in one return is
+ * not worth making that claim falsely.
+ */
+export function Body(context: ConsoleSurfaceContext): React.ReactNode {
+  const [pages] = useState(() => {
+    const registry = new SettingsPageRegistry();
+    registerSettingsPages(registry);
+    return registry;
+  });
+  return createElement(SettingsSurface, { context, pages });
+}
+
+/**
  * Register every shipped settings page against a registry.
  *
  * Takes the registry rather than reaching for a module-scope singleton, for
@@ -97,27 +120,4 @@ function registerSettingsPages(registry: SettingsPageRegistry): void {
   // The local runtime's own page: the supervisor detail the frame's chip is one
   // click away from.
   registerDaemonPage(registry);
-}
-
-/**
- * The settings surface, with its pages composed for this mount.
- *
- * `useState` with a lazy initialiser rather than a construction in the render body: the
- * registry is state whose identity the surface reads across every re-render, and the
- * package standard puts a construction in a hook rather than beside the JSX.
- *
- * A `.ts` MODULE COMPOSING WITH `createElement`, like every other chunk root beside it.
- * This file is an entry point rather than a component — it names no component of its
- * own, it holds the family's page roster and its stylesheet edges — and
- * `apps/desktop/AGENTS.md` §Module shape reads a `.tsx` extension as the claim that a
- * module DECLARES the component its filename names. One element in one return is
- * not worth making that claim falsely.
- */
-export function Body(context: ConsoleSurfaceContext): React.ReactNode {
-  const [pages] = useState(() => {
-    const registry = new SettingsPageRegistry();
-    registerSettingsPages(registry);
-    return registry;
-  });
-  return createElement(SettingsSurface, { context, pages });
 }

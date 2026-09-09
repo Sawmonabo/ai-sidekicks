@@ -130,6 +130,18 @@ const YAML_READER_OPTIONS = {
  */
 const YAML_WRITER_OPTIONS = { indent: 2, lineWidth: 0 } as const;
 
+/** What a parse answers with: the request body, or the reason there is none. */
+export type WorkflowDefinitionFileReading =
+  | { readonly status: "parsed"; readonly body: WorkflowDefinitionCreateBody }
+  | { readonly status: "invalid"; readonly reason: string };
+
+/** Everything an imported file does not carry and the caller has to supply. */
+export interface WorkflowDefinitionImportTarget {
+  readonly sessionId: string;
+  readonly scope: WorkflowDefinitionScope;
+  readonly scopeRef: string | undefined;
+}
+
 /**
  * Serialize one served version body into the file form.
  *
@@ -153,18 +165,6 @@ export function serializeDefinitionFile(body: WorkflowVersionBody): string {
     fileDocument.set(key, bodyRecord[key]);
   }
   return fileDocument.toString(YAML_WRITER_OPTIONS);
-}
-
-/** What a parse answers with: the request body, or the reason there is none. */
-export type WorkflowDefinitionFileReading =
-  | { readonly status: "parsed"; readonly body: WorkflowDefinitionCreateBody }
-  | { readonly status: "invalid"; readonly reason: string };
-
-/** Everything an imported file does not carry and the caller has to supply. */
-export interface WorkflowDefinitionImportTarget {
-  readonly sessionId: string;
-  readonly scope: WorkflowDefinitionScope;
-  readonly scopeRef: string | undefined;
 }
 
 /**

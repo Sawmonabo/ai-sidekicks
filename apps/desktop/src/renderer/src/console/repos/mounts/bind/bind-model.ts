@@ -99,6 +99,15 @@ export function resolveBindForm(
   };
 }
 
+/** The mode to pre-fill: the daemon's own default, and never a guess of the console's. */
+export function defaultBindMode(
+  capabilities: WorkspaceExecutionModeCapabilitiesReadResponse,
+): ExecutionMode | undefined {
+  return capabilities.availableModes.includes(capabilities.defaultMode)
+    ? capabilities.defaultMode
+    : undefined;
+}
+
 /**
  * The verdict itself, once the mode question has an answer.
  *
@@ -147,13 +156,4 @@ function bindVerdictFor(
         because: "Choose the execution mode this workspace binds in.",
       };
   }
-}
-
-/** The mode to pre-fill: the daemon's own default, and never a guess of the console's. */
-export function defaultBindMode(
-  capabilities: WorkspaceExecutionModeCapabilitiesReadResponse,
-): ExecutionMode | undefined {
-  return capabilities.availableModes.includes(capabilities.defaultMode)
-    ? capabilities.defaultMode
-    : undefined;
 }

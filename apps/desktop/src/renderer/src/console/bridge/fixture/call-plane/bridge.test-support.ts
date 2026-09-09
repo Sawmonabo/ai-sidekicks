@@ -29,8 +29,8 @@ import type {
   ConsoleScenario,
   ScenarioBeat,
   ScenarioEngine,
-} from "../../scenario-runtime/index.js";
-import { FLAGSHIP_SCENARIO } from "../../scenarios/flagship.js";
+} from "../../scenario/runtime/index.js";
+import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
 
 /** The scripted latency both settling suites spend. Longer than one tick. */
 export const SCRIPTED_LATENCY_MS = 120;
@@ -43,6 +43,30 @@ export const DELAYED_RESULT: { readonly agents: readonly unknown[] } = { agents:
 
 /** The run this file's run-transition beats are about. */
 export const PROBE_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150091";
+
+export interface FixtureUnderTest {
+  readonly bridge: ReturnType<typeof createFixtureBridge>;
+  readonly engine: ScenarioEngine;
+}
+
+/** What the daemon was asked, so a case can assert it was never asked at all. */
+export interface RecordedDaemonCall {
+  readonly method: string;
+  readonly params: unknown;
+}
+
+/** A bridge whose call arm answers as the suite says, and the record of what it was asked. */
+export interface BridgeUnderTest {
+  readonly bridge: ConsoleBridge;
+  readonly calls: readonly RecordedDaemonCall[];
+}
+
+/** One bridge with a named stream's handler captured, and the way to deliver to it. */
+export interface StreamUnderTest {
+  readonly bridge: ConsoleBridge;
+  /** Push one frame to whatever subscribed to the captured stream. */
+  readonly deliver: (payload: unknown) => void;
+}
 
 /**
  * One run-transition beat, in the shape the shipped scenarios script one.
@@ -76,11 +100,6 @@ export function runTransitionBeat(payload: Readonly<Record<string, unknown>>): S
  */
 export function lastScriptedBeatMs(scenario: ConsoleScenario): number {
   return scenario.beats.reduce((latest, beat) => Math.max(latest, beat.atMs), 0);
-}
-
-export interface FixtureUnderTest {
-  readonly bridge: ReturnType<typeof createFixtureBridge>;
-  readonly engine: ScenarioEngine;
 }
 
 /** The real fixture bridge over a real scenario, and the real engine driving it. */
@@ -139,18 +158,6 @@ export function callThroughBridge(fixture: FixtureUnderTest, method: string): Pr
   return callBridge(fixture.bridge, method);
 }
 
-/** What the daemon was asked, so a case can assert it was never asked at all. */
-export interface RecordedDaemonCall {
-  readonly method: string;
-  readonly params: unknown;
-}
-
-/** A bridge whose call arm answers as the suite says, and the record of what it was asked. */
-export interface BridgeUnderTest {
-  readonly bridge: ConsoleBridge;
-  readonly calls: readonly RecordedDaemonCall[];
-}
-
 /**
  * Replace one bridge's `daemon.call` with an arm this suite decides the answer for.
  *
@@ -199,13 +206,6 @@ export function withDaemonCall(
       },
     },
   };
-}
-
-/** One bridge with a named stream's handler captured, and the way to deliver to it. */
-export interface StreamUnderTest {
-  readonly bridge: ConsoleBridge;
-  /** Push one frame to whatever subscribed to the captured stream. */
-  readonly deliver: (payload: unknown) => void;
 }
 
 /**

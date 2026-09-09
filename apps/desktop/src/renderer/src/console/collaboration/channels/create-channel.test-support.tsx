@@ -38,6 +38,15 @@ export interface CreateChannelOverrides {
   readonly sessionId?: string;
 }
 
+/** The five configuration members the general arm collects, each as its own control. */
+export interface CreateChannelPolicyControls {
+  readonly audience: HTMLSelectElement;
+  readonly turnPolicy: HTMLSelectElement;
+  readonly roundRobinOrder: HTMLInputElement;
+  readonly turnsPerAgent: HTMLInputElement;
+  readonly moderationBoxes: readonly HTMLInputElement[];
+}
+
 /**
  * The element itself, so a case can re-address the SAME mount.
  *
@@ -73,24 +82,6 @@ export function renderCreateChannel(
   return { ...render(createChannelElement(overrides, bridge)), bridge };
 }
 
-/**
- * One element the case cannot proceed without, or a failure naming what it looked for.
- *
- * A throw rather than a non-null assertion, so a selector that stopped matching reports
- * itself instead of surfacing three lines later as a property read on `undefined`.
- */
-function requiredElement<TElement extends Element>(
-  container: HTMLElement,
-  selector: string,
-  index = 0,
-): TElement {
-  const found = container.querySelectorAll<TElement>(selector)[index];
-  if (found === undefined) {
-    throw new Error(`nothing matched ${selector} at index ${String(index)}`);
-  }
-  return found;
-}
-
 /** Type a name into the form's own name field. */
 export function typeName(container: HTMLElement, name: string): void {
   fireEvent.change(requiredElement<HTMLInputElement>(container, ".meridian-create-channel__name"), {
@@ -110,15 +101,6 @@ export function chooseKind(container: HTMLElement, kind: GrowthChannelKind): voi
   act(() => {
     requiredElement<HTMLButtonElement>(container, ".meridian-create-channel__kind", index).click();
   });
-}
-
-/** The five configuration members the general arm collects, each as its own control. */
-export interface CreateChannelPolicyControls {
-  readonly audience: HTMLSelectElement;
-  readonly turnPolicy: HTMLSelectElement;
-  readonly roundRobinOrder: HTMLInputElement;
-  readonly turnsPerAgent: HTMLInputElement;
-  readonly moderationBoxes: readonly HTMLInputElement[];
 }
 
 /**
@@ -143,4 +125,22 @@ export function fieldNotes(container: HTMLElement): readonly string[] {
   return [...container.querySelectorAll(".meridian-create-channel__field-note")].map(
     (note) => note.textContent ?? "",
   );
+}
+
+/**
+ * One element the case cannot proceed without, or a failure naming what it looked for.
+ *
+ * A throw rather than a non-null assertion, so a selector that stopped matching reports
+ * itself instead of surfacing three lines later as a property read on `undefined`.
+ */
+function requiredElement<TElement extends Element>(
+  container: HTMLElement,
+  selector: string,
+  index = 0,
+): TElement {
+  const found = container.querySelectorAll<TElement>(selector)[index];
+  if (found === undefined) {
+    throw new Error(`nothing matched ${selector} at index ${String(index)}`);
+  }
+  return found;
 }

@@ -38,7 +38,7 @@
 
 import type { ConsoleBridge } from "../../console/bridge/index.js";
 import { bridgeAnswering } from "../../console/bridge/fixture/call-plane/bridge.test-support.js";
-import { COMPOSER_SCENARIO } from "../../console/bridge/scenarios/composer.js";
+import { COMPOSER_SCENARIO } from "../../console/bridge/scenario/composer/composer.js";
 
 /** One parked call's two ways out. */
 interface ParkedCall {

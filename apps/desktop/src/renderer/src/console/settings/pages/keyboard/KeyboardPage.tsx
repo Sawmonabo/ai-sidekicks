@@ -59,12 +59,6 @@ const OWNER = "collaboration-settings-keyboard";
 /** The filter field's id, so its label points at it rather than wrapping it. */
 const FILTER_FIELD_ID = "meridian-keyboard-filter";
 
-/** What the last rebinding said, if it said anything. One act, one answer. */
-interface KeyboardActReport {
-  readonly commandId: string;
-  readonly refusal: ConsoleRefusal;
-}
-
 export function KeyboardPage(): ReactNode {
   const [query, setQuery] = useState("");
   const [recordingCommandId, setRecordingCommandId] = useState<string | undefined>(undefined);
@@ -349,21 +343,6 @@ export function KeyboardPage(): ReactNode {
   );
 }
 
-/** What a settled rebinding says, and never more than it knows. */
-function describeBinding(
-  title: string,
-  chord: string | null,
-  unsaved: ConsoleRefusal | undefined,
-): string {
-  const act =
-    chord === null
-      ? `${title} now has no chord`
-      : `${title} now runs on ${formatChordForPlatform(chord, HOST_CHORD_PLATFORM)}`;
-  return unsaved === undefined
-    ? `${act}, and the change is kept for this window.`
-    : `${act} for as long as this window is open, and will not come back after a reload. ${unsaved.detail}`;
-}
-
 /** Claim the keyboard section. See `RuntimeNodesPage.tsx` on the seam's shape. */
 export function registerKeyboardPage(registry: SettingsPageRegistry): void {
   registry.register({
@@ -382,4 +361,25 @@ export function registerKeyboardPage(registry: SettingsPageRegistry): void {
     ],
     render: () => <KeyboardPage />,
   });
+}
+
+/** What the last rebinding said, if it said anything. One act, one answer. */
+interface KeyboardActReport {
+  readonly commandId: string;
+  readonly refusal: ConsoleRefusal;
+}
+
+/** What a settled rebinding says, and never more than it knows. */
+function describeBinding(
+  title: string,
+  chord: string | null,
+  unsaved: ConsoleRefusal | undefined,
+): string {
+  const act =
+    chord === null
+      ? `${title} now has no chord`
+      : `${title} now runs on ${formatChordForPlatform(chord, HOST_CHORD_PLATFORM)}`;
+  return unsaved === undefined
+    ? `${act}, and the change is kept for this window.`
+    : `${act} for as long as this window is open, and will not come back after a reload. ${unsaved.detail}`;
 }

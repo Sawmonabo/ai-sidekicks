@@ -39,7 +39,7 @@
 
 import { answerFromScriptedReply, answerScriptOnly } from "../growth/scripted-answer.js";
 import type { GrowthPort } from "../../growth-port/index.js";
-import type { ScenarioEngine } from "../../scenario-runtime/scenario-engine.js";
+import type { ScenarioEngine } from "../../scenario/runtime/engine.js";
 
 /**
  * The five diagnostics operations the fixture answers.

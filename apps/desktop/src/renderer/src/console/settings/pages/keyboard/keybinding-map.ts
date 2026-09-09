@@ -72,6 +72,54 @@ export interface KeybindingRow {
   readonly overridden: boolean;
 }
 
+/** A chord this window is holding for a command it cannot find. */
+export interface StaleKeybindingOverrideRow {
+  readonly commandId: string;
+  /** The chord the override reserves. Always a string: a cleared override reserves none. */
+  readonly chord: string;
+}
+
+/**
+ * What one keystroke means to a recorder that is listening for a chord.
+ *
+ * Four outcomes and each is an act a person performed, not a state the recorder is
+ * in: three of them end the recording and `incomplete` is the one that does not.
+ * They are values rather than callbacks so the whole grammar is decided in one pure
+ * function a test can drive with a synthetic event.
+ */
+export type ChordRecording =
+  | { readonly outcome: "captured"; readonly chord: string }
+  | { readonly outcome: "cancelled" }
+  | { readonly outcome: "cleared" }
+  | {
+      readonly outcome: "incomplete";
+      /**
+       * The modifiers held at this keystroke, in the order the console writes them.
+       *
+       * Carried rather than discarded because the section asks for "the keys held so
+       * far, and whether the chord is complete": a recorder that showed nothing until
+       * the chord settled left a person pressing `⌘⇧` with no evidence the console
+       * had received either key. Empty is a real answer — a bare key that is not a
+       * chord key yet, which is what a `code`-less synthetic press produces.
+       */
+      readonly heldModifiers: readonly string[];
+    };
+
+/**
+ * Everything but "not yet" — what a recorder hands upward and stops recording on.
+ *
+ * Derived from the union above rather than written beside it: a fifth outcome joins
+ * both of these narrowings by being added in one place, and a reader can see which
+ * arms each caller is answerable for without a comment claiming it.
+ */
+export type CompletedChordRecording = Exclude<ChordRecording, { readonly outcome: "incomplete" }>;
+
+/** The two that change a binding. A cancellation changes nothing and is neither. */
+export type AppliedChordRecording = Exclude<
+  CompletedChordRecording,
+  { readonly outcome: "cancelled" }
+>;
+
 /**
  * Compose the rows a person reads.
  *
@@ -119,13 +167,6 @@ export function composeKeybindingRows(options: {
         overridden: overrides[command.id] !== undefined,
       };
     });
-}
-
-/** A chord this window is holding for a command it cannot find. */
-export interface StaleKeybindingOverrideRow {
-  readonly commandId: string;
-  /** The chord the override reserves. Always a string: a cleared override reserves none. */
-  readonly chord: string;
 }
 
 /**
@@ -231,47 +272,6 @@ function matchCandidatesOf(row: KeybindingRow): readonly string[] {
   }
   return candidates;
 }
-
-/**
- * What one keystroke means to a recorder that is listening for a chord.
- *
- * Four outcomes and each is an act a person performed, not a state the recorder is
- * in: three of them end the recording and `incomplete` is the one that does not.
- * They are values rather than callbacks so the whole grammar is decided in one pure
- * function a test can drive with a synthetic event.
- */
-export type ChordRecording =
-  | { readonly outcome: "captured"; readonly chord: string }
-  | { readonly outcome: "cancelled" }
-  | { readonly outcome: "cleared" }
-  | {
-      readonly outcome: "incomplete";
-      /**
-       * The modifiers held at this keystroke, in the order the console writes them.
-       *
-       * Carried rather than discarded because the section asks for "the keys held so
-       * far, and whether the chord is complete": a recorder that showed nothing until
-       * the chord settled left a person pressing `⌘⇧` with no evidence the console
-       * had received either key. Empty is a real answer — a bare key that is not a
-       * chord key yet, which is what a `code`-less synthetic press produces.
-       */
-      readonly heldModifiers: readonly string[];
-    };
-
-/**
- * Everything but "not yet" — what a recorder hands upward and stops recording on.
- *
- * Derived from the union above rather than written beside it: a fifth outcome joins
- * both of these narrowings by being added in one place, and a reader can see which
- * arms each caller is answerable for without a comment claiming it.
- */
-export type CompletedChordRecording = Exclude<ChordRecording, { readonly outcome: "incomplete" }>;
-
-/** The two that change a binding. A cancellation changes nothing and is neither. */
-export type AppliedChordRecording = Exclude<
-  CompletedChordRecording,
-  { readonly outcome: "cancelled" }
->;
 
 /** Keys that are only ever held, never the key OF a chord. */
 const MODIFIER_KEYS: ReadonlySet<string> = new Set([

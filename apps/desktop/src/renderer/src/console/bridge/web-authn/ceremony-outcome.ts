@@ -175,7 +175,7 @@ export type ProducedCeremonyOutcome = Exclude<
 /**
  * What a SCENARIO states — the produced union with the identity subtracted.
  *
- * `scenario-runtime/scenario.ts` already says why this is a different value from the
+ * `scenario/runtime/vocabulary.ts` already says why this is a different value from the
  * one that crosses the bridge: a scripted ceremony is "a fact about the HOST rather
  * than about the session — which authenticator this machine has, whether it does PRF,
  * and whether the OS keystore will hold what the ceremony mints." WHO signs in is none

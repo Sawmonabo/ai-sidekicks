@@ -75,6 +75,20 @@ export type TerminalControlHolderRead = PushDrivenRead<TerminalControlHolderValu
 export type TerminalControlHolderState = PushDrivenReadState<TerminalControlHolderValue>;
 
 /**
+ * What the read said about the lease.
+ *
+ * Three values and not two, because the states are three: a participant holds it, the
+ * read said nobody holds it, or nothing has been read. `unheld` is what makes the
+ * middle one renderable at all — `null` and "nothing yet" would otherwise both arrive
+ * at a row as "no holder" and the row could not tell a free lease from an unasked
+ * question.
+ */
+export type TerminalControlHolding =
+  | { readonly kind: "held"; readonly participantId: string }
+  | { readonly kind: "unheld" }
+  | { readonly kind: "unread" };
+
+/**
  * Build the lease read for one session.
  *
  * Constructed by whoever owns its lifetime — the collaboration model holder, never a
@@ -102,20 +116,6 @@ export function createTerminalControlHolder(options: {
       subscribeToSessionEventKinds(sessionStore, TERMINAL_CONTROL_EVENT_KINDS, onChangeSignal),
   });
 }
-
-/**
- * What the read said about the lease.
- *
- * Three values and not two, because the states are three: a participant holds it, the
- * read said nobody holds it, or nothing has been read. `unheld` is what makes the
- * middle one renderable at all — `null` and "nothing yet" would otherwise both arrive
- * at a row as "no holder" and the row could not tell a free lease from an unasked
- * question.
- */
-export type TerminalControlHolding =
-  | { readonly kind: "held"; readonly participantId: string }
-  | { readonly kind: "unheld" }
-  | { readonly kind: "unread" };
 
 /**
  * The holding, read off the current state.

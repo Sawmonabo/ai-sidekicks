@@ -40,7 +40,7 @@ import {
   ATTACHMENT_CHUNK_BYTE_CAP,
   base64DecodedByteLength,
 } from "../../../core/index.js";
-import { refuseAs } from "../../scenarios/computed-reply.js";
+import { refuseAs } from "../../scenario/computed-reply.js";
 import type { GrowthPort } from "../../growth-port/index.js";
 
 /**
@@ -67,27 +67,6 @@ const TOO_LARGE_CODE = "artifact.too_large";
 const TOO_MANY_ATTACHMENTS_CODE = "artifact.too_many_attachments";
 const UNSUPPORTED_MEDIA_TYPE_CODE = "artifact.unsupported_media_type";
 const INGEST_STREAM_INVALID_CODE = "artifact.ingest_stream_invalid";
-
-/** One open spool, and what the daemon would know about it. */
-interface FixtureIngestSpool {
-  readonly sessionId: string;
-  readonly declaredName: string;
-  readonly declaredSizeBytes: number;
-  receivedBytes: number;
-  /** The sequence the next fresh chunk carries. A lower one is a replay; a higher one is a gap. */
-  nextSequenceNumber: number;
-  /** The completion's own answer, kept so a replayed Complete replays it verbatim. */
-  completion: FixtureIngestCompletion | undefined;
-}
-
-/** What `AttachmentIngestComplete` answers with, minted once per stream. */
-interface FixtureIngestCompletion {
-  readonly artifactId: string;
-  readonly contentHash: string;
-  readonly normalizedName: string;
-  readonly derivedMediaType: string;
-  readonly derivedSizeBytes: number;
-}
 
 /**
  * The spools one window's fixture holds, and the rules that open and close them.
@@ -231,6 +210,27 @@ export class FixtureAttachmentIngest {
   }
 }
 
+/** One open spool, and what the daemon would know about it. */
+interface FixtureIngestSpool {
+  readonly sessionId: string;
+  readonly declaredName: string;
+  readonly declaredSizeBytes: number;
+  receivedBytes: number;
+  /** The sequence the next fresh chunk carries. A lower one is a replay; a higher one is a gap. */
+  nextSequenceNumber: number;
+  /** The completion's own answer, kept so a replayed Complete replays it verbatim. */
+  completion: FixtureIngestCompletion | undefined;
+}
+
+/** What `AttachmentIngestComplete` answers with, minted once per stream. */
+interface FixtureIngestCompletion {
+  readonly artifactId: string;
+  readonly contentHash: string;
+  readonly normalizedName: string;
+  readonly derivedMediaType: string;
+  readonly derivedSizeBytes: number;
+}
+
 /**
  * The type the daemon would derive, or `undefined` where nothing places the payload.
  *
@@ -279,22 +279,6 @@ const FIXTURE_MEDIA_TYPE_BY_EXTENSION: Readonly<Record<string, string | undefine
 };
 
 /**
- * The name the manifest would record.
- *
- * `Spec-014 §Ingest Validation And Payload Bounds (V1)` keeps every caller-supplied
- * string out of every path component, so the stand-in normalizes exactly as the daemon
- * would: no separator survives, and what is left is lower-cased. It is deliberately
- * VISIBLE work — a fixture whose normalized name always equalled the declaration would
- * leave the console's "derived truth replaces the declaration" arm untested by eye.
- */
-function normalizedNameOf(declaredName: string): string {
-  const withoutDirectories = declaredName.slice(
-    Math.max(declaredName.lastIndexOf("/"), declaredName.lastIndexOf("\\")) + 1,
-  );
-  return withoutDirectories.toLowerCase().replaceAll(/[^a-z0-9._-]/gu, "-");
-}
-
-/**
  * The fixture's four ingest answers for one running scenario.
  *
  * `Pick` over the port rather than a shape of its own, on `fixtureProviderAccountWrites`'
@@ -325,4 +309,20 @@ export function fixtureAttachmentIngest(
       return { status: "served", value: undefined };
     },
   };
+}
+
+/**
+ * The name the manifest would record.
+ *
+ * `Spec-014 §Ingest Validation And Payload Bounds (V1)` keeps every caller-supplied
+ * string out of every path component, so the stand-in normalizes exactly as the daemon
+ * would: no separator survives, and what is left is lower-cased. It is deliberately
+ * VISIBLE work — a fixture whose normalized name always equalled the declaration would
+ * leave the console's "derived truth replaces the declaration" arm untested by eye.
+ */
+function normalizedNameOf(declaredName: string): string {
+  const withoutDirectories = declaredName.slice(
+    Math.max(declaredName.lastIndexOf("/"), declaredName.lastIndexOf("\\")) + 1,
+  );
+  return withoutDirectories.toLowerCase().replaceAll(/[^a-z0-9._-]/gu, "-");
 }

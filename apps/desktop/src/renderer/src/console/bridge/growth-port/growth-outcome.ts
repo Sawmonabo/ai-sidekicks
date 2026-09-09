@@ -19,7 +19,7 @@ import type { GrowthSlateRowId } from "./growth-slate-row.js";
 import {
   SCRIPT_ABSENT_REFUSAL_CODE,
   SCRIPTED_REPLY_REFUSAL_CODES,
-} from "../scenario-runtime/index.js";
+} from "../scenario/runtime/index.js";
 
 /**
  * The code a build with no wire for an operation refuses under.
@@ -156,27 +156,6 @@ export interface GrowthCallRejected extends ConsoleRefusal, GrowthRefusalLedger 
 /** A growth refusal, on whichever of the two arms produced it. */
 export type GrowthUnavailable = GrowthWireRefused | GrowthCallRejected;
 
-/**
- * True where a refusal means the console never asked, rather than that asking failed.
- *
- * THE ONE READING OF THAT QUESTION, and it is a question every surface offering a
- * growth-backed list has to answer: `Spec-023 §Console Design (Meridian)` rule 8
- * separates "we have not asked" from a read that was put and failed, and a surface
- * that renders one as the other tells a person the console is idle while a channel is
- * down. The three surfaces that render the node's session directory each asked it by
- * eye and each got it wrong the same way, so it is answered here — beside the code it
- * is about, which is the only place the answer cannot drift from the vocabulary.
- *
- * Takes a `ConsoleRefusal` rather than a `GrowthUnavailable`: by the time a refusal
- * reaches a surface it may have been settled by `bridge/readings/read-settlement.ts`,
- * which carries the port's own refusals through untouched and rebuilds a rejection
- * into the console's shape. Both are refusals and only one of them can carry this
- * code, so the code is the whole of the question.
- */
-export function isUnbuiltWireRefusal(refusal: ConsoleRefusal): boolean {
-  return refusal.code === WIRE_UNREGISTERED_REFUSAL_CODE;
-}
-
 /** A served result, from the fixture bridge. */
 export interface GrowthServed<TValue> {
   readonly status: "served";
@@ -184,24 +163,6 @@ export interface GrowthServed<TValue> {
 }
 
 export type GrowthOutcome<TValue> = GrowthServed<TValue> | GrowthUnavailable;
-
-/**
- * Narrow a served outcome's value, leaving a refusal exactly as it arrived.
- *
- * The fixture reads a scenario's scripted reply as `unknown` and several served
- * operations answer with a shape the console has to narrow first, so the two steps —
- * "did the script answer" and "what does that answer mean" — meet here rather than in
- * four hand-written switches that would each have to remember to carry the refusal
- * through untouched. Rewrapping a refusal is the mistake this prevents: a refusal
- * re-minted on the way past loses the operation, the slate row, and the document that
- * owes the wire.
- */
-export function mapGrowthServed<TIn, TOut>(
-  outcome: GrowthOutcome<TIn>,
-  narrow: (value: TIn) => TOut,
-): GrowthOutcome<TOut> {
-  return outcome.status === "served" ? { status: "served", value: narrow(outcome.value) } : outcome;
-}
 
 /**
  * What a surface holds for ONE growth-port read: the port's answer, or why there is none.
@@ -237,4 +198,43 @@ export type GrowthReading<TOutcome> =
 export interface GrowthStream<TEvent> {
   readonly events: AsyncIterable<TEvent>;
   close(): void;
+}
+
+/**
+ * True where a refusal means the console never asked, rather than that asking failed.
+ *
+ * THE ONE READING OF THAT QUESTION, and it is a question every surface offering a
+ * growth-backed list has to answer: `Spec-023 §Console Design (Meridian)` rule 8
+ * separates "we have not asked" from a read that was put and failed, and a surface
+ * that renders one as the other tells a person the console is idle while a channel is
+ * down. The three surfaces that render the node's session directory each asked it by
+ * eye and each got it wrong the same way, so it is answered here — beside the code it
+ * is about, which is the only place the answer cannot drift from the vocabulary.
+ *
+ * Takes a `ConsoleRefusal` rather than a `GrowthUnavailable`: by the time a refusal
+ * reaches a surface it may have been settled by `bridge/readings/read-settlement.ts`,
+ * which carries the port's own refusals through untouched and rebuilds a rejection
+ * into the console's shape. Both are refusals and only one of them can carry this
+ * code, so the code is the whole of the question.
+ */
+export function isUnbuiltWireRefusal(refusal: ConsoleRefusal): boolean {
+  return refusal.code === WIRE_UNREGISTERED_REFUSAL_CODE;
+}
+
+/**
+ * Narrow a served outcome's value, leaving a refusal exactly as it arrived.
+ *
+ * The fixture reads a scenario's scripted reply as `unknown` and several served
+ * operations answer with a shape the console has to narrow first, so the two steps —
+ * "did the script answer" and "what does that answer mean" — meet here rather than in
+ * four hand-written switches that would each have to remember to carry the refusal
+ * through untouched. Rewrapping a refusal is the mistake this prevents: a refusal
+ * re-minted on the way past loses the operation, the slate row, and the document that
+ * owes the wire.
+ */
+export function mapGrowthServed<TIn, TOut>(
+  outcome: GrowthOutcome<TIn>,
+  narrow: (value: TIn) => TOut,
+): GrowthOutcome<TOut> {
+  return outcome.status === "served" ? { status: "served", value: narrow(outcome.value) } : outcome;
 }

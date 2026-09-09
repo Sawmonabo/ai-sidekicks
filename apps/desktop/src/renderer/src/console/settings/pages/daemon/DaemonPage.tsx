@@ -163,6 +163,17 @@ export function DaemonPage(props: DaemonPageProps): ReactNode {
   );
 }
 
+/** Claim the local-runtime section. See `RuntimeNodesPage.tsx` on the seam's shape. */
+export function registerDaemonPage(registry: SettingsPageRegistry): void {
+  registry.register({
+    section: "daemon",
+    owner: OWNER,
+    label: "Local runtime",
+    keywords: ["daemon", "supervisor", "runtime", "restart", "stop", "heartbeat", "connection"],
+    render: (context) => <DaemonPage context={context} />,
+  });
+}
+
 /**
  * The supervisor's own numbers.
  *
@@ -347,15 +358,4 @@ function renderControlSettlement(settlement: DaemonControlSettlement | undefined
       what says what happened to it.
     </p>
   );
-}
-
-/** Claim the local-runtime section. See `RuntimeNodesPage.tsx` on the seam's shape. */
-export function registerDaemonPage(registry: SettingsPageRegistry): void {
-  registry.register({
-    section: "daemon",
-    owner: OWNER,
-    label: "Local runtime",
-    keywords: ["daemon", "supervisor", "runtime", "restart", "stop", "heartbeat", "connection"],
-    render: (context) => <DaemonPage context={context} />,
-  });
 }

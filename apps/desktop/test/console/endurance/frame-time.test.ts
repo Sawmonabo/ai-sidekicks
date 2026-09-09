@@ -53,13 +53,13 @@
 // WHAT THE SAMPLED WINDOW ACTUALLY CONTAINS
 //
 // Four agent lanes streaming into the ledger, which is the row's own subject.
-// `bridge/scenarios/flagship.ts` scripts four runs mid-turn at the same tick —
+// `bridge/scenario/flagship/flagship.ts` scripts four runs mid-turn at the same tick —
 // interleaved thinking, messages, and tool calls across four run chapters, with an
 // approval blocking one of them while the other three carry on — and the sampled
 // window covers that stretch of it. The run asserts both halves rather than
 // describing them: that the script delivered INSIDE the window rather than before
 // it, and that four lanes were streaming inside the window, read off the scenario's
-// own beats by `bridge/scenarios/streaming-lanes.ts`. A scenario that stopped streaming
+// own beats by `bridge/scenario/streaming-lanes.ts`. A scenario that stopped streaming
 // would fail the second assertion, which is what the first enforced revision of this
 // row could not say — its script carried no assistant beat at all.
 //
@@ -92,8 +92,8 @@ import { RUNNER_CLASS_DESCRIPTION, isPinnedRunnerClass } from "./pinned-runner-c
 import {
   FLAGSHIP_LANE_COUNT,
   FLAGSHIP_SCENARIO,
-} from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
-import { peakConcurrentStreamingRuns } from "../../../src/renderer/src/console/bridge/scenarios/streaming-lanes.js";
+} from "../../../src/renderer/src/console/bridge/scenario/flagship/flagship.js";
+import { peakConcurrentStreamingRuns } from "../../../src/renderer/src/console/bridge/scenario/streaming-lanes.js";
 import { ConsoleBudgetRegistry, evaluateBudget } from "../../../scripts/budget/budget-registry.mjs";
 
 const bundleIsBuilt = fixtureBundleExists();

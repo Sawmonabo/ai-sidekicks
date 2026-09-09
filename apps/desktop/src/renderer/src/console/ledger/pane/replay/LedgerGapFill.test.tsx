@@ -10,7 +10,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
-import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenarios/ledger/ledger-quiet.js";
+import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenario/ledger/ledger-quiet.js";
 import { SessionStoreRegistry, type SessionStore } from "../../../store/index.js";
 import { eventOfKind } from "../../../store/session-event.test-support.js";
 import { emptySnapshot } from "../../../store/session-store-registry.test-support.js";

@@ -24,7 +24,7 @@
 import { describe, expect, it } from "vitest";
 
 import { RENDERER_ORIGIN } from "../../../src/main/renderer-scheme.js";
-import { FIRST_RUN_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/first-run.js";
+import { FIRST_RUN_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/first-run.js";
 import { PANE_HARNESS_LABEL } from "../../../src/renderer/src/console/frame/pane-harness/PaneHarnessFrame.js";
 import { withLaunchedConsole } from "../electron-harness.js";
 import { fixtureBundleExists } from "../fixture-bundle.js";

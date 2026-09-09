@@ -30,6 +30,40 @@ export interface RunParkAttentionProps {
   readonly entries: readonly WorkflowParkAttentionEntry[];
 }
 
+/** Every live wait, folded where the engine correlated it. Nothing where none is. */
+export function RunParkAttention(props: RunParkAttentionProps): React.JSX.Element | null {
+  if (props.entries.length === 0) {
+    // NOTHING rather than an empty-state card. Nothing waiting is the ordinary state
+    // of a healthy session, and a permanent panel reporting the absence of news is
+    // furniture — the list's own rows are what a person came here to read.
+    return null;
+  }
+  return (
+    <ul className="meridian-run-attention">
+      {props.entries.map((entry) =>
+        entry.kind === "folded" ? (
+          renderFoldedParks(entry)
+        ) : (
+          /*
+            An uncorrelated park stands for its own run, which is the fail-open
+            direction the fold takes when the engine could not correlate a wait. It
+            draws the SAME card the run's row draws, through the same component —
+            what this line adds is the run it belongs to, which the card does not
+            carry and which is the only way to tell two identical waits apart.
+          */
+          <li
+            key={`park:${entry.workflowRunId}:${entry.parked.phaseId}`}
+            className="meridian-run-attention__entry meridian-run-attention__entry--single"
+          >
+            <WireFigure value={entry.workflowRunId} />
+            <ParkBadge parked={entry.parked} />
+          </li>
+        ),
+      )}
+    </ul>
+  );
+}
+
 /**
  * What a folded entry is called: the reasons it holds, read off the fold.
  *
@@ -76,39 +110,5 @@ function renderFoldedParks(entry: WorkflowFoldedParks): React.JSX.Element {
         Runs affected <DerivedFigure text={formatCount(entry.affectedRunCount)} />
       </span>
     </li>
-  );
-}
-
-/** Every live wait, folded where the engine correlated it. Nothing where none is. */
-export function RunParkAttention(props: RunParkAttentionProps): React.JSX.Element | null {
-  if (props.entries.length === 0) {
-    // NOTHING rather than an empty-state card. Nothing waiting is the ordinary state
-    // of a healthy session, and a permanent panel reporting the absence of news is
-    // furniture — the list's own rows are what a person came here to read.
-    return null;
-  }
-  return (
-    <ul className="meridian-run-attention">
-      {props.entries.map((entry) =>
-        entry.kind === "folded" ? (
-          renderFoldedParks(entry)
-        ) : (
-          /*
-            An uncorrelated park stands for its own run, which is the fail-open
-            direction the fold takes when the engine could not correlate a wait. It
-            draws the SAME card the run's row draws, through the same component —
-            what this line adds is the run it belongs to, which the card does not
-            carry and which is the only way to tell two identical waits apart.
-          */
-          <li
-            key={`park:${entry.workflowRunId}:${entry.parked.phaseId}`}
-            className="meridian-run-attention__entry meridian-run-attention__entry--single"
-          >
-            <WireFigure value={entry.workflowRunId} />
-            <ParkBadge parked={entry.parked} />
-          </li>
-        ),
-      )}
-    </ul>
   );
 }

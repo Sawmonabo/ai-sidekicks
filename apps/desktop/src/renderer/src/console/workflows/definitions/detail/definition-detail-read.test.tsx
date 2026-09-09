@@ -18,8 +18,8 @@ import {
   DEFINITION_INCIDENT_TRIAGE_SHARED,
   DEFINITION_RELEASE_CHECKS_PROJECT,
   DEFINITION_RELEASE_CHECKS_SESSION,
-} from "../../../bridge/scenarios/workflow-fixture-ids.js";
-import { WORKFLOWS_SCENARIO } from "../../../bridge/scenarios/workflows.js";
+} from "../../../bridge/scenario/workflows/ids.js";
+import { WORKFLOWS_SCENARIO } from "../../../bridge/scenario/workflows/workflows.js";
 import { observeSubjectRead } from "../../../store/subject-read-commits.test-support.js";
 import { settle } from "../../workflows-probe.test-support.js";
 import {

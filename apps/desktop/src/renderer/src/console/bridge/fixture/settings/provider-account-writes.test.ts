@@ -17,14 +17,14 @@ import { describe, expect, it } from "vitest";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import { createFixture } from "../call-plane/bridge.test-support.js";
 import { servedValueOf } from "../growth/growth-port.test-support.js";
-import { FLAGSHIP_SCENARIO } from "../../scenarios/flagship.js";
-import { SCRIPT_ABSENT_REFUSAL_CODE } from "../../scenario-runtime/index.js";
+import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
+import { SCRIPT_ABSENT_REFUSAL_CODE } from "../../scenario/runtime/index.js";
 import {
   SETTINGS_PROVIDER_ACCOUNT_LOGIN,
   SETTINGS_PROVIDER_ACCOUNT_LOGIN_CANCEL,
   SETTINGS_PROVIDER_ACCOUNT_REGISTER,
-} from "../../scenarios/settings/account-plane.js";
-import { SETTINGS_SCENARIO } from "../../scenarios/settings.js";
+} from "../../scenario/settings/account-plane.js";
+import { SETTINGS_SCENARIO } from "../../scenario/settings/settings.js";
 
 /** The scripted latency on the sign-in and the registration. */
 const ACCOUNT_WRITE_LATENCY_MS = 80;

@@ -15,17 +15,17 @@ import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type GrowthPort } from "../../bridge/index.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
-import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
+import type { ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
 import {
   WORKFLOWS_RUN_ENUMERATION_CALL,
   WORKFLOWS_SCENARIO,
-} from "../../bridge/scenarios/workflows.js";
-import { WORKFLOWS_SESSION_ID } from "../../bridge/scenarios/workflow-fixture-ids.js";
+} from "../../bridge/scenario/workflows/workflows.js";
+import { WORKFLOWS_SESSION_ID } from "../../bridge/scenario/workflows/ids.js";
 import {
   WORKFLOWS_PARKED_RUN,
   WORKFLOWS_SCENARIO_RUNS,
-} from "../../bridge/scenarios/workflow-fixture-runs.js";
-import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
+} from "../../bridge/scenario/workflows/runs.js";
+import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { READ_SETTLEMENT_REFUSAL_ORIGIN } from "../../bridge/readings/read-settlement.js";
 import { settle } from "../workflows-probe.test-support.js";

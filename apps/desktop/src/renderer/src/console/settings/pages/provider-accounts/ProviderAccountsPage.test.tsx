@@ -40,7 +40,7 @@ import {
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../../bridge/index.js";
-import { SETTINGS_SCENARIO } from "../../../bridge/scenarios/settings.js";
+import { SETTINGS_SCENARIO } from "../../../bridge/scenario/settings/settings.js";
 import { LiveAnnouncerProvider } from "../../../primitives/index.js";
 import { ProviderAccountsPage, registerProviderAccountsPage } from "./ProviderAccountsPage.js";
 import { PROVIDER_ACCOUNTS_PAGE_SLOT } from "./provider-accounts-slot.js";

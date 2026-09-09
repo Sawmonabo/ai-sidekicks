@@ -33,12 +33,6 @@ export interface FakeResizeObserverControl {
   liveObserverCount(): number;
 }
 
-interface FakeObserverRecord {
-  readonly deliver: () => void;
-  readonly targets: Set<Element>;
-  disconnected: boolean;
-}
-
 /**
  * Install a `ResizeObserver` the test drives.
  *
@@ -106,4 +100,10 @@ export function installFakeResizeObserver(): FakeResizeObserverControl {
     disconnectCount: () => records.filter((record) => record.disconnected).length,
     liveObserverCount: () => records.filter((record) => !record.disconnected).length,
   };
+}
+
+interface FakeObserverRecord {
+  readonly deliver: () => void;
+  readonly targets: Set<Element>;
+  disconnected: boolean;
 }

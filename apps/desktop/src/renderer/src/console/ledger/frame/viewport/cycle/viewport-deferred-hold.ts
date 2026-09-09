@@ -32,14 +32,6 @@
 import { type ReadingAnchor } from "../../measurement/index.js";
 import { type LedgerScrollController } from "../../scroll/index.js";
 
-/** What the head hold has to remember between arming and performing. */
-interface PendingHeadHold {
-  /** The row that was first before the page landed. */
-  readonly rowKey: string;
-  /** The offset the surface was at when it was. */
-  readonly scrollTopPx: number;
-}
-
 export interface LedgerDeferredHoldOptions {
   readonly anchor: ReadingAnchor;
   readonly scroll: LedgerScrollController;
@@ -154,4 +146,12 @@ export class LedgerDeferredHold {
       this.#offsetOfIndex(index) + headHold.scrollTopPx,
     );
   }
+}
+
+/** What the head hold has to remember between arming and performing. */
+interface PendingHeadHold {
+  /** The row that was first before the page landed. */
+  readonly rowKey: string;
+  /** The offset the surface was at when it was. */
+  readonly scrollTopPx: number;
 }

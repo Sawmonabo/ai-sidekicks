@@ -58,6 +58,11 @@ export const DECK_NOT_MOUNTED_REFUSAL: ConsoleRefusal = refuse(
   "No deck of panes is open in this window. Open a session and try again.",
 );
 
+/** What asking the seat to perform an act produced. */
+export type DeckActOutcome =
+  | { readonly status: "performed"; readonly act: DeckActName }
+  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+
 /**
  * The mounted decks, in mount order.
  *
@@ -87,11 +92,6 @@ export class MountedDeckSeat {
     return { status: "performed", act };
   }
 }
-
-/** What asking the seat to perform an act produced. */
-export type DeckActOutcome =
-  | { readonly status: "performed"; readonly act: DeckActName }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
 
 /** This window's seat. Module scope is window scope: an auxiliary window is a process. */
 export const mountedDeck: MountedDeckSeat = new MountedDeckSeat();

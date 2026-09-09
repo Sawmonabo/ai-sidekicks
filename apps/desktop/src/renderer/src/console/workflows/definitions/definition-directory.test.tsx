@@ -14,8 +14,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../../bridge/index.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
-import type { ScenarioReply } from "../../bridge/scenario-runtime/scenario-reply.js";
-import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
+import type { ScenarioReply } from "../../bridge/scenario/runtime/reply.js";
+import type { ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
 import type { WireErrorEnvelope } from "../../core/index.js";
 import {
   PROBE_PARTICIPANT_ID,

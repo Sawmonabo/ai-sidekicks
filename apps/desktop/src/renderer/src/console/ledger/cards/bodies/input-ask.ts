@@ -189,32 +189,6 @@ export function readDriverAsk(row: TimelineRow): DriverAskReading | undefined {
 }
 
 /**
- * The key one ask is filed under inside a window: its run AND its ask id.
- *
- * PRIVATE, AND THE ONE PLACE THIS FAMILY'S KEY IS COMPOSED. The fold below writes with
- * it and {@link askTerminalIn} reads with it, so the two halves of the seam cannot
- * disagree about what "the same ask" is — which is the whole defect a second spelling
- * causes here, silently, on a screen that then removes a blocked run's answer controls.
- *
- * WHICH MEMBERS, AND IN WHICH ORDER, IS NOT THIS FAMILY'S QUESTION. It is
- * `core/driver-ask-identity.ts`', because the cast bar keys driver asks in a fold of
- * its own and a second answer there is the same defect pointing the other way. What is
- * this family's is the ENCODING, and it goes through `structuralKey` — the console's
- * one tuple-to-key encoder — rather than through a join of its own: a separator is
- * injective only while no segment can contain it, and both segments here are wire
- * strings this console did not author.
- *
- * `undefined` where the row attributed no run, which is that module's REFUSAL to
- * identify rather than a run-less key: an ask nothing attributes cannot be answered —
- * the registered answer request names a run — so filing one would make an unanswerable
- * ask able to settle an answerable one.
- */
-function driverAskIdentity(ask: DriverAskReading): string | undefined {
-  const segments = driverAskIdentitySegments(ask.runId, ask.askId);
-  return segments === undefined ? undefined : structuralKey(segments);
-}
-
-/**
  * The terminal one ask reached, out of the terminals a window holds.
  *
  * The READ half of {@link driverAskIdentity}, and a plain function rather than the
@@ -294,6 +268,32 @@ export function askSettledBy(
     return ask;
   }
   return { ...ask, state: terminal.state, deliveredAnswer: terminal.deliveredAnswer };
+}
+
+/**
+ * The key one ask is filed under inside a window: its run AND its ask id.
+ *
+ * PRIVATE, AND THE ONE PLACE THIS FAMILY'S KEY IS COMPOSED. The fold below writes with
+ * it and {@link askTerminalIn} reads with it, so the two halves of the seam cannot
+ * disagree about what "the same ask" is — which is the whole defect a second spelling
+ * causes here, silently, on a screen that then removes a blocked run's answer controls.
+ *
+ * WHICH MEMBERS, AND IN WHICH ORDER, IS NOT THIS FAMILY'S QUESTION. It is
+ * `core/driver-ask-identity.ts`', because the cast bar keys driver asks in a fold of
+ * its own and a second answer there is the same defect pointing the other way. What is
+ * this family's is the ENCODING, and it goes through `structuralKey` — the console's
+ * one tuple-to-key encoder — rather than through a join of its own: a separator is
+ * injective only while no segment can contain it, and both segments here are wire
+ * strings this console did not author.
+ *
+ * `undefined` where the row attributed no run, which is that module's REFUSAL to
+ * identify rather than a run-less key: an ask nothing attributes cannot be answered —
+ * the registered answer request names a run — so filing one would make an unanswerable
+ * ask able to settle an answerable one.
+ */
+function driverAskIdentity(ask: DriverAskReading): string | undefined {
+  const segments = driverAskIdentitySegments(ask.runId, ask.askId);
+  return segments === undefined ? undefined : structuralKey(segments);
 }
 
 /**

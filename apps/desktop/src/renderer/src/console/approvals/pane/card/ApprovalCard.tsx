@@ -96,15 +96,6 @@ const APPROVAL_CARD_ID_ATTRIBUTE = "data-approval-id";
 const APPROVAL_CARD_ACTION_CLASS = "meridian-approval-card__action";
 
 /**
- * The classes one action wears: the block, its own modifier, and — on the primary
- * action alone — the primitives' filled-accent face.
- */
-function actionClassName(action: (typeof ACTION_ORDER)[number]): string {
-  const base = `${APPROVAL_CARD_ACTION_CLASS} ${APPROVAL_CARD_ACTION_CLASS}--${action}`;
-  return action === PRIMARY_ACTION ? `${base} ${ACCENT_FILL_CLASS}` : base;
-}
-
-/**
  * The first action of ONE card, found by the record it belongs to.
  *
  * Here rather than at a caller because the selector is this component's own markup.
@@ -284,6 +275,15 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
       {props.refusal === undefined ? null : <RemediedRefusal refusal={props.refusal} />}
     </article>
   );
+}
+
+/**
+ * The classes one action wears: the block, its own modifier, and — on the primary
+ * action alone — the primitives' filled-accent face.
+ */
+function actionClassName(action: (typeof ACTION_ORDER)[number]): string {
+  const base = `${APPROVAL_CARD_ACTION_CLASS} ${APPROVAL_CARD_ACTION_CLASS}--${action}`;
+  return action === PRIMARY_ACTION ? `${base} ${ACCENT_FILL_CLASS}` : base;
 }
 
 function isResolvedRecord(record: ApprovalRecord): boolean {

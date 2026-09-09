@@ -123,6 +123,16 @@ export function admitsSnapshotAt(cursor: number, current: SessionStoreState): bo
 export const UNINITIALISED_CURSOR = -1;
 
 /**
+ * Which end of an over-cap log survives.
+ *
+ * `"newest"` is the ordinary rule: a session's window is its tail, so the cap drops
+ * the oldest rows. `"oldest"` is what a backward page buys — the reader has moved to
+ * the head and asked for the rows before it, so a cap that still cut there would
+ * discard the page as it landed and every press after it, forever.
+ */
+export type TimelineRetainedEnd = "newest" | "oldest";
+
+/**
  * The state of a store that has projected nothing: newly constructed, or reset.
  *
  * ONE BUILDER FOR BOTH, because they are the same state and differ only in what the
@@ -184,16 +194,6 @@ export function establishedState(input: {
     revision: input.revision,
   };
 }
-
-/**
- * Which end of an over-cap log survives.
- *
- * `"newest"` is the ordinary rule: a session's window is its tail, so the cap drops
- * the oldest rows. `"oldest"` is what a backward page buys — the reader has moved to
- * the head and asked for the rows before it, so a cap that still cut there would
- * discard the page as it landed and every press after it, forever.
- */
-export type TimelineRetainedEnd = "newest" | "oldest";
 
 /**
  * The `cap` events of a timeline nearest the retained end, or all of them where there

@@ -31,8 +31,8 @@ import type {
   GrowthBranchContext,
   GrowthBranchContextReadRequest,
 } from "../../growth-values/gitflow.js";
-import type { ConsoleScenario } from "../../scenario-runtime/scenario.js";
-import { FLAGSHIP_SCENARIO } from "../../scenarios/flagship.js";
+import type { ConsoleScenario } from "../../scenario/runtime/vocabulary.js";
+import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
 
 /** The flagship script with its one read answered immediately, so no clock is spent. */
 function scenarioAnsweringImmediately(): ConsoleScenario {

@@ -58,12 +58,6 @@ import { readStepInState } from "./step-in-state.js";
 import { RUN_CONTROL_METHODS } from "./run-control-dispatch.js";
 import { type RunControlSurface } from "./run-control-surface.js";
 
-/** The deck's answer, kept beside the token whose settlement asked for it. */
-interface SettledFloor {
-  readonly dispatchToken: string;
-  readonly outcome: TakeTheFloorOutcome;
-}
-
 export interface StepInProps {
   /** Holds the token this control dispatched under, and rotates it with the transport. */
   readonly bridge: ConsoleBridge;
@@ -186,4 +180,10 @@ export function StepIn(props: StepInProps): React.JSX.Element {
       <StepInReceipt agentLabel={props.agentLabel} state={state} />
     </div>
   );
+}
+
+/** The deck's answer, kept beside the token whose settlement asked for it. */
+interface SettledFloor {
+  readonly dispatchToken: string;
+  readonly outcome: TakeTheFloorOutcome;
 }

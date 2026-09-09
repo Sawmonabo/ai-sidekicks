@@ -8,7 +8,7 @@
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
-import { SHELL_SCENARIO } from "../../bridge/scenarios/shell.js";
+import { SHELL_SCENARIO } from "../../bridge/scenario/shell.js";
 import type { ShellReport } from "../../store/index.js";
 
 /** A supervisor reporting a healthy runtime: the report every case starts from. */

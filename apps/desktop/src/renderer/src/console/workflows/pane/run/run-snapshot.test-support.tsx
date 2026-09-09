@@ -14,7 +14,7 @@ import { render } from "@testing-library/react";
 
 import { type GrowthPort } from "../../../bridge/index.js";
 import { createRefusingGrowthPort } from "../../../bridge/growth-port/growth-port.js";
-import { WORKFLOWS_SCENARIO_RUNS } from "../../../bridge/scenarios/workflow-fixture-runs.js";
+import { WORKFLOWS_SCENARIO_RUNS } from "../../../bridge/scenario/workflows/runs.js";
 import { useWorkflowRunSnapshot, type WorkflowRunSnapshotState } from "./run-snapshot.js";
 
 /**

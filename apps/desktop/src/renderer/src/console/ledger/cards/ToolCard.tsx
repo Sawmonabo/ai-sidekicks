@@ -161,17 +161,6 @@ export function ToolCard(props: ToolCardProps): React.JSX.Element {
 }
 
 /**
- * The row's step on the twelve-step wheel, or a step outside it.
- *
- * `-1` rather than `0`: step zero belongs to somebody, and `LedgerRow` treats any step
- * outside the wheel as unattributed and falls back to the neutral control boundary. That
- * is the fail-closed answer, and it is the primitive's rule rather than a second one.
- */
-function hueStepOf(props: Pick<ToolCardProps, "participantHue">): number {
-  return props.participantHue?.step ?? -1;
-}
-
-/**
  * One clause of the row's own summary.
  *
  * One line leaves room for one clause, and the wire's `summary` is bounded at 4096
@@ -187,4 +176,15 @@ export function clampSummary(summary: string): string {
   const lastSpace = head.lastIndexOf(" ");
   const kept = lastSpace > TOOL_SUMMARY_MAX_CHARACTERS / 2 ? head.slice(0, lastSpace) : head;
   return `${kept.trimEnd()}…`;
+}
+
+/**
+ * The row's step on the twelve-step wheel, or a step outside it.
+ *
+ * `-1` rather than `0`: step zero belongs to somebody, and `LedgerRow` treats any step
+ * outside the wheel as unattributed and falls back to the neutral control boundary. That
+ * is the fail-closed answer, and it is the primitive's rule rather than a second one.
+ */
+function hueStepOf(props: Pick<ToolCardProps, "participantHue">): number {
+  return props.participantHue?.step ?? -1;
 }

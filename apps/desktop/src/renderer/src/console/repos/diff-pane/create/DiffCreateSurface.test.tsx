@@ -14,18 +14,18 @@ import {
   fixtureBridgeWithGrowth,
   growthRefusing,
 } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
-import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
+import { REPOS_SCENARIO } from "../../../bridge/scenario/repos/repos.js";
 import {
   UNSCRIPTED_COMPARISON_REFUSAL_CODE,
   WORKSPACE_FALLBACK_COMPARED_STATES,
-} from "../../../bridge/scenarios/repos/repos-diff-replies.js";
+} from "../../../bridge/scenario/repos/repos-diff-replies.js";
 import {
   GIT_WORKSPACE_ID,
   REVIEWER_WORKTREE_ID,
   SESSION_ID,
-} from "../../../bridge/scenarios/repos/repos-fixture-data.js";
+} from "../../../bridge/scenario/repos/repos-fixture-data.js";
 import { SessionStore } from "../../../store/index.js";
-import { advanceScenarioUntil } from "../../../bridge/scenario-runtime/scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../../bridge/scenario/runtime/clock.test-support.js";
 import type { ConsoleDiffModel } from "../diff-model.js";
 import { DiffCreateSurface } from "./DiffCreateSurface.js";
 import type { DiffCreateSubject } from "./diff-create-subject.js";

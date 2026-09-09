@@ -21,7 +21,7 @@
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge } from "../../bridge/index.js";
-import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
+import type { ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { SessionStore } from "../../store/index.js";

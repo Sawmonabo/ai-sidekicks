@@ -86,39 +86,6 @@ export interface AccountAxisFieldProps {
   readonly overlayContainer?: HTMLElement | null | undefined;
 }
 
-/**
- * Where the account this field is showing came from — the closed set of four.
- *
- * Declared once and read by both the reset control and the sentence beside it, so
- * the control's label and the field's explanation of itself can never disagree.
- */
-type AccountAxisProvenance =
-  /** Nothing pinned. The daemon resolves the provider's registered default. */
-  | "unpinned"
-  /** The caller's entry, standing over nothing. Dropping it reaches that default. */
-  | "entered-over-nothing"
-  /** The caller's entry over a definition's. Dropping it returns the definition's. */
-  | "entered-over-definition"
-  /** The definition's own, which no member of this request can unset. */
-  | "inherited";
-
-/**
- * Which of the four this field is in.
- *
- * `isOverridden` is PRESENCE of an entry rather than value inequality, which is what
- * separates the two entered arms from `inherited`: a caller who retyped the
- * definition's own account has still explicitly said it, and the form sends it.
- */
-function accountAxisProvenanceOf(props: AccountAxisFieldProps): AccountAxisProvenance {
-  if (props.value === undefined || props.value === "") {
-    return "unpinned";
-  }
-  if (!props.isOverridden && props.inheritedValue !== undefined) {
-    return "inherited";
-  }
-  return props.inheritedValue === undefined ? "entered-over-nothing" : "entered-over-definition";
-}
-
 export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Element {
   const { bridge, value } = props;
   const registry = useProviderQuotas(bridge);
@@ -263,4 +230,37 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
       ) : null}
     </div>
   );
+}
+
+/**
+ * Where the account this field is showing came from — the closed set of four.
+ *
+ * Declared once and read by both the reset control and the sentence beside it, so
+ * the control's label and the field's explanation of itself can never disagree.
+ */
+type AccountAxisProvenance =
+  /** Nothing pinned. The daemon resolves the provider's registered default. */
+  | "unpinned"
+  /** The caller's entry, standing over nothing. Dropping it reaches that default. */
+  | "entered-over-nothing"
+  /** The caller's entry over a definition's. Dropping it returns the definition's. */
+  | "entered-over-definition"
+  /** The definition's own, which no member of this request can unset. */
+  | "inherited";
+
+/**
+ * Which of the four this field is in.
+ *
+ * `isOverridden` is PRESENCE of an entry rather than value inequality, which is what
+ * separates the two entered arms from `inherited`: a caller who retyped the
+ * definition's own account has still explicitly said it, and the form sends it.
+ */
+function accountAxisProvenanceOf(props: AccountAxisFieldProps): AccountAxisProvenance {
+  if (props.value === undefined || props.value === "") {
+    return "unpinned";
+  }
+  if (!props.isOverridden && props.inheritedValue !== undefined) {
+    return "inherited";
+  }
+  return props.inheritedValue === undefined ? "entered-over-nothing" : "entered-over-definition";
 }

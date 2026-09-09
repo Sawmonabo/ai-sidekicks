@@ -228,18 +228,6 @@ export class SessionStore {
   }
 
   /**
-   * Which end of an over-cap log survives, right now.
-   *
-   * A backward page moves it, and that is the whole of the rule: a reader who asked
-   * for the rows before the window's head has moved to the head, so the cap cuts the
-   * end they left rather than the end they went to. Cutting the other way would
-   * discard the page as it landed, and every press after it.
-   */
-  get #retainedEnd(): TimelineRetainedEnd {
-    return this.#earlierEventCount > 0 ? "oldest" : "newest";
-  }
-
-  /**
    * Establish the base state from a read response and drain anything that arrived
    * first.
    *
@@ -415,5 +403,17 @@ export class SessionStore {
     this.#earlierEventCount += merge.admitted;
     this.#store.setState(nextState);
     return merge;
+  }
+
+  /**
+   * Which end of an over-cap log survives, right now.
+   *
+   * A backward page moves it, and that is the whole of the rule: a reader who asked
+   * for the rows before the window's head has moved to the head, so the cap cuts the
+   * end they left rather than the end they went to. Cutting the other way would
+   * discard the page as it landed, and every press after it.
+   */
+  get #retainedEnd(): TimelineRetainedEnd {
+    return this.#earlierEventCount > 0 ? "oldest" : "newest";
   }
 }

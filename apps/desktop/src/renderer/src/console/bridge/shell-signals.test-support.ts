@@ -8,7 +8,7 @@
 
 import type { ConsoleBridge } from "./console-bridge.js";
 import { createFixtureBridge } from "./fixture/call-plane/bridge.js";
-import { FIRST_RUN_SCENARIO } from "./scenarios/first-run.js";
+import { FIRST_RUN_SCENARIO } from "./scenario/first-run.js";
 
 /** One bridge whose shell is the case's to drive, and the two acts it offers. */
 export interface ShellProbe {

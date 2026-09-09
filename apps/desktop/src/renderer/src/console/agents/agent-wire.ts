@@ -134,19 +134,6 @@ export const PEER_INVOCATION_TOOLS: readonly {
   { toolName: "delegate_to_sidekick", linkType: "delegate" },
 ];
 
-/** Whether a value is one of a closed vocabulary this console knows. */
-export function isKnownMember(vocabulary: readonly string[], value: string): boolean {
-  return vocabulary.includes(value);
-}
-
-// --- Reading shapes -------------------------------------------------------
-//
-// The wire's own reply shapes are NOT here. They are `bridge/wire-shapes/agent-plane.ts`, beside
-// the growth signatures that send and receive them — a module above the bridge
-// cannot declare what a wire carries without putting that declaration where no gate
-// looks. What stays here is the definition picker's reading, which is this family's
-// own projection of a registry row the bridge already declares.
-
 /** One row of the definition picker's read. */
 export interface SidekickDefinitionSummary {
   readonly definitionId: string;
@@ -161,6 +148,19 @@ export interface SidekickDefinitionSummary {
   readonly executionPostureMode?: string | undefined;
 }
 
+// --- Reading shapes -------------------------------------------------------
+//
+// The wire's own reply shapes are NOT here. They are `bridge/wire-shapes/agent-plane.ts`, beside
+// the growth signatures that send and receive them — a module above the bridge
+// cannot declare what a wire carries without putting that declaration where no gate
+// looks. What stays here is the definition picker's reading, which is this family's
+// own projection of a registry row the bridge already declares.
+
 export interface SidekickDefinitionListReading {
   readonly definitions: readonly SidekickDefinitionSummary[];
+}
+
+/** Whether a value is one of a closed vocabulary this console knows. */
+export function isKnownMember(vocabulary: readonly string[], value: string): boolean {
+  return vocabulary.includes(value);
 }

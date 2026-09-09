@@ -28,7 +28,7 @@ import { describe, expect, it } from "vitest";
 
 import { ProviderImportPanel } from "./ProviderImportPanel.js";
 import { useProviderImport } from "./provider-import-model.js";
-import { BRING_YOUR_HISTORY_SCENARIO } from "../../bridge/scenarios/bring-your-history.js";
+import { BRING_YOUR_HISTORY_SCENARIO } from "../../bridge/scenario/bring-your-history.js";
 import { DrivenGrowthStream } from "../../bridge/growth-port/driven-growth-stream.test-support.js";
 import {
   fixtureBridgeWithGrowth,

@@ -15,7 +15,7 @@ import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { fixtureBridgeWithGrowth } from "../../../../console/bridge/fixture/call-plane/bridge.test-support.js";
-import { COMPOSER_SCENARIO } from "../../../../console/bridge/scenarios/composer.js";
+import { COMPOSER_SCENARIO } from "../../../../console/bridge/scenario/composer/composer.js";
 import { crossMacrotaskBoundary } from "../../../../console/core/macrotask-boundary.test-support.js";
 import {
   mountComposer,

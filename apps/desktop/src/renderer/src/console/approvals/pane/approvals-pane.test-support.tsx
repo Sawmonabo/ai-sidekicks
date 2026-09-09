@@ -17,12 +17,29 @@ import {
 } from "../../bridge/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
-import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
+import { APPROVALS_SCENARIO } from "../../bridge/scenario/approvals/approvals.js";
 import { SessionStore } from "../../store/index.js";
-import { type ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
+import { type ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
 import { type PaneContextOf } from "../../seats/index.js";
 import { paneContext } from "../../seats/pane/pane-context.test-support.js";
 
+// A queue that GROWS, which the shipped scenarios cannot do: a scripted reply is
+// looked up per call and answers the same rows every time, so the case that matters
+// here — a card arriving while older ones are already on screen — is only reachable
+// against a stub whose answer changes between reads.
+export class ScriptedApprovalReads {
+  #admitsThird = false;
+
+  /** Let the next read carry the arriving record. */
+  public admitThird(): void {
+    this.#admitsThird = true;
+  }
+
+  public reply(): ParsedRows<ApprovalRecord> {
+    const shown = this.#admitsThird ? WAITING_APPROVAL_IDS : WAITING_APPROVAL_IDS.slice(0, 2);
+    return { rows: shown.map(waitingRecord), unreadableCount: 0 };
+  }
+}
 /**
  * The approvals pane's context, over the shared builder.
  *
@@ -36,6 +53,7 @@ export function approvalsPaneContext(
 ): PaneContextOf<"approvals"> {
   return paneContext({ kind: "approvals" }, { bridge, sessionStore });
 }
+
 /**
  * A store bound to a session, carrying the scenario's own roster.
  *
@@ -95,29 +113,25 @@ export function section(name: string): HTMLElement {
   return screen.getByRole("region", { name });
 }
 
-// A queue that GROWS, which the shipped scenarios cannot do: a scripted reply is
-// looked up per call and answers the same rows every time, so the case that matters
-// here — a card arriving while older ones are already on screen — is only reachable
-// against a stub whose answer changes between reads.
-export class ScriptedApprovalReads {
-  #admitsThird = false;
-
-  /** Let the next read carry the arriving record. */
-  public admitThird(): void {
-    this.#admitsThird = true;
-  }
-
-  public reply(): ParsedRows<ApprovalRecord> {
-    const shown = this.#admitsThird ? WAITING_APPROVAL_IDS : WAITING_APPROVAL_IDS.slice(0, 2);
-    return { rows: shown.map(waitingRecord), unreadableCount: 0 };
-  }
-}
-
 export const WAITING_APPROVAL_IDS = [
   "019b7a33-3300-7f01-8210-d1a4c1150601",
   "019b7a33-3300-7f01-8220-d1a4c1150602",
   "019b7a33-3300-7f01-8230-d1a4c1150603",
 ] as const;
+
+/**
+ * Anything the stub port can answer the projection read with.
+ *
+ * The console's OWN reading of that read — rows it could decode, beside a count of
+ * the ones it could not — rather than a wire-shaped reply, because that is what the
+ * growth port answers with and because the claim under test is what the PANE renders
+ * for a partial read. A case that handed in raw rows would be re-deciding which of
+ * them are readable, which is `approval-records.test.ts`'s subject and not this
+ * file's.
+ */
+export interface ApprovalProjectionSource {
+  readonly reply: () => ParsedRows<ApprovalRecord>;
+}
 
 /**
  * One waiting record, in the shape the CONSOLE holds — `approvalRequestId` and
@@ -140,20 +154,6 @@ export function waitingRecord(id: string): ApprovalRecord {
     createdAt: "2026-01-01T13:30:00.900Z",
     updatedAt: "2026-01-01T13:30:00.900Z",
   };
-}
-
-/**
- * Anything the stub port can answer the projection read with.
- *
- * The console's OWN reading of that read — rows it could decode, beside a count of
- * the ones it could not — rather than a wire-shaped reply, because that is what the
- * growth port answers with and because the claim under test is what the PANE renders
- * for a partial read. A case that handed in raw rows would be re-deciding which of
- * them are readable, which is `approval-records.test.ts`'s subject and not this
- * file's.
- */
-export interface ApprovalProjectionSource {
-  readonly reply: () => ParsedRows<ApprovalRecord>;
 }
 
 /**

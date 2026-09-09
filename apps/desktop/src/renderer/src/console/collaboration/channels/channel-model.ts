@@ -97,32 +97,6 @@ export interface OrderedChannelRows {
 }
 
 /**
- * Order what the daemon served.
- *
- * TWO MOVES AND NO MORE. The bootstrap channel is hoisted to the top and archived
- * rows sink below the live ones; everything else keeps the daemon's own order. A
- * renderer that sorted by name or by activity would be imposing an order over one
- * the daemon already chose, and the two would disagree the moment either changed.
- *
- * A muted row stays among the live ones. Mute suppresses attention, not execution —
- * a muted channel still admits runs — so demoting it would misreport what it is.
- */
-export function orderChannelRows(
-  channels: readonly ChannelListResponseChannel[],
-): OrderedChannelRows {
-  const rows: ChannelRow[] = channels.map((channel) => ({
-    channel,
-    isMain: channel.name === MAIN_CHANNEL_NAME,
-  }));
-  const live = rows.filter((row) => row.channel.state !== "archived");
-  const archived = rows.filter((row) => row.channel.state === "archived");
-  return {
-    live: [...live.filter((row) => row.isMain), ...live.filter((row) => !row.isMain)],
-    archived,
-  };
-}
-
-/**
  * One directory answer, and where it sits in this session's settlement order.
  *
  * THE POSITION TRAVELS WITH THE ANSWER because it is a fact about the READ and not
@@ -157,6 +131,32 @@ export interface ChannelDirectoryReading {
 export type AppliedChannelStates = ReadonlyMap<string, ChannelState>;
 
 /**
+ * Order what the daemon served.
+ *
+ * TWO MOVES AND NO MORE. The bootstrap channel is hoisted to the top and archived
+ * rows sink below the live ones; everything else keeps the daemon's own order. A
+ * renderer that sorted by name or by activity would be imposing an order over one
+ * the daemon already chose, and the two would disagree the moment either changed.
+ *
+ * A muted row stays among the live ones. Mute suppresses attention, not execution —
+ * a muted channel still admits runs — so demoting it would misreport what it is.
+ */
+export function orderChannelRows(
+  channels: readonly ChannelListResponseChannel[],
+): OrderedChannelRows {
+  const rows: ChannelRow[] = channels.map((channel) => ({
+    channel,
+    isMain: channel.name === MAIN_CHANNEL_NAME,
+  }));
+  const live = rows.filter((row) => row.channel.state !== "archived");
+  const archived = rows.filter((row) => row.channel.state === "archived");
+  return {
+    live: [...live.filter((row) => row.isMain), ...live.filter((row) => !row.isMain)],
+    archived,
+  };
+}
+
+/**
  * The three states the wire declares, enumerated where the console can read them.
  *
  * `packages/contracts` ships `ChannelState` as a TYPE and enumerates its members only
@@ -172,6 +172,9 @@ const CHANNEL_STATES: Readonly<Record<ChannelState, ChannelState>> = {
   muted: "muted",
   archived: "archived",
 };
+
+/** The read the channel list is built on, with its refresh already bound. */
+export type ChannelDirectory = PushDrivenRead<ChannelDirectoryReading>;
 
 /**
  * Read a lifecycle receipt's state as one of the three the wire declares.
@@ -264,9 +267,6 @@ export function retainUncaughtUpStates(
   );
   return retained.size === appliedStateByChannelId.size ? appliedStateByChannelId : retained;
 }
-
-/** The read the channel list is built on, with its refresh already bound. */
-export type ChannelDirectory = PushDrivenRead<ChannelDirectoryReading>;
 
 /**
  * Build the directory for one session.

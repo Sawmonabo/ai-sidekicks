@@ -17,11 +17,11 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../../../bridge/index.js";
-import { WORKFLOWS_SCENARIO } from "../../../bridge/scenarios/workflows.js";
+import { WORKFLOWS_SCENARIO } from "../../../bridge/scenario/workflows/workflows.js";
 import {
   DEFINITION_RELEASE_CHECKS_SESSION,
   WORKFLOWS_SESSION_ID,
-} from "../../../bridge/scenarios/workflow-fixture-ids.js";
+} from "../../../bridge/scenario/workflows/ids.js";
 import type { PaneContextOf } from "../../../seats/index.js";
 import type { ConsoleEntityRef } from "../../../store/index.js";
 import { WorkflowBuilderPane } from "./WorkflowBuilderPane.js";

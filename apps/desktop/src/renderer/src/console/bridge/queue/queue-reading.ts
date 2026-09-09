@@ -93,6 +93,9 @@ export class SessionQueueReading implements ReadTriggerTarget {
   #isRetired = false;
   #feed: QueueFeed;
 
+  /** The reading as it stands. One object for every watcher, stable between changes. */
+  public snapshot = (): QueueFeed => this.#feed;
+
   public constructor(bridge: ConsoleBridge, sessionId: string, onIdle: () => void) {
     this.#onIdle = onIdle;
     // Both collaborators publish through this reading's own `#publish` rather than
@@ -162,9 +165,6 @@ export class SessionQueueReading implements ReadTriggerTarget {
     }
     this.#refresh.request(reason);
   }
-
-  /** The reading as it stands. One object for every watcher, stable between changes. */
-  public snapshot = (): QueueFeed => this.#feed;
 
   /** Whether this reading has been retired. A retired one serves nobody again. */
   public get isRetired(): boolean {

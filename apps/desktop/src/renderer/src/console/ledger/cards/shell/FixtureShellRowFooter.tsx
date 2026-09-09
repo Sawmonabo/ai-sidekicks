@@ -26,6 +26,17 @@ import {
 export const FIXTURE_SHELL_FOOTER_OWNER = "ledger fixture shell footer";
 
 /**
+ * Claim the footer seat for the shell.
+ *
+ * A function rather than a module-scope call, for `registerFixtureShellRows`' reason: a
+ * module whose import registers a seat cannot be composed twice by a test, and the
+ * seat's owner scoping would then refuse the second composition rather than replace it.
+ */
+export function registerFixtureShellRowFooter(): void {
+  registerTimelineRowFooterRenderer(FIXTURE_SHELL_FOOTER_OWNER, FixtureShellRowFooter);
+}
+
+/**
  * The reserved footer.
  *
  * Reads nothing off the row on purpose: a shell that summarised the row would be
@@ -39,15 +50,4 @@ function FixtureShellRowFooter(_props: TimelineRowFooterSlotProps): React.JSX.El
       title="Correcting a sent message has not been built yet."
     />
   );
-}
-
-/**
- * Claim the footer seat for the shell.
- *
- * A function rather than a module-scope call, for `registerFixtureShellRows`' reason: a
- * module whose import registers a seat cannot be composed twice by a test, and the
- * seat's owner scoping would then refuse the second composition rather than replace it.
- */
-export function registerFixtureShellRowFooter(): void {
-  registerTimelineRowFooterRenderer(FIXTURE_SHELL_FOOTER_OWNER, FixtureShellRowFooter);
 }

@@ -26,6 +26,20 @@ import { DECK_LAYOUT_RECORD_KEY, useDeckPersistence } from "./layout-persistence
 /** The one session every case here arranges, saves, and restores. */
 export const RESTORE_SESSION = "session-restore";
 
+/** What a mounted surface offers a case that routes it, and what it reads back. */
+export interface MountedDeckPersistence {
+  /**
+   * Route the mounted surface to another session, as the workspace does.
+   *
+   * A re-render and not a remount, which is the whole shape the session-scope suite is
+   * about: the workspace stays mounted across a navigation between two open sessions,
+   * so anything the hook holds per MOUNT survives the route.
+   */
+  readonly routeTo: (sessionId: string | undefined) => void;
+  /** The refusal codes the hook returned on the last render, in order. */
+  readonly restoreRefusalCodes: () => readonly string[];
+}
+
 export function deckLayout(): DeckLayout {
   return new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
 }
@@ -64,20 +78,6 @@ export async function saveDeckInAnUnknownGrammar(
     [DECK_SNAPSHOT_HEADER_KEY]: { version: DECK_LAYOUT_SNAPSHOT_VERSION + 1 },
   });
   expect(result.outcome).toBe("written");
-}
-
-/** What a mounted surface offers a case that routes it, and what it reads back. */
-export interface MountedDeckPersistence {
-  /**
-   * Route the mounted surface to another session, as the workspace does.
-   *
-   * A re-render and not a remount, which is the whole shape the session-scope suite is
-   * about: the workspace stays mounted across a navigation between two open sessions,
-   * so anything the hook holds per MOUNT survives the route.
-   */
-  readonly routeTo: (sessionId: string | undefined) => void;
-  /** The refusal codes the hook returned on the last render, in order. */
-  readonly restoreRefusalCodes: () => readonly string[];
 }
 
 /**

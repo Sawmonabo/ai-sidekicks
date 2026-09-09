@@ -57,6 +57,26 @@ export const EMPTY_SCENARIO: FixtureScenario = {
   startedAtIso: "2026-01-01T08:00:00.000Z",
 };
 
+/** What one case wants the four reads and the mutation to answer. */
+export interface DiagnosticsScript {
+  readonly status?: GrowthHealthStatus;
+  readonly stall?: GrowthStuckRunInspection;
+  readonly failure?: GrowthFailureDetail;
+  readonly policy?: GrowthRedactionPolicy;
+  readonly recovery?: GrowthRecoveryReceipt;
+  /** Operations that should answer the port's own refusal instead of a value. */
+  readonly refuse?: readonly (keyof DiagnosticsScript)[];
+}
+
+/** The five overridden operations a case can assert were called. */
+export interface DiagnosticsCalls {
+  readonly status: Mock<() => Promise<GrowthOutcome<GrowthHealthStatus>>>;
+  readonly stall: Mock<() => Promise<GrowthOutcome<GrowthStuckRunInspection>>>;
+  readonly failure: Mock<() => Promise<GrowthOutcome<GrowthFailureDetail>>>;
+  readonly policy: Mock<() => Promise<GrowthOutcome<GrowthRedactionPolicy>>>;
+  readonly recovery: Mock<() => Promise<GrowthOutcome<GrowthRecoveryReceipt>>>;
+}
+
 /** A node reporting one healthy component, one degraded, one blocked. */
 export function degradedStatus(): GrowthHealthStatus {
   return {
@@ -136,47 +156,6 @@ export function recoveryReceipt(newState: RunState): GrowthRecoveryReceipt {
     newState,
     actionTaken: "interrupt",
   };
-}
-
-/** What one case wants the four reads and the mutation to answer. */
-export interface DiagnosticsScript {
-  readonly status?: GrowthHealthStatus;
-  readonly stall?: GrowthStuckRunInspection;
-  readonly failure?: GrowthFailureDetail;
-  readonly policy?: GrowthRedactionPolicy;
-  readonly recovery?: GrowthRecoveryReceipt;
-  /** Operations that should answer the port's own refusal instead of a value. */
-  readonly refuse?: readonly (keyof DiagnosticsScript)[];
-}
-
-/**
- * One overridden operation, answering a value or the port's own refusal.
- *
- * The refusal is `growthUnavailable`'s — the shipped port's builder, carrying the
- * slate row's wire name and the code a release build refuses with — rather than an
- * envelope written here, so a case asserting on a refusal is asserting on production
- * text. `served === undefined` refuses for the same reason the default does: a case
- * that wanted an answer says which one.
- */
-function answering<TValue>(
-  operationId: GrowthOperationId,
-  served: TValue | undefined,
-  isRefused: boolean,
-): Mock<() => Promise<GrowthOutcome<TValue>>> {
-  const outcome: GrowthOutcome<TValue> =
-    served === undefined || isRefused
-      ? growthUnavailable(operationId)
-      : { status: "served", value: served };
-  return vi.fn(async () => await Promise.resolve(outcome));
-}
-
-/** The five overridden operations a case can assert were called. */
-export interface DiagnosticsCalls {
-  readonly status: Mock<() => Promise<GrowthOutcome<GrowthHealthStatus>>>;
-  readonly stall: Mock<() => Promise<GrowthOutcome<GrowthStuckRunInspection>>>;
-  readonly failure: Mock<() => Promise<GrowthOutcome<GrowthFailureDetail>>>;
-  readonly policy: Mock<() => Promise<GrowthOutcome<GrowthRedactionPolicy>>>;
-  readonly recovery: Mock<() => Promise<GrowthOutcome<GrowthRecoveryReceipt>>>;
 }
 
 /**
@@ -304,4 +283,25 @@ export async function openRecoveryConfirmation(
     await crossMacrotaskBoundary();
   });
   await settle();
+}
+
+/**
+ * One overridden operation, answering a value or the port's own refusal.
+ *
+ * The refusal is `growthUnavailable`'s — the shipped port's builder, carrying the
+ * slate row's wire name and the code a release build refuses with — rather than an
+ * envelope written here, so a case asserting on a refusal is asserting on production
+ * text. `served === undefined` refuses for the same reason the default does: a case
+ * that wanted an answer says which one.
+ */
+function answering<TValue>(
+  operationId: GrowthOperationId,
+  served: TValue | undefined,
+  isRefused: boolean,
+): Mock<() => Promise<GrowthOutcome<TValue>>> {
+  const outcome: GrowthOutcome<TValue> =
+    served === undefined || isRefused
+      ? growthUnavailable(operationId)
+      : { status: "served", value: served };
+  return vi.fn(async () => await Promise.resolve(outcome));
 }

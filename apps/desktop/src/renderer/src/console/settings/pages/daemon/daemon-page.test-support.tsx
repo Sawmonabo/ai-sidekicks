@@ -61,52 +61,6 @@ export type RejectingOperation = "controls" | "status";
 /** The reason a rejecting port hands back. Prose, so a case can assert it reached screen. */
 export const TRANSPORT_GONE_MESSAGE = "the shell transport went away mid-dispatch";
 
-function bridgeWith(
-  ledger: ControlLedger,
-  script: PortScript,
-  rejecting: RejectingOperation | undefined,
-): ConsoleBridge {
-  const holdOpen = async (): Promise<void> => {
-    if (script.holdsControls) {
-      await new Promise<void>(() => undefined);
-    }
-  };
-  const growth = {
-    ...createRefusingGrowthPort(),
-    // A DIFFERENT VERSION EVERY TIME, so a case can tell a re-read from a re-render:
-    // an answer that never changes cannot distinguish a page that asked again from one
-    // that kept the first reply.
-    daemonStatusRead: async () => {
-      if (rejecting === "status") {
-        throw script.rejection;
-      }
-      if (!script.servesStatus) {
-        return await createRefusingGrowthPort().daemonStatusRead({});
-      }
-      const version = `2026-04-30-read-${ledger.statusReads.length + 1}`;
-      ledger.statusReads.push(version);
-      return { status: "served", value: { state: "connected", version } } as const;
-    },
-    daemonStop: async () => {
-      ledger.calls.push("stop");
-      await holdOpen();
-      if (rejecting === "controls") {
-        throw script.rejection;
-      }
-      return { status: "served", value: undefined } as const;
-    },
-    daemonRestart: async () => {
-      ledger.calls.push("restart");
-      await holdOpen();
-      if (rejecting === "controls") {
-        throw script.rejection;
-      }
-      return await createRefusingGrowthPort().daemonRestart({});
-    },
-  };
-  return { growth } as unknown as ConsoleBridge;
-}
-
 /** One mounted page, and the supervisor state a case can move under it. */
 export interface MountedDaemonPage {
   readonly container: HTMLElement;
@@ -156,4 +110,50 @@ export function getButton(container: HTMLElement, label: string): HTMLButtonElem
     throw new Error(`no button labelled ${label}`);
   }
   return button;
+}
+
+function bridgeWith(
+  ledger: ControlLedger,
+  script: PortScript,
+  rejecting: RejectingOperation | undefined,
+): ConsoleBridge {
+  const holdOpen = async (): Promise<void> => {
+    if (script.holdsControls) {
+      await new Promise<void>(() => undefined);
+    }
+  };
+  const growth = {
+    ...createRefusingGrowthPort(),
+    // A DIFFERENT VERSION EVERY TIME, so a case can tell a re-read from a re-render:
+    // an answer that never changes cannot distinguish a page that asked again from one
+    // that kept the first reply.
+    daemonStatusRead: async () => {
+      if (rejecting === "status") {
+        throw script.rejection;
+      }
+      if (!script.servesStatus) {
+        return await createRefusingGrowthPort().daemonStatusRead({});
+      }
+      const version = `2026-04-30-read-${ledger.statusReads.length + 1}`;
+      ledger.statusReads.push(version);
+      return { status: "served", value: { state: "connected", version } } as const;
+    },
+    daemonStop: async () => {
+      ledger.calls.push("stop");
+      await holdOpen();
+      if (rejecting === "controls") {
+        throw script.rejection;
+      }
+      return { status: "served", value: undefined } as const;
+    },
+    daemonRestart: async () => {
+      ledger.calls.push("restart");
+      await holdOpen();
+      if (rejecting === "controls") {
+        throw script.rejection;
+      }
+      return await createRefusingGrowthPort().daemonRestart({});
+    },
+  };
+  return { growth } as unknown as ConsoleBridge;
 }

@@ -24,7 +24,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, readProviderAccountId } from "../bridge/index.js";
 import { withDaemonCall } from "../bridge/fixture/call-plane/bridge.test-support.js";
-import { ONBOARDING_SCENARIO } from "../bridge/scenarios/onboarding.js";
+import { ONBOARDING_SCENARIO } from "../bridge/scenario/onboarding.js";
 import { CommittedFrameRecorder } from "../core/committed-frame.test-support.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { FrameStore } from "../store/index.js";

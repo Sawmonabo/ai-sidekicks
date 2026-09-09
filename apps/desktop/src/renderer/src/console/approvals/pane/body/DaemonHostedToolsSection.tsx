@@ -22,20 +22,6 @@ import { type DriverCapabilityReading } from "../../../bridge/index.js";
 import { CallbackTools } from "../posture/CallbackTools.js";
 import { type CallbackToolRegistryReading } from "../posture/callback-tool-registry.js";
 
-interface DaemonHostedToolsSectionProps {
-  /**
-   * The capability across every run this pane's decisions address.
-   *
-   * A session-level reading and not one run's: the pending decisions may name runs
-   * bound to different drivers, and `readingAcrossRuns` folds the whole set.
-   */
-  readonly capability: DriverCapabilityReading;
-  /** Why the declarations could not be read, where they could not be. */
-  readonly readRefusal: ConsoleRefusal | undefined;
-  /** What the registry read settled on, or `undefined` while it is in flight. */
-  readonly registry: CallbackToolRegistryReading | undefined;
-}
-
 export function DaemonHostedToolsSection(
   props: DaemonHostedToolsSectionProps,
 ): React.JSX.Element | null {
@@ -54,4 +40,18 @@ export function DaemonHostedToolsSection(
       )}
     </section>
   );
+}
+
+interface DaemonHostedToolsSectionProps {
+  /**
+   * The capability across every run this pane's decisions address.
+   *
+   * A session-level reading and not one run's: the pending decisions may name runs
+   * bound to different drivers, and `readingAcrossRuns` folds the whole set.
+   */
+  readonly capability: DriverCapabilityReading;
+  /** Why the declarations could not be read, where they could not be. */
+  readonly readRefusal: ConsoleRefusal | undefined;
+  /** What the registry read settled on, or `undefined` while it is in flight. */
+  readonly registry: CallbackToolRegistryReading | undefined;
 }

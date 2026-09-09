@@ -14,7 +14,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, growthUnavailable } from "../../bridge/index.js";
-import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { APPLY_COALESCE_MS, ManualClock } from "../../core/index.js";
 import { consoleTripwires } from "../../core/tripwires.js";
 import { SessionStoreRegistry } from "../../store/index.js";

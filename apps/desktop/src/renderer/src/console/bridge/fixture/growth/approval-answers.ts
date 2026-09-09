@@ -40,7 +40,7 @@ import {
   type GrowthOutcome,
   type GrowthPort,
 } from "../../growth-port/index.js";
-import type { ScenarioEngine } from "../../scenario-runtime/index.js";
+import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /**
  * The four approvals operations the fixture answers.

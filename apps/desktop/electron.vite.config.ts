@@ -96,9 +96,13 @@ const ELECTRON_EXTERNAL: readonly (string | RegExp)[] = ["electron", /^electron\
 /**
  * The directories that make up the console's fixture corpus.
  *
- * The first three are the three `Spec-023 §Console Design (Meridian)` §The fixture
- * bridge names: the scenario INSTANCES, the fixture bridge that serves them, and the
- * scenario vocabulary and engine a scenario is written in and played by.
+ * The first two are the three `Spec-023 §Console Design (Meridian)` §The fixture bridge
+ * names, in two entries rather than three: `bridge/scenario/` holds both the scenario
+ * INSTANCES and — in `runtime/` inside it — the vocabulary and engine a scenario is
+ * written in and played by, and `bridge/fixture/` is the bridge that serves them. The
+ * runtime carried its own entry while it was a sibling directory; one prefix reaches
+ * every module of both halves now, and a second entry under it would state twice what
+ * the first already covers.
  *
  * THE LAST TWO ARE OWNER-SLOT FIXTURE SHELLS, and they are here for the half of the
  * problem the `define` cannot reach. A slot's shell is referenced through a
@@ -125,9 +129,8 @@ const ELECTRON_EXTERNAL: readonly (string | RegExp)[] = ["electron", /^electron\
  * side-effect-free drops what nothing references and keeps what does.
  */
 const FIXTURE_CORPUS_DIRECTORIES: readonly string[] = [
-  "/src/renderer/src/console/bridge/scenarios/",
+  "/src/renderer/src/console/bridge/scenario/",
   "/src/renderer/src/console/bridge/fixture/",
-  "/src/renderer/src/console/bridge/scenario-runtime/",
   "/src/renderer/src/console/settings/pages/mcp-servers/shell/",
   "/src/renderer/src/console/settings/pages/provider-accounts/shell/",
 ];
@@ -303,7 +306,7 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
           // `fixtureServedOperations` were all present in `index-*.js`, against a
           // spec sentence that says a release bundle carries none of it.
           //
-          // So the corpus declares what is true of it: those three directories hold
+          // So the corpus declares what is true of it: those directories hold
           // pure data and pure builders and run nothing at import time. With that
           // declared, the unreferenced bindings go and the modules go with them.
           // The claim is path-scoped rather than a package-wide `sideEffects: false`,

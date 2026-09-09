@@ -26,8 +26,8 @@ import {
   type ConsoleBridge,
   type GrowthPort,
 } from "../../../../bridge/index.js";
-import { WORKFLOWS_SCENARIO } from "../../../../bridge/scenarios/workflows.js";
-import { WORKFLOWS_PARKED_RUN } from "../../../../bridge/scenarios/workflow-fixture-runs.js";
+import { WORKFLOWS_SCENARIO } from "../../../../bridge/scenario/workflows/workflows.js";
+import { WORKFLOWS_PARKED_RUN } from "../../../../bridge/scenario/workflows/runs.js";
 import type { WireErrorEnvelope } from "../../../../core/index.js";
 // The seat's own wait for its two chunks, by its own specifier: a fixture helper has no
 // door to leave through — `barrel-census` fails a door line no production module reads —
@@ -110,6 +110,41 @@ export function bridgeWatchingSubmits(refusal?: WireErrorEnvelope): SubmitProbe 
 /** What a port raises when it fails before it has a promise to reject with. */
 export const SUBMIT_DISPATCH_FAILURE = "the bridge was torn down before the submit was put";
 
+/** One submit the case settles by hand, and what it was asked. */
+export interface HeldSubmit extends SubmitProbe {
+  readonly serve: () => void;
+}
+
+/** What a case that moves the pane from one wait to another holds on to. */
+export interface SwitchableSlot {
+  readonly container: HTMLElement;
+  /**
+   * Put another wait in the same slot, or clear it, without unmounting anything above.
+   *
+   * Awaited for the reason the mount is: the form the second wait opens is a second form,
+   * and it opens in the same two steps.
+   */
+  readonly switchTo: (next: HumanFormPhase | undefined) => Promise<void>;
+}
+
+/**
+ * What a case mounts the human-form slot with.
+ *
+ * An object rather than three positional parameters, and the reason it exists at all is
+ * that the seat's own submit channel reads its port off the provider — so every case
+ * that opens a wait has to mount one, and every case that supplies an owner body has to
+ * mount the same one. Written out per suite, that is three chances to forget the
+ * provider and get a thrown bridge resolution instead of the claim under test.
+ */
+export interface HumanFormSlotMounting {
+  /** The open wait, or `undefined` for the arm where no phase is waiting on anybody. */
+  readonly phase: HumanFormPhase | undefined;
+  /** The bridge the channel reads through. A fresh fixture one where a case has none. */
+  readonly bridge?: ConsoleBridge;
+  /** An owner body, for a case about what a supplied body is handed. */
+  readonly body?: HumanFormBody;
+}
+
 /**
  * A bridge whose submit throws on the CALLING turn rather than rejecting.
  *
@@ -131,11 +166,6 @@ export function bridgeThrowingSubmits(): SubmitProbe {
     },
   };
   return { bridge: { ...fixture, growth }, requests };
-}
-
-/** One submit the case settles by hand, and what it was asked. */
-export interface HeldSubmit extends SubmitProbe {
-  readonly serve: () => void;
 }
 
 /**
@@ -193,36 +223,6 @@ export async function renderSlot(
     ...(bridge === undefined ? {} : { bridge }),
   });
   return mounted.container;
-}
-
-/** What a case that moves the pane from one wait to another holds on to. */
-export interface SwitchableSlot {
-  readonly container: HTMLElement;
-  /**
-   * Put another wait in the same slot, or clear it, without unmounting anything above.
-   *
-   * Awaited for the reason the mount is: the form the second wait opens is a second form,
-   * and it opens in the same two steps.
-   */
-  readonly switchTo: (next: HumanFormPhase | undefined) => Promise<void>;
-}
-
-/**
- * What a case mounts the human-form slot with.
- *
- * An object rather than three positional parameters, and the reason it exists at all is
- * that the seat's own submit channel reads its port off the provider — so every case
- * that opens a wait has to mount one, and every case that supplies an owner body has to
- * mount the same one. Written out per suite, that is three chances to forget the
- * provider and get a thrown bridge resolution instead of the claim under test.
- */
-export interface HumanFormSlotMounting {
-  /** The open wait, or `undefined` for the arm where no phase is waiting on anybody. */
-  readonly phase: HumanFormPhase | undefined;
-  /** The bridge the channel reads through. A fresh fixture one where a case has none. */
-  readonly bridge?: ConsoleBridge;
-  /** An owner body, for a case about what a supplied body is handed. */
-  readonly body?: HumanFormBody;
 }
 
 /**

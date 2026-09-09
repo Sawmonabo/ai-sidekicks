@@ -65,6 +65,16 @@ export type DeckActName = keyof DeckActs;
 export const NO_FOCUSED_PANE_SENTENCE = "No pane is focused in the deck.";
 
 /**
+ * Whether one pane's body is currently in a window of its own.
+ *
+ * A READING passed in rather than the hand-off itself, and a predicate rather than the
+ * detached set: this module decides what an act does and has no business holding the
+ * plane that opens windows, and a caller handing over a set would be handing over a
+ * value that is stale the moment it is captured.
+ */
+export type PaneDetachmentReading = (paneId: string) => boolean;
+
+/**
  * What closing says about a pane whose body is in a window of its own.
  *
  * Composed from the kind and the placeholder's own control label, so the sentence
@@ -75,16 +85,6 @@ export const NO_FOCUSED_PANE_SENTENCE = "No pane is focused in the deck.";
 export function detachedPaneCloseRefusal(kind: string): string {
   return `The ${kind} pane is open in a window of its own. Return it to the deck before closing it.`;
 }
-
-/**
- * Whether one pane's body is currently in a window of its own.
- *
- * A READING passed in rather than the hand-off itself, and a predicate rather than the
- * detached set: this module decides what an act does and has no business holding the
- * plane that opens windows, and a caller handing over a set would be handing over a
- * value that is stale the moment it is captured.
- */
-export type PaneDetachmentReading = (paneId: string) => boolean;
 
 /**
  * One reading over the ids a surface publishes.

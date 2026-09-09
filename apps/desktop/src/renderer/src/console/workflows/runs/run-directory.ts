@@ -91,11 +91,6 @@ import {
   type SubjectScopedDisposal,
 } from "../../store/index.js";
 
-/** What this read looks like once it has an answer, either kind. */
-type SettledRunDirectory =
-  | { readonly status: "served"; readonly runs: readonly WorkflowRunListEntry[] }
-  | { readonly status: "unavailable"; readonly refusal: SettledReadRefusal };
-
 /**
  * What a runs surface knows about the runs this session holds, at one moment.
  *
@@ -139,6 +134,11 @@ export function useWorkflowRunDirectory(
         : { status: "unavailable", refusal: settlement },
   }).value;
 }
+
+/** What this read looks like once it has an answer, either kind. */
+type SettledRunDirectory =
+  | { readonly status: "served"; readonly runs: readonly WorkflowRunListEntry[] }
+  | { readonly status: "unavailable"; readonly refusal: SettledReadRefusal };
 
 /**
  * The enumeration, or no question at all.

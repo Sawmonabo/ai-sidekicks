@@ -33,7 +33,7 @@ import type {
 } from "../../bridge/index.js";
 import { growthUnavailable } from "../../bridge/index.js";
 import { fixtureBridgeWithGrowth } from "../../bridge/fixture/call-plane/bridge.test-support.js";
-import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
+import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
 import type { ConsoleClock } from "../../core/index.js";
 import { manualGate } from "../held-calls.test-support.js";
 import type { ChunkAcknowledgement } from "./attachment-ingest-acknowledgement.js";
@@ -45,48 +45,6 @@ export type RecordedInit = Parameters<GrowthPort["artifactIngestBegin"]>[0];
 
 /** One recorded `AttachmentIngestChunk`, exactly as the registry declares it. */
 export type RecordedChunk = Parameters<GrowthPort["artifactIngestWriteChunk"]>[0];
-
-/** Bytes that differ at every position, so a concatenation check can actually fail. */
-export function patternedBytes(byteLength: number): Uint8Array<ArrayBuffer> {
-  const bytes = new Uint8Array(byteLength);
-  for (let index = 0; index < byteLength; index += 1) {
-    bytes[index] = (index * 7 + 13) % 251;
-  }
-  return bytes;
-}
-
-/**
- * One scripted refusal, built from the port's own refusal rather than beside it.
- *
- * WHY THE CODE IS THE ONE CAST AND EVERYTHING ELSE IS REAL. `GrowthUnavailable`
- * carries seven members and this file used to hand back four, so the whole port had to
- * be cast to `Partial<GrowthPort>` — which switched off the checking on every method,
- * including the served arms that were perfectly correct. Spreading `growthUnavailable`
- * gives the four the scripts never set (`origin`, `operationId`, `slateRow`,
- * `owningDocument`) their real values, so a case reading any of them reads what the
- * port would have said.
- *
- * `code` alone is cast, and deliberately: the port's own codes are the closed set the
- * CONSOLE mints, while these cases script the codes a DAEMON sends
- * (`artifact.ingest_not_found` among them) to drive the ingest client against answers
- * it must survive. That is off the port's contract on one member, which is exactly
- * what a narrow cast should say — and it is checked everywhere else.
- *
- * THE CAST TARGET IS THE WIRE-REFUSED ARM'S CODE AND NOT THE WHOLE UNION, which is
- * what keeps this honest now that `GrowthUnavailable` has two arms discriminated on
- * `code`. Casting to the union would let the object claim the `call-rejected` arm
- * while carrying no `cause` — the member that arm exists to require — so the scripted
- * refusal would be a shape the builder can never produce. Taking the arm this spread
- * is actually on says the same thing about `code` and nothing false about the rest.
- */
-function scriptedRefusal(operationId: GrowthOperationId, code: string): GrowthUnavailable {
-  const refused = growthUnavailable(operationId);
-  return {
-    ...refused,
-    code: code as typeof refused.code,
-    detail: "scripted refusal",
-  };
-}
 
 /**
  * A growth port that answers what the case tells it to.
@@ -223,19 +181,6 @@ export class ScriptedGrowthPort {
     return gate;
   }
 
-  /** Append one chunk's decoded bytes and answer the stream's running total. */
-  #append(request: RecordedChunk): number {
-    const appendedBySequenceNumber =
-      this.#spooledBytesByIngestId.get(request.ingestId) ?? new Map<number, number>();
-    appendedBySequenceNumber.set(request.sequenceNumber, globalThis.atob(request.chunk).length);
-    this.#spooledBytesByIngestId.set(request.ingestId, appendedBySequenceNumber);
-    let spooledBytes = 0;
-    for (const appended of appendedBySequenceNumber.values()) {
-      spooledBytes += appended;
-    }
-    return spooledBytes;
-  }
-
   /**
    * The port behind a bridge, with the window's clock where a case freezes one.
    *
@@ -317,6 +262,28 @@ export class ScriptedGrowthPort {
     // removes this, and it is reported rather than made here.
     return { ...bridge, scenarioEngine: { clock } } as ConsoleBridge;
   }
+
+  /** Append one chunk's decoded bytes and answer the stream's running total. */
+  #append(request: RecordedChunk): number {
+    const appendedBySequenceNumber =
+      this.#spooledBytesByIngestId.get(request.ingestId) ?? new Map<number, number>();
+    appendedBySequenceNumber.set(request.sequenceNumber, globalThis.atob(request.chunk).length);
+    this.#spooledBytesByIngestId.set(request.ingestId, appendedBySequenceNumber);
+    let spooledBytes = 0;
+    for (const appended of appendedBySequenceNumber.values()) {
+      spooledBytes += appended;
+    }
+    return spooledBytes;
+  }
+}
+
+/** Bytes that differ at every position, so a concatenation check can actually fail. */
+export function patternedBytes(byteLength: number): Uint8Array<ArrayBuffer> {
+  const bytes = new Uint8Array(byteLength);
+  for (let index = 0; index < byteLength; index += 1) {
+    bytes[index] = (index * 7 + 13) % 251;
+  }
+  return bytes;
 }
 
 /** One client over one scripted port, on the session every case names. */
@@ -343,6 +310,39 @@ export function sourceOver(
     payload: new Blob([patternedBytes(byteLength)]),
     declaredMediaType,
   });
+}
+
+/**
+ * One scripted refusal, built from the port's own refusal rather than beside it.
+ *
+ * WHY THE CODE IS THE ONE CAST AND EVERYTHING ELSE IS REAL. `GrowthUnavailable`
+ * carries seven members and this file used to hand back four, so the whole port had to
+ * be cast to `Partial<GrowthPort>` — which switched off the checking on every method,
+ * including the served arms that were perfectly correct. Spreading `growthUnavailable`
+ * gives the four the scripts never set (`origin`, `operationId`, `slateRow`,
+ * `owningDocument`) their real values, so a case reading any of them reads what the
+ * port would have said.
+ *
+ * `code` alone is cast, and deliberately: the port's own codes are the closed set the
+ * CONSOLE mints, while these cases script the codes a DAEMON sends
+ * (`artifact.ingest_not_found` among them) to drive the ingest client against answers
+ * it must survive. That is off the port's contract on one member, which is exactly
+ * what a narrow cast should say — and it is checked everywhere else.
+ *
+ * THE CAST TARGET IS THE WIRE-REFUSED ARM'S CODE AND NOT THE WHOLE UNION, which is
+ * what keeps this honest now that `GrowthUnavailable` has two arms discriminated on
+ * `code`. Casting to the union would let the object claim the `call-rejected` arm
+ * while carrying no `cause` — the member that arm exists to require — so the scripted
+ * refusal would be a shape the builder can never produce. Taking the arm this spread
+ * is actually on says the same thing about `code` and nothing false about the rest.
+ */
+function scriptedRefusal(operationId: GrowthOperationId, code: string): GrowthUnavailable {
+  const refused = growthUnavailable(operationId);
+  return {
+    ...refused,
+    code: code as typeof refused.code,
+    detail: "scripted refusal",
+  };
 }
 
 /** The attachment most cases attach: small enough to fit one chunk, declaring nothing. */

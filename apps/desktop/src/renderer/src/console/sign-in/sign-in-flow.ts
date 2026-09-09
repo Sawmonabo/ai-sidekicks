@@ -275,6 +275,31 @@ export class SignInFlow {
 }
 
 /**
+ * The state one ceremony outcome settles into.
+ *
+ * Total over the outcome union and exported for its own test: it is the whole of the
+ * mapping this surface performs on a wire-shaped value, and a case reading the wrong
+ * way here is the difference between a person being told they are signed in and
+ * being told their authenticator cannot do PRF.
+ */
+export function stateFromOutcome(outcome: WebAuthnCeremonyOutcome): SignInState {
+  switch (outcome.kind) {
+    case "authenticated":
+      return { kind: "signed-in", custody: outcome.custody, claims: outcome.claims };
+    case "fallback-required":
+      return {
+        kind: "handing-off",
+        probeResult: outcome.probeResult,
+        handoff: outcome.handoff,
+      };
+    case "refused":
+      return { kind: "refused", reason: outcome.reason };
+    case "unavailable":
+      return { kind: "unavailable", refusal: outcome.refusal };
+  }
+}
+
+/**
  * The state one ENROLMENT outcome settles into, given the session it ran from.
  *
  * Only `authenticated` replaces the session, and it replaces it wholly: a passkey
@@ -302,29 +327,4 @@ function enrolmentSettlement(
     claims: session.claims,
     enrolmentRefusal: outcome,
   };
-}
-
-/**
- * The state one ceremony outcome settles into.
- *
- * Total over the outcome union and exported for its own test: it is the whole of the
- * mapping this surface performs on a wire-shaped value, and a case reading the wrong
- * way here is the difference between a person being told they are signed in and
- * being told their authenticator cannot do PRF.
- */
-export function stateFromOutcome(outcome: WebAuthnCeremonyOutcome): SignInState {
-  switch (outcome.kind) {
-    case "authenticated":
-      return { kind: "signed-in", custody: outcome.custody, claims: outcome.claims };
-    case "fallback-required":
-      return {
-        kind: "handing-off",
-        probeResult: outcome.probeResult,
-        handoff: outcome.handoff,
-      };
-    case "refused":
-      return { kind: "refused", reason: outcome.reason };
-    case "unavailable":
-      return { kind: "unavailable", refusal: outcome.refusal };
-  }
 }

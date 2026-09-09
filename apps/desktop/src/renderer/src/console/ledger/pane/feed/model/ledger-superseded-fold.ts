@@ -34,6 +34,16 @@ import {
   type LedgerWindowModel,
 } from "../../window/index.js";
 
+/** What one reader has folded, and the two acts that change it. */
+export interface LedgerSupersededBandDisclosure {
+  /** The bands folded away behind their headers. Every other band is on screen. */
+  readonly foldedBandKeys: ReadonlySet<string>;
+  /** Fold an open band, or open a folded one. */
+  readonly toggle: (band: SupersededBand) => void;
+  /** Open the band holding this key — what a jump into a folded band calls. */
+  readonly openBandKey: (bandKey: string) => void;
+}
+
 /**
  * Give every rewound band a header, and fold away the rows of the folded ones.
  *
@@ -108,16 +118,6 @@ export function foldSupersededBands(
     },
     removedRows,
   };
-}
-
-/** What one reader has folded, and the two acts that change it. */
-export interface LedgerSupersededBandDisclosure {
-  /** The bands folded away behind their headers. Every other band is on screen. */
-  readonly foldedBandKeys: ReadonlySet<string>;
-  /** Fold an open band, or open a folded one. */
-  readonly toggle: (band: SupersededBand) => void;
-  /** Open the band holding this key — what a jump into a folded band calls. */
-  readonly openBandKey: (bandKey: string) => void;
 }
 
 /**

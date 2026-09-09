@@ -13,7 +13,7 @@ import {
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../bridge/index.js";
-import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import {
   ConsoleEntityProjectorRegistry,
   type SessionStore,
@@ -43,6 +43,12 @@ export interface SessionProbeProps {
   readonly projectorRegistry?: ConsoleEntityProjectorRegistry;
 }
 
+/** One fixture bridge and the provider that serves it, for a case that drives both. */
+export interface FixtureBridgeHarness {
+  readonly bridge: ConsoleBridge;
+  readonly wrapper: (props: { readonly children: ReactNode }) => React.JSX.Element;
+}
+
 /** A component that does exactly what the frame does, and reports what it saw. */
 export function SessionProbe(props: SessionProbeProps): null {
   const projectorRegistry = useDefaultedProjectorRegistry(props.projectorRegistry);
@@ -50,37 +56,6 @@ export function SessionProbe(props: SessionProbeProps): null {
   const store = useActiveSessionStore(registry, props.sessionId);
   props.onObserve({ registry, store });
   return null;
-}
-
-/**
- * The caller's projector board, or a fresh one seeded the way the console seeds its
- * own.
- *
- * A ref rather than a construction in the render body, on `ConsoleRoot`'s own
- * precedent for the frame and draft stores: the hook below keys its plumbing on this
- * identity, so a board rebuilt on every render would re-mint the window's registry
- * under it. Fresh per mount rather than module-scope, so one case's probe kinds never
- * reach another's.
- */
-function useDefaultedProjectorRegistry(
-  supplied: ConsoleEntityProjectorRegistry | undefined,
-): ConsoleEntityProjectorRegistry {
-  const fallbackRef = useRef<ConsoleEntityProjectorRegistry>(undefined);
-  if (supplied !== undefined) {
-    return supplied;
-  }
-  if (fallbackRef.current === undefined) {
-    const fallback = new ConsoleEntityProjectorRegistry();
-    registerRunLifecycleProjectors(fallback);
-    fallbackRef.current = fallback;
-  }
-  return fallbackRef.current;
-}
-
-/** One fixture bridge and the provider that serves it, for a case that drives both. */
-export interface FixtureBridgeHarness {
-  readonly bridge: ConsoleBridge;
-  readonly wrapper: (props: { readonly children: ReactNode }) => React.JSX.Element;
 }
 
 /**
@@ -115,4 +90,29 @@ export function lastObservation(observed: readonly Observation[]): Observation {
     throw new Error("the probe never rendered");
   }
   return observation;
+}
+
+/**
+ * The caller's projector board, or a fresh one seeded the way the console seeds its
+ * own.
+ *
+ * A ref rather than a construction in the render body, on `ConsoleRoot`'s own
+ * precedent for the frame and draft stores: the hook below keys its plumbing on this
+ * identity, so a board rebuilt on every render would re-mint the window's registry
+ * under it. Fresh per mount rather than module-scope, so one case's probe kinds never
+ * reach another's.
+ */
+function useDefaultedProjectorRegistry(
+  supplied: ConsoleEntityProjectorRegistry | undefined,
+): ConsoleEntityProjectorRegistry {
+  const fallbackRef = useRef<ConsoleEntityProjectorRegistry>(undefined);
+  if (supplied !== undefined) {
+    return supplied;
+  }
+  if (fallbackRef.current === undefined) {
+    const fallback = new ConsoleEntityProjectorRegistry();
+    registerRunLifecycleProjectors(fallback);
+    fallbackRef.current = fallback;
+  }
+  return fallbackRef.current;
 }

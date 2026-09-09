@@ -31,7 +31,7 @@
 // `abandoned`, and the walk ends rather than hanging for the life of the window.
 
 import type { GrowthStream } from "../../growth-port/growth-outcome.js";
-import type { ScenarioEngine } from "../../scenario-runtime/index.js";
+import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /** What every scenario frame carries: the tick, measured from scenario start. */
 export interface ScenarioDueFrame {

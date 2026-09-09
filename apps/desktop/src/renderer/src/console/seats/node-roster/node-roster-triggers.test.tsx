@@ -19,7 +19,7 @@ import type { SessionId } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { unscriptedScenario } from "../../bridge/fixture/call-plane/bridge.test-support.js";
-import { SETTINGS_SCENARIO } from "../../bridge/scenarios/settings.js";
+import { SETTINGS_SCENARIO } from "../../bridge/scenario/settings/settings.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { PAST_REFRESH_DEBOUNCE_MS, settle } from "../../core/settle.test-support.js";
 import type { ConsoleSessionEvent, SessionStore } from "../../store/index.js";

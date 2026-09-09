@@ -126,6 +126,28 @@ export class ArtifactPayloadFetches {
     this.#fetches.supersedeAll();
   }
 
+  /**
+   * Supersede the round where the fetch it holds is for an artifact that is gone.
+   *
+   * SUPERSEDING THE KEY AND NOT MERELY CLEARING THE ARM, because the round is what a
+   * continuation is checked against: the reading names the pending artifact too, but
+   * a settlement asks `isCurrent`, so clearing the arm alone leaves the answer
+   * admissible. Scoped to the matching artifact — a fetch for a DIFFERENT one is
+   * unaffected by this delete and its answer is still wanted.
+   *
+   * CALLED BEFORE THE DELETE'S OWN PUBLISH, which is what makes reading the pending
+   * artifact off the reading correct: the arm still names the fetch in flight, and the
+   * publish that clears it happens after this returns.
+   *
+   * The awaiting call still runs its `finally`; `release` is guarded by the round's
+   * own serial, so it finds the key already given up and leaves any successor alone.
+   */
+  public supersedeFor(artifactId: string): void {
+    if (this.#pendingArtifactId() === artifactId) {
+      this.#fetches.supersede(this, PAYLOAD_FETCH_KEY);
+    }
+  }
+
   /** The call, and what its answer writes if this round still holds the key. */
   async #awaitAnswer(
     artifactId: string,
@@ -159,28 +181,6 @@ export class ArtifactPayloadFetches {
       refusalByArtifactId: withoutRowRefusal(reading.refusalByArtifactId, artifactId),
     });
     return { status: "settled", payload };
-  }
-
-  /**
-   * Supersede the round where the fetch it holds is for an artifact that is gone.
-   *
-   * SUPERSEDING THE KEY AND NOT MERELY CLEARING THE ARM, because the round is what a
-   * continuation is checked against: the reading names the pending artifact too, but
-   * a settlement asks `isCurrent`, so clearing the arm alone leaves the answer
-   * admissible. Scoped to the matching artifact — a fetch for a DIFFERENT one is
-   * unaffected by this delete and its answer is still wanted.
-   *
-   * CALLED BEFORE THE DELETE'S OWN PUBLISH, which is what makes reading the pending
-   * artifact off the reading correct: the arm still names the fetch in flight, and the
-   * publish that clears it happens after this returns.
-   *
-   * The awaiting call still runs its `finally`; `release` is guarded by the round's
-   * own serial, so it finds the key already given up and leaves any successor alone.
-   */
-  public supersedeFor(artifactId: string): void {
-    if (this.#pendingArtifactId() === artifactId) {
-      this.#fetches.supersede(this, PAYLOAD_FETCH_KEY);
-    }
   }
 
   /**

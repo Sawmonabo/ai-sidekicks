@@ -14,7 +14,7 @@ import { FixturePendingInvites } from "./pending-invites.js";
 import type { FixtureInviteLedger } from "./invite-ledger.js";
 import { answerFromScriptedReply } from "../growth/scripted-answer.js";
 import { mapGrowthServed, type GrowthPort } from "../../growth-port/index.js";
-import type { ScenarioEngine } from "../../scenario-runtime/index.js";
+import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /**
  * The six invite operations the fixture answers.

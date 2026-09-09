@@ -10,7 +10,7 @@ import {
   bridgeAnswering,
   type RecordedDaemonCall,
 } from "../../../console/bridge/fixture/call-plane/bridge.test-support.js";
-import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
+import { COMPOSER_SCENARIO } from "../../../console/bridge/scenario/composer/composer.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
 import {
   addressedProviderBinding,

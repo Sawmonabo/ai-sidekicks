@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { TERMINAL_HOST_NODE_ID } from "../../bridge/scenarios/terminal-cast.js";
+import { TERMINAL_HOST_NODE_ID } from "../../bridge/scenario/terminal/cast.js";
 import type { ConsoleSessionEvent } from "../../store/index.js";
 import { eventOfKind } from "../../store/session-event.test-support.js";
 import { projectNodePresence, resolveSoleHoldingNode } from "./node-presence-model.js";

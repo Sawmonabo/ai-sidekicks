@@ -87,6 +87,7 @@
     "devtools-protocol": "0.0.1687809",
     "electron": "44.1.0",
     "electron-vite": "^5.0.0",
+    "eslint-plugin-perfectionist": "5.11.0",
     "happy-dom": "^19.0.0",
     "knip": "6.34.0",
     "memlab": "2.0.5",

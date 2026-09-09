@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { EVENT_ID_STEM } from "../../../bridge/scenarios/ledger/ledger-cast.js";
+import { EVENT_ID_STEM } from "../../../bridge/scenario/ledger/ledger-cast.js";
 import { type ConsoleSessionEvent } from "../../../store/index.js";
 import { projectFixtureShellRows } from "./fixture-shell-projection.js";
 import { deriveShellChildRunSummaries } from "./shell-child-run-summaries.js";

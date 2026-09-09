@@ -74,18 +74,6 @@ import { ArtifactPayloadSection } from "./ArtifactPayloadSection.js";
 import type { ArtifactRowActOutcome } from "./artifact-pane-reading.js";
 import { useArtifactPaneReading } from "./use-artifact-reading.js";
 
-/**
- * This body's own address arm, narrowed off the union the deck hands every pane.
- *
- * `PaneContextOf` is the seat's own narrowing rather than a second `Extract` written
- * here: one registry holds every kind and a body does not, so the narrowing is stated
- * once where the chrome states it. It is what makes `entity` required and its kind
- * `artifact`, by the compiler rather than by this file remembering — a body typed on
- * the whole union could read a run reference looked up in a partition that has never
- * held one.
- */
-type ArtifactPaneContext = PaneContextOf<"artifact">;
-
 export interface ArtifactPaneProps {
   readonly context: ArtifactPaneContext;
 }
@@ -271,3 +259,15 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
     </ConsolePaneChrome>
   );
 }
+
+/**
+ * This body's own address arm, narrowed off the union the deck hands every pane.
+ *
+ * `PaneContextOf` is the seat's own narrowing rather than a second `Extract` written
+ * here: one registry holds every kind and a body does not, so the narrowing is stated
+ * once where the chrome states it. It is what makes `entity` required and its kind
+ * `artifact`, by the compiler rather than by this file remembering — a body typed on
+ * the whole union could read a run reference looked up in a partition that has never
+ * held one.
+ */
+type ArtifactPaneContext = PaneContextOf<"artifact">;

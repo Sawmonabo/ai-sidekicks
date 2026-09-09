@@ -139,46 +139,6 @@ export const WINDOWED_ROW_MOVE_BY_KEY: Readonly<Record<string, WindowedRowMove>>
   End: "last",
 };
 
-/**
- * Where a move lands, clamped rather than wrapped.
- *
- * A list has two ends, and an arrow key that wrapped from the last row to the first
- * would move a reader across the whole enumeration for a press they meant as one
- * step. Pure and exported so the rule is provable without a DOM.
- */
-export function movedRowIndex(
-  move: WindowedRowMove,
-  activeIndex: number,
-  rowCount: number,
-): number {
-  switch (move) {
-    case "next":
-      return Math.min(activeIndex + 1, rowCount - 1);
-    case "previous":
-      return Math.max(activeIndex - 1, 0);
-    case "first":
-      return 0;
-    case "last":
-      return rowCount - 1;
-  }
-}
-
-/**
- * A position inside the set that exists now.
- *
- * Exported because it is the whole of the shrinking-set claim: a remembered move and
- * an anchor are both candidate positions in a set that may since have narrowed, and
- * this is the one place either is reconciled with the set's real bounds. An empty set
- * has no position and answers `0`, which is where the keyboard starts when rows
- * arrive.
- */
-export function clampedRowIndex(candidateIndex: number, rowCount: number): number {
-  if (rowCount <= 0 || !Number.isInteger(candidateIndex)) {
-    return 0;
-  }
-  return Math.min(Math.max(candidateIndex, 0), rowCount - 1);
-}
-
 export interface WindowedRovingIndexOptions {
   /** The whole enumeration, not the mounted window. */
   readonly rowCount: number;
@@ -238,6 +198,46 @@ export interface WindowedRovingIndex {
 }
 
 /**
+ * Where a move lands, clamped rather than wrapped.
+ *
+ * A list has two ends, and an arrow key that wrapped from the last row to the first
+ * would move a reader across the whole enumeration for a press they meant as one
+ * step. Pure and exported so the rule is provable without a DOM.
+ */
+export function movedRowIndex(
+  move: WindowedRowMove,
+  activeIndex: number,
+  rowCount: number,
+): number {
+  switch (move) {
+    case "next":
+      return Math.min(activeIndex + 1, rowCount - 1);
+    case "previous":
+      return Math.max(activeIndex - 1, 0);
+    case "first":
+      return 0;
+    case "last":
+      return rowCount - 1;
+  }
+}
+
+/**
+ * A position inside the set that exists now.
+ *
+ * Exported because it is the whole of the shrinking-set claim: a remembered move and
+ * an anchor are both candidate positions in a set that may since have narrowed, and
+ * this is the one place either is reconciled with the set's real bounds. An empty set
+ * has no position and answers `0`, which is where the keyboard starts when rows
+ * arrive.
+ */
+export function clampedRowIndex(candidateIndex: number, rowCount: number): number {
+  if (rowCount <= 0 || !Number.isInteger(candidateIndex)) {
+    return 0;
+  }
+  return Math.min(Math.max(candidateIndex, 0), rowCount - 1);
+}
+
+/**
  * How many effect runs a move may wait through before its claim on focus expires.
  *
  * Two, and both are this hook's own. The arm is followed immediately by the run the
@@ -251,34 +251,6 @@ export interface WindowedRovingIndex {
  * observe — see the header on why the window's own identity cannot be compared.
  */
 const PENDING_FOCUS_RETRIES = 2;
-
-/**
- * Where the keyboard moved to, and the drawn sequence that index addresses.
- *
- * The two are held together rather than the index alone, because an index without
- * its sequence is exactly the ambiguity this pair resolves: row 499 of the list the
- * reader was looking at and row 499 of whatever is drawn now are different rows.
- */
-interface MovedRow {
-  readonly index: number;
-  readonly rowSetIdentity: unknown;
-}
-
-/**
- * A move waiting for its row to mount, and the two facts that bound it.
- *
- * `movedRow` is the move itself — the very value the roving state holds, not a copy
- * of its number — so a claim and the move it was armed for cannot disagree about
- * which sequence they are in. A set that narrows underneath, and equally one redrawn
- * under a new identity, is answered by dropping the move rather than by focusing
- * whichever row now sits at that index. `retriesRemaining` is how many more runs may
- * miss before the claim is over, which separates "the window has not answered yet"
- * from "the window answered and this row was not in it".
- */
-interface PendingRowFocus {
-  readonly movedRow: MovedRow;
-  readonly retriesRemaining: number;
-}
 
 /**
  * One tab stop, arrow keys inside it, and the moved-to row focused once it mounts.
@@ -396,4 +368,32 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
   );
 
   return { activeIndex, onKeyDown };
+}
+
+/**
+ * Where the keyboard moved to, and the drawn sequence that index addresses.
+ *
+ * The two are held together rather than the index alone, because an index without
+ * its sequence is exactly the ambiguity this pair resolves: row 499 of the list the
+ * reader was looking at and row 499 of whatever is drawn now are different rows.
+ */
+interface MovedRow {
+  readonly index: number;
+  readonly rowSetIdentity: unknown;
+}
+
+/**
+ * A move waiting for its row to mount, and the two facts that bound it.
+ *
+ * `movedRow` is the move itself — the very value the roving state holds, not a copy
+ * of its number — so a claim and the move it was armed for cannot disagree about
+ * which sequence they are in. A set that narrows underneath, and equally one redrawn
+ * under a new identity, is answered by dropping the move rather than by focusing
+ * whichever row now sits at that index. `retriesRemaining` is how many more runs may
+ * miss before the claim is over, which separates "the window has not answered yet"
+ * from "the window answered and this row was not in it".
+ */
+interface PendingRowFocus {
+  readonly movedRow: MovedRow;
+  readonly retriesRemaining: number;
 }

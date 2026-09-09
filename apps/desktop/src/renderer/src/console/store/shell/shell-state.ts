@@ -166,6 +166,36 @@ export function shellReportsAreEqual(left: ShellReport, right: ShellReport): boo
   );
 }
 
+/**
+ * One supervisor state in a person's words.
+ *
+ * HERE RATHER THAN IN THE FRAME because two families render it — the frame's chip and
+ * the local-runtime settings page's state row — and the console's family DAG runs one
+ * way, so a sentence declared in `frame/` is one a view family cannot reach without
+ * a second spelling of it. Its neighbour {@link shellMutationBlock} already carries
+ * prose for the same reason.
+ */
+export function describeShellConnection(connection: ShellConnection): string {
+  switch (connection.kind) {
+    case "unreported":
+      return "Local runtime";
+    case "probing":
+      return "Checking the local runtime";
+    case "starting":
+      return "Starting the local runtime";
+    case "connected":
+      return "Local runtime connected";
+    case "reconnecting":
+      return `Reconnecting — attempt ${String(connection.attempt)} of ${String(connection.attemptLimit)}`;
+    case "version-incompatible":
+      return "Version mismatch";
+    case "offline":
+      return "Local runtime offline";
+    case "stopped":
+      return "Local runtime stopped";
+  }
+}
+
 function shellConnectionsAreEqual(left: ShellConnection, right: ShellConnection): boolean {
   if (left.kind !== right.kind) {
     return false;
@@ -212,36 +242,6 @@ function shellNegotiationsAreEqual(
       (version, position) => version === right.daemonSupportedProtocols[position],
     )
   );
-}
-
-/**
- * One supervisor state in a person's words.
- *
- * HERE RATHER THAN IN THE FRAME because two families render it — the frame's chip and
- * the local-runtime settings page's state row — and the console's family DAG runs one
- * way, so a sentence declared in `frame/` is one a view family cannot reach without
- * a second spelling of it. Its neighbour {@link shellMutationBlock} already carries
- * prose for the same reason.
- */
-export function describeShellConnection(connection: ShellConnection): string {
-  switch (connection.kind) {
-    case "unreported":
-      return "Local runtime";
-    case "probing":
-      return "Checking the local runtime";
-    case "starting":
-      return "Starting the local runtime";
-    case "connected":
-      return "Local runtime connected";
-    case "reconnecting":
-      return `Reconnecting — attempt ${String(connection.attempt)} of ${String(connection.attemptLimit)}`;
-    case "version-incompatible":
-      return "Version mismatch";
-    case "offline":
-      return "Local runtime offline";
-    case "stopped":
-      return "Local runtime stopped";
-  }
 }
 
 /**

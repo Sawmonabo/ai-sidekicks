@@ -113,29 +113,6 @@ export const DAEMON_REPLY_REFUSAL_CODES = [
   "read-abandoned",
 ] as const;
 
-/**
- * The block's own code, as the door's refusal code.
- *
- * NOT A MEMBER OF THE TUPLE ABOVE, and the omission is the design. Those four name
- * failures that are the console's own to describe; a shell block is the SUPERVISOR's
- * condition, and `store/shell/shell-mutation-block.ts` already owns the four
- * `shell-*` codes and the sentence each one carries. Re-labelling one of them with a
- * code minted here would give one condition two names — the disabled control saying
- * `shell-stopped` and the refused dispatch saying something else about the same
- * moment — so the block's own code and detail travel verbatim, and the origin is
- * this door's because this door is what refused.
- */
-function shellBlockedCall(method: string, block: ShellMutationBlock): DaemonReply<never> {
-  return {
-    status: "refused",
-    refusal: refuse(
-      DAEMON_REPLY_REFUSAL_ORIGIN,
-      block.code,
-      `${method} was not sent. ${block.detail}`,
-    ),
-  };
-}
-
 /** One console-side call refusal code. Derived, so the vocabulary is declared once. */
 export type DaemonReplyRefusalCode = (typeof DAEMON_REPLY_REFUSAL_CODES)[number];
 
@@ -188,11 +165,6 @@ export function abandonedReadRefusal(method: string): ConsoleRefusal {
     "read-abandoned" satisfies DaemonReplyRefusalCode,
     `Nothing is waiting for the ${method} read any more, so the console read nothing from it.`,
   );
-}
-
-/** That refusal as the door's own answer, so every arm here returns one shape. */
-function abandonedRead(method: string): DaemonReply<never> {
-  return { status: "refused", refusal: abandonedReadRefusal(method) };
 }
 
 /**
@@ -334,4 +306,32 @@ export async function callDaemon<MethodName extends ConsoleDaemonMethod>(
   // registered schema admits, so a member the contract does not carry cannot reach
   // a component even when the wire sent one.
   return { status: "served", value: readable.data };
+}
+
+/**
+ * The block's own code, as the door's refusal code.
+ *
+ * NOT A MEMBER OF THE TUPLE ABOVE, and the omission is the design. Those four name
+ * failures that are the console's own to describe; a shell block is the SUPERVISOR's
+ * condition, and `store/shell/shell-mutation-block.ts` already owns the four
+ * `shell-*` codes and the sentence each one carries. Re-labelling one of them with a
+ * code minted here would give one condition two names — the disabled control saying
+ * `shell-stopped` and the refused dispatch saying something else about the same
+ * moment — so the block's own code and detail travel verbatim, and the origin is
+ * this door's because this door is what refused.
+ */
+function shellBlockedCall(method: string, block: ShellMutationBlock): DaemonReply<never> {
+  return {
+    status: "refused",
+    refusal: refuse(
+      DAEMON_REPLY_REFUSAL_ORIGIN,
+      block.code,
+      `${method} was not sent. ${block.detail}`,
+    ),
+  };
+}
+
+/** That refusal as the door's own answer, so every arm here returns one shape. */
+function abandonedRead(method: string): DaemonReply<never> {
+  return { status: "refused", refusal: abandonedReadRefusal(method) };
 }

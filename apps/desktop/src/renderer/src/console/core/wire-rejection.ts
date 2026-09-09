@@ -66,7 +66,7 @@ import {
 // one wire shape is exactly the drift the rule exists to stop.
 //
 // AND IT IS ON `core/index.ts`. It is held off no longer for want of a production
-// reader: `bridge/scenario-runtime/scenario.ts` and `scripted-reply.ts` both read the
+// reader: `bridge/scenario/runtime/vocabulary.ts` and `scripted-reply.ts` both read the
 // shape, so the door line has the readers `barrel-census` asks for, and the reading
 // layer beside them takes the same one name from the same door.
 //
@@ -120,6 +120,58 @@ export interface RejectionFallback {
  * a second interface saying so would be the mirrored union the package forbids.
  */
 export type WireRefusal = ExtendedConsoleRefusal;
+
+/**
+ * Normalize any rejection into the console's one refusal shape.
+ *
+ * TOTAL. It answers a refusal for every input and throws for none.
+ *
+ * Every step of `classifyRejection` is itself total today — every read goes through
+ * `readGuardedProperty`, and the ONE
+ * prototype question this module asks goes through `isErrorInstance`, because
+ * `instanceof` throws on a revoked Proxy and the terminal arm below sits outside the
+ * backstop. The hostile-value cases in this module's test prove that by passing with
+ * the `try` removed. The `try` is kept as a BACKSTOP rather than as the mechanism,
+ * and the distinction is the reason: without it, totality here would be a property of
+ * two other functions staying total, and the edit that broke one of them would show
+ * up as a throw on the failure path — in a `catch` that has already been left, in the
+ * one function a surface calls to say that something failed. It costs nothing on a
+ * path that only runs when a call already failed, and it is the one arm nobody has to
+ * re-prove.
+ *
+ * NOTHING OF THE REJECTION SURVIVES ONTO THE ANSWER. Every arm rebuilds, so what a
+ * renderer receives is a plain object of strings this function already read — never
+ * the candidate itself, whose next property access is the throw this whole module
+ * exists to prevent, arriving one layer later and outside every `catch`. And no arm
+ * SERIALIZES it either: see this module's header on what a `detail` may be, which is
+ * the second half of the same rule and the half a rebuild alone does not give.
+ *
+ * `origin` is the calling subsystem, and it is what the synthesized terminal code is
+ * built from, so even a rejection that said nothing machine-readable still names the
+ * seam it came from.
+ */
+export function normalizeWireRejection(
+  origin: string,
+  rejection: unknown,
+  fallback?: RejectionFallback,
+): WireRefusal {
+  try {
+    const classified = classifyRejection(origin, rejection, fallback);
+    if (classified !== undefined) {
+      return classified;
+    }
+  } catch {
+    // A value whose own property access throws carries no readable code, which is
+    // exactly what the terminal arm below is for. Swallowed deliberately and not
+    // reported: this IS the report path, and a tripwire raised from inside it would
+    // be a second failure to render for the same one failure.
+  }
+  // Read guardedly even here: `Error.prototype.message` is an ordinary data property,
+  // but a subclass is free to define an accessor over it, and this arm is reached
+  // precisely when the value has already misbehaved once.
+  const terminalMessage = readGuardedProperty(rejection, "message");
+  return refuse(origin, `${origin}-call-failed`, terminalDetail(rejection, terminalMessage));
+}
 
 /**
  * The sentence a CODE-BEARING arm renders, which is never the rejection itself.
@@ -280,56 +332,4 @@ function classifyRejection(
     return refuse(origin, fallback.code, fallback.detail);
   }
   return undefined;
-}
-
-/**
- * Normalize any rejection into the console's one refusal shape.
- *
- * TOTAL. It answers a refusal for every input and throws for none.
- *
- * Every step of `classifyRejection` is itself total today — every read goes through
- * `readGuardedProperty`, and the ONE
- * prototype question this module asks goes through `isErrorInstance`, because
- * `instanceof` throws on a revoked Proxy and the terminal arm below sits outside the
- * backstop. The hostile-value cases in this module's test prove that by passing with
- * the `try` removed. The `try` is kept as a BACKSTOP rather than as the mechanism,
- * and the distinction is the reason: without it, totality here would be a property of
- * two other functions staying total, and the edit that broke one of them would show
- * up as a throw on the failure path — in a `catch` that has already been left, in the
- * one function a surface calls to say that something failed. It costs nothing on a
- * path that only runs when a call already failed, and it is the one arm nobody has to
- * re-prove.
- *
- * NOTHING OF THE REJECTION SURVIVES ONTO THE ANSWER. Every arm rebuilds, so what a
- * renderer receives is a plain object of strings this function already read — never
- * the candidate itself, whose next property access is the throw this whole module
- * exists to prevent, arriving one layer later and outside every `catch`. And no arm
- * SERIALIZES it either: see this module's header on what a `detail` may be, which is
- * the second half of the same rule and the half a rebuild alone does not give.
- *
- * `origin` is the calling subsystem, and it is what the synthesized terminal code is
- * built from, so even a rejection that said nothing machine-readable still names the
- * seam it came from.
- */
-export function normalizeWireRejection(
-  origin: string,
-  rejection: unknown,
-  fallback?: RejectionFallback,
-): WireRefusal {
-  try {
-    const classified = classifyRejection(origin, rejection, fallback);
-    if (classified !== undefined) {
-      return classified;
-    }
-  } catch {
-    // A value whose own property access throws carries no readable code, which is
-    // exactly what the terminal arm below is for. Swallowed deliberately and not
-    // reported: this IS the report path, and a tripwire raised from inside it would
-    // be a second failure to render for the same one failure.
-  }
-  // Read guardedly even here: `Error.prototype.message` is an ordinary data property,
-  // but a subclass is free to define an accessor over it, and this arm is reached
-  // precisely when the value has already misbehaved once.
-  const terminalMessage = readGuardedProperty(rejection, "message");
-  return refuse(origin, `${origin}-call-failed`, terminalDetail(rejection, terminalMessage));
 }

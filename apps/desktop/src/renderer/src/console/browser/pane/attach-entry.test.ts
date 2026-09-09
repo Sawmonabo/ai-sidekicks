@@ -13,7 +13,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
+import { BROWSER_SCENARIO } from "../../bridge/scenario/browser.js";
 import { browserAttachMenuEntry } from "./attach-entry.js";
 
 function fixtureBridge(): ConsoleBridge {

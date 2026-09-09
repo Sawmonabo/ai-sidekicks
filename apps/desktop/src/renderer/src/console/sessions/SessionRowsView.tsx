@@ -11,6 +11,18 @@ import { type AttentionReading } from "./notifications/index.js";
 import { type SessionPinBinding } from "./rows/session-pins.js";
 import { type ReactNode } from "react";
 
+/** What the list is handed: the node's answer, this window's set, and its projection. */
+export interface SessionRowsProps {
+  readonly directory: SessionDirectoryState;
+  readonly windowSessionIds: readonly string[];
+  /** What every open session's store can describe, from `open-session-rows.ts`. */
+  readonly projectedRows: readonly SessionListRow[];
+  readonly attention: AttentionReading;
+  readonly pins: SessionPinBinding;
+  readonly startControl: ReactNode;
+  readonly onOpen: (sessionId: string) => void;
+}
+
 /**
  * The list itself, once all three sources have been named.
  *
@@ -46,18 +58,6 @@ export function SessionRowsView(props: SessionRowsProps): React.JSX.Element {
       {props.startControl}
     </>
   );
-}
-
-/** What the list is handed: the node's answer, this window's set, and its projection. */
-export interface SessionRowsProps {
-  readonly directory: SessionDirectoryState;
-  readonly windowSessionIds: readonly string[];
-  /** What every open session's store can describe, from `open-session-rows.ts`. */
-  readonly projectedRows: readonly SessionListRow[];
-  readonly attention: AttentionReading;
-  readonly pins: SessionPinBinding;
-  readonly startControl: ReactNode;
-  readonly onOpen: (sessionId: string) => void;
 }
 
 /**

@@ -59,12 +59,6 @@ const BROWSER_POLICY_SWITCH_TRAITS: Readonly<
   },
 };
 
-interface PolicyRowProps {
-  readonly switchId: BrowserPolicySwitchId;
-  readonly reading: BrowserPolicySwitchReading;
-  readonly onToggle?: BrowserPolicySwitchWriter | undefined;
-}
-
 /**
  * One row: the control, its label, its consequence, and its honesty about whether
  * the position drawn is a reading.
@@ -127,4 +121,10 @@ export function PolicyRow(props: PolicyRowProps): React.JSX.Element {
       </div>
     </li>
   );
+}
+
+interface PolicyRowProps {
+  readonly switchId: BrowserPolicySwitchId;
+  readonly reading: BrowserPolicySwitchReading;
+  readonly onToggle?: BrowserPolicySwitchWriter | undefined;
 }

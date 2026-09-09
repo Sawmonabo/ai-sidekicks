@@ -129,78 +129,6 @@ const CATEGORY_BY_WIRE_TYPE: ReadonlyMap<string, EventCategory> = SESSION_EVENT_
 /** Nothing projected. A frozen module constant, so an empty pass allocates none. */
 const EMPTY_PROJECTION: FixtureShellProjection = { rows: [], unprojectableEventCount: 0 };
 
-/** How far one run has got: its next ordinal, and how many rewinds it has taken. */
-interface RunProgression {
-  nextPosition: number;
-  epoch: number;
-}
-
-/**
- * The boundary arm alone, so a caller can read the cutoff it landed on.
- *
- * Extracted from the contract's own union rather than declared beside it: the arm
- * is `TimelineRow`'s, and a second hand-written shape here would be a second claim
- * about what a boundary row carries.
- */
-type RollbackBoundaryRow = Extract<TimelineRow, { readonly kind: "rollback_boundary" }>;
-
-/** The members every arm spreads, all of them wire-verbatim but `summary`. */
-function commonRowFields(
-  event: ConsoleSessionEvent,
-  category: EventCategory,
-): {
-  readonly id: string;
-  readonly sessionId: SessionId;
-  readonly sequence: number;
-  readonly category: EventCategory;
-  readonly type: string;
-  readonly summary: string;
-  readonly timestamp: string;
-  readonly actor?: string;
-} {
-  return {
-    id: event.id,
-    sessionId: event.sessionId as SessionId,
-    sequence: event.sequence,
-    category,
-    type: event.kind,
-    // Restated, not composed. See this file's header.
-    summary: event.kind,
-    timestamp: event.occurredAt,
-    ...(event.actorId === undefined ? {} : { actor: event.actorId }),
-  };
-}
-
-/**
- * Project one rollback into the typed boundary arm, or `undefined` if it cannot be.
- *
- * The arm's payload is the TYPED event rather than the open record the other arms
- * carry, and its schema refines `position` against `payload.targetPosition` — so
- * the payload is READ at the bridge rather than cast here. A rollback whose payload does not
- * satisfy the contract is dropped and counted rather than rendered as a boundary
- * whose cutoff nobody can trust: a band drawn from a bad cutoff hides real rows.
- */
-function projectRollbackBoundary(
-  event: ConsoleSessionEvent,
-  progression: RunProgression,
-): RollbackBoundaryRow | undefined {
-  const boundary = readRollbackBoundaryPayload(event.payload);
-  if (boundary === undefined) {
-    return undefined;
-  }
-  return {
-    ...commonRowFields(event, TIMELINE_RUN_LIFECYCLE_CATEGORY),
-    kind: "rollback_boundary",
-    category: TIMELINE_RUN_LIFECYCLE_CATEGORY,
-    type: TIMELINE_ROLLBACK_BOUNDARY_TYPE,
-    runId: boundary.runId as RunId,
-    // Wire-verbatim, and the one the arm's own refinement compares against.
-    position: boundary.targetPosition,
-    epoch: progression.epoch,
-    payload: boundary,
-  };
-}
-
 /**
  * Read this window's event log as timeline rows.
  *
@@ -286,4 +214,76 @@ export function projectFixtureShellRows(
   }
 
   return { rows, unprojectableEventCount };
+}
+
+/** How far one run has got: its next ordinal, and how many rewinds it has taken. */
+interface RunProgression {
+  nextPosition: number;
+  epoch: number;
+}
+
+/**
+ * The boundary arm alone, so a caller can read the cutoff it landed on.
+ *
+ * Extracted from the contract's own union rather than declared beside it: the arm
+ * is `TimelineRow`'s, and a second hand-written shape here would be a second claim
+ * about what a boundary row carries.
+ */
+type RollbackBoundaryRow = Extract<TimelineRow, { readonly kind: "rollback_boundary" }>;
+
+/** The members every arm spreads, all of them wire-verbatim but `summary`. */
+function commonRowFields(
+  event: ConsoleSessionEvent,
+  category: EventCategory,
+): {
+  readonly id: string;
+  readonly sessionId: SessionId;
+  readonly sequence: number;
+  readonly category: EventCategory;
+  readonly type: string;
+  readonly summary: string;
+  readonly timestamp: string;
+  readonly actor?: string;
+} {
+  return {
+    id: event.id,
+    sessionId: event.sessionId as SessionId,
+    sequence: event.sequence,
+    category,
+    type: event.kind,
+    // Restated, not composed. See this file's header.
+    summary: event.kind,
+    timestamp: event.occurredAt,
+    ...(event.actorId === undefined ? {} : { actor: event.actorId }),
+  };
+}
+
+/**
+ * Project one rollback into the typed boundary arm, or `undefined` if it cannot be.
+ *
+ * The arm's payload is the TYPED event rather than the open record the other arms
+ * carry, and its schema refines `position` against `payload.targetPosition` — so
+ * the payload is READ at the bridge rather than cast here. A rollback whose payload does not
+ * satisfy the contract is dropped and counted rather than rendered as a boundary
+ * whose cutoff nobody can trust: a band drawn from a bad cutoff hides real rows.
+ */
+function projectRollbackBoundary(
+  event: ConsoleSessionEvent,
+  progression: RunProgression,
+): RollbackBoundaryRow | undefined {
+  const boundary = readRollbackBoundaryPayload(event.payload);
+  if (boundary === undefined) {
+    return undefined;
+  }
+  return {
+    ...commonRowFields(event, TIMELINE_RUN_LIFECYCLE_CATEGORY),
+    kind: "rollback_boundary",
+    category: TIMELINE_RUN_LIFECYCLE_CATEGORY,
+    type: TIMELINE_ROLLBACK_BOUNDARY_TYPE,
+    runId: boundary.runId as RunId,
+    // Wire-verbatim, and the one the arm's own refinement compares against.
+    position: boundary.targetPosition,
+    epoch: progression.epoch,
+    payload: boundary,
+  };
 }

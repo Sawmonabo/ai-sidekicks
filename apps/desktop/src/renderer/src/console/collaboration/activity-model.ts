@@ -88,10 +88,8 @@ export interface ChannelActivityLabels {
   readonly runLabel: (runId: string) => string;
 }
 
-interface ComposingEntry {
-  readonly indicator: ComposingIndicator;
-  readonly clearHandle: ScheduledHandle;
-}
+/** Whether one participant is composing anywhere, asked of a settled reading. */
+export type ComposingLookup = (participantId: string) => string | undefined;
 
 /**
  * The session's live indicators.
@@ -273,9 +271,6 @@ export class ActivityIndicatorRegistry {
   }
 }
 
-/** Whether one participant is composing anywhere, asked of a settled reading. */
-export type ComposingLookup = (participantId: string) => string | undefined;
-
 /**
  * Read who is composing where from React.
  *
@@ -313,4 +308,9 @@ export function useChannelActivity(
   );
   const read = useCallback(() => registry.activityIn(channelId), [registry, channelId]);
   return useSyncExternalStore(subscribe, read, read);
+}
+
+interface ComposingEntry {
+  readonly indicator: ComposingIndicator;
+  readonly clearHandle: ScheduledHandle;
 }

@@ -27,11 +27,11 @@
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../bridge/index.js";
-import { ONBOARDING_SCENARIO } from "../bridge/scenarios/onboarding.js";
+import { ONBOARDING_SCENARIO } from "../bridge/scenario/onboarding.js";
 import { OnboardingFlow } from "./onboarding-flow.js";
 import { bridgeWithGroupAAnswered } from "./onboarding-state.test-support.js";
 import { firstUnresolvedStep } from "./steps/step-model.js";
-import type { ConsoleScenario } from "../bridge/scenario-runtime/index.js";
+import type { ConsoleScenario } from "../bridge/scenario/runtime/index.js";
 
 function flowOver(scenario: ConsoleScenario): OnboardingFlow {
   return new OnboardingFlow(createFixtureBridge({ scenario }));

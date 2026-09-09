@@ -46,6 +46,16 @@ import type { HumanFormPhase } from "./slots/human-form-mount.js";
 export const UNADDRESSABLE_HUMAN_WAIT_DETAIL =
   "This run did not report the handle this phase's form is answered through, so the form cannot be opened here.";
 
+/** The form the pane has open, and how a card asks for its own. */
+export interface HumanFormSelection {
+  /** The phase whose form is mounted, or nothing where no wait is addressable. */
+  readonly openForm: HumanFormPhase | undefined;
+  /** Whether this phase's form is the open one. */
+  readonly isOpen: (phaseId: string) => boolean;
+  /** Open this phase's form. A phase that is not an addressable wait resolves away. */
+  readonly openFormFor: (phaseId: string) => void;
+}
+
 /**
  * One phase parked on a person, resolved where the wire carried both members.
  *
@@ -82,34 +92,6 @@ export function humanFormPhaseFor(
         ...(prompt === undefined ? {} : { prompt }),
         ...(inputSchema === undefined ? {} : { inputSchema }),
       };
-}
-
-/**
- * Every phase this snapshot parks on a person and carries the handle for, in order.
- *
- * Takes the whole snapshot rather than its phases, because a resolution carries the run
- * as well as the phase and the two must come from ONE answer: handed the run separately,
- * a caller could pair a retargeted pane's new run with the phases still on screen from
- * the old one, and every entry in the list would name a phase that run never had.
- *
- * Not exported: the ordering IS the default, so a caller that resolved this list for
- * itself would be a second answer to "which wait is open" beside the hook below.
- */
-function humanFormPhasesOf(run: WorkflowRunSnapshot): readonly HumanFormPhase[] {
-  return run.phaseStates.flatMap((phase) => {
-    const wait = humanFormPhaseFor(run.workflowRunId, phase);
-    return wait === undefined ? [] : [wait];
-  });
-}
-
-/** The form the pane has open, and how a card asks for its own. */
-export interface HumanFormSelection {
-  /** The phase whose form is mounted, or nothing where no wait is addressable. */
-  readonly openForm: HumanFormPhase | undefined;
-  /** Whether this phase's form is the open one. */
-  readonly isOpen: (phaseId: string) => boolean;
-  /** Open this phase's form. A phase that is not an addressable wait resolves away. */
-  readonly openFormFor: (phaseId: string) => void;
 }
 
 /**
@@ -159,4 +141,22 @@ export function useHumanFormSelection(
     isOpen: (phaseId) => openForm?.phaseId === phaseId,
     openFormFor: requestPhaseId,
   };
+}
+
+/**
+ * Every phase this snapshot parks on a person and carries the handle for, in order.
+ *
+ * Takes the whole snapshot rather than its phases, because a resolution carries the run
+ * as well as the phase and the two must come from ONE answer: handed the run separately,
+ * a caller could pair a retargeted pane's new run with the phases still on screen from
+ * the old one, and every entry in the list would name a phase that run never had.
+ *
+ * Not exported: the ordering IS the default, so a caller that resolved this list for
+ * itself would be a second answer to "which wait is open" beside the hook below.
+ */
+function humanFormPhasesOf(run: WorkflowRunSnapshot): readonly HumanFormPhase[] {
+  return run.phaseStates.flatMap((phase) => {
+    const wait = humanFormPhaseFor(run.workflowRunId, phase);
+    return wait === undefined ? [] : [wait];
+  });
 }

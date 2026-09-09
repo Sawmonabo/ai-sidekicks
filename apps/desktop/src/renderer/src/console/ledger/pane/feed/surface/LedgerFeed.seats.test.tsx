@@ -9,7 +9,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../../../bridge/index.js";
-import { LEDGER_QUIET_SCENARIO } from "../../../../bridge/scenarios/ledger/ledger-quiet.js";
+import { LEDGER_QUIET_SCENARIO } from "../../../../bridge/scenario/ledger/ledger-quiet.js";
 import { type ConsoleRefusal } from "../../../../core/index.js";
 import { publishConsoleActRefusalSink } from "../../../../palette/index.js";
 import { actorFollowHandler, unregisterActorFollowHandler } from "../../../../seats/index.js";

@@ -260,30 +260,6 @@ export class AttentionNotifier {
 }
 
 /**
- * What this window is putting in front of a person, at the moment a read settles.
- *
- * ONE SNAPSHOT AND TWO ANSWERS OFF IT, rather than two reads of the store. Both
- * route-derived members come from the same `route`, so a navigation landing between
- * two reads cannot compose an audience describing a window that never existed — the
- * shape this replaced took the session id through one getter and the focus flag
- * through a second `getState()`.
- *
- * The destination is read as the route's own kind rather than through
- * `railDestinationFor`, which folds a workspace route onto the sessions rail too: a
- * person in a workspace is looking at one session's timeline, not at the centre that
- * lists every session's attention, and suppressing their banners would be the
- * over-broad half of the same mistake this rule exists to correct.
- */
-function audienceFor(frameStore: FrameStore): AttentionNotifierAudience {
-  const { isWindowFocused, route } = frameStore.getState();
-  return {
-    activeSessionId: routeSessionId(route),
-    isAttentionSurfaceRouted: route.kind === "sessions",
-    isWindowFocused,
-  };
-}
-
-/**
  * Mount the emitter for as long as a destination holds the projection read.
  *
  * The audience is read IMPERATIVELY off the frame store rather than subscribed to,
@@ -332,4 +308,28 @@ export function useAttentionNotifications(options: {
       bridge.sidekicks.native.showNotification({});
     });
   }, [bridge, frameStore, isWithheld, notifier, reading]);
+}
+
+/**
+ * What this window is putting in front of a person, at the moment a read settles.
+ *
+ * ONE SNAPSHOT AND TWO ANSWERS OFF IT, rather than two reads of the store. Both
+ * route-derived members come from the same `route`, so a navigation landing between
+ * two reads cannot compose an audience describing a window that never existed — the
+ * shape this replaced took the session id through one getter and the focus flag
+ * through a second `getState()`.
+ *
+ * The destination is read as the route's own kind rather than through
+ * `railDestinationFor`, which folds a workspace route onto the sessions rail too: a
+ * person in a workspace is looking at one session's timeline, not at the centre that
+ * lists every session's attention, and suppressing their banners would be the
+ * over-broad half of the same mistake this rule exists to correct.
+ */
+function audienceFor(frameStore: FrameStore): AttentionNotifierAudience {
+  const { isWindowFocused, route } = frameStore.getState();
+  return {
+    activeSessionId: routeSessionId(route),
+    isAttentionSurfaceRouted: route.kind === "sessions",
+    isWindowFocused,
+  };
 }

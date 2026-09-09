@@ -19,7 +19,7 @@
 import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenarios/workflow-fixture-runs.js";
+import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenario/workflows/runs.js";
 import { FIRST_ROUND, countingRunReadPort, observeRounds } from "./run-snapshot.test-support.js";
 import { settle } from "../../workflows-probe.test-support.js";
 

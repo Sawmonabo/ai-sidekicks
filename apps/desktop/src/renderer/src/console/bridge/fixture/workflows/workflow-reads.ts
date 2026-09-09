@@ -92,10 +92,10 @@ import { answerFromScriptedReply } from "../growth/scripted-answer.js";
 import {
   WORKFLOWS_RUN_ENUMERATION_CALL,
   WORKFLOWS_VERSION_CHAIN_CALL,
-} from "../../scenarios/workflows.js";
+} from "../../scenario/workflows/workflows.js";
 import { declaredWorkflowScope, requireScenarioWorkflowSubject } from "./workflow-scope.js";
 import { growthUnscriptedReply, type GrowthPort } from "../../growth-port/index.js";
-import type { ScenarioEngine } from "../../scenario-runtime/scenario-engine.js";
+import type { ScenarioEngine } from "../../scenario/runtime/engine.js";
 
 /**
  * The workflow operations the fixture answers rather than refuses.

@@ -103,22 +103,6 @@ const SIGN_IN_PLANE_HELD_BY_KIND: Readonly<Record<SignInFlowState["kind"], boole
   refused: false,
 };
 
-/** Whether this flow is holding the plane. The one reading of the table above. */
-export function isSignInPlaneHeld(flow: SignInFlowState): boolean {
-  return SIGN_IN_PLANE_HELD_BY_KIND[flow.kind];
-}
-
-/**
- * The account this flow is about, where the arm carries one.
- *
- * Reads the union's own arms rather than a second list of which kinds have an account:
- * the three that do are the three that hold, and stating that twice is how the two
- * come apart. A caller wanting "held, and by whom" asks both questions.
- */
-export function signInPlaneHolderAccountId(flow: SignInFlowState): ProviderAccountId | undefined {
-  return "accountId" in flow ? flow.accountId : undefined;
-}
-
 /**
  * What one start attempt answered.
  *
@@ -140,6 +124,29 @@ export type SignInStartOutcome =
 export type SignInCancelOutcome =
   | { readonly kind: "ended"; readonly because: string }
   | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+
+/** What a token registration did, as far as this shell may claim. */
+export type TokenRegistrationOutcome =
+  | { readonly kind: "idle" }
+  | { readonly kind: "submitting" }
+  | { readonly kind: "registered"; readonly account: ProviderAccountRegisterResponse["account"] }
+  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+
+/** Whether this flow is holding the plane. The one reading of the table above. */
+export function isSignInPlaneHeld(flow: SignInFlowState): boolean {
+  return SIGN_IN_PLANE_HELD_BY_KIND[flow.kind];
+}
+
+/**
+ * The account this flow is about, where the arm carries one.
+ *
+ * Reads the union's own arms rather than a second list of which kinds have an account:
+ * the three that do are the three that hold, and stating that twice is how the two
+ * come apart. A caller wanting "held, and by whom" asks both questions.
+ */
+export function signInPlaneHolderAccountId(flow: SignInFlowState): ProviderAccountId | undefined {
+  return "accountId" in flow ? flow.accountId : undefined;
+}
 
 /**
  * Start a brokered sign-in for one account.
@@ -185,13 +192,6 @@ export async function cancelSignIn(
         : "There was no sign-in left to cancel — it had already finished or expired. Read the registry again to see what became of the account.",
   };
 }
-
-/** What a token registration did, as far as this shell may claim. */
-export type TokenRegistrationOutcome =
-  | { readonly kind: "idle" }
-  | { readonly kind: "submitting" }
-  | { readonly kind: "registered"; readonly account: ProviderAccountRegisterResponse["account"] }
-  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
 
 /** The outcome a form starts in and returns to. Shared so it has one spelling. */
 export const IDLE_TOKEN_REGISTRATION: TokenRegistrationOutcome = { kind: "idle" };
@@ -261,21 +261,6 @@ export function readRegistrationFields(typed: {
   };
 }
 
-/** One refusal of the form's own, so the origin is written once. */
-function registrationRefusal(code: string, detail: string): RegistrationFieldReading {
-  return { kind: "refused", refusal: refuse(TOKEN_REGISTRATION_REFUSAL_ORIGIN, code, detail) };
-}
-
-/** Narrow a select's string back to the closed provider set the wire admits. */
-function isProviderName(value: string): value is ProviderName {
-  return PROVIDER_NAMES.some((provider) => provider === value);
-}
-
-/** Narrow a select's string back to the closed billing vocabulary the wire admits. */
-function isBillingMode(value: string): value is BillingMode {
-  return BILLING_MODES.some((mode) => mode === value);
-}
-
 /**
  * Submit a registration, optionally carrying the one write-only token member.
  *
@@ -292,4 +277,19 @@ export async function submitTokenRegistration(
   return settlement.status === "served"
     ? { kind: "registered", account: settlement.value.account }
     : { kind: "refused", refusal: settlement };
+}
+
+/** One refusal of the form's own, so the origin is written once. */
+function registrationRefusal(code: string, detail: string): RegistrationFieldReading {
+  return { kind: "refused", refusal: refuse(TOKEN_REGISTRATION_REFUSAL_ORIGIN, code, detail) };
+}
+
+/** Narrow a select's string back to the closed provider set the wire admits. */
+function isProviderName(value: string): value is ProviderName {
+  return PROVIDER_NAMES.some((provider) => provider === value);
+}
+
+/** Narrow a select's string back to the closed billing vocabulary the wire admits. */
+function isBillingMode(value: string): value is BillingMode {
+  return BILLING_MODES.some((mode) => mode === value);
 }

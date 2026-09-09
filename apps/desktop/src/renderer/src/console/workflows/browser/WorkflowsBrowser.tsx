@@ -57,6 +57,48 @@ import {
   type WorkflowDefinitionDirectoryState,
 } from "../definitions/definition-directory.js";
 
+export interface WorkflowsBrowserProps {
+  readonly growth: GrowthPort;
+  /** The session the enumeration is scoped to. The one mount always resolves one. */
+  readonly sessionId: string;
+  /**
+   * Opens one definition in the builder. Absent while nothing can address one.
+   *
+   * Still optional, and it is the only one that is: the browser's suites mount it
+   * without a pane board to open into, which is a real caller that legitimately has
+   * nowhere to send a row. `onNewDefinition` had no such caller — nothing in this
+   * console can author a definition, the growth port declares no authoring operation
+   * at all, and the vanished builder mount was the only thing that ever threaded it
+   * — so it is gone rather than reserved.
+   */
+  readonly onOpenDefinition?: ((definition: WorkflowDefinitionRow) => void) | undefined;
+}
+
+/** The definitions browser, reading the definitions it shows. */
+export function WorkflowsBrowser(props: WorkflowsBrowserProps): React.JSX.Element {
+  const { state, scopeResolution, continueReading } = useWorkflowDefinitionDirectory(
+    props.growth,
+    props.sessionId,
+  );
+  useReadSettlementAnnouncement(state, directorySentence(state));
+  return (
+    <WorkflowsSurface
+      state={stripStateFor(state)}
+      // The same session the enumeration above was read under, threaded rather than
+      // dropped: the surface mounts the conversational start, and a start binds to a
+      // session. A browser that read one session's definitions and handed the mount
+      // nothing would leave the body with no subject on the very arm that has one.
+      sessionId={props.sessionId}
+      definitions={state.status === "served" ? state.definitions : undefined}
+      pendingScopes={scopeResolution.pendingScopes}
+      hasUnreadPages={scopeResolution.hasUnreadPages}
+      onContinueReading={continuationActionFor(state, continueReading)}
+      continuationReading={continuationReadingFor(state)}
+      onOpenDefinition={props.onOpenDefinition}
+    />
+  );
+}
+
 /**
  * Which state the surface's strip is in, given one read state.
  *
@@ -163,46 +205,4 @@ function directorySentence(directory: WorkflowDefinitionDirectoryState): string 
   return continuation.status === "unavailable"
     ? continuation.refusal.detail
     : `Definitions visible from this session: ${String(directory.definitions.length)}.`;
-}
-
-export interface WorkflowsBrowserProps {
-  readonly growth: GrowthPort;
-  /** The session the enumeration is scoped to. The one mount always resolves one. */
-  readonly sessionId: string;
-  /**
-   * Opens one definition in the builder. Absent while nothing can address one.
-   *
-   * Still optional, and it is the only one that is: the browser's suites mount it
-   * without a pane board to open into, which is a real caller that legitimately has
-   * nowhere to send a row. `onNewDefinition` had no such caller — nothing in this
-   * console can author a definition, the growth port declares no authoring operation
-   * at all, and the vanished builder mount was the only thing that ever threaded it
-   * — so it is gone rather than reserved.
-   */
-  readonly onOpenDefinition?: ((definition: WorkflowDefinitionRow) => void) | undefined;
-}
-
-/** The definitions browser, reading the definitions it shows. */
-export function WorkflowsBrowser(props: WorkflowsBrowserProps): React.JSX.Element {
-  const { state, scopeResolution, continueReading } = useWorkflowDefinitionDirectory(
-    props.growth,
-    props.sessionId,
-  );
-  useReadSettlementAnnouncement(state, directorySentence(state));
-  return (
-    <WorkflowsSurface
-      state={stripStateFor(state)}
-      // The same session the enumeration above was read under, threaded rather than
-      // dropped: the surface mounts the conversational start, and a start binds to a
-      // session. A browser that read one session's definitions and handed the mount
-      // nothing would leave the body with no subject on the very arm that has one.
-      sessionId={props.sessionId}
-      definitions={state.status === "served" ? state.definitions : undefined}
-      pendingScopes={scopeResolution.pendingScopes}
-      hasUnreadPages={scopeResolution.hasUnreadPages}
-      onContinueReading={continuationActionFor(state, continueReading)}
-      continuationReading={continuationReadingFor(state)}
-      onOpenDefinition={props.onOpenDefinition}
-    />
-  );
 }

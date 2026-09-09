@@ -71,6 +71,7 @@ import {
   CONSOLE_TIME_READING_SELECTORS,
   EXPORTED_COLLECTION_SELECTOR,
 } from "./eslint.console-syntax-bans.mjs";
+import perfectionist from "eslint-plugin-perfectionist";
 import root from "../../eslint.config.mjs";
 
 /**
@@ -471,6 +472,56 @@ const RENDERER_TEST_FILES = ["**/*.test.{ts,tsx}", "**/*.test-support.{ts,tsx}"]
 function rendererFiles(subtree, patterns) {
   return patterns.map((pattern) => `src/renderer/src/${subtree}/${pattern}`);
 }
+
+/**
+ * The file sections `AGENTS.md` §Module shape names, in declaration-kind order: the
+ * exported types and interfaces that are the module's contract, then the exported class
+ * or function the file is named for, then everything private.
+ *
+ * Only the EXPORTED forms are ranked. A non-exported declaration matches no listed group
+ * and so becomes `unknown` — one bucket, held last and left `unsorted`, which is what
+ * keeps the §Module shape exception ("a private type that exactly one helper uses may sit
+ * directly above that helper") followable: the type and its helper are both in it, so
+ * their relative order is never touched. Verified against the shipped 5.11.0 rule —
+ * `generate-predefined-groups.js` emits `export-function` AND `function` for an exported
+ * declaration and only `function` for a private one, and `get-group-index.js` ranks an
+ * unmatched group last.
+ *
+ * Module-level constants (§Module shape section 4) are convention only: `sort-modules`
+ * has no variable selector, and `compute-node-details.js` starts a fresh PARTITION after
+ * every `VariableDeclaration`, so the rule neither positions a constant nor moves any
+ * declaration across one.
+ */
+const CONSOLE_MODULE_GROUPS = [
+  ["export-type", "export-interface"],
+  "export-class",
+  "export-function",
+  "unknown",
+];
+
+/**
+ * `AGENTS.md` §Module shape, inside a class: fields, constructor, public methods, private
+ * methods. Accessors rank with the methods of their own accessibility — this tree already
+ * writes `get` after the constructor — and `protected` ranks with `private`, since the
+ * split the four sections draw is the externally reachable surface against everything
+ * else. An accessibility modifier that is absent reads as `public` and a `#`-hash member
+ * reads as `private` (`node-info/common-modifiers.js`), so both halves match on this
+ * tree's own style without an explicit keyword.
+ */
+const CONSOLE_CLASS_GROUPS = [
+  ["index-signature", "static-block", "property", "accessor-property", "function-property"],
+  "constructor",
+  ["public-method", "public-get-method", "public-set-method"],
+  [
+    "protected-method",
+    "protected-get-method",
+    "protected-set-method",
+    "private-method",
+    "private-get-method",
+    "private-set-method",
+  ],
+  "unknown",
+];
 
 export default [
   ...root,
@@ -947,5 +998,29 @@ export default [
     // The door itself.
     files: ["test/helpers/electron-child.ts"],
     rules: { "no-restricted-imports": "off" },
+  },
+  // --- Member order: the file and class shapes `AGENTS.md` §Module shape states ------
+  //
+  // Scope is the console subtree ONLY — `src/renderer/src/console/**/*.{ts,tsx}`,
+  // co-located tests included, since a suite reads top to bottom like anything else and
+  // the four legacy renderer families predate the section these rules carry.
+  //
+  // Both rules run `type: "unsorted"`: the claim is the ORDER OF THE SECTIONS, never an
+  // alphabet. Within a section source order is preserved exactly, so a file whose
+  // sections are already right reports nothing and a reorder is pure movement. The
+  // plugin's defaults for `newlinesBetween` (`"ignore"`), `partitionByComment`, and
+  // `partitionByNewLine` (both `false`) are what makes that true — none of the three is
+  // set here, and none of them adds or removes a blank line.
+  //
+  // `eslint-plugin-perfectionist` is the one library the Spec-023 §Console Libraries
+  // structure-enforcement axis admits. `@typescript-eslint/member-ordering` stays frozen
+  // out, and no other perfectionist rule is enabled.
+  {
+    files: ["src/renderer/src/console/**/*.{ts,tsx}"],
+    plugins: { perfectionist },
+    rules: {
+      "perfectionist/sort-modules": ["error", { type: "unsorted", groups: CONSOLE_MODULE_GROUPS }],
+      "perfectionist/sort-classes": ["error", { type: "unsorted", groups: CONSOLE_CLASS_GROUPS }],
+    },
   },
 ];

@@ -13,19 +13,19 @@ import {
   fixtureBridgeWithGrowth,
   growthRefusing,
 } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
-import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
+import { REPOS_SCENARIO } from "../../../bridge/scenario/repos/repos.js";
 import {
   RUN_ATTRIBUTED_COMPARED_STATES,
   UNSCRIPTED_COMPARISON_REFUSAL_CODE,
   WORKSPACE_FALLBACK_COMPARED_STATES,
-} from "../../../bridge/scenarios/repos/repos-diff-replies.js";
+} from "../../../bridge/scenario/repos/repos-diff-replies.js";
 import {
   GIT_WORKSPACE_ID,
   IMPLEMENTER_RUN_ID,
   IMPLEMENTER_WORKTREE_ID,
   REVIEWER_WORKTREE_ID,
   SESSION_ID,
-} from "../../../bridge/scenarios/repos/repos-fixture-data.js";
+} from "../../../bridge/scenario/repos/repos-fixture-data.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../../core/index.js";
 import { SessionStore } from "../../../store/index.js";
 import type { ConsoleBridge } from "../../../bridge/index.js";

@@ -13,7 +13,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
-import { COMPOSER_SCENARIO } from "../../../bridge/scenarios/composer.js";
+import { COMPOSER_SCENARIO } from "../../../bridge/scenario/composer/composer.js";
 import {
   type ConsolePaneAddress,
   type SidebarRowDragTarget,

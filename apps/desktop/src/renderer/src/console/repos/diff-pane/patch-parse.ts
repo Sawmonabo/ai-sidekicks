@@ -212,6 +212,39 @@ const HUNK_HEADER_PATTERN = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/;
  */
 const PATCH_LINE_BREAK_PATTERN = /\n/;
 
+/** One line pair's two segmentations, which are two readings of one alignment. */
+export interface IntralineSegmentPair {
+  readonly deleted: readonly DiffIntralineSegment[];
+  readonly inserted: readonly DiffIntralineSegment[];
+}
+
+/**
+ * Segment one changed line pair at its word boundaries, for both sides at once.
+ *
+ * Both sides from ONE comparison rather than two, because the two sides of an
+ * intraline diff are two readings of the same alignment: computing them separately
+ * would let the deleted line's highlight disagree with the inserted line's about
+ * which words survived, which is exactly the misreading the highlight exists to
+ * prevent. `diffWordsWithSpace` rather than `diffWords` because it keeps whitespace
+ * as part of the tokens, so a change in indentation stays visible instead of being
+ * silently treated as no change.
+ */
+export function intralineSegments(previousText: string, nextText: string): IntralineSegmentPair {
+  const changes = diffWordsWithSpace(previousText, nextText);
+  return {
+    deleted: mergeAdjacent(
+      changes
+        .filter((change) => change.added !== true)
+        .map((change) => ({ text: change.value, changed: change.removed === true })),
+    ),
+    inserted: mergeAdjacent(
+      changes
+        .filter((change) => change.removed !== true)
+        .map((change) => ({ text: change.value, changed: change.added === true })),
+    ),
+  };
+}
+
 /**
  * One line's text without the carriage return a Windows patch leaves on it.
  *
@@ -242,39 +275,6 @@ function declaredHunkHeaders(patchText: string): readonly string[] {
     }
   }
   return headers;
-}
-
-/**
- * Segment one changed line pair at its word boundaries, for both sides at once.
- *
- * Both sides from ONE comparison rather than two, because the two sides of an
- * intraline diff are two readings of the same alignment: computing them separately
- * would let the deleted line's highlight disagree with the inserted line's about
- * which words survived, which is exactly the misreading the highlight exists to
- * prevent. `diffWordsWithSpace` rather than `diffWords` because it keeps whitespace
- * as part of the tokens, so a change in indentation stays visible instead of being
- * silently treated as no change.
- */
-export function intralineSegments(previousText: string, nextText: string): IntralineSegmentPair {
-  const changes = diffWordsWithSpace(previousText, nextText);
-  return {
-    deleted: mergeAdjacent(
-      changes
-        .filter((change) => change.added !== true)
-        .map((change) => ({ text: change.value, changed: change.removed === true })),
-    ),
-    inserted: mergeAdjacent(
-      changes
-        .filter((change) => change.removed !== true)
-        .map((change) => ({ text: change.value, changed: change.added === true })),
-    ),
-  };
-}
-
-/** One line pair's two segmentations, which are two readings of one alignment. */
-export interface IntralineSegmentPair {
-  readonly deleted: readonly DiffIntralineSegment[];
-  readonly inserted: readonly DiffIntralineSegment[];
 }
 
 /**

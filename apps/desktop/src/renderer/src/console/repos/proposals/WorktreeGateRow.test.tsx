@@ -14,7 +14,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { fixtureBridgeWithGrowth } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import type { GrowthPortAnswer } from "../../bridge/growth-port/growth-port.js";
-import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
+import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { ManualClock } from "../../core/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";

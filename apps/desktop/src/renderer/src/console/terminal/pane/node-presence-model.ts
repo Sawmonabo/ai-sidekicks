@@ -134,18 +134,6 @@ export function projectNodePresence(
 }
 
 /**
- * Whether one event kind is one this fold reads a node state from.
- *
- * A comparison over the tuple rather than a `Set` built at module load, on
- * `lease-transition.ts`'s `asTerminalLeaseTransitionReason` shape: the set has three
- * members, the module holds no state between calls, and a module-level `Set` is the
- * singleton `apps/desktop/AGENTS.md` rejects.
- */
-function isPresenceTransitionKind(kind: string): boolean {
-  return PRESENCE_TRANSITION_EVENT_KINDS.some((presenceKind) => presenceKind === kind);
-}
-
-/**
  * The one node a lease holder must be sitting on, when the log knows exactly one.
  *
  * `undefined` — which the lease fold reads as `not-checked` — for every other case:
@@ -161,6 +149,18 @@ export function resolveSoleHoldingNode(
     return undefined;
   }
   return { nodeId: sole.nodeId, isReachable: sole.reachability === "reachable" };
+}
+
+/**
+ * Whether one event kind is one this fold reads a node state from.
+ *
+ * A comparison over the tuple rather than a `Set` built at module load, on
+ * `lease-transition.ts`'s `asTerminalLeaseTransitionReason` shape: the set has three
+ * members, the module holds no state between calls, and a module-level `Set` is the
+ * singleton `apps/desktop/AGENTS.md` rejects.
+ */
+function isPresenceTransitionKind(kind: string): boolean {
+  return PRESENCE_TRANSITION_EVENT_KINDS.some((presenceKind) => presenceKind === kind);
 }
 
 /**

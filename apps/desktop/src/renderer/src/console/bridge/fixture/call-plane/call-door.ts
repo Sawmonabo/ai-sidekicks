@@ -9,8 +9,8 @@
 import { daemonMethodBindingFor } from "../../daemon/index.js";
 import { FixtureBridgeError } from "./refusal.js";
 import { foldSettledCall, type SettledCallFolds } from "./settled-call-folds.js";
-import { ScenarioEngine } from "../../scenario-runtime/index.js";
-import { settleScriptedReply } from "../../scenario-runtime/index.js";
+import { ScenarioEngine } from "../../scenario/runtime/index.js";
+import { settleScriptedReply } from "../../scenario/runtime/index.js";
 
 /**
  * Answer one request/response call from the scenario, or reject by name.

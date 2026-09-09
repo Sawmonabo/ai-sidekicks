@@ -144,22 +144,6 @@ export interface PhaseSequenceEdge {
 }
 
 /**
- * One edge, from the phase depended on to the phase that waits for it.
- *
- * Built through one function so the id and the carried label are composed in one
- * place: an edge whose id disagreed with its endpoints would collide on the canvas,
- * where node and edge identity are the only keys there are.
- */
-function dependencyEdge(sourcePhaseId: string, target: PhaseGraphNode): PhaseSequenceEdge {
-  return {
-    edgeId: `${sourcePhaseId}->${target.phaseId}`,
-    sourcePhaseId,
-    targetPhaseId: target.phaseId,
-    targetLabel: phaseDisplayText(target),
-  };
-}
-
-/**
  * The words that stand for one phase where only a string will do.
  *
  * An accessible name and an edge's label are sentences rather than markup, so
@@ -288,6 +272,22 @@ export function phasesNeverEligible(topology: PhaseTopology): readonly string[] 
   return topology
     .map((declaration) => declaration.phaseId)
     .filter((phaseId) => unsatisfied.has(phaseId));
+}
+
+/**
+ * One edge, from the phase depended on to the phase that waits for it.
+ *
+ * Built through one function so the id and the carried label are composed in one
+ * place: an edge whose id disagreed with its endpoints would collide on the canvas,
+ * where node and edge identity are the only keys there are.
+ */
+function dependencyEdge(sourcePhaseId: string, target: PhaseGraphNode): PhaseSequenceEdge {
+  return {
+    edgeId: `${sourcePhaseId}->${target.phaseId}`,
+    sourcePhaseId,
+    targetPhaseId: target.phaseId,
+    targetLabel: phaseDisplayText(target),
+  };
 }
 
 /**

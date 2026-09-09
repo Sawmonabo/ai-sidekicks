@@ -18,21 +18,6 @@ export interface ManualGate {
   readonly open: () => void;
 }
 
-export function manualGate(): ManualGate {
-  let release = (): void => {};
-  const promise = new Promise<void>((settle) => {
-    release = (): void => {
-      settle();
-    };
-  });
-  return {
-    promise,
-    open: (): void => {
-      release();
-    },
-  };
-}
-
 /**
  * A port body whose every invocation is held open until the case answers it.
  *
@@ -45,19 +30,6 @@ export interface HandAnsweredCall<TAnswer> {
   readonly invoke: () => Promise<TAnswer>;
   /** Answers the newest invocation. */
   readonly open: (answer: TAnswer) => void;
-}
-
-export function handAnsweredCall<TAnswer>(): HandAnsweredCall<TAnswer> {
-  let answerNewest: (answer: TAnswer) => void = () => {};
-  return {
-    invoke: (): Promise<TAnswer> =>
-      new Promise<TAnswer>((settle) => {
-        answerNewest = settle;
-      }),
-    open: (answer: TAnswer): void => {
-      answerNewest(answer);
-    },
-  };
 }
 
 /**
@@ -83,4 +55,32 @@ export class ParkedCalls {
       letThrough();
     }
   }
+}
+
+export function manualGate(): ManualGate {
+  let release = (): void => {};
+  const promise = new Promise<void>((settle) => {
+    release = (): void => {
+      settle();
+    };
+  });
+  return {
+    promise,
+    open: (): void => {
+      release();
+    },
+  };
+}
+
+export function handAnsweredCall<TAnswer>(): HandAnsweredCall<TAnswer> {
+  let answerNewest: (answer: TAnswer) => void = () => {};
+  return {
+    invoke: (): Promise<TAnswer> =>
+      new Promise<TAnswer>((settle) => {
+        answerNewest = settle;
+      }),
+    open: (answer: TAnswer): void => {
+      answerNewest(answer);
+    },
+  };
 }

@@ -68,7 +68,7 @@ import {
   scenarioCollaborators,
 } from "./repos-fixtures.js";
 
-import { REPOS_GIT_WORKSPACE_ID } from "../../../src/renderer/src/console/bridge/scenarios/repos.js";
+import { REPOS_GIT_WORKSPACE_ID } from "../../../src/renderer/src/console/bridge/scenario/repos/repos.js";
 import type { ConsoleBridge } from "../../../src/renderer/src/console/bridge/index.js";
 // Deeply, and not through the sub-module door: the pane is loader-backed now, so the
 // component is not on that barrel — a line for it there would put the whole pane back on
@@ -78,7 +78,7 @@ import { ManualClock } from "../../../src/renderer/src/console/core/index.js";
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
 import { ProposalGate } from "../../../src/renderer/src/console/repos/proposals/ProposalGate.js";
 import { registerRepos } from "../../../src/renderer/src/console/repos/index.js";
-import { advanceScenarioUntil } from "../../../src/renderer/src/console/bridge/scenario-runtime/scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../../src/renderer/src/console/bridge/scenario/runtime/clock.test-support.js";
 import { sectionContext } from "../../../src/renderer/src/console/repos/pane-contexts.test-support.js";
 import {
   InlineCardSeatRegistry,

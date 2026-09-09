@@ -69,6 +69,15 @@ export interface SettingsPageContextOverrides {
   readonly uiStateStore?: UiStateStore | undefined;
 }
 
+/** What one mounted page exposes to a case that moves it between sessions. */
+export interface MountedMovablePage {
+  readonly container: HTMLElement;
+  /** Every frame committed since the last {@link MountedMovablePage.forgetFrames}. */
+  readonly frames: readonly string[];
+  readonly forgetFrames: () => void;
+  readonly showSession: (retainedSessionId: string | undefined) => void;
+}
+
 /**
  * The context a settings page is handed, over a bridge and a retained session.
  *
@@ -122,15 +131,6 @@ export function consoleTestUiStateStore(
   adapter: MemoryPersistenceAdapter = new MemoryPersistenceAdapter(),
 ): UiStateStore {
   return new UiStateStore({ adapter });
-}
-
-/** What one mounted page exposes to a case that moves it between sessions. */
-export interface MountedMovablePage {
-  readonly container: HTMLElement;
-  /** Every frame committed since the last {@link MountedMovablePage.forgetFrames}. */
-  readonly frames: readonly string[];
-  readonly forgetFrames: () => void;
-  readonly showSession: (retainedSessionId: string | undefined) => void;
 }
 
 /**
@@ -238,57 +238,6 @@ export function pageChromeText(container: HTMLElement): string {
 }
 
 /**
- * The registry one case owns, with the page registered on it.
- *
- * A scoped registry per call rather than one shared instance, for the registrar's own
- * reason: the table is owner-scoped state, so two cases sharing one would make the
- * second depend on whether the first had run.
- *
- * The page arrives as its own REGISTRAR rather than as a descriptor, so what a case
- * drives is the shipped registration — a registrar that claimed nothing fails here,
- * where the message names the section, instead of rendering an empty pane.
- */
-function registryWith(
-  registerPage: (registrar: SettingsPageRegistrar) => void,
-): SettingsPageRegistry {
-  const registry = new SettingsPageRegistry();
-  registerPage(registry);
-  return registry;
-}
-
-/** The body a registration claims for a section, or a failure that names the section. */
-function bodyFor(registry: SettingsPageRegistry, section: SettingsSectionId): SettingsPageBody {
-  const descriptor = registry.descriptorFor(section);
-  if (descriptor === undefined) {
-    throw new Error(`no settings page is registered for the \`${section}\` section`);
-  }
-  return descriptor.render;
-}
-
-/**
- * Mount one page inside the announcer, on the clock its own bridge schedules against.
- *
- * The announcer is part of the mount rather than a case's decoration: a settings page
- * that settles an act says so, and `useAnnounce` throws outside the provider
- * deliberately — so a mount that omitted it would fail inside a page and report a
- * missing live region as a broken settings section.
- *
- * ITS CLOCK IS THE BRIDGE'S, resolved by the shipped `consoleClockFor` rather than
- * chosen here. The announcer arms a timeout, and `Spec-023 §Console Design (Meridian)`
- * makes the fixture clock the only clock the renderer reads in fixture mode — so a
- * harness that minted a clock of its own would arm the hold on a clock no case can
- * move, and one that passed none would arm it on the wall.
- */
-function mountPageBody(body: SettingsPageBody, context: SettingsPageContext): HTMLElement {
-  const { container } = render(
-    <LiveAnnouncerProvider clock={consoleClockFor(context.bridge)}>
-      {body(context)}
-    </LiveAnnouncerProvider>,
-  );
-  return container;
-}
-
-/**
  * A registered settings page, its chunk resolved and its first reads settled.
  *
  * THE CHUNK IS AWAITED THROUGH THE REGISTRATION'S OWN LOADER, never by settling
@@ -341,4 +290,55 @@ export function mountReservedSettingsPage(
   context: SettingsPageContext,
 ): HTMLElement {
   return mountPageBody(bodyFor(registryWith(registerPage), section), context);
+}
+
+/**
+ * The registry one case owns, with the page registered on it.
+ *
+ * A scoped registry per call rather than one shared instance, for the registrar's own
+ * reason: the table is owner-scoped state, so two cases sharing one would make the
+ * second depend on whether the first had run.
+ *
+ * The page arrives as its own REGISTRAR rather than as a descriptor, so what a case
+ * drives is the shipped registration — a registrar that claimed nothing fails here,
+ * where the message names the section, instead of rendering an empty pane.
+ */
+function registryWith(
+  registerPage: (registrar: SettingsPageRegistrar) => void,
+): SettingsPageRegistry {
+  const registry = new SettingsPageRegistry();
+  registerPage(registry);
+  return registry;
+}
+
+/** The body a registration claims for a section, or a failure that names the section. */
+function bodyFor(registry: SettingsPageRegistry, section: SettingsSectionId): SettingsPageBody {
+  const descriptor = registry.descriptorFor(section);
+  if (descriptor === undefined) {
+    throw new Error(`no settings page is registered for the \`${section}\` section`);
+  }
+  return descriptor.render;
+}
+
+/**
+ * Mount one page inside the announcer, on the clock its own bridge schedules against.
+ *
+ * The announcer is part of the mount rather than a case's decoration: a settings page
+ * that settles an act says so, and `useAnnounce` throws outside the provider
+ * deliberately — so a mount that omitted it would fail inside a page and report a
+ * missing live region as a broken settings section.
+ *
+ * ITS CLOCK IS THE BRIDGE'S, resolved by the shipped `consoleClockFor` rather than
+ * chosen here. The announcer arms a timeout, and `Spec-023 §Console Design (Meridian)`
+ * makes the fixture clock the only clock the renderer reads in fixture mode — so a
+ * harness that minted a clock of its own would arm the hold on a clock no case can
+ * move, and one that passed none would arm it on the wall.
+ */
+function mountPageBody(body: SettingsPageBody, context: SettingsPageContext): HTMLElement {
+  const { container } = render(
+    <LiveAnnouncerProvider clock={consoleClockFor(context.bridge)}>
+      {body(context)}
+    </LiveAnnouncerProvider>,
+  );
+  return container;
 }

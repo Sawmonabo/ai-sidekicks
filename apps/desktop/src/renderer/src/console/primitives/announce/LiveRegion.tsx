@@ -23,10 +23,6 @@ import { useCallback, useSyncExternalStore } from "react";
 
 import { LiveAnnouncer } from "./live-announcer.js";
 
-interface LiveRegionProps {
-  readonly announcer: LiveAnnouncer;
-}
-
 /**
  * The two regions. Rendered once per window and never conditionally.
  *
@@ -66,4 +62,8 @@ export function LiveRegion(props: LiveRegionProps): React.JSX.Element {
       </div>
     </>
   );
+}
+
+interface LiveRegionProps {
+  readonly announcer: LiveAnnouncer;
 }

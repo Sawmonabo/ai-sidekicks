@@ -146,14 +146,6 @@ export interface SettingsPageDescriptor {
   readonly render: SettingsPageBody;
 }
 
-/** What every registration carries, whichever form it takes. */
-interface SettingsPageRegistrationBase {
-  readonly section: SettingsSectionId;
-  readonly owner: string;
-  readonly label: string;
-  readonly keywords: readonly string[];
-}
-
 /**
  * What a page hands {@link SettingsPageRegistrar.register}, in one of exactly two forms.
  *
@@ -198,6 +190,14 @@ export type SettingsPageRegistration =
  */
 export interface SettingsPageRegistrar {
   register(registration: SettingsPageRegistration): void;
+}
+
+/** One ranked search hit: the entry, the text that matched, and its score. */
+export interface SettingsEntryMatch {
+  readonly descriptor: SettingsPageDescriptor;
+  /** The label or alias the score was earned on, so the result can say why. */
+  readonly matchedText: string;
+  readonly score: number;
 }
 
 export class SettingsPageRegistry implements SettingsPageRegistrar {
@@ -336,14 +336,6 @@ export class SettingsPageRegistry implements SettingsPageRegistrar {
 // slot registration, so a test rendering the surface directly would get an empty
 // pane and a second settings window could not compose a different subset.
 
-/** One ranked search hit: the entry, the text that matched, and its score. */
-export interface SettingsEntryMatch {
-  readonly descriptor: SettingsPageDescriptor;
-  /** The label or alias the score was earned on, so the result can say why. */
-  readonly matchedText: string;
-  readonly score: number;
-}
-
 /**
  * Rank settings entries against a query.
  *
@@ -387,4 +379,12 @@ export function matchSettingsEntries(
     }
   }
   return matches.sort((left, right) => right.score - left.score);
+}
+
+/** What every registration carries, whichever form it takes. */
+interface SettingsPageRegistrationBase {
+  readonly section: SettingsSectionId;
+  readonly owner: string;
+  readonly label: string;
+  readonly keywords: readonly string[];
 }

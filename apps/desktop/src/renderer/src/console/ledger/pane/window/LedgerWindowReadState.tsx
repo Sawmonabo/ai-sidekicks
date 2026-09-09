@@ -52,11 +52,6 @@ const LOADING_SHELL_KEYS: readonly string[] = Object.freeze(
   Array.from({ length: LOADING_SHELL_COUNT }, (_unused, index) => `shell-${String(index)}`),
 );
 
-/** Why the projection is known-incomplete, or `undefined` while it is not. */
-function readDegradedCause(state: SessionStoreState): string | undefined {
-  return state.degradedCause;
-}
-
 export interface LedgerWindowReadStateProps {
   readonly sessionStore: SessionStore;
 }
@@ -106,4 +101,9 @@ export function LedgerWindowReadState(props: LedgerWindowReadStateProps): React.
     );
   }
   return null;
+}
+
+/** Why the projection is known-incomplete, or `undefined` while it is not. */
+function readDegradedCause(state: SessionStoreState): string | undefined {
+  return state.degradedCause;
 }

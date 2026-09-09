@@ -134,21 +134,6 @@ const VCS_READINGS: Readonly<Record<VcsType, MountAxisReading>> = {
   },
 };
 
-/** How this mount's health reads. */
-export function mountHealthReading(health: RepoMountHealth): MountAxisReading {
-  return HEALTH_READINGS[health.status];
-}
-
-/** How this mount's lifecycle position reads. */
-export function mountLifecycleReading(state: RepoMountState): MountAxisReading {
-  return LIFECYCLE_READINGS[state];
-}
-
-/** How this mount's version-control kind reads. */
-export function mountVcsReading(vcsType: VcsType): MountAxisReading {
-  return VCS_READINGS[vcsType];
-}
-
 /**
  * Whether a card offers its bind controls, and what it says when it does not.
  *
@@ -169,23 +154,22 @@ export type BindControlPosture =
   | { readonly offered: true }
   | { readonly offered: false; readonly withheldBecause: string };
 
-const BIND_CONTROLS_OFFERED: BindControlPosture = { offered: true };
-
-export function bindControlPosture(mount: RepoMountReadResponse): BindControlPosture {
-  if (mount.state !== "attached") {
-    return {
-      offered: false,
-      withheldBecause: LIFECYCLE_READINGS[mount.state].sentence,
-    };
-  }
-  if (mount.health.status !== "healthy") {
-    return {
-      offered: false,
-      withheldBecause: HEALTH_READINGS[mount.health.status].sentence,
-    };
-  }
-  return BIND_CONTROLS_OFFERED;
+/** How this mount's health reads. */
+export function mountHealthReading(health: RepoMountHealth): MountAxisReading {
+  return HEALTH_READINGS[health.status];
 }
+
+/** How this mount's lifecycle position reads. */
+export function mountLifecycleReading(state: RepoMountState): MountAxisReading {
+  return LIFECYCLE_READINGS[state];
+}
+
+/** How this mount's version-control kind reads. */
+export function mountVcsReading(vcsType: VcsType): MountAxisReading {
+  return VCS_READINGS[vcsType];
+}
+
+const BIND_CONTROLS_OFFERED: BindControlPosture = { offered: true };
 
 /**
  * Whether ONE workspace's binding controls are live, and what is holding them.
@@ -213,6 +197,22 @@ export function bindControlPosture(mount: RepoMountReadResponse): BindControlPos
 export type WorkspaceControlPosture =
   | { readonly live: true }
   | { readonly live: false; readonly heldBecause: string };
+
+export function bindControlPosture(mount: RepoMountReadResponse): BindControlPosture {
+  if (mount.state !== "attached") {
+    return {
+      offered: false,
+      withheldBecause: LIFECYCLE_READINGS[mount.state].sentence,
+    };
+  }
+  if (mount.health.status !== "healthy") {
+    return {
+      offered: false,
+      withheldBecause: HEALTH_READINGS[mount.health.status].sentence,
+    };
+  }
+  return BIND_CONTROLS_OFFERED;
+}
 
 const WORKSPACE_CONTROLS_LIVE: WorkspaceControlPosture = { live: true };
 

@@ -28,23 +28,6 @@ import { startTransition, type ReactElement } from "react";
 import type { SubjectKey, SubjectScopedHolder } from "./subject-scoped-holder.js";
 
 /**
- * Address a holder and confirm it, which is what one committed render does.
- *
- * The React-free door. A suite that called `address` alone would be driving a pass
- * that never reached the screen, and every claim about the visit on screen would be
- * about a proposal instead.
- */
-export function visit<TValue>(
-  holder: SubjectScopedHolder<TValue>,
-  subject: object,
-  key: SubjectKey,
-  initial: () => TValue,
-): void {
-  holder.address(subject, key, initial);
-  holder.commit(subject, key);
-}
-
-/**
  * A promise nothing ever settles, so the pass that suspends on it never resumes.
  *
  * Minted by the CALLER and handed in as a prop: React refuses to treat one minted
@@ -63,6 +46,23 @@ export class SuspensionGate {
   public open(): void {
     this.#open?.();
   }
+}
+
+/**
+ * Address a holder and confirm it, which is what one committed render does.
+ *
+ * The React-free door. A suite that called `address` alone would be driving a pass
+ * that never reached the screen, and every claim about the visit on screen would be
+ * about a proposal instead.
+ */
+export function visit<TValue>(
+  holder: SubjectScopedHolder<TValue>,
+  subject: object,
+  key: SubjectKey,
+  initial: () => TValue,
+): void {
+  holder.address(subject, key, initial);
+  holder.commit(subject, key);
 }
 
 /**

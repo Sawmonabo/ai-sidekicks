@@ -73,6 +73,14 @@ export interface LedgerGapFillInput {
   readonly keptCursor: string | undefined;
 }
 
+/** Where the fill for the hole standing now has got to. */
+export type LedgerGapFillState =
+  | { readonly status: "whole" }
+  | { readonly status: "unanchored" }
+  | { readonly status: "asking" }
+  | { readonly status: "replaying" }
+  | { readonly status: "unavailable"; readonly refusal: ConsoleRefusal };
+
 /**
  * Decide what this window can ask for. Pure: it holds nothing and it calls nothing.
  *
@@ -106,22 +114,11 @@ export function ledgerGapFillSubjectKey(sessionId: string, missingFromSequence: 
   return `${sessionId}:${String(missingFromSequence)}`;
 }
 
-/** Where the fill for the hole standing now has got to. */
-export type LedgerGapFillState =
-  | { readonly status: "whole" }
-  | { readonly status: "unanchored" }
-  | { readonly status: "asking" }
-  | { readonly status: "replaying" }
-  | { readonly status: "unavailable"; readonly refusal: ConsoleRefusal };
-
 /** The three settled arms, minted once: each is one identity across every render. */
 const WHOLE: LedgerGapFillState = { status: "whole" };
 const UNANCHORED: LedgerGapFillState = { status: "unanchored" };
 const ASKING: LedgerGapFillState = { status: "asking" };
 const REPLAYING: LedgerGapFillState = { status: "replaying" };
-
-/** What the port answers this operation with, read off the port rather than restated. */
-type TimelineSubscribeOutcome = Awaited<ReturnType<GrowthPort["timelineSubscribe"]>>;
 
 /**
  * Put one replay ask per hole, and report where it got to.
@@ -160,3 +157,6 @@ export function useLedgerGapFill(input: LedgerGapFillInput): LedgerGapFillState 
     },
   ).value;
 }
+
+/** What the port answers this operation with, read off the port rather than restated. */
+type TimelineSubscribeOutcome = Awaited<ReturnType<GrowthPort["timelineSubscribe"]>>;

@@ -62,25 +62,6 @@ export const EXECUTION_MODE_SELECTION_REFUSAL_CODES = ["selection-in-flight"] as
 export type ExecutionModeSelectionRefusalCode =
   (typeof EXECUTION_MODE_SELECTION_REFUSAL_CODES)[number];
 
-/**
- * What a second press is told, naming the switch already on the wire.
- *
- * A FUNCTION RATHER THAN A CONSTANT, because the sentence has to name the pending mode:
- * a participant told "something is in flight" cannot tell what, and the row above is
- * still showing the mode the workspace is bound as NOW, which is the one mode the
- * sentence must not be read as.
- *
- * TOTAL IN THE MODE, because the flight rule and the mode are held by two different
- * objects: the latch says a switch is outstanding and the reading says which one. The
- * two are written in one act, so the unnamed arm is the degrade-honestly floor rather
- * than a state this class produces — and an unnamed switch is still a true sentence,
- * where naming the mode just pressed would be a false one.
- */
-export function selectionInFlightCopy(pendingMode: ExecutionMode | undefined): string {
-  const subject = pendingMode === undefined ? "A switch" : `A switch to ${pendingMode}`;
-  return `${subject} has been sent for this workspace and the daemon has not answered yet. Nothing else is sent until it settles.`;
-}
-
 /** What an act needs from the half of the section that reads. */
 export interface ExecutionModeSelectionHost {
   /** The reading standing right now. Every publish below spreads forward from it. */
@@ -246,4 +227,23 @@ export class ExecutionModeSelections {
       },
     });
   }
+}
+
+/**
+ * What a second press is told, naming the switch already on the wire.
+ *
+ * A FUNCTION RATHER THAN A CONSTANT, because the sentence has to name the pending mode:
+ * a participant told "something is in flight" cannot tell what, and the row above is
+ * still showing the mode the workspace is bound as NOW, which is the one mode the
+ * sentence must not be read as.
+ *
+ * TOTAL IN THE MODE, because the flight rule and the mode are held by two different
+ * objects: the latch says a switch is outstanding and the reading says which one. The
+ * two are written in one act, so the unnamed arm is the degrade-honestly floor rather
+ * than a state this class produces — and an unnamed switch is still a true sentence,
+ * where naming the mode just pressed would be a false one.
+ */
+export function selectionInFlightCopy(pendingMode: ExecutionMode | undefined): string {
+  const subject = pendingMode === undefined ? "A switch" : `A switch to ${pendingMode}`;
+  return `${subject} has been sent for this workspace and the daemon has not answered yet. Nothing else is sent until it settles.`;
 }

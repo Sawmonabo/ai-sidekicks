@@ -23,6 +23,9 @@ import {
   type ConsoleAuxiliaryWindowPort,
 } from "./aux-window-signal-watch.js";
 
+/** The orderly-return signal, at the one type argument that makes it that signal. */
+export type PaneReturnWatch = AuxiliaryWindowSignalWatch<PaneReturnReport>;
+
 /**
  * The served value of the pane-return subscription, taken off the port rather than
  * imported — `aux-pane-error-watch.ts` states the reason, and it is the same one.
@@ -35,9 +38,6 @@ type PaneReturnSignal = Extract<
 /** One window that gave its pane back: which window it was, and which pane. */
 type PaneReturnReport =
   PaneReturnSignal["events"] extends AsyncIterable<infer TEvent> ? TEvent : never;
-
-/** The orderly-return signal, at the one type argument that makes it that signal. */
-export type PaneReturnWatch = AuxiliaryWindowSignalWatch<PaneReturnReport>;
 
 /** The one key the pane-return watch is claimed under. Its own, per the sibling's note. */
 const PANE_RETURN_WATCH_KEY = "pane-return-watch";

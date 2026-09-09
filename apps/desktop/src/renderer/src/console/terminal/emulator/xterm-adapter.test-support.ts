@@ -79,8 +79,6 @@ export function emulatorElementsIn(host: HTMLElement): NodeListOf<Element> {
   return host.querySelectorAll(".xterm");
 }
 
-type AdapterOptions = Partial<ConstructorParameters<typeof XtermTerminalAdapter>[0]>;
-
 /**
  * An adapter that exists and is attached to nothing, for the cases about what a
  * wrapper reports BEFORE it has a host.
@@ -131,3 +129,5 @@ export function disposeLiveEmulators(): void {
   }
   vi.unstubAllGlobals();
 }
+
+type AdapterOptions = Partial<ConstructorParameters<typeof XtermTerminalAdapter>[0]>;

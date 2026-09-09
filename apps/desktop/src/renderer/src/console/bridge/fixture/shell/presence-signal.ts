@@ -39,7 +39,25 @@
 import { activityFrameDueAt } from "../growth/activity.js";
 import type { Unsubscribe } from "../../../core/index.js";
 import type { AwarenessSignalStream } from "../../daemon/index.js";
-import type { ScenarioActivityFrame, ScenarioEngine } from "../../scenario-runtime/index.js";
+import type { ScenarioActivityFrame, ScenarioEngine } from "../../scenario/runtime/index.js";
+
+/**
+ * Subscribe one caller to this session's Awareness room.
+ *
+ * The delivery carries `undefined` and that is the registered shape rather than a
+ * shortcut: both console subscribers take the push as `void` and answer it with a
+ * fresh read, so a fixture that composed an envelope here would hand them a value the
+ * live bridge does not send and that nothing is allowed to open.
+ */
+export function subscribeToScenarioPresence(
+  engine: ScenarioEngine,
+  stream: AwarenessSignalStream,
+  deliver: (signal: undefined) => void,
+): Unsubscribe {
+  return new ScenarioPresenceSignal(engine, stream, () => {
+    deliver(undefined);
+  }).attach();
+}
 
 /**
  * One open Awareness subscription: the two triggers, and the frame it last signalled.
@@ -98,22 +116,4 @@ class ScenarioPresenceSignal {
   #frameDueAt(elapsedMs: number): ScenarioActivityFrame | undefined {
     return activityFrameDueAt(this.#engine.scenario.activity ?? [], elapsedMs);
   }
-}
-
-/**
- * Subscribe one caller to this session's Awareness room.
- *
- * The delivery carries `undefined` and that is the registered shape rather than a
- * shortcut: both console subscribers take the push as `void` and answer it with a
- * fresh read, so a fixture that composed an envelope here would hand them a value the
- * live bridge does not send and that nothing is allowed to open.
- */
-export function subscribeToScenarioPresence(
-  engine: ScenarioEngine,
-  stream: AwarenessSignalStream,
-  deliver: (signal: undefined) => void,
-): Unsubscribe {
-  return new ScenarioPresenceSignal(engine, stream, () => {
-    deliver(undefined);
-  }).attach();
 }

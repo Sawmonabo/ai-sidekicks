@@ -1,6 +1,6 @@
 // What a caller is handed for each of the four settlements the seam reports.
 //
-// `scenario-runtime/scripted-reply.test.ts` holds the SEAM's claim — that the fixture bridge
+// `scenario/runtime/scripted-reply.test.ts` holds the SEAM's claim — that the fixture bridge
 // and the growth port produce the same codes from the same engine states, and that
 // neither turns a reply which never arrived into an absent value. This file holds the
 // half that is this module's alone: the translation, and in particular the one arm
@@ -24,15 +24,15 @@ import type { WireErrorEnvelope } from "../../../core/index.js";
 import { answerFromScriptedReply } from "./scripted-answer.js";
 import type { GrowthOutcome } from "../../growth-port/growth-outcome.js";
 import { growthUnavailable } from "../../growth-port/index.js";
-import { ScenarioEngine } from "../../scenario-runtime/scenario-engine.js";
-import type { ConsoleScenario } from "../../scenario-runtime/scenario.js";
-import type { ScenarioReply } from "../../scenario-runtime/scenario-reply.js";
-import { WORKFLOWS_PARKED_RUN } from "../../scenarios/workflow-fixture-runs.js";
-import { settleScriptedReply } from "../../scenario-runtime/scripted-reply.js";
+import { ScenarioEngine } from "../../scenario/runtime/engine.js";
+import type { ConsoleScenario } from "../../scenario/runtime/vocabulary.js";
+import type { ScenarioReply } from "../../scenario/runtime/reply.js";
+import { WORKFLOWS_PARKED_RUN } from "../../scenario/workflows/runs.js";
+import { settleScriptedReply } from "../../scenario/runtime/scripted-reply.js";
 import {
   PROBE_PARTICIPANT_ID,
   PROBE_SESSION_ID,
-} from "../../scenario-runtime/scripted-probe.test-support.js";
+} from "../../scenario/runtime/scripted-probe.test-support.js";
 import type { WorkflowRunSnapshot } from "../../wire-shapes/workflow-projection.js";
 
 /** The call every snapshot case below asks for, and the operation it answers. */
@@ -45,7 +45,7 @@ const SCRIPTED_LATENCY_MS = 120;
  * A scenario that scripts exactly the replies one case needs and plays no beats.
  *
  * No beats on purpose: this module never reads the event stream, and a scenario
- * carrying beats would have to be held to `scenarios/wire-truth.ts` for facts no case
+ * carrying beats would have to be held to `scenario/wire-truth/wire-truth.ts` for facts no case
  * here asserts. What it does carry is a roster and a session id, because a
  * `ConsoleScenario` without them is not one.
  */

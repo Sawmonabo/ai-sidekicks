@@ -53,17 +53,12 @@ const RELAY_FAILURE_FALLBACK = {
     "Browser tool calls are no longer being relayed to this window. Closing the pane and opening it again starts a new subscription.",
 };
 
-/** The subscription's own outcome type, and the shape read out of it. */
-type ToolCallOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["browserSubscribeToolCalls"]>>;
-type ToolCallStream = Extract<ToolCallOutcome, { readonly status: "served" }>["value"];
-
 /** One relayed call, as every surface in this family reads it. */
 export type RelayedToolCall = ToolCallStream extends {
   readonly events: AsyncIterable<infer Event>;
 }
   ? Event
   : never;
-
 /**
  * What the pane knows about the agent's browser tool calls right now.
  *
@@ -83,20 +78,12 @@ export type ToolCallReading =
     })
   | { readonly kind: "ended"; readonly calls: readonly RelayedToolCall[] };
 
-const UNREAD_TOOL_CALLS: ToolCallReading = { kind: "reading" };
+/** The subscription's own outcome type, and the shape read out of it. */
+type ToolCallOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["browserSubscribeToolCalls"]>>;
 
-/**
- * What a refusal is the answer to, decided by whether anything else answered.
- *
- * Read off the accumulated list rather than fixed at the call site, which is the one
- * place this decision can be right: `whole-answer` claims there is nothing else on
- * screen, and after even one relayed call that is false. Decided here, once, so the
- * two refusal publications below cannot disagree about it and no render body
- * re-derives it.
- */
-function refusalScopeFor(seen: readonly RelayedToolCall[]): RefusalScope {
-  return seen.length === 0 ? "whole-answer" : "beside-an-answer";
-}
+type ToolCallStream = Extract<ToolCallOutcome, { readonly status: "served" }>["value"];
+
+const UNREAD_TOOL_CALLS: ToolCallReading = { kind: "reading" };
 
 /**
  * Subscribe to the tool calls the daemon relays for this session.
@@ -187,4 +174,17 @@ export function useRelayedToolCalls(
   }, [bridge, publish, sessionId]);
 
   return reading;
+}
+
+/**
+ * What a refusal is the answer to, decided by whether anything else answered.
+ *
+ * Read off the accumulated list rather than fixed at the call site, which is the one
+ * place this decision can be right: `whole-answer` claims there is nothing else on
+ * screen, and after even one relayed call that is false. Decided here, once, so the
+ * two refusal publications below cannot disagree about it and no render body
+ * re-derives it.
+ */
+function refusalScopeFor(seen: readonly RelayedToolCall[]): RefusalScope {
+  return seen.length === 0 ? "whole-answer" : "beside-an-answer";
 }

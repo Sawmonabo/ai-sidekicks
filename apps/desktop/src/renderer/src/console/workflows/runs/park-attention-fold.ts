@@ -98,43 +98,6 @@ export interface WorkflowRunParks {
 }
 
 /**
- * Accumulates one key's fold while the walk is in progress.
- *
- * A class rather than a mutable literal because the invariant — distinct runs,
- * distinct reasons, and the disjunction over `awaitsPerson` — is what this holds, and
- * a literal updated at the call site is where the run set silently becomes a counter
- * that double-counts a two-branch fan-out.
- */
-class ParkAttentionAccumulator {
-  readonly #parkAttentionKey: string;
-  readonly #affectedRunIds = new Set<string>();
-  readonly #parkReasons: WorkflowParkReason[] = [];
-  #awaitsPerson = false;
-
-  public constructor(parkAttentionKey: string) {
-    this.#parkAttentionKey = parkAttentionKey;
-  }
-
-  public admit(workflowRunId: string, parked: WorkflowParkedPhase): void {
-    this.#affectedRunIds.add(workflowRunId);
-    if (!this.#parkReasons.includes(parked.park.parkReason)) {
-      this.#parkReasons.push(parked.park.parkReason);
-    }
-    this.#awaitsPerson = this.#awaitsPerson || parkAwaitsPerson(parked.schedule);
-  }
-
-  public settle(): WorkflowFoldedParks {
-    return {
-      kind: "folded",
-      parkAttentionKey: this.#parkAttentionKey,
-      affectedRunCount: this.#affectedRunIds.size,
-      parkReasons: this.#parkReasons,
-      awaitsPerson: this.#awaitsPerson,
-    };
-  }
-}
-
-/**
  * Every live park, folded where the engine correlated it and standing alone where it
  * did not.
  *
@@ -171,4 +134,41 @@ export function foldParkAttention(
   // Settled only once every park has been admitted, so an entry's count is the whole
   // fold rather than however much of it had been walked when its slot was taken.
   return slots.map((slot) => (slot instanceof ParkAttentionAccumulator ? slot.settle() : slot));
+}
+
+/**
+ * Accumulates one key's fold while the walk is in progress.
+ *
+ * A class rather than a mutable literal because the invariant — distinct runs,
+ * distinct reasons, and the disjunction over `awaitsPerson` — is what this holds, and
+ * a literal updated at the call site is where the run set silently becomes a counter
+ * that double-counts a two-branch fan-out.
+ */
+class ParkAttentionAccumulator {
+  readonly #parkAttentionKey: string;
+  readonly #affectedRunIds = new Set<string>();
+  readonly #parkReasons: WorkflowParkReason[] = [];
+  #awaitsPerson = false;
+
+  public constructor(parkAttentionKey: string) {
+    this.#parkAttentionKey = parkAttentionKey;
+  }
+
+  public admit(workflowRunId: string, parked: WorkflowParkedPhase): void {
+    this.#affectedRunIds.add(workflowRunId);
+    if (!this.#parkReasons.includes(parked.park.parkReason)) {
+      this.#parkReasons.push(parked.park.parkReason);
+    }
+    this.#awaitsPerson = this.#awaitsPerson || parkAwaitsPerson(parked.schedule);
+  }
+
+  public settle(): WorkflowFoldedParks {
+    return {
+      kind: "folded",
+      parkAttentionKey: this.#parkAttentionKey,
+      affectedRunCount: this.#affectedRunIds.size,
+      parkReasons: this.#parkReasons,
+      awaitsPerson: this.#awaitsPerson,
+    };
+  }
 }

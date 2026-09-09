@@ -18,19 +18,6 @@ import { type ReadPhase } from "../approvals-reader.js";
 import { type ApprovalResolveRequest } from "../approvals-wire.js";
 import { AsksMissingDeadline } from "./AsksMissingDeadline.js";
 
-interface ApprovalListProps {
-  readonly phase: ReadPhase<ApprovalRecord>;
-  readonly records: readonly ApprovalRecord[];
-  readonly emptyTitle: string;
-  readonly emptyDetail: string;
-  readonly snapshotResolving: ReadonlySet<string>;
-  readonly refusalByApprovalId: ReadonlyMap<string, ConsoleRefusal>;
-  /** The provider-ask origin of each record the store holds one for. */
-  readonly askByApprovalId: ReadonlyMap<string, ProviderAsk>;
-  readonly nowMilliseconds: number;
-  readonly onResolve: (request: ApprovalResolveRequest) => void;
-}
-
 /**
  * One read, rendered in each of its four phases.
  *
@@ -122,4 +109,17 @@ export function ApprovalList(props: ApprovalListProps): React.JSX.Element {
       })}
     </div>
   );
+}
+
+interface ApprovalListProps {
+  readonly phase: ReadPhase<ApprovalRecord>;
+  readonly records: readonly ApprovalRecord[];
+  readonly emptyTitle: string;
+  readonly emptyDetail: string;
+  readonly snapshotResolving: ReadonlySet<string>;
+  readonly refusalByApprovalId: ReadonlyMap<string, ConsoleRefusal>;
+  /** The provider-ask origin of each record the store holds one for. */
+  readonly askByApprovalId: ReadonlyMap<string, ProviderAsk>;
+  readonly nowMilliseconds: number;
+  readonly onResolve: (request: ApprovalResolveRequest) => void;
 }

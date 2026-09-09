@@ -33,7 +33,7 @@ import {
 } from "./diff-pane.test-support.js";
 import { paneContext } from "../pane-contexts.test-support.js";
 import { createFixtureBridge } from "../../bridge/index.js";
-import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
+import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
 import { SessionStore } from "../../store/index.js";
 
 const WORKSPACE_ENTITY = DIFF_PANE_WORKSPACE_ENTITY;

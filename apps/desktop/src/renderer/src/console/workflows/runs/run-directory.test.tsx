@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { type GrowthPort, type WorkflowRunListEntry } from "../../bridge/index.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
-import { WORKFLOWS_SCENARIO_RUNS } from "../../bridge/scenarios/workflow-fixture-runs.js";
+import { WORKFLOWS_SCENARIO_RUNS } from "../../bridge/scenario/workflows/runs.js";
 import {
   latestCommitted,
   observeSubjectRead,

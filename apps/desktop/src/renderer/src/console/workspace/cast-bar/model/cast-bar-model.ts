@@ -269,6 +269,37 @@ export function deriveCastBar(input: CastBarInput): CastBarModel {
 }
 
 /**
+ * What a screen reader hears for one chip.
+ *
+ * Composed here rather than left to the browser's own name computation over the
+ * chip's children, because the presence glyph is an image carrying a name of its
+ * own: concatenated, every chip in the bar would open with "Presence has not been
+ * read" before the person it is about. The composition is this module's own: the
+ * identifier and the verb, in the order `Spec-023 §The surface set` names them on the
+ * chip itself, with each further state added as its own clause, so
+ * a chip that is only itself reads exactly "priya, waiting on approval".
+ *
+ * Every clause is a value this model already derived. Nothing is invented here.
+ */
+export function castChipAccessibleName(member: CastMember): string {
+  const clauses: string[] = [member.label ?? member.participantId];
+  if (member.verb !== undefined) {
+    clauses.push(member.verb);
+  }
+  // Beside the verb rather than instead of it, and never suppressed as redundant
+  // when the verb happens to be a waiting one: the two are folded from different
+  // questions, and a rule that dropped this clause whenever the newest row looked
+  // like an ask would be the second attention vocabulary this module deleted.
+  if (member.needsAttention) {
+    clauses.push(CAST_ATTENTION_CLAUSE);
+  }
+  if (member.isVerbStale) {
+    clauses.push(CAST_STALE_CLAUSE);
+  }
+  return clauses.join(", ");
+}
+
+/**
  * Which of the three answers this reading is, in the one order that is honest.
  *
  * ATTENTION WINS, and it wins over `earlier-unread` deliberately: a session with a
@@ -321,37 +352,6 @@ function foldParticipantLabels(
     labelByParticipantId.set(participantId, label);
   }
   return labelByParticipantId;
-}
-
-/**
- * What a screen reader hears for one chip.
- *
- * Composed here rather than left to the browser's own name computation over the
- * chip's children, because the presence glyph is an image carrying a name of its
- * own: concatenated, every chip in the bar would open with "Presence has not been
- * read" before the person it is about. The composition is this module's own: the
- * identifier and the verb, in the order `Spec-023 §The surface set` names them on the
- * chip itself, with each further state added as its own clause, so
- * a chip that is only itself reads exactly "priya, waiting on approval".
- *
- * Every clause is a value this model already derived. Nothing is invented here.
- */
-export function castChipAccessibleName(member: CastMember): string {
-  const clauses: string[] = [member.label ?? member.participantId];
-  if (member.verb !== undefined) {
-    clauses.push(member.verb);
-  }
-  // Beside the verb rather than instead of it, and never suppressed as redundant
-  // when the verb happens to be a waiting one: the two are folded from different
-  // questions, and a rule that dropped this clause whenever the newest row looked
-  // like an ask would be the second attention vocabulary this module deleted.
-  if (member.needsAttention) {
-    clauses.push(CAST_ATTENTION_CLAUSE);
-  }
-  if (member.isVerbStale) {
-    clauses.push(CAST_STALE_CLAUSE);
-  }
-  return clauses.join(", ");
 }
 
 /**

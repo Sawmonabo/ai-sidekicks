@@ -65,43 +65,6 @@ export interface SchemaJsonEditorProps {
   readonly report: SchemaValidationReport | undefined;
 }
 
-/**
- * What the schema said about the typed document, each sentence carrying the member it is
- * about.
- *
- * The pointer rather than a join, for the reason the paths are segments at all: two
- * different members must not read as one line here either. Composed into text because
- * this arm draws no control per member — there is one control, and every finding on the
- * form is about what is in it.
- */
-function rawIssueTexts(report: SchemaValidationReport | undefined): readonly string[] {
-  if (report === undefined || report.status === "valid") {
-    return [];
-  }
-  return report.issues.map((issue) => {
-    const pointer = encodeMemberPointer(issue.memberPath);
-    return pointer === "" ? issue.message : `${pointer}: ${issue.message}`;
-  });
-}
-
-/**
- * The sentence about what will not be checked here, where the validator has one.
- *
- * A switch total over the arms rather than a comparison per arm, so a state added to
- * `SchemaValidatorState` decides here whether it has a sentence instead of silently
- * inheriting "no" — which is how the failed-fetch arm stayed unsaid on this surface.
- */
-function uncheckableDetailOf(validator: SchemaValidatorState): string | undefined {
-  switch (validator.status) {
-    case "uncompilable":
-    case "checker-unavailable":
-      return validator.detail;
-    case "compiling":
-    case "compiled":
-      return undefined;
-  }
-}
-
 /** The raw answer, its syntax, and — where the schema compiled — its validity. */
 export function SchemaJsonEditor(props: SchemaJsonEditorProps): React.JSX.Element {
   const editorId = useId();
@@ -146,4 +109,41 @@ export function SchemaJsonEditor(props: SchemaJsonEditorProps): React.JSX.Elemen
       <SchemaFieldIssues issues={issues} issuesId={issuesId} />
     </div>
   );
+}
+
+/**
+ * What the schema said about the typed document, each sentence carrying the member it is
+ * about.
+ *
+ * The pointer rather than a join, for the reason the paths are segments at all: two
+ * different members must not read as one line here either. Composed into text because
+ * this arm draws no control per member — there is one control, and every finding on the
+ * form is about what is in it.
+ */
+function rawIssueTexts(report: SchemaValidationReport | undefined): readonly string[] {
+  if (report === undefined || report.status === "valid") {
+    return [];
+  }
+  return report.issues.map((issue) => {
+    const pointer = encodeMemberPointer(issue.memberPath);
+    return pointer === "" ? issue.message : `${pointer}: ${issue.message}`;
+  });
+}
+
+/**
+ * The sentence about what will not be checked here, where the validator has one.
+ *
+ * A switch total over the arms rather than a comparison per arm, so a state added to
+ * `SchemaValidatorState` decides here whether it has a sentence instead of silently
+ * inheriting "no" — which is how the failed-fetch arm stayed unsaid on this surface.
+ */
+function uncheckableDetailOf(validator: SchemaValidatorState): string | undefined {
+  switch (validator.status) {
+    case "uncompilable":
+    case "checker-unavailable":
+      return validator.detail;
+    case "compiling":
+    case "compiled":
+      return undefined;
+  }
 }

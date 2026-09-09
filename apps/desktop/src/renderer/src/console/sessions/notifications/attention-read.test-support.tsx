@@ -69,7 +69,7 @@ export const BEAT_DUE_MS: number = 1_000;
 /**
  * What one scripted beat is, taken from the fixture builder's own parameter.
  *
- * Derived rather than re-declared: the shape belongs to `bridge/scenario-runtime/`,
+ * Derived rather than re-declared: the shape belongs to `bridge/scenario/runtime/`,
  * which publishes it to its own family and not through the bridge door, so a hand-
  * written copy here would be a second reading of what a beat is — free to disagree
  * with the engine that plays one.

@@ -11,8 +11,8 @@
 import { fireEvent, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
-import { GIT_WORKSPACE_ID } from "../../bridge/scenarios/repos/repos-fixture-data.js";
+import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
+import { GIT_WORKSPACE_ID } from "../../bridge/scenario/repos/repos-fixture-data.js";
 import {
   cloneList,
   MOUNT_CARD_SELECTOR,

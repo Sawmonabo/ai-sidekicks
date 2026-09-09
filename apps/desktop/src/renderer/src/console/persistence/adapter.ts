@@ -88,20 +88,6 @@ export interface QuotaGauge {
   readonly unavailableReason: PersistenceUnavailableReason | undefined;
 }
 
-/**
- * The operator-facing sentence for a gauge whose storage is not durable, or
- * `undefined` when it is.
- *
- * Beside the gauge type so a surface renders the reason through the table that
- * defines it rather than writing its own sentence per reason — which is how two
- * surfaces come to disagree about what `open-timed-out` means.
- */
-export function describeQuotaUnavailability(gauge: QuotaGauge): string | undefined {
-  return gauge.unavailableReason === undefined
-    ? undefined
-    : PERSISTENCE_UNAVAILABLE_DESCRIPTIONS[gauge.unavailableReason];
-}
-
 /** The seam. Both adapters implement it identically; only durability differs. */
 export interface PersistenceAdapter {
   readonly kind: PersistenceAdapterKind;
@@ -154,6 +140,20 @@ export class PersistenceAdapterError extends ConsoleRefusalError {
     super(refusal, options);
     this.name = "PersistenceAdapterError";
   }
+}
+
+/**
+ * The operator-facing sentence for a gauge whose storage is not durable, or
+ * `undefined` when it is.
+ *
+ * Beside the gauge type so a surface renders the reason through the table that
+ * defines it rather than writing its own sentence per reason — which is how two
+ * surfaces come to disagree about what `open-timed-out` means.
+ */
+export function describeQuotaUnavailability(gauge: QuotaGauge): string | undefined {
+  return gauge.unavailableReason === undefined
+    ? undefined
+    : PERSISTENCE_UNAVAILABLE_DESCRIPTIONS[gauge.unavailableReason];
 }
 
 /**

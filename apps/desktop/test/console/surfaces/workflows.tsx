@@ -67,10 +67,10 @@ import {
   SidekicksBridgeProvider,
   type ConsoleBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
-import { WORKFLOWS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/workflows.js";
-import { WORKFLOWS_SCENARIO_DEFINITIONS } from "../../../src/renderer/src/console/bridge/scenarios/workflow-fixture-definitions.js";
-import { WORKFLOWS_SESSION_ID } from "../../../src/renderer/src/console/bridge/scenarios/workflow-fixture-ids.js";
-import { WORKFLOWS_PARKED_RUN } from "../../../src/renderer/src/console/bridge/scenarios/workflow-fixture-runs.js";
+import { WORKFLOWS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/workflows/workflows.js";
+import { WORKFLOWS_SCENARIO_DEFINITIONS } from "../../../src/renderer/src/console/bridge/scenario/workflows/definitions.js";
+import { WORKFLOWS_SESSION_ID } from "../../../src/renderer/src/console/bridge/scenario/workflows/ids.js";
+import { WORKFLOWS_PARKED_RUN } from "../../../src/renderer/src/console/bridge/scenario/workflows/runs.js";
 // The context comes off its own module: it was hoisted out of the board to break the
 // cycle a loader-backed surface's reserved frame would otherwise close.
 import { type ConsoleSurfaceContext } from "../../../src/renderer/src/console/seats/surface/surface-context.js";

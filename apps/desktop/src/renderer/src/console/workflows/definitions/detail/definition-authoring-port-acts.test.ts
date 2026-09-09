@@ -20,7 +20,7 @@ import { serializeWorkflowDefinitionFile } from "../../../bridge/index.js";
 import {
   DEFINITION_RELEASE_CHECKS_SESSION,
   WORKFLOWS_SESSION_ID,
-} from "../../../bridge/scenarios/workflow-fixture-ids.js";
+} from "../../../bridge/scenario/workflows/ids.js";
 import type { GrowthPort, WorkflowDefinitionCreateBody } from "../../../bridge/index.js";
 import {
   authoringBridge,

@@ -21,7 +21,7 @@ import {
   PinnedPaneRegionRegistry,
   surfaceSlotFor,
 } from "../seats/index.js";
-import { WORKFLOWS_PARKED_RUN } from "../bridge/scenarios/workflow-fixture-runs.js";
+import { WORKFLOWS_PARKED_RUN } from "../bridge/scenario/workflows/runs.js";
 import { registerWorkflowSurfaces } from "./index.js";
 import { fixtureHumanWait } from "./pane/run/WorkflowRunPane.test-support.js";
 import { composeWindow, inWindowChrome } from "./WorkflowsPaneHost.test-support.js";

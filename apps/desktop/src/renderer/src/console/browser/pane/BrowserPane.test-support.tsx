@@ -10,7 +10,7 @@
 import { act, render, screen, waitFor, type RenderResult } from "@testing-library/react";
 import { expect } from "vitest";
 
-import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
+import { BROWSER_SCENARIO } from "../../bridge/scenario/browser.js";
 import { consoleClockFor, createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { ManualClock } from "../../core/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
@@ -142,6 +142,20 @@ export function browserPaneContext(
 export const DEFAULT_TEST_PANE_ID = "pane-browser-1";
 
 /**
+ * The two swaps a mounted pane can be put through without being remounted.
+ *
+ * Both are things a real composition does and neither is a fresh tree: a deck moves
+ * a slot to another pane, and a window hands the tree another bridge. They are named
+ * together because the pane's state has to say WHOSE it is against both, and a suite
+ * that could only reach one of them would leave the other's stale-subject case
+ * untested.
+ */
+export interface BrowserPaneSubjectMount {
+  readonly rebindTo: (nextPaneId: string) => Promise<void>;
+  readonly rebindToBridge: (nextBridge: ConsoleBridge) => Promise<void>;
+}
+
+/**
  * Mount the pane and hand back the re-render that swaps which pane it is FOR.
  *
  * The swap is what a deck performs when a slot changes subject: React keeps the
@@ -187,20 +201,6 @@ export async function mountBrowserPaneForSubject(
 }
 
 /**
- * The two swaps a mounted pane can be put through without being remounted.
- *
- * Both are things a real composition does and neither is a fresh tree: a deck moves
- * a slot to another pane, and a window hands the tree another bridge. They are named
- * together because the pane's state has to say WHOSE it is against both, and a suite
- * that could only reach one of them would leave the other's stale-subject case
- * untested.
- */
-export interface BrowserPaneSubjectMount {
-  readonly rebindTo: (nextPaneId: string) => Promise<void>;
-  readonly rebindToBridge: (nextBridge: ConsoleBridge) => Promise<void>;
-}
-
-/**
  * What the pane's region is CALLED once `seats/ConsolePaneChrome` names it.
  *
  * The chrome names a pane by its whole address trail rather than by its kind — "the
@@ -210,6 +210,9 @@ export interface BrowserPaneSubjectMount {
  * be asserting the chrome's naming rule by accident, in as many places as it queried.
  */
 const UNBOUND_BROWSER_PANE_NAME = "No session Browser";
+
+export type NavigationEvent =
+  NavigationStream["events"] extends AsyncIterable<infer Event> ? Event : never;
 
 /**
  * The mounted pane's region, read by role and name.
@@ -272,12 +275,6 @@ export async function releaseQueuedPaneFrames(bridge: ConsoleBridge): Promise<vo
 export function addressField(): HTMLInputElement {
   return screen.getByLabelText("Destination") as HTMLInputElement;
 }
-
-type SubscribeOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["browserSubscribeNavigation"]>>;
-type NavigationStream = Extract<SubscribeOutcome, { readonly status: "served" }>["value"];
-export type NavigationEvent =
-  NavigationStream["events"] extends AsyncIterable<infer Event> ? Event : never;
-
 /** One reading, with the fields a case does not care about held at their quiet value. */
 export function reportedState(
   url: string,
@@ -293,7 +290,6 @@ export function reportedState(
     ...overrides,
   };
 }
-
 /**
  * A bridge whose navigation subscription is SERVED, with the readings pushed one at
  * a time by the test.
@@ -357,3 +353,7 @@ export function navigationReportingBridge(): {
     },
   };
 }
+
+type SubscribeOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["browserSubscribeNavigation"]>>;
+
+type NavigationStream = Extract<SubscribeOutcome, { readonly status: "served" }>["value"];

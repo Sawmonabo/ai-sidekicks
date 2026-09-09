@@ -61,6 +61,20 @@ function paneBridge(deliveries: readonly unknown[], rejection?: unknown): Consol
 const RUN_GONE_REJECTION = { code: "run.not_found", message: "no such run" };
 
 /**
+ * What a case asserting about the FRAME hands the mount, rather than about the pane.
+ *
+ * One parameter and not two, because the two travel together: a case reading banners
+ * off a window store is a case that has to drive the refusal that raises one, and a
+ * `frameStore` with no way to say what refused would be half a probe.
+ */
+export interface PaneFrameProbe {
+  /** The window store the case reads banners off after the pane has escalated. */
+  readonly frameStore: FrameStore;
+  /** What every daemon call rejects with, for a case pressing a control. */
+  readonly daemonRejection?: unknown;
+}
+
+/**
  * The shipped fixture with every call refusing, and no stream script on it.
  *
  * Exported for the one harness in this family that mounts a CONTROL row rather than
@@ -77,20 +91,6 @@ export function refusingBridge(rejection: unknown = RUN_GONE_REJECTION): Console
   return withDaemonCall(createFixture().bridge, async () => {
     throw rejection;
   }).bridge;
-}
-
-/**
- * What a case asserting about the FRAME hands the mount, rather than about the pane.
- *
- * One parameter and not two, because the two travel together: a case reading banners
- * off a window store is a case that has to drive the refusal that raises one, and a
- * `frameStore` with no way to say what refused would be half a probe.
- */
-export interface PaneFrameProbe {
-  /** The window store the case reads banners off after the pane has escalated. */
-  readonly frameStore: FrameStore;
-  /** What every daemon call rejects with, for a case pressing a control. */
-  readonly daemonRejection?: unknown;
 }
 
 /**

@@ -60,18 +60,11 @@ export type WorkspaceRefusalCode = (typeof WORKSPACE_REFUSAL_CODES)[number];
 /** The subsystem name every refusal this surface raises carries. */
 export const WORKSPACE_REFUSAL_ORIGIN = "workspace";
 
-/** A typed workspace refusal — `core`'s one refusal shape, narrowed on `code`. */
-type WorkspaceRefusal = NarrowedRefusal<WorkspaceRefusalCode>;
-
-/**
- * Raise one, from the closed vocabulary above.
- *
- * `refuse` takes its code as a `string`, so a call site that spelled one wrong
- * would compile and render a code no reader could look up. Everything this surface
- * refuses goes through here instead, where the union is what binds.
- */
-export function refuseWorkspace(code: WorkspaceRefusalCode, detail: string): WorkspaceRefusal {
-  return refuse(WORKSPACE_REFUSAL_ORIGIN, code, detail);
+export interface DeckPersistenceOptions {
+  readonly layout: DeckLayout;
+  readonly uiStateStore: UiStateStore;
+  readonly sessionId: string | undefined;
+  readonly onSaveRefused: (refusal: ConsoleRefusal) => void;
 }
 
 /**
@@ -132,11 +125,15 @@ export class RestoreProgress {
   }
 }
 
-export interface DeckPersistenceOptions {
-  readonly layout: DeckLayout;
-  readonly uiStateStore: UiStateStore;
-  readonly sessionId: string | undefined;
-  readonly onSaveRefused: (refusal: ConsoleRefusal) => void;
+/**
+ * Raise one, from the closed vocabulary above.
+ *
+ * `refuse` takes its code as a `string`, so a call site that spelled one wrong
+ * would compile and render a code no reader could look up. Everything this surface
+ * refuses goes through here instead, where the union is what binds.
+ */
+export function refuseWorkspace(code: WorkspaceRefusalCode, detail: string): WorkspaceRefusal {
+  return refuse(WORKSPACE_REFUSAL_ORIGIN, code, detail);
 }
 
 /**
@@ -335,3 +332,6 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
 
   return restoreRefusals.value;
 }
+
+/** A typed workspace refusal — `core`'s one refusal shape, narrowed on `code`. */
+type WorkspaceRefusal = NarrowedRefusal<WorkspaceRefusalCode>;

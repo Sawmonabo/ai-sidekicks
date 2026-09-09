@@ -147,6 +147,36 @@ export function approvalCommandRows(input: ApprovalCommandInput): readonly Appro
 }
 
 /**
+ * Perform one contributed act.
+ *
+ * A record the read no longer returns as pending is not answered: it has been
+ * resolved, expired, or canceled since the row was contributed, and answering it
+ * would send a decision about a request that is no longer waiting. The row leaves
+ * the palette on the next contribution; a press that lands in the gap does nothing.
+ */
+export function performApprovalCommand(row: ApprovalCommandRow, input: ApprovalCommandInput): void {
+  if (row.kind === "clear-goal") {
+    if (canClearSessionGoal(input.goal, input.canMutateGoal, input.isMutatingGoal)) {
+      input.clearGoal();
+    }
+    return;
+  }
+  const recordId = row.record?.approvalRequestId;
+  const live = input.pending.find((candidate) => candidate.approvalRequestId === recordId);
+  // Re-read at invoke time and not trusted from contribution time: the same
+  // reading the row was built from, because a settled refusal can land in the gap
+  // between the row being contributed and the key being pressed.
+  if (live === undefined || !offersAnAnswer(live, input)) {
+    return;
+  }
+  input.resolve({
+    approvalRequestId: live.approvalRequestId,
+    decision: row.kind === "approve" ? "approved" : "rejected",
+    effectiveScope: live.requestedScope,
+  });
+}
+
+/**
  * Whether this record's two answers are offered right now, on both surfaces.
  *
  * The in-flight test is this palette's own — a card mid-resolve has its buttons
@@ -182,34 +212,4 @@ function buildApprovalCommand(
       performApprovalCommand(row, inputRef.current);
     },
   };
-}
-
-/**
- * Perform one contributed act.
- *
- * A record the read no longer returns as pending is not answered: it has been
- * resolved, expired, or canceled since the row was contributed, and answering it
- * would send a decision about a request that is no longer waiting. The row leaves
- * the palette on the next contribution; a press that lands in the gap does nothing.
- */
-export function performApprovalCommand(row: ApprovalCommandRow, input: ApprovalCommandInput): void {
-  if (row.kind === "clear-goal") {
-    if (canClearSessionGoal(input.goal, input.canMutateGoal, input.isMutatingGoal)) {
-      input.clearGoal();
-    }
-    return;
-  }
-  const recordId = row.record?.approvalRequestId;
-  const live = input.pending.find((candidate) => candidate.approvalRequestId === recordId);
-  // Re-read at invoke time and not trusted from contribution time: the same
-  // reading the row was built from, because a settled refusal can land in the gap
-  // between the row being contributed and the key being pressed.
-  if (live === undefined || !offersAnAnswer(live, input)) {
-    return;
-  }
-  input.resolve({
-    approvalRequestId: live.approvalRequestId,
-    decision: row.kind === "approve" ? "approved" : "rejected",
-    effectiveScope: live.requestedScope,
-  });
 }

@@ -23,7 +23,7 @@ import type { AuxiliaryWindowPort } from "./auxiliary-window-port.js";
 import type { ScriptedPaneViewHost } from "./fixture/pane-view-host-script.js";
 import type { GrowthOperationId, GrowthPort } from "./growth-port/index.js";
 import type { RuntimeNodePresenceSubscribe, RuntimeNodeRosterRead } from "./runtime-nodes/index.js";
-import type { ScenarioEngine } from "./scenario-runtime/index.js";
+import type { ScenarioEngine } from "./scenario/runtime/index.js";
 import type { ShellConditionGate } from "./daemon/shell-condition-gate.js";
 import type { TransportReconnectSignal } from "./transport/transport-reconnect.js";
 

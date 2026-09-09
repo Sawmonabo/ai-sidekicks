@@ -36,7 +36,7 @@
 
 import { readActivityFromScenario } from "../growth/activity.js";
 import { growthUnscriptedReply, type GrowthPort } from "../../growth-port/index.js";
-import type { ScenarioEngine } from "../../scenario-runtime/index.js";
+import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /**
  * The two presence operations the fixture answers.

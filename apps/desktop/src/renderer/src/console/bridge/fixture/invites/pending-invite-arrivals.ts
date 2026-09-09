@@ -28,7 +28,7 @@ import type {
   ScenarioPendingInviteAttemptFrame,
   ScenarioPendingInviteFrame,
   ScenarioPendingInviteRefusedFrame,
-} from "../../scenario-runtime/index.js";
+} from "../../scenario/runtime/index.js";
 
 /** What one scripted reference can still produce. Consumed by the act it answers. */
 export interface PendingEntry {
@@ -115,31 +115,6 @@ export interface DueArrival {
   readonly recordDelivered: () => void;
 }
 
-/** What an arrival whose table is spent by an act rather than by a delivery records. */
-function recordNothingOnDelivery(): void {
-  // Deliberately empty: an invitation and an attempt outlive their own delivery, so
-  // the feed handing one over says nothing about whether it may be handed over again.
-}
-
-/**
- * The due arrivals in the order a person meets them: by tick, then by brand.
- *
- * ONE MERGE RATHER THAN A SORT PER TABLE, because the interesting case is the one a
- * per-table sort cannot express — two entries from two tables agreeing on `atMs`. The
- * third key is the order each table declared its entries in, and it is not written as a
- * comparison because it does not have to be: `Array.prototype.sort` is stable, so
- * entries agreeing on both keys above keep the order they arrived in.
- *
- * Pure, and it copies before sorting: the caller composes the array from three `map`
- * results, and sorting a caller's array in place is a habit that is wrong the first
- * time somebody passes one they still hold.
- */
-function mergeDueArrivals(arrivals: readonly DueArrival[]): readonly DueArrival[] {
-  return [...arrivals].sort((left, right) =>
-    left.atMs === right.atMs ? left.rank - right.rank : left.atMs - right.atMs,
-  );
-}
-
 /**
  * Every unspent entry whose tick falls in `(afterMs, throughMs]`, as a feed arrival.
  *
@@ -193,4 +168,29 @@ export function dueArrivalsBetween(
       },
     }));
   return mergeDueArrivals([...invitations, ...attempts, ...refusals]);
+}
+
+/** What an arrival whose table is spent by an act rather than by a delivery records. */
+function recordNothingOnDelivery(): void {
+  // Deliberately empty: an invitation and an attempt outlive their own delivery, so
+  // the feed handing one over says nothing about whether it may be handed over again.
+}
+
+/**
+ * The due arrivals in the order a person meets them: by tick, then by brand.
+ *
+ * ONE MERGE RATHER THAN A SORT PER TABLE, because the interesting case is the one a
+ * per-table sort cannot express — two entries from two tables agreeing on `atMs`. The
+ * third key is the order each table declared its entries in, and it is not written as a
+ * comparison because it does not have to be: `Array.prototype.sort` is stable, so
+ * entries agreeing on both keys above keep the order they arrived in.
+ *
+ * Pure, and it copies before sorting: the caller composes the array from three `map`
+ * results, and sorting a caller's array in place is a habit that is wrong the first
+ * time somebody passes one they still hold.
+ */
+function mergeDueArrivals(arrivals: readonly DueArrival[]): readonly DueArrival[] {
+  return [...arrivals].sort((left, right) =>
+    left.atMs === right.atMs ? left.rank - right.rank : left.atMs - right.atMs,
+  );
 }

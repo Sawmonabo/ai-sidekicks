@@ -104,6 +104,24 @@ export type ConsoleVersionReading =
   | { readonly phase: "agreed" }
   | { readonly phase: "refused"; readonly mismatch: ConsoleVersionMismatch };
 
+/**
+ * Read the handshake once, for as long as the window is mounted.
+ *
+ * The key is `undefined` because the port is the whole subject: a handshake belongs to
+ * a connection and to no session, so keying it on whichever session happened to be open
+ * would re-read a connection-wide fact on every navigation and hold one connection's
+ * answer against another's.
+ */
+export function useConsoleVersionReading(growth: GrowthPort): ConsoleVersionReading {
+  const { value } = useSettledGrowthRead<SettledHandshake, ConsoleVersionReading>(
+    growth,
+    undefined,
+    () => growth.daemonNegotiationRead({}),
+    { unsettled: () => ({ phase: "reading" }), settled: settledVersionReading },
+  );
+  return value;
+}
+
 /** What the read settles to, either kind. */
 type SettledHandshake =
   | Awaited<ReturnType<GrowthPort["daemonNegotiationRead"]>>
@@ -165,24 +183,6 @@ function settledVersionReading(settlement: SettledHandshake): ConsoleVersionRead
       ...remedyFor(answer.reason),
     },
   };
-}
-
-/**
- * Read the handshake once, for as long as the window is mounted.
- *
- * The key is `undefined` because the port is the whole subject: a handshake belongs to
- * a connection and to no session, so keying it on whichever session happened to be open
- * would re-read a connection-wide fact on every navigation and hold one connection's
- * answer against another's.
- */
-export function useConsoleVersionReading(growth: GrowthPort): ConsoleVersionReading {
-  const { value } = useSettledGrowthRead<SettledHandshake, ConsoleVersionReading>(
-    growth,
-    undefined,
-    () => growth.daemonNegotiationRead({}),
-    { unsettled: () => ({ phase: "reading" }), settled: settledVersionReading },
-  );
-  return value;
 }
 
 /**

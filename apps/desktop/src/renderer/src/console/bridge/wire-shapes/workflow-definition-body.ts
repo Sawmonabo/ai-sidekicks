@@ -226,6 +226,30 @@ export interface WorkflowVersionBody {
 }
 
 /**
+ * What an authoring write submits — one shape for all five acts.
+ *
+ * Saving, cutting a new version, importing, promoting and forking a `shared`
+ * definition are five things a person does and one thing the daemon is asked. The
+ * authorization boundary keys on `scope` and never on which act composed the request,
+ * which is why the target scope is a required member here and a promotion is not a
+ * flag.
+ *
+ * `parentContentHash` is copy-on-write provenance and is NOT part of the hashed body,
+ * so a branched definition and a from-scratch definition with identical bodies hash
+ * alike. It travels on the write and on no read — see the `workflowParentContentHash`
+ * prerequisite on this operation's slate row.
+ */
+export interface WorkflowDefinitionCreateBody {
+  readonly sessionId: string;
+  readonly name: string;
+  readonly scope: WorkflowDefinitionScope;
+  readonly scopeRef?: string;
+  readonly entry?: WorkflowEntry;
+  readonly parentContentHash?: string;
+  readonly phaseDefinitions: readonly WorkflowPhaseDefinition[];
+}
+
+/**
  * One member of a closed vocabulary, read off an untyped value.
  *
  * Generic over the tuple so each caller narrows to its OWN union rather than to
@@ -265,28 +289,4 @@ export function firstUnadmittedKey(
   admittedKeys: readonly string[],
 ): string | undefined {
   return Object.keys(record).find((key) => !admittedKeys.includes(key));
-}
-
-/**
- * What an authoring write submits — one shape for all five acts.
- *
- * Saving, cutting a new version, importing, promoting and forking a `shared`
- * definition are five things a person does and one thing the daemon is asked. The
- * authorization boundary keys on `scope` and never on which act composed the request,
- * which is why the target scope is a required member here and a promotion is not a
- * flag.
- *
- * `parentContentHash` is copy-on-write provenance and is NOT part of the hashed body,
- * so a branched definition and a from-scratch definition with identical bodies hash
- * alike. It travels on the write and on no read — see the `workflowParentContentHash`
- * prerequisite on this operation's slate row.
- */
-export interface WorkflowDefinitionCreateBody {
-  readonly sessionId: string;
-  readonly name: string;
-  readonly scope: WorkflowDefinitionScope;
-  readonly scopeRef?: string;
-  readonly entry?: WorkflowEntry;
-  readonly parentContentHash?: string;
-  readonly phaseDefinitions: readonly WorkflowPhaseDefinition[];
 }

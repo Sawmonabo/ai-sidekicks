@@ -10,11 +10,6 @@
 // decision next door, and a surface reaching for a quiet line of its own would be
 // rendering a palette absence outside the palette.
 
-interface QuietAbsenceProps {
-  readonly headline: string;
-  readonly detail: string;
-}
-
 export function QuietAbsence(props: QuietAbsenceProps): React.JSX.Element {
   return (
     <div className="console-palette__absence">
@@ -22,4 +17,9 @@ export function QuietAbsence(props: QuietAbsenceProps): React.JSX.Element {
       <span className="console-palette__absence-detail">{props.detail}</span>
     </div>
   );
+}
+
+interface QuietAbsenceProps {
+  readonly headline: string;
+  readonly detail: string;
 }

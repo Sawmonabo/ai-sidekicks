@@ -5,7 +5,7 @@
 // mounted, and a module named for a family owns WHAT of that family is mounted into it.
 //
 // THREE MOUNTS OVER TWO DIFFERENT KINDS OF FIXTURE, AND THE SPLIT IS THE WIRE'S RATHER
-// THAN A PREFERENCE. `bridge/scenarios/agents.ts` scripts the roster and both driver
+// THAN A PREFERENCE. `bridge/scenario/agents/agents.ts` scripts the roster and both driver
 // catalogs and deliberately scripts nothing else — it is a fixture about the two switch
 // states, and a fixture that answered every wire a console reaches would be authoring
 // wire shapes rather than describing a session. So:
@@ -66,14 +66,14 @@ import {
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
-import { AGENTS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/agents.js";
+import { AGENTS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/agents/agents.js";
 import {
   AGENT_ARCHITECT,
   APPLIED_SWITCH_SETTLEMENT,
   ATTACHED_AGENTS,
   PROVIDER_ACCOUNT_PERSONAL,
   SESSION_ID,
-} from "../../../src/renderer/src/console/bridge/scenarios/agents-cast.js";
+} from "../../../src/renderer/src/console/bridge/scenario/agents/cast.js";
 import {
   MAXIMUM_LIVE_DRAFT_COUNT,
   ManualClock,

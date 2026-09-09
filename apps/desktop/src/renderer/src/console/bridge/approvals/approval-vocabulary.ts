@@ -142,19 +142,6 @@ export const SCOPE_KIND_PHRASE: Readonly<Record<RememberedScopeKind, string>> = 
 };
 
 /**
- * Whether a wire string is an OWN key of one of the tables above.
- *
- * `Object.hasOwn` and not a truthiness read of the property: an object literal
- * inherits `toString`, `constructor`, and the rest of `Object.prototype`, so a bare
- * lookup answers a function for those names and classifies them as members. That is
- * a silent widening of a closed set by whatever string the wire happens to send,
- * which is the one thing these classifiers exist to prevent.
- */
-function isOwnKey(table: Readonly<Record<string, unknown>>, value: string): boolean {
-  return Object.hasOwn(table, value);
-}
-
-/**
  * Classify a wire-verbatim category, or `undefined` when this build does not know it.
  *
  * The table above stays total over the union by ASSIGNMENT rather than by a cast,
@@ -193,4 +180,17 @@ export function asRememberedScopeKind(value: string): RememberedScopeKind | unde
 export function rememberedScopeKindPhrase(kind: string): string {
   const known = asRememberedScopeKind(kind);
   return known === undefined ? kind : SCOPE_KIND_PHRASE[known];
+}
+
+/**
+ * Whether a wire string is an OWN key of one of the tables above.
+ *
+ * `Object.hasOwn` and not a truthiness read of the property: an object literal
+ * inherits `toString`, `constructor`, and the rest of `Object.prototype`, so a bare
+ * lookup answers a function for those names and classifies them as members. That is
+ * a silent widening of a closed set by whatever string the wire happens to send,
+ * which is the one thing these classifiers exist to prevent.
+ */
+function isOwnKey(table: Readonly<Record<string, unknown>>, value: string): boolean {
+  return Object.hasOwn(table, value);
 }

@@ -103,11 +103,6 @@ export interface InviteMintReceipt {
   readonly link: string;
 }
 
-/** The host this node composes links against, or why it could not be read. */
-type ControlPlaneHostReading =
-  | { readonly status: "read"; readonly host: string }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
-
 /**
  * The mint and its link as one call, for the coordinator to hold one latch over.
  *
@@ -175,6 +170,11 @@ export function inviteMintWithLink<TRequest, TReply extends InviteMintReply>(
     };
   };
 }
+
+/** The host this node composes links against, or why it could not be read. */
+type ControlPlaneHostReading =
+  | { readonly status: "read"; readonly host: string }
+  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
 
 /**
  * This node's control-plane host, asked once per press.

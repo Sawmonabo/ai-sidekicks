@@ -7,7 +7,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
+import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { eventOfKind } from "../../store/session-event.test-support.js";
@@ -26,7 +26,7 @@ afterEach(disposeTrackedReaders);
  * each of them would make the kind incidental to cases that are entirely about it.
  * Payload-free, because the trigger keys on the kind and on nothing else, and a frame
  * carrying members would suggest the section reads one — the wire's own payload shape
- * is `bridge/scenarios/repos.ts`'s to state, under the wire-truth predicate.
+ * is `bridge/scenario/repos/repos.ts`'s to state, under the wire-truth predicate.
  */
 function staleFrame(sessionId: string, sequence: number): ConsoleSessionEvent {
   return eventOfKind(sessionId, "workspace.stale", sequence);

@@ -27,6 +27,60 @@ import { worstDegradedCause, type SessionDegradedCause } from "../degradation.js
 import type { SessionStoreRegistry } from "./session-store-registry.js";
 
 /**
+ * Watch every open session's projection as one signal.
+ *
+ * The shape both callers take: opened once, answered by calling back, released by the
+ * handle it returns. Nothing about which store moved travels with the call, because
+ * neither caller asks — one re-reads a whole projection and the other re-folds a
+ * whole window.
+ */
+export function subscribeToOpenSessions(
+  registry: SessionStoreRegistry,
+  onSessionChange: () => void,
+): Unsubscribe {
+  const signal = new OpenSessionSignal(registry, onSessionChange);
+  signal.start();
+  return () => {
+    signal.dispose();
+  };
+}
+
+/**
+ * The worst degraded cause standing across this window's open sessions.
+ *
+ * `store/degradation.ts` decides which of several standing causes survives; the
+ * stores decide when one is standing; this is the fold that lets the frame render the
+ * answer. A window with no open session, or one whose stores are all whole, answers
+ * `undefined` — which is "nothing is recovering", not "nothing was checked", because
+ * the stores this reads are the ones the window itself holds.
+ *
+ * `useSyncExternalStore` rather than state plus an effect: the snapshot is a primitive
+ * compared by `Object.is`, so a window whose stores move without the WORST cause
+ * moving re-renders nothing at all — which matters because this drives frame chrome
+ * and a stream of ordinary events would otherwise repaint the rail on every batch.
+ */
+export function useWorstOpenSessionRecovery(
+  registry: SessionStoreRegistry,
+): SessionDegradedCause | undefined {
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => subscribeToOpenSessions(registry, onStoreChange),
+    [registry],
+  );
+  const getSnapshot = useCallback(() => worstOpenSessionRecovery(registry), [registry]);
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/** The fold itself, so a caller outside React can take it too. */
+export function worstOpenSessionRecovery(
+  registry: SessionStoreRegistry,
+): SessionDegradedCause | undefined {
+  const causes = registry.openSessionIds.map(
+    (sessionId) => registry.peek(sessionId)?.readable.getState().degradedCause,
+  );
+  return worstDegradedCause(...causes);
+}
+
+/**
  * Every session projection this window holds, as one opaque change signal.
  *
  * A class rather than a closure over a `Map`, because it owns two kinds of
@@ -88,58 +142,4 @@ class OpenSessionSignal {
       );
     }
   }
-}
-
-/**
- * Watch every open session's projection as one signal.
- *
- * The shape both callers take: opened once, answered by calling back, released by the
- * handle it returns. Nothing about which store moved travels with the call, because
- * neither caller asks — one re-reads a whole projection and the other re-folds a
- * whole window.
- */
-export function subscribeToOpenSessions(
-  registry: SessionStoreRegistry,
-  onSessionChange: () => void,
-): Unsubscribe {
-  const signal = new OpenSessionSignal(registry, onSessionChange);
-  signal.start();
-  return () => {
-    signal.dispose();
-  };
-}
-
-/**
- * The worst degraded cause standing across this window's open sessions.
- *
- * `store/degradation.ts` decides which of several standing causes survives; the
- * stores decide when one is standing; this is the fold that lets the frame render the
- * answer. A window with no open session, or one whose stores are all whole, answers
- * `undefined` — which is "nothing is recovering", not "nothing was checked", because
- * the stores this reads are the ones the window itself holds.
- *
- * `useSyncExternalStore` rather than state plus an effect: the snapshot is a primitive
- * compared by `Object.is`, so a window whose stores move without the WORST cause
- * moving re-renders nothing at all — which matters because this drives frame chrome
- * and a stream of ordinary events would otherwise repaint the rail on every batch.
- */
-export function useWorstOpenSessionRecovery(
-  registry: SessionStoreRegistry,
-): SessionDegradedCause | undefined {
-  const subscribe = useCallback(
-    (onStoreChange: () => void) => subscribeToOpenSessions(registry, onStoreChange),
-    [registry],
-  );
-  const getSnapshot = useCallback(() => worstOpenSessionRecovery(registry), [registry]);
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-}
-
-/** The fold itself, so a caller outside React can take it too. */
-export function worstOpenSessionRecovery(
-  registry: SessionStoreRegistry,
-): SessionDegradedCause | undefined {
-  const causes = registry.openSessionIds.map(
-    (sessionId) => registry.peek(sessionId)?.readable.getState().degradedCause,
-  );
-  return worstDegradedCause(...causes);
 }

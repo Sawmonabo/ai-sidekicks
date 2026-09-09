@@ -33,14 +33,6 @@ const SCOPE_SUMMARIES: Readonly<Record<WorkflowDefinitionScope, string>> = {
 const SHARED_SCOPE_CONSEQUENCE =
   "Editing one of these never changes it. The save creates a new definition at your editing scope — the project, or this session where there is no project — carrying this definition's hash as its parent, and the shared original is untouched.";
 
-interface DefinitionScopeGroupProps {
-  readonly scope: WorkflowDefinitionScope;
-  readonly definitions: readonly WorkflowDefinitionRow[];
-  readonly isPending: boolean;
-  readonly hasUnreadPages: boolean;
-  readonly onOpenDefinition: OpenDefinition | undefined;
-}
-
 /** One scope's group: its name, what it is, and whatever it holds. */
 export function DefinitionScopeGroup(props: DefinitionScopeGroupProps): React.JSX.Element {
   return (
@@ -53,6 +45,14 @@ export function DefinitionScopeGroup(props: DefinitionScopeGroupProps): React.JS
       {renderScopeBody(props)}
     </li>
   );
+}
+
+interface DefinitionScopeGroupProps {
+  readonly scope: WorkflowDefinitionScope;
+  readonly definitions: readonly WorkflowDefinitionRow[];
+  readonly isPending: boolean;
+  readonly hasUnreadPages: boolean;
+  readonly onOpenDefinition: OpenDefinition | undefined;
 }
 
 /**

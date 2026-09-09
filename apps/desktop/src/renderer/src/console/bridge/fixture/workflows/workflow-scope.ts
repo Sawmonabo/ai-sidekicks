@@ -22,8 +22,8 @@
 // mechanisms is in play is a property of the REPLY SHAPE and never of the call.
 
 import type { WireErrorEnvelope } from "../../../core/index.js";
-import type { ConsoleScenario } from "../../scenario-runtime/scenario.js";
-import { readUnknownStringMember } from "../../scenario-runtime/index.js";
+import type { ConsoleScenario } from "../../scenario/runtime/vocabulary.js";
+import { readUnknownStringMember } from "../../scenario/runtime/index.js";
 
 /**
  * The workflow identifiers one scenario's FIXED replies can answer for.
@@ -40,17 +40,6 @@ export interface DeclaredWorkflowScope {
   readonly phaseOutputPhaseId: string | undefined;
 }
 
-export function declaredWorkflowScope(scenario: ConsoleScenario): DeclaredWorkflowScope {
-  const runRead = scenario.replies.find((reply) => reply.call === "workflow.runRead");
-  const phaseOutputRead = scenario.replies.find(
-    (reply) => reply.call === "workflow.phaseOutputRead",
-  );
-  return {
-    snapshotRunId: readUnknownStringMember(runRead?.result, "workflowRunId"),
-    phaseOutputPhaseId: readUnknownStringMember(phaseOutputRead?.result, "phaseId"),
-  };
-}
-
 /**
  * What a workflow read is addressed by, where each refuses differently.
  *
@@ -61,6 +50,17 @@ export function declaredWorkflowScope(scenario: ConsoleScenario): DeclaredWorkfl
  * replies that scope themselves, so they appear in the refusal below and nowhere else.
  */
 export type WorkflowSubjectKind = "run" | "phase" | "version" | "definition";
+
+export function declaredWorkflowScope(scenario: ConsoleScenario): DeclaredWorkflowScope {
+  const runRead = scenario.replies.find((reply) => reply.call === "workflow.runRead");
+  const phaseOutputRead = scenario.replies.find(
+    (reply) => reply.call === "workflow.phaseOutputRead",
+  );
+  return {
+    snapshotRunId: readUnknownStringMember(runRead?.result, "workflowRunId"),
+    phaseOutputPhaseId: readUnknownStringMember(phaseOutputRead?.result, "phaseId"),
+  };
+}
 
 /**
  * The refusal for a workflow subject a scenario holds nothing for.

@@ -15,7 +15,7 @@
 // raw one rather than beside it, and there is a single answer to what an event's id,
 // session, and instant look like.
 
-import { TERMINAL_SCENARIO_CAST } from "../../bridge/scenarios/terminal.js";
+import { TERMINAL_SCENARIO_CAST } from "../../bridge/scenario/terminal/terminal.js";
 import type { ConsoleSessionEvent } from "../../store/index.js";
 import { eventOfKind } from "../../store/session-event.test-support.js";
 import { TERMINAL_LEASE_EVENT_KIND } from "./lease-transition.js";

@@ -4,7 +4,7 @@
 // set next door decides whether an operation is IMPLEMENTED at all, and this one decides
 // whether the implementation has an honest answer for a scenario that scripts nothing.
 // They fail differently and they are read by different callers — the served set is
-// ledgered by `scenario-runtime/scenario-manifest.ts` and published as the bridge's
+// ledgered by `scenario/manifest.ts` and published as the bridge's
 // served set, while this subset is what the port sweep holds each unscripted answer to.
 //
 // A DECLARED SUBSET rather than a rule the sweep re-derives, because the sweep cannot

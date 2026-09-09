@@ -24,7 +24,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleBridge, InvitesListOutcome, ServedInvite } from "../../bridge/index.js";
-import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
+import type { ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { bridgeFor, pressSend, scenarioMinting } from "./create-invite.test-support.js";
 import { quietShell } from "../../store/shell-condition.test-support.js";

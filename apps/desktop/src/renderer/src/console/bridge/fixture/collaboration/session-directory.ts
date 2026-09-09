@@ -19,7 +19,7 @@ import type { SessionState } from "@ai-sidekicks/contracts";
 import { ConsoleRefusalError, refuse } from "../../../core/index.js";
 import type { GrowthSessionSummary } from "../../growth-values/index.js";
 import { scriptedSessionReadMember } from "./scripted-session-read.js";
-import type { ConsoleScenario } from "../../scenario-runtime/index.js";
+import type { ConsoleScenario } from "../../scenario/runtime/index.js";
 
 /** The subsystem a directory-derivation refusal names as its author. */
 const DIRECTORY_ORIGIN = "fixture-session-directory";
@@ -74,16 +74,6 @@ const DIRECTORY_VISIBILITY_BY_SESSION_STATE: Readonly<Record<SessionState, Direc
 };
 
 /**
- * Whether a declared state is one the contract registers.
- *
- * Asked against the table above rather than against a second copy of the union,
- * which is what makes the exhaustiveness check load-bearing at runtime too.
- */
-function isRegisteredSessionState(candidate: string): candidate is SessionState {
-  return Object.hasOwn(DIRECTORY_VISIBILITY_BY_SESSION_STATE, candidate);
-}
-
-/**
  * The node's session directory, derived from what the scenario declares.
  *
  * Not "the scenario's session, always". `sessionId` is a required member of every
@@ -118,6 +108,16 @@ export function directorySessionsOf(scenario: ConsoleScenario): readonly GrowthS
   return DIRECTORY_VISIBILITY_BY_SESSION_STATE[state] === "hidden"
     ? []
     : [{ sessionId: scenario.sessionId, state } satisfies GrowthSessionSummary];
+}
+
+/**
+ * Whether a declared state is one the contract registers.
+ *
+ * Asked against the table above rather than against a second copy of the union,
+ * which is what makes the exhaustiveness check load-bearing at runtime too.
+ */
+function isRegisteredSessionState(candidate: string): candidate is SessionState {
+  return Object.hasOwn(DIRECTORY_VISIBILITY_BY_SESSION_STATE, candidate);
 }
 
 /**

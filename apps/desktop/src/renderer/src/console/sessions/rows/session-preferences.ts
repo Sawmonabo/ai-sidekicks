@@ -68,24 +68,11 @@ export interface SessionPreferenceSnapshot {
 
 const NO_PREFERENCES: SessionPreferenceMap = {};
 
-/**
- * Narrow a stored record back into a preference map, dropping entries that do not
- * survive.
- *
- * Per ENTRY rather than per record, on the pin map's own reasoning: one unrecognised
- * value should cost that switch and not every other one a person has set.
- */
-export function narrowSessionPreferenceMap(raw: unknown): SessionPreferenceMap | undefined {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    return undefined;
-  }
-  const narrowed: Record<string, boolean> = {};
-  for (const [name, state] of Object.entries(raw as Readonly<Record<string, unknown>>)) {
-    if (typeof state === "boolean") {
-      narrowed[name] = state;
-    }
-  }
-  return narrowed;
+/** What a surface holds: the switch, the refusal, and the one act that changes it. */
+export interface SessionPreferenceBinding {
+  readonly isAutoPinOnFirstSendEnabled: boolean;
+  readonly lastRefusal: ConsoleRefusal | undefined;
+  readonly setAutoPinOnFirstSend: (isEnabled: boolean) => void;
 }
 
 /** The switches, durable. One per window; the surface builds it once and holds it. */
@@ -179,11 +166,24 @@ export class SessionPreferenceStore {
   }
 }
 
-/** What a surface holds: the switch, the refusal, and the one act that changes it. */
-export interface SessionPreferenceBinding {
-  readonly isAutoPinOnFirstSendEnabled: boolean;
-  readonly lastRefusal: ConsoleRefusal | undefined;
-  readonly setAutoPinOnFirstSend: (isEnabled: boolean) => void;
+/**
+ * Narrow a stored record back into a preference map, dropping entries that do not
+ * survive.
+ *
+ * Per ENTRY rather than per record, on the pin map's own reasoning: one unrecognised
+ * value should cost that switch and not every other one a person has set.
+ */
+export function narrowSessionPreferenceMap(raw: unknown): SessionPreferenceMap | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return undefined;
+  }
+  const narrowed: Record<string, boolean> = {};
+  for (const [name, state] of Object.entries(raw as Readonly<Record<string, unknown>>)) {
+    if (typeof state === "boolean") {
+      narrowed[name] = state;
+    }
+  }
+  return narrowed;
 }
 
 /** How a preference store is minted. Module-level, because the holder reads it once. */
@@ -242,16 +242,6 @@ const NO_BINDING_SNAPSHOT: SessionPreferenceSnapshot = {
   lastRefusal: undefined,
 };
 
-/** The switch act, bound to whatever store the acquirer is holding when it is pressed. */
-function setAutoPinThrough(acquire: () => SessionPreferenceStore): (isEnabled: boolean) => void {
-  return (isEnabled) => {
-    // Not awaited, and the rejection cannot escape: the store declares its failure as
-    // a recorded refusal rather than as a rejection, which is what lets a pin that
-    // failed to persist surface as its own failure rather than as the act's.
-    void acquire().setEnabled(AUTO_PIN_ON_FIRST_SEND, isEnabled);
-  };
-}
-
 /**
  * Bind the switches into a component.
  *
@@ -280,5 +270,15 @@ export function useSessionPreferences(store: UiStateStore): SessionPreferenceBin
     isAutoPinOnFirstSendEnabled: snapshot.isAutoPinOnFirstSendEnabled,
     lastRefusal: snapshot.lastRefusal,
     setAutoPinOnFirstSend,
+  };
+}
+
+/** The switch act, bound to whatever store the acquirer is holding when it is pressed. */
+function setAutoPinThrough(acquire: () => SessionPreferenceStore): (isEnabled: boolean) => void {
+  return (isEnabled) => {
+    // Not awaited, and the rejection cannot escape: the store declares its failure as
+    // a recorded refusal rather than as a rejection, which is what lets a pin that
+    // failed to persist surface as its own failure rather than as the act's.
+    void acquire().setEnabled(AUTO_PIN_ON_FIRST_SEND, isEnabled);
   };
 }

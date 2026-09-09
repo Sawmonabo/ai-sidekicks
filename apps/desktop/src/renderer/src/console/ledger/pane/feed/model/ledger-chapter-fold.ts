@@ -33,6 +33,16 @@ import {
   type LedgerWindowModel,
 } from "../../window/index.js";
 
+/** What one mount remembers about which finished chapters a person opened. */
+export interface LedgerChapterDisclosure {
+  /** The terminal chapters that are open. Every other one is folded. */
+  readonly openedTerminalRunIds: ReadonlySet<string>;
+  /** Open a folded chapter, or fold an opened one. */
+  readonly toggle: (chapter: LedgerChapter) => void;
+  /** Fold every terminal chapter — what the palette's collapse row runs. */
+  readonly collapseAllTerminal: (chapters: readonly LedgerChapter[]) => void;
+}
+
 /**
  * Fold every terminal chapter that is not open into a header and its receipt.
  *
@@ -211,16 +221,6 @@ export function useFoldedChapters(
     () => foldChapterHeaders(model, openedTerminalRunIds, heldRetention),
     [model, openedTerminalRunIds, heldRetention],
   );
-}
-
-/** What one mount remembers about which finished chapters a person opened. */
-export interface LedgerChapterDisclosure {
-  /** The terminal chapters that are open. Every other one is folded. */
-  readonly openedTerminalRunIds: ReadonlySet<string>;
-  /** Open a folded chapter, or fold an opened one. */
-  readonly toggle: (chapter: LedgerChapter) => void;
-  /** Fold every terminal chapter — what the palette's collapse row runs. */
-  readonly collapseAllTerminal: (chapters: readonly LedgerChapter[]) => void;
 }
 
 /**

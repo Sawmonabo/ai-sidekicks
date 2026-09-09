@@ -19,7 +19,7 @@ import {
   type RecordedDaemonCall,
 } from "../../../console/bridge/fixture/call-plane/bridge.test-support.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../../console/bridge/index.js";
-import type { ConsoleScenario } from "../../../console/bridge/scenario-runtime/scenario.js";
+import type { ConsoleScenario } from "../../../console/bridge/scenario/runtime/vocabulary.js";
 import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";

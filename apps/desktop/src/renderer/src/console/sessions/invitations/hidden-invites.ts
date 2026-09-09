@@ -43,18 +43,13 @@ export type HiddenInviteIds = readonly string[];
 
 const NOTHING_HIDDEN: HiddenInviteIds = [];
 
-/**
- * Narrow a stored record back into the hide set.
- *
- * Per ENTRY, like the pin map's: a non-string member is dropped and the rest
- * survive, because refusing the whole record would silently re-surface every
- * invitation a person had set aside.
- */
-export function narrowHiddenInviteIds(raw: unknown): HiddenInviteIds | undefined {
-  if (!Array.isArray(raw)) {
-    return undefined;
-  }
-  return raw.filter((member): member is string => typeof member === "string");
+/** What the shelf holds: the set, the refusal, and the two acts that change it. */
+export interface HiddenInviteBinding {
+  readonly hiddenInviteIds: HiddenInviteIds;
+  readonly lastRefusal: ConsoleRefusal | undefined;
+  readonly hide: (inviteId: string) => void;
+  readonly reveal: (inviteId: string) => void;
+  readonly pruneAgainst: (servedInviteIds: readonly string[]) => void;
 }
 
 /** The hide set, durable. One per window; the shelf builds it once and holds it. */
@@ -144,13 +139,18 @@ export class HiddenInviteStore {
   }
 }
 
-/** What the shelf holds: the set, the refusal, and the two acts that change it. */
-export interface HiddenInviteBinding {
-  readonly hiddenInviteIds: HiddenInviteIds;
-  readonly lastRefusal: ConsoleRefusal | undefined;
-  readonly hide: (inviteId: string) => void;
-  readonly reveal: (inviteId: string) => void;
-  readonly pruneAgainst: (servedInviteIds: readonly string[]) => void;
+/**
+ * Narrow a stored record back into the hide set.
+ *
+ * Per ENTRY, like the pin map's: a non-string member is dropped and the rest
+ * survive, because refusing the whole record would silently re-surface every
+ * invitation a person had set aside.
+ */
+export function narrowHiddenInviteIds(raw: unknown): HiddenInviteIds | undefined {
+  if (!Array.isArray(raw)) {
+    return undefined;
+  }
+  return raw.filter((member): member is string => typeof member === "string");
 }
 
 /** How a hide-set store is minted. Module-level, because the holder reads it once. */

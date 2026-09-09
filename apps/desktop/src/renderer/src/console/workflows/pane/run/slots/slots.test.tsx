@@ -26,7 +26,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GrowthPort } from "../../../../bridge/index.js";
 import { WORKFLOW_HUMAN_FORM_SLOT, WORKFLOW_RUN_DETAIL_SLOT } from "../../../owner-slots.js";
-import { WORKFLOWS_PARKED_RUN } from "../../../../bridge/scenarios/workflow-fixture-runs.js";
+import { WORKFLOWS_PARKED_RUN } from "../../../../bridge/scenario/workflows/runs.js";
 import { HumanFormSlot } from "./HumanFormSlot.js";
 import { resolveSchemaFormChunks, renderSwitchableSlot } from "./HumanFormShell.test-support.js";
 import type { HumanFormMount, HumanFormPhase } from "./human-form-mount.js";

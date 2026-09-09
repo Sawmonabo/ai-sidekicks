@@ -35,24 +35,6 @@ import { useDeadlineWake } from "../../store/index.js";
 import { cloneExpiryAtMs, type EphemeralCloneStatusRecord } from "./worktree-model.js";
 
 /**
- * Every disposal deadline this list holds, in the order the records came in.
- *
- * Which rows have one at all is `cloneExpiryAtMs`'s decision and stays here — a swept
- * or unparseable row has no deadline — and which of them is next is the wake-up's,
- * which is the split that keeps this module holding no arming rule of its own.
- */
-function cloneExpiryDeadlines(records: readonly EphemeralCloneStatusRecord[]): readonly number[] {
-  const deadlines: number[] = [];
-  for (const record of records) {
-    const deadlineMilliseconds = cloneExpiryAtMs(record);
-    if (deadlineMilliseconds !== undefined) {
-      deadlines.push(deadlineMilliseconds);
-    }
-  }
-  return deadlines;
-}
-
-/**
  * The instant the clone list renders against, woken once at each outstanding deadline.
  *
  * The clock comes from the bridge rather than from a parameter, on
@@ -71,4 +53,22 @@ export function useCloneExpiryInstant(
   // The later of the two, which is what makes a fresh read always win: the wake-up can
   // only move the instant forward to a deadline the read did not reach.
   return Math.max(readAtMilliseconds, wokeAtMilliseconds);
+}
+
+/**
+ * Every disposal deadline this list holds, in the order the records came in.
+ *
+ * Which rows have one at all is `cloneExpiryAtMs`'s decision and stays here — a swept
+ * or unparseable row has no deadline — and which of them is next is the wake-up's,
+ * which is the split that keeps this module holding no arming rule of its own.
+ */
+function cloneExpiryDeadlines(records: readonly EphemeralCloneStatusRecord[]): readonly number[] {
+  const deadlines: number[] = [];
+  for (const record of records) {
+    const deadlineMilliseconds = cloneExpiryAtMs(record);
+    if (deadlineMilliseconds !== undefined) {
+      deadlines.push(deadlineMilliseconds);
+    }
+  }
+  return deadlines;
 }

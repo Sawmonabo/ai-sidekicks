@@ -20,7 +20,7 @@
 import { ConsoleRefusalError, refuse } from "../../../core/index.js";
 import type { GrowthSessionSummary } from "../../growth-values/index.js";
 import { scriptedSessionReadMember } from "./scripted-session-read.js";
-import type { ConsoleScenario } from "../../scenario-runtime/index.js";
+import type { ConsoleScenario } from "../../scenario/runtime/index.js";
 
 /** The subsystem an identity-derivation refusal names as its author. */
 const IDENTITY_ORIGIN = "fixture-session-identity";

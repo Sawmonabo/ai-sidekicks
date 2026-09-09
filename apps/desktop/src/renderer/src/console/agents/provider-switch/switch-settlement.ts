@@ -107,22 +107,6 @@ export function describeSwitchSettlement(
   };
 }
 
-function headlineFor(settlement: AgentSwitchSettlement, agentLabel: string): string {
-  if (settlement.status === "pending") {
-    return `${agentLabel} switches ${boundaryPhrase(settlement.appliesAt)}.`;
-  }
-  if (settlement.status === "failed") {
-    return `${agentLabel} did not switch and stayed on its current binding — ${failurePhrase(settlement.reason)}.`;
-  }
-  if (settlement.status === "applied" || settlement.status === "degraded") {
-    return `${agentLabel} switched.`;
-  }
-  // An unrecognized status renders as itself rather than as one of the four. The
-  // alternative is to guess which arm a later amendment belongs to, and a wrong
-  // guess reads as a success for a switch that may not have happened.
-  return `${agentLabel}: the daemon reported a switch state this console does not know, "${settlement.status}".`;
-}
-
 /**
  * The one place a resolved boundary becomes a phrase.
  *
@@ -139,6 +123,22 @@ export function boundaryPhrase(appliesAt: string | undefined): string {
     return BOUNDARY_PHRASES[appliesAt] ?? appliesAt;
   }
   return `at "${appliesAt}"`;
+}
+
+function headlineFor(settlement: AgentSwitchSettlement, agentLabel: string): string {
+  if (settlement.status === "pending") {
+    return `${agentLabel} switches ${boundaryPhrase(settlement.appliesAt)}.`;
+  }
+  if (settlement.status === "failed") {
+    return `${agentLabel} did not switch and stayed on its current binding — ${failurePhrase(settlement.reason)}.`;
+  }
+  if (settlement.status === "applied" || settlement.status === "degraded") {
+    return `${agentLabel} switched.`;
+  }
+  // An unrecognized status renders as itself rather than as one of the four. The
+  // alternative is to guess which arm a later amendment belongs to, and a wrong
+  // guess reads as a success for a switch that may not have happened.
+  return `${agentLabel}: the daemon reported a switch state this console does not know, "${settlement.status}".`;
 }
 
 function failurePhrase(reason: string | undefined): string {

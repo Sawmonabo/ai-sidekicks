@@ -12,8 +12,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { TERMINAL_SCENARIO_CAST } from "../../bridge/scenarios/terminal.js";
-import { TERMINAL_HOST_NODE_ID } from "../../bridge/scenarios/terminal-cast.js";
+import { TERMINAL_SCENARIO_CAST } from "../../bridge/scenario/terminal/terminal.js";
+import { TERMINAL_HOST_NODE_ID } from "../../bridge/scenario/terminal/cast.js";
 import {
   leaseBeats,
   renderPane,

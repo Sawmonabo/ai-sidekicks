@@ -69,18 +69,6 @@
 import type { QueueItemState, RunState, SessionEventType } from "@ai-sidekicks/contracts";
 
 /**
- * The run's initial state.
- *
- * `docs/domain/run-state-machine.md` calls `queued` the state a run is CREATED in,
- * and its §Complete Transition Table — the single authoritative reference — names
- * `queued` in the `From` column of three rows and in the `To` column of none. So no
- * transition ends in `queued`, and `RunStateChangeEvent` requires a `previousState`:
- * there is no registered state a run could have come from to reach it, and no
- * pre-birth member of the vocabulary to invent one out of.
- */
-type RunInitialState = "queued";
-
-/**
  * The registered event kinds `run.subscribeState` projects, and the wire arm each
  * one travels as.
  *
@@ -107,7 +95,7 @@ type RunInitialState = "queued";
  *
  * EXPORTED for one reader, and for what its COMPLEMENT is: the four run-lifecycle
  * kinds this union leaves out are exactly the kinds no narrowed stream projects, and
- * `scenarios/wire-truth/run-and-queue-semantics.ts` subtracts this union from the
+ * `scenario/wire-truth/run-and-queue-semantics.ts` subtracts this union from the
  * census's `run.` root to hold each of them to its own registered payload. Derived
  * there rather than listed, so a run kind that joins or leaves this stream moves
  * across that walk's obligation without anyone editing a second list.
@@ -126,6 +114,18 @@ export type RunStateStreamKind = Extract<
  * this" would be the drift this seam was written to end, one layer up.
  */
 export type RunStateStreamArm = "state-change" | "rollback";
+
+/**
+ * The run's initial state.
+ *
+ * `docs/domain/run-state-machine.md` calls `queued` the state a run is CREATED in,
+ * and its §Complete Transition Table — the single authoritative reference — names
+ * `queued` in the `From` column of three rows and in the `To` column of none. So no
+ * transition ends in `queued`, and `RunStateChangeEvent` requires a `previousState`:
+ * there is no registered state a run could have come from to reach it, and no
+ * pre-birth member of the vocabulary to invent one out of.
+ */
+type RunInitialState = "queued";
 
 const RUN_STATE_STREAM_ARM_BY_KIND: Readonly<Record<RunStateStreamKind, RunStateStreamArm>> =
   Object.freeze({

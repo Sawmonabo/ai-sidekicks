@@ -18,10 +18,10 @@ import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
+import { REPOS_SCENARIO } from "../../bridge/scenario/repos/repos.js";
 import { SessionStore } from "../../store/index.js";
 import { repeatedDisposalCount } from "../resource-seam.test-support.js";
-import { advanceScenarioUntil } from "../../bridge/scenario-runtime/scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../bridge/scenario/runtime/clock.test-support.js";
 import { useProposalGate } from "./proposal-gate-binding.js";
 import { ProposalGateReader } from "./proposal-gate-reader.js";
 import type { ProposalGateSubject } from "./proposal-gate-model.js";

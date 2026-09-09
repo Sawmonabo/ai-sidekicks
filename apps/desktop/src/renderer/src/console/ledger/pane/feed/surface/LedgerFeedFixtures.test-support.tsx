@@ -21,7 +21,7 @@ import { vi } from "vitest";
 import { LEDGER_WINDOW_ROW_CAP } from "../../../../core/index.js";
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../../../bridge/index.js";
 import { useLedgerRowLease } from "../../../frame/index.js";
-import { LEDGER_QUIET_SCENARIO } from "../../../../bridge/scenarios/ledger/ledger-quiet.js";
+import { LEDGER_QUIET_SCENARIO } from "../../../../bridge/scenario/ledger/ledger-quiet.js";
 import { consoleCommandSurface, consoleCommands } from "../../../../palette/index.js";
 import {
   LEDGER_COMMAND_OWNER,

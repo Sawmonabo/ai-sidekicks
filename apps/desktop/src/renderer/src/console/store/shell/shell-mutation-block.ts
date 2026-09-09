@@ -91,11 +91,6 @@ export const MUTATING_DAEMON_METHODS = [
 /** One mutating method name. Derived from the tuple above. */
 export type MutatingDaemonMethod = (typeof MUTATING_DAEMON_METHODS)[number];
 
-/** Whether a method string is on the roster above. Total over every string. */
-export function isMutatingDaemonMethod(method: string): method is MutatingDaemonMethod {
-  return (MUTATING_DAEMON_METHODS as readonly string[]).includes(method);
-}
-
 /**
  * Why a mutating control is closed, or `undefined` while nothing closes it.
  *
@@ -107,6 +102,11 @@ export function isMutatingDaemonMethod(method: string): method is MutatingDaemon
 export interface ShellMutationBlock {
   readonly code: string;
   readonly detail: string;
+}
+
+/** Whether a method string is on the roster above. Total over every string. */
+export function isMutatingDaemonMethod(method: string): method is MutatingDaemonMethod {
+  return (MUTATING_DAEMON_METHODS as readonly string[]).includes(method);
 }
 
 /**

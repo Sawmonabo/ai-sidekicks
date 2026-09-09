@@ -15,8 +15,8 @@ import {
   type ConsoleBridge,
   type ParsedRows,
 } from "../../bridge/index.js";
-import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
-import { COMPOSER_SCENARIO } from "../../bridge/scenarios/composer.js";
+import { APPROVALS_SCENARIO } from "../../bridge/scenario/approvals/approvals.js";
+import { COMPOSER_SCENARIO } from "../../bridge/scenario/composer/composer.js";
 import {
   ScriptedApprovalReads,
   WAITING_APPROVAL_IDS,

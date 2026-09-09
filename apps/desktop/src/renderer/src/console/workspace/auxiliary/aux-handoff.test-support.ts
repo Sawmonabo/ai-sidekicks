@@ -72,38 +72,6 @@ const rejectWireCall = async (): Promise<never> => {
   throw new Error(WIRE_REJECTION_MESSAGE);
 };
 
-/** A plane whose five window operations reject rather than answering. */
-export function rejectingPort(): ConsoleAuxiliaryWindowPort {
-  return {
-    detachPane: rejectWireCall,
-    focusAuxiliary: rejectWireCall,
-    closeAuxiliary: rejectWireCall,
-    subscribePaneErrors: rejectWireCall,
-    subscribePaneReturns: rejectWireCall,
-  };
-}
-
-/**
- * A plane that detaches for real and then rejects both controls a placeholder offers.
- *
- * The two operations only reachable AFTER a detach, so a case about them has to be
- * handed a wire that serves the detach and fails afterwards — which is also the real
- * sequence, since a window is what stops being reachable.
- */
-export function detachingThenRejectingPort(): ConsoleAuxiliaryWindowPort {
-  return {
-    ...servingPort(),
-    focusAuxiliary: rejectWireCall,
-    closeAuxiliary: rejectWireCall,
-  };
-}
-
-/** One window this model is holding: what it is filed under, and what it renders. */
-interface HeldModelledWindow {
-  readonly paneIdentity: string;
-  readonly paneId: string;
-}
-
 /**
  * A shell, modelled: the window bookkeeping a real main process performs, in memory.
  *
@@ -244,4 +212,36 @@ export class ModelledShell {
     this.#heldByWindowId.delete(windowId);
     this.#windowIdByPaneIdentity.delete(paneIdentity);
   }
+}
+
+/** A plane whose five window operations reject rather than answering. */
+export function rejectingPort(): ConsoleAuxiliaryWindowPort {
+  return {
+    detachPane: rejectWireCall,
+    focusAuxiliary: rejectWireCall,
+    closeAuxiliary: rejectWireCall,
+    subscribePaneErrors: rejectWireCall,
+    subscribePaneReturns: rejectWireCall,
+  };
+}
+
+/**
+ * A plane that detaches for real and then rejects both controls a placeholder offers.
+ *
+ * The two operations only reachable AFTER a detach, so a case about them has to be
+ * handed a wire that serves the detach and fails afterwards — which is also the real
+ * sequence, since a window is what stops being reachable.
+ */
+export function detachingThenRejectingPort(): ConsoleAuxiliaryWindowPort {
+  return {
+    ...servingPort(),
+    focusAuxiliary: rejectWireCall,
+    closeAuxiliary: rejectWireCall,
+  };
+}
+
+/** One window this model is holding: what it is filed under, and what it renders. */
+interface HeldModelledWindow {
+  readonly paneIdentity: string;
+  readonly paneId: string;
 }

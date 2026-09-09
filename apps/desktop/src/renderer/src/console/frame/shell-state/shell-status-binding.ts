@@ -88,6 +88,74 @@ export function useShellStateBinding(
 }
 
 /**
+ * The manual retry, offered once the supervisor's ladder is spent.
+ *
+ * A SPAWN AND NOT A CALL, which is why it goes through the growth port rather than
+ * the daemon client: a stopped runtime has no server to receive a start, so the act
+ * belongs to the shell. Nothing here reports success — the supervisor's next report
+ * is what says whether it came back, and a control that painted "connected" because
+ * its own call resolved would be synthesizing the one state this plane may never
+ * synthesize.
+ *
+ * WHICH IS ALSO WHY THE SHELL'S MUTATION BLOCK NEVER REACHES IT. Every daemon-bound
+ * write is closed while the supervisor is reconnecting, incompatible, offline, or
+ * stopped — `store/shell/shell-state.ts` owns that rule and the sessions destination applies
+ * it to the acts it offers — and the daemon's OWN lifecycle controls, this retry and
+ * the stop and restart on its settings page, are the exception by construction rather
+ * than by exemption: they are not on `MUTATING_DAEMON_METHODS` because they are not
+ * daemon methods at all. A rule that blocked them would leave a stopped runtime with
+ * no way back, which is the one state a person most needs a control for.
+ *
+ * A refusal is raised on the frame's own banner stack, because a control that is
+ * pressed and answers with silence is indistinguishable from one that is broken.
+ *
+ * AND ONE SPAWN AT A TIME, DECIDED IN THE TICK. Nothing here renders a disabled state
+ * — the retry sits on a banner whose own presence is the affordance — so there was no
+ * flag to read and nothing at all between a double-click and two concurrent spawns of
+ * the same runtime. The supervisor's next report is what eventually says `starting`,
+ * and it arrives over a subscription several frames after the press: every click
+ * inside that window used to reach the shell. The key is taken synchronously before
+ * the call goes out and given back in the `finally`, so a retry that REFUSES leaves
+ * the control working — the failure `settings/pages/daemon/daemon-controls.ts` records
+ * having shipped once, where a rejection awaited outside the release left a
+ * destructive control dead for the life of the window.
+ *
+ * The subject is the PORT, exactly as the drain above: a port is minted once per
+ * bridge and its replacement is what retires the calls made through it. The latch is
+ * mount-scoped, so a reply arriving after the frame is gone raises no banner into a
+ * tree that no longer exists.
+ */
+export function useDaemonStartAction(frameStore: FrameStore): () => void {
+  const bridge = useConsoleBridge();
+  const spawns = useGenerationLatch();
+  return useCallback(() => {
+    const { growth } = bridge;
+    const spawn = spawns.claim(growth, DAEMON_START_KEY);
+    if (spawn === undefined) {
+      return;
+    }
+    void (async () => {
+      try {
+        // Through the console's one settler rather than a bare `await`, on the
+        // local-runtime page's own terms: the port is TYPED to resolve, and the
+        // rejection channel of a promise exists whether a contract uses it or not. Read
+        // only on the fulfilment arm, a transport that went away mid-spawn escaped this
+        // detached body as an unhandled rejection and raised no banner at all — the
+        // silence this function's own header calls indistinguishable from broken.
+        const outcome = await settleGrowthRead(growth.daemonStart({}));
+        spawn.settle(() => {
+          if (outcome.status !== "served") {
+            frameStore.raiseRefusalBanner(outcome);
+          }
+        });
+      } finally {
+        spawn.release();
+      }
+    })();
+  }, [bridge, frameStore, spawns]);
+}
+
+/**
  * Hand the window's store to the bridge's gate, so the CALL DOOR can read the
  * condition this module fills.
  *
@@ -211,74 +279,6 @@ function useShellReportSubscription(frameStore: FrameStore, growth: GrowthPort):
       closeStream();
     };
   }, [drains, frameStore, growth]);
-}
-
-/**
- * The manual retry, offered once the supervisor's ladder is spent.
- *
- * A SPAWN AND NOT A CALL, which is why it goes through the growth port rather than
- * the daemon client: a stopped runtime has no server to receive a start, so the act
- * belongs to the shell. Nothing here reports success — the supervisor's next report
- * is what says whether it came back, and a control that painted "connected" because
- * its own call resolved would be synthesizing the one state this plane may never
- * synthesize.
- *
- * WHICH IS ALSO WHY THE SHELL'S MUTATION BLOCK NEVER REACHES IT. Every daemon-bound
- * write is closed while the supervisor is reconnecting, incompatible, offline, or
- * stopped — `store/shell/shell-state.ts` owns that rule and the sessions destination applies
- * it to the acts it offers — and the daemon's OWN lifecycle controls, this retry and
- * the stop and restart on its settings page, are the exception by construction rather
- * than by exemption: they are not on `MUTATING_DAEMON_METHODS` because they are not
- * daemon methods at all. A rule that blocked them would leave a stopped runtime with
- * no way back, which is the one state a person most needs a control for.
- *
- * A refusal is raised on the frame's own banner stack, because a control that is
- * pressed and answers with silence is indistinguishable from one that is broken.
- *
- * AND ONE SPAWN AT A TIME, DECIDED IN THE TICK. Nothing here renders a disabled state
- * — the retry sits on a banner whose own presence is the affordance — so there was no
- * flag to read and nothing at all between a double-click and two concurrent spawns of
- * the same runtime. The supervisor's next report is what eventually says `starting`,
- * and it arrives over a subscription several frames after the press: every click
- * inside that window used to reach the shell. The key is taken synchronously before
- * the call goes out and given back in the `finally`, so a retry that REFUSES leaves
- * the control working — the failure `settings/pages/daemon/daemon-controls.ts` records
- * having shipped once, where a rejection awaited outside the release left a
- * destructive control dead for the life of the window.
- *
- * The subject is the PORT, exactly as the drain above: a port is minted once per
- * bridge and its replacement is what retires the calls made through it. The latch is
- * mount-scoped, so a reply arriving after the frame is gone raises no banner into a
- * tree that no longer exists.
- */
-export function useDaemonStartAction(frameStore: FrameStore): () => void {
-  const bridge = useConsoleBridge();
-  const spawns = useGenerationLatch();
-  return useCallback(() => {
-    const { growth } = bridge;
-    const spawn = spawns.claim(growth, DAEMON_START_KEY);
-    if (spawn === undefined) {
-      return;
-    }
-    void (async () => {
-      try {
-        // Through the console's one settler rather than a bare `await`, on the
-        // local-runtime page's own terms: the port is TYPED to resolve, and the
-        // rejection channel of a promise exists whether a contract uses it or not. Read
-        // only on the fulfilment arm, a transport that went away mid-spawn escaped this
-        // detached body as an unhandled rejection and raised no banner at all — the
-        // silence this function's own header calls indistinguishable from broken.
-        const outcome = await settleGrowthRead(growth.daemonStart({}));
-        spawn.settle(() => {
-          if (outcome.status !== "served") {
-            frameStore.raiseRefusalBanner(outcome);
-          }
-        });
-      } finally {
-        spawn.release();
-      }
-    })();
-  }, [bridge, frameStore, spawns]);
 }
 
 /** The report half of the seeded state, so "nothing is reported" has one spelling. */

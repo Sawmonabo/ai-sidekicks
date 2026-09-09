@@ -47,6 +47,26 @@ export function mergeUpsert(
 }
 
 /**
+ * Drop one entity from its partition.
+ *
+ * A removal of a row the store never saw still answers a fresh object: the caller
+ * is mid-transition over a scratch value, and answering the same reference would
+ * make "nothing changed" and "this step changed nothing" indistinguishable.
+ */
+export function mergeRemoval(
+  partitions: SessionPartitions,
+  ref: ConsoleEntityRef,
+): Record<ConsoleEntityKind, Readonly<Record<string, ConsoleEntity>>> {
+  const partition = partitions[ref.kind];
+  if (!Object.hasOwn(partition, ref.id)) {
+    return { ...partitions };
+  }
+  const next: Record<string, ConsoleEntity> = { ...partition };
+  delete next[ref.id];
+  return { ...partitions, [ref.kind]: next };
+}
+
+/**
  * One upsert onto the entity already stored, ONE LEVEL DEEP THROUGH `body`.
  *
  * The top-level spread is what makes an incremental projector expressible at all:
@@ -71,24 +91,4 @@ function mergeOnto(existing: ConsoleEntity, upsert: ConsoleEntity): ConsoleEntit
     ...upsert,
     ...(mergedBody === undefined ? {} : { body: mergedBody }),
   };
-}
-
-/**
- * Drop one entity from its partition.
- *
- * A removal of a row the store never saw still answers a fresh object: the caller
- * is mid-transition over a scratch value, and answering the same reference would
- * make "nothing changed" and "this step changed nothing" indistinguishable.
- */
-export function mergeRemoval(
-  partitions: SessionPartitions,
-  ref: ConsoleEntityRef,
-): Record<ConsoleEntityKind, Readonly<Record<string, ConsoleEntity>>> {
-  const partition = partitions[ref.kind];
-  if (!Object.hasOwn(partition, ref.id)) {
-    return { ...partitions };
-  }
-  const next: Record<string, ConsoleEntity> = { ...partition };
-  delete next[ref.id];
-  return { ...partitions, [ref.kind]: next };
 }

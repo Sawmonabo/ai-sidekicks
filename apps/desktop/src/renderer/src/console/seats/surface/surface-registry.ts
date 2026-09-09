@@ -73,12 +73,6 @@ export interface ConsoleSurfaceDescriptor {
   readonly render: (context: ConsoleSurfaceContext) => React.ReactNode;
 }
 
-/** What every registration carries, whichever form it takes. */
-interface ConsoleSurfaceRegistrationBase {
-  readonly slot: ConsoleSurfaceSlot;
-  readonly owner: string;
-}
-
 /**
  * What a family hands `register`, in one of exactly two forms.
  *
@@ -185,6 +179,12 @@ export class ConsoleSurfaceRegistry {
   public registeredSlots(): readonly ConsoleSurfaceSlot[] {
     return CONSOLE_SURFACE_SLOTS.filter((slot) => this.#descriptorsBySlot.has(slot));
   }
+}
+
+/** What every registration carries, whichever form it takes. */
+interface ConsoleSurfaceRegistrationBase {
+  readonly slot: ConsoleSurfaceSlot;
+  readonly owner: string;
 }
 
 /** The process-wide registry the families call at module scope. */

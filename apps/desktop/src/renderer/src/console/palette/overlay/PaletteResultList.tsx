@@ -21,58 +21,6 @@ export interface CommandResultGroup {
   readonly items: readonly CommandSearchResult[];
 }
 
-export function groupResults(
-  results: readonly CommandSearchResult[],
-): readonly CommandResultGroup[] {
-  const itemsByGroup = new Map<string, CommandSearchResult[]>();
-  for (const result of results) {
-    const bucket = itemsByGroup.get(result.command.group);
-    if (bucket === undefined) {
-      itemsByGroup.set(result.command.group, [result]);
-    } else {
-      bucket.push(result);
-    }
-  }
-  // Insertion order is first-appearance order, so the best-ranked category leads
-  // and the categories do not reshuffle as a person types.
-  return [...itemsByGroup.entries()].map(([value, items]) => ({ value, items }));
-}
-
-/**
- * Split a title into matched and unmatched runs.
- *
- * Emphasis is by weight and luminance, never hue: the two-hue rule reserves
- * colour for "a person is needed" and "something failed", and a search hit is
- * neither.
- */
-function renderTitle(title: string, matchedIndices: readonly number[] | undefined): ReactNode {
-  if (matchedIndices === undefined || matchedIndices.length === 0) {
-    return title;
-  }
-  const matched = new Set(matchedIndices);
-  const segments: ReactNode[] = [];
-  let runStart = 0;
-  let runIsMatch = matched.has(0);
-  for (let characterIndex = 1; characterIndex <= title.length; characterIndex += 1) {
-    const isMatch = matched.has(characterIndex);
-    if (characterIndex === title.length || isMatch !== runIsMatch) {
-      const text = title.slice(runStart, characterIndex);
-      segments.push(
-        runIsMatch ? (
-          <span className="console-palette__match" key={`${String(runStart)}-match`}>
-            {text}
-          </span>
-        ) : (
-          <span key={`${String(runStart)}-plain`}>{text}</span>
-        ),
-      );
-      runStart = characterIndex;
-      runIsMatch = isMatch;
-    }
-  }
-  return segments;
-}
-
 export interface PaletteResultListProps {
   /** The live context keys. Decides which chord is printed beside a row. */
   readonly context: WhenClauseContext;
@@ -93,6 +41,23 @@ export interface PaletteResultListProps {
    * it was — so a row that did not run is never selected. See the call site below.
    */
   readonly onRunResult: (result: CommandSearchResult) => PaletteRowPressOutcome;
+}
+
+export function groupResults(
+  results: readonly CommandSearchResult[],
+): readonly CommandResultGroup[] {
+  const itemsByGroup = new Map<string, CommandSearchResult[]>();
+  for (const result of results) {
+    const bucket = itemsByGroup.get(result.command.group);
+    if (bucket === undefined) {
+      itemsByGroup.set(result.command.group, [result]);
+    } else {
+      bucket.push(result);
+    }
+  }
+  // Insertion order is first-appearance order, so the best-ranked category leads
+  // and the categories do not reshuffle as a person types.
+  return [...itemsByGroup.entries()].map(([value, items]) => ({ value, items }));
 }
 
 /** The listbox: one group per category, one row per ranked result. */
@@ -171,4 +136,39 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
       )}
     </Combobox.List>
   );
+}
+
+/**
+ * Split a title into matched and unmatched runs.
+ *
+ * Emphasis is by weight and luminance, never hue: the two-hue rule reserves
+ * colour for "a person is needed" and "something failed", and a search hit is
+ * neither.
+ */
+function renderTitle(title: string, matchedIndices: readonly number[] | undefined): ReactNode {
+  if (matchedIndices === undefined || matchedIndices.length === 0) {
+    return title;
+  }
+  const matched = new Set(matchedIndices);
+  const segments: ReactNode[] = [];
+  let runStart = 0;
+  let runIsMatch = matched.has(0);
+  for (let characterIndex = 1; characterIndex <= title.length; characterIndex += 1) {
+    const isMatch = matched.has(characterIndex);
+    if (characterIndex === title.length || isMatch !== runIsMatch) {
+      const text = title.slice(runStart, characterIndex);
+      segments.push(
+        runIsMatch ? (
+          <span className="console-palette__match" key={`${String(runStart)}-match`}>
+            {text}
+          </span>
+        ) : (
+          <span key={`${String(runStart)}-plain`}>{text}</span>
+        ),
+      );
+      runStart = characterIndex;
+      runIsMatch = isMatch;
+    }
+  }
+  return segments;
 }

@@ -56,20 +56,6 @@ export class QueueCancellations {
   #pendingCancelIds: ReadonlySet<string> = EMPTY_IDS;
   #cancelRefusalByItemId: ReadonlyMap<string, ConsoleRefusal> = EMPTY_REFUSALS;
 
-  public constructor(bridge: ConsoleBridge, onChanged: () => void) {
-    this.#bridge = bridge;
-    this.#onChanged = onChanged;
-  }
-
-  /** The three members a feed carries, as they stand. */
-  public get state(): QueueCancellationState {
-    return {
-      pendingCancelIds: this.#pendingCancelIds,
-      cancelRefusalByItemId: this.#cancelRefusalByItemId,
-      cancelItem: this.#cancelItem,
-    };
-  }
-
   #cancelItem = (rawQueueItemId: string): void => {
     // Through the family's own reader rather than a schema parsed here: one reading
     // of what the wire admits as a queue-item identifier, in the module that owns it.
@@ -106,6 +92,20 @@ export class QueueCancellations {
       this.#onChanged();
     });
   };
+
+  public constructor(bridge: ConsoleBridge, onChanged: () => void) {
+    this.#bridge = bridge;
+    this.#onChanged = onChanged;
+  }
+
+  /** The three members a feed carries, as they stand. */
+  public get state(): QueueCancellationState {
+    return {
+      pendingCancelIds: this.#pendingCancelIds,
+      cancelRefusalByItemId: this.#cancelRefusalByItemId,
+      cancelItem: this.#cancelItem,
+    };
+  }
 
   /** File one refusal under the item it was asked for, and say so. */
   #recordRefusal(rawQueueItemId: string, refusal: ConsoleRefusal): void {

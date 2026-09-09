@@ -21,6 +21,12 @@ import { type ConsoleEntity } from "../../../store/index.js";
 import { providerAskFor, type ProviderAsk } from "../card/provider-ask.js";
 import { type ReadPhase } from "../approvals-reader.js";
 
+/** One answered read, split into the cards waiting and the ones already decided. */
+export interface PartitionedApprovals {
+  readonly pending: readonly ApprovalRecord[];
+  readonly history: readonly ApprovalRecord[];
+}
+
 /**
  * The provider-ask origin of every projected approval, keyed by request id.
  *
@@ -39,12 +45,6 @@ export function providerAsksIn(
     }
   }
   return asks;
-}
-
-/** One answered read, split into the cards waiting and the ones already decided. */
-export interface PartitionedApprovals {
-  readonly pending: readonly ApprovalRecord[];
-  readonly history: readonly ApprovalRecord[];
 }
 
 /** Neither list has a member until a read has answered. */

@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
+import type { ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
 import { PENDING_INVITE_QUEUE_MAX } from "../../core/index.js";
 import type { PendingInviteAdapter } from "./pending-invite.js";
 import {

@@ -30,6 +30,37 @@ export interface BrowserIngestMeterProps {
   readonly declaredByteLength: number;
 }
 
+export function BrowserIngestMeter(props: BrowserIngestMeterProps): React.JSX.Element {
+  return (
+    <>
+      <div
+        className="meridian-browser-meter"
+        role="progressbar"
+        aria-label={props.label}
+        aria-valuemin={0}
+        {...meterValueAttributes(props)}
+      >
+        <div
+          className="meridian-browser-meter__fill"
+          style={{
+            inlineSize: ingestFillWidth(props.receivedByteLength, props.declaredByteLength),
+          }}
+        />
+      </div>
+      <p className="meridian-browser-card__note">
+        {/* The figure goes through the console's one formatter and carries the raw
+            byte count on its title, which is what `WireFigure` is for: the scaled
+            reading is what a person reads, and the exact one is still reachable. */}
+        <WireFigure
+          value={formatIngestProgress(props.receivedByteLength, props.declaredByteLength)}
+          title={String(props.receivedByteLength)}
+        />{" "}
+        received.
+      </p>
+    </>
+  );
+}
+
 /**
  * The bar's value attributes, which are three different sets rather than one set with
  * holes in it.
@@ -74,35 +105,4 @@ function meterValueAttributes(props: BrowserIngestMeterProps): React.AriaAttribu
     "aria-valuenow": receivedByteLength,
     "aria-valuemax": declaredByteLength,
   };
-}
-
-export function BrowserIngestMeter(props: BrowserIngestMeterProps): React.JSX.Element {
-  return (
-    <>
-      <div
-        className="meridian-browser-meter"
-        role="progressbar"
-        aria-label={props.label}
-        aria-valuemin={0}
-        {...meterValueAttributes(props)}
-      >
-        <div
-          className="meridian-browser-meter__fill"
-          style={{
-            inlineSize: ingestFillWidth(props.receivedByteLength, props.declaredByteLength),
-          }}
-        />
-      </div>
-      <p className="meridian-browser-card__note">
-        {/* The figure goes through the console's one formatter and carries the raw
-            byte count on its title, which is what `WireFigure` is for: the scaled
-            reading is what a person reads, and the exact one is still reachable. */}
-        <WireFigure
-          value={formatIngestProgress(props.receivedByteLength, props.declaredByteLength)}
-          title={String(props.receivedByteLength)}
-        />{" "}
-        received.
-      </p>
-    </>
-  );
 }

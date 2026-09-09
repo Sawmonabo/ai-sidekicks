@@ -84,28 +84,6 @@ export const GROWTH_CALL_REFUSAL_CODES = ["reply-unreadable"] as const;
 export type GrowthCallRefusalCode = (typeof GROWTH_CALL_REFUSAL_CODES)[number];
 
 /**
- * The refusal a reply this console cannot read becomes.
- *
- * TWO SITES RAISE IT AND SO IT IS DECLARED ONCE. `growthAnswerReading` below raises it
- * for an answer that is neither a served value nor a refusal, and
- * `artifact-pane-reads.ts` for a served `value` whose SHAPE the leg cannot use — an
- * `artifactList` that is not an array, a bounds reply with no content types. Both are
- * the same fact about the same wire and neither is a rejection, so a caller narrowing
- * on the code should not have to know which of the two saw it first.
- *
- * THE REPLY IS NOT QUOTED INTO THE SENTENCE: what arrived can carry participant
- * content, so the sentence names the leg and what was expected of it and stops
- * there. `Spec-023 §Console Design (Meridian)` rule 9 is the rule.
- */
-export function replyUnreadableRefusal(legName: string, expected: string): ConsoleRefusal {
-  return refuse(
-    GROWTH_CALL_REFUSAL_ORIGIN,
-    "reply-unreadable" satisfies GrowthCallRefusalCode,
-    `${legName} answered with ${expected}, so nothing was read.`,
-  );
-}
-
-/**
  * One growth-port answer, in the two arms the port produces.
  *
  * The served arm is written out rather than imported because `GrowthOutcome` does not
@@ -130,6 +108,28 @@ export type GrowthAnswer<TValue> =
 export type GrowthAnswerReading<TValue> =
   | { readonly status: "read"; readonly value: TValue }
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+
+/**
+ * The refusal a reply this console cannot read becomes.
+ *
+ * TWO SITES RAISE IT AND SO IT IS DECLARED ONCE. `growthAnswerReading` below raises it
+ * for an answer that is neither a served value nor a refusal, and
+ * `artifact-pane-reads.ts` for a served `value` whose SHAPE the leg cannot use — an
+ * `artifactList` that is not an array, a bounds reply with no content types. Both are
+ * the same fact about the same wire and neither is a rejection, so a caller narrowing
+ * on the code should not have to know which of the two saw it first.
+ *
+ * THE REPLY IS NOT QUOTED INTO THE SENTENCE: what arrived can carry participant
+ * content, so the sentence names the leg and what was expected of it and stops
+ * there. `Spec-023 §Console Design (Meridian)` rule 9 is the rule.
+ */
+export function replyUnreadableRefusal(legName: string, expected: string): ConsoleRefusal {
+  return refuse(
+    GROWTH_CALL_REFUSAL_ORIGIN,
+    "reply-unreadable" satisfies GrowthCallRefusalCode,
+    `${legName} answered with ${expected}, so nothing was read.`,
+  );
+}
 
 /**
  * Read one growth-port answer, by the shape the reply actually has.
@@ -174,18 +174,6 @@ export function growthAnswerReading<TValue>(
 }
 
 /**
- * Whether an answer the types call served actually carries the member.
- *
- * The check the declared type cannot make: the fixture bridge is assembled behind a
- * cast, and the live port is one process boundary away, so what arrives is whatever
- * was sent. Presence rather than definedness — no operation in this family serves an
- * absent value, and testing for `undefined` would refuse one that legitimately did.
- */
-function carriesServedValue(answer: unknown): answer is { readonly value: unknown } {
-  return typeof answer === "object" && answer !== null && "value" in answer;
-}
-
-/**
  * Put one call to the port and read what came back — including a rejection.
  *
  * TWO NAMES FOR ONE CALL, ANSWERING TO DIFFERENT AUTHORITIES. `operationId` is the
@@ -209,4 +197,16 @@ export async function readGrowthAnswer<TValue>(
   } catch (rejection) {
     return { status: "refused", refusal: growthUnavailableFromRejection(operationId, rejection) };
   }
+}
+
+/**
+ * Whether an answer the types call served actually carries the member.
+ *
+ * The check the declared type cannot make: the fixture bridge is assembled behind a
+ * cast, and the live port is one process boundary away, so what arrives is whatever
+ * was sent. Presence rather than definedness — no operation in this family serves an
+ * absent value, and testing for `undefined` would refuse one that legitimately did.
+ */
+function carriesServedValue(answer: unknown): answer is { readonly value: unknown } {
+  return typeof answer === "object" && answer !== null && "value" in answer;
 }

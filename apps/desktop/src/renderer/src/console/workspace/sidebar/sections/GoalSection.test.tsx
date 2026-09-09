@@ -14,7 +14,7 @@ import { cleanup, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
-import { COMPOSER_SCENARIO } from "../../../bridge/scenarios/composer.js";
+import { COMPOSER_SCENARIO } from "../../../bridge/scenario/composer/composer.js";
 import { consoleCommands } from "../../../palette/index.js";
 import { type ConsolePaneAddress, type SidebarSectionContext } from "../../../seats/index.js";
 import { FrameStore, SessionStore, type ConsoleSessionEvent } from "../../../store/index.js";

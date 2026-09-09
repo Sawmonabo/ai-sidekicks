@@ -33,30 +33,6 @@ export interface ChapterBodyViewportProps {
   readonly supportsDeclaration?: CssDeclarationSupportProbe;
 }
 
-/** The head rows this body holds, and how many of the head it could not keep. */
-interface ChapterBodyContents {
-  readonly rows: readonly TimelineRow[];
-  readonly unheldRowCount: number;
-}
-
-/**
- * What the body draws, derived from the chapter it was handed.
- *
- * The ids come from the chapter's OWN row ids and the rows from the bounded head the
- * fold sealed, which is what makes this right under a narrowing: a filtered chapter
- * carries the admitted ids, so a row the filter excluded is not asked for — and a row
- * older than the sealed head is asked for, not found, and counted as unheld rather
- * than silently omitted.
- */
-function chapterBodyContents(chapter: LedgerChapter): ChapterBodyContents {
-  const headRowsById = new Map(chapter.clippedHeadRows.map((row) => [row.id, row]));
-  const headRowIds = chapterClippedHeadRowIds(chapter.rowIds);
-  const rows = headRowIds
-    .map((rowId) => headRowsById.get(rowId))
-    .filter((row): row is TimelineRow => row !== undefined);
-  return { rows, unheldRowCount: headRowIds.length - rows.length };
-}
-
 /**
  * One chapter's body: its older head, bounded, with the clip said out loud.
  *
@@ -115,4 +91,28 @@ export function ChapterBodyViewport(props: ChapterBodyViewportProps): React.JSX.
       )}
     </div>
   );
+}
+
+/** The head rows this body holds, and how many of the head it could not keep. */
+interface ChapterBodyContents {
+  readonly rows: readonly TimelineRow[];
+  readonly unheldRowCount: number;
+}
+
+/**
+ * What the body draws, derived from the chapter it was handed.
+ *
+ * The ids come from the chapter's OWN row ids and the rows from the bounded head the
+ * fold sealed, which is what makes this right under a narrowing: a filtered chapter
+ * carries the admitted ids, so a row the filter excluded is not asked for — and a row
+ * older than the sealed head is asked for, not found, and counted as unheld rather
+ * than silently omitted.
+ */
+function chapterBodyContents(chapter: LedgerChapter): ChapterBodyContents {
+  const headRowsById = new Map(chapter.clippedHeadRows.map((row) => [row.id, row]));
+  const headRowIds = chapterClippedHeadRowIds(chapter.rowIds);
+  const rows = headRowIds
+    .map((rowId) => headRowsById.get(rowId))
+    .filter((row): row is TimelineRow => row !== undefined);
+  return { rows, unheldRowCount: headRowIds.length - rows.length };
 }

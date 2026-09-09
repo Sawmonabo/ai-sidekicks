@@ -45,11 +45,6 @@ import {
 } from "../../../bridge/index.js";
 import { subjectReadStart, type SubjectRead } from "../../../store/index.js";
 
-/** What this read looks like once it has an answer, either kind. */
-type SettledRunSnapshot =
-  | { readonly status: "served"; readonly snapshot: WorkflowRunSnapshot }
-  | { readonly status: "unavailable"; readonly refusal: SettledReadRefusal };
-
 /**
  * What the run pane knows about its run at one moment.
  *
@@ -93,6 +88,11 @@ export function useWorkflowRunSnapshot(
         : { status: "unavailable", refusal: settlement },
   }).value;
 }
+
+/** What this read looks like once it has an answer, either kind. */
+type SettledRunSnapshot =
+  | { readonly status: "served"; readonly snapshot: WorkflowRunSnapshot }
+  | { readonly status: "unavailable"; readonly refusal: SettledReadRefusal };
 
 /**
  * The subject this read is held at: the run, and which round of it is being asked.

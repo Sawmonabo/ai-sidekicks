@@ -123,17 +123,6 @@ export interface DecodedDeckSnapshot {
   readonly refusals: readonly DeckRestoreRefusal[];
 }
 
-/**
- * This module's refusals, named for the restore they are about.
- *
- * NAMED `Deck` for the reason `sidebar/model/sidebar-model.ts`'s twin is named `Sidebar`:
- * the two are sibling restore paths in one family and a shared bare name made them
- * look interchangeable when their refusal types are not.
- */
-function refuseDeckRestore(code: DeckRestoreRefusalCode, detail: string): DeckRestoreRefusal {
-  return refuse(DECK_LAYOUT_REFUSAL_ORIGIN, code, detail);
-}
-
 /** Write a state out. Ephemeral panes are skipped, so a restart reopens no page. */
 export function encodeDeckSnapshot(state: DeckLayoutState): DeckSnapshotRecord {
   const header: Record<string, number | boolean | string> = {
@@ -264,6 +253,17 @@ export function decodeDeckSnapshot(
     density: isDeckDensity(header["density"]) ? header["density"] : DEFAULT_DECK_DENSITY,
     refusals,
   };
+}
+
+/**
+ * This module's refusals, named for the restore they are about.
+ *
+ * NAMED `Deck` for the reason `sidebar/model/sidebar-model.ts`'s twin is named `Sidebar`:
+ * the two are sibling restore paths in one family and a shared bare name made them
+ * look interchangeable when their refusal types are not.
+ */
+function refuseDeckRestore(code: DeckRestoreRefusalCode, detail: string): DeckRestoreRefusal {
+  return refuse(DECK_LAYOUT_REFUSAL_ORIGIN, code, detail);
 }
 
 function emptyDecode(refusal: DeckRestoreRefusal): DecodedDeckSnapshot {

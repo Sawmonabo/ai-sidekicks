@@ -60,9 +60,6 @@ export type AgentToolGrantPosition =
   /** A populated allowlist, carrying the names the echo renders. Never empty. */
   | { readonly kind: "named"; readonly toolNames: readonly string[] };
 
-/** The three positions that name no tool, which are the three the table below words. */
-type NamelessToolGrantKind = Exclude<AgentToolGrantPosition, { readonly kind: "named" }>["kind"];
-
 /** How a reading is weighted: an absence nobody chose, or a restriction somebody did. */
 export type ToolGrantWeight = "absent" | "derived";
 
@@ -74,6 +71,9 @@ export interface AgentToolGrantWording {
   readonly lineSentence: string;
   readonly weight: ToolGrantWeight;
 }
+
+/** The three positions that name no tool, which are the three the table below words. */
+type NamelessToolGrantKind = Exclude<AgentToolGrantPosition, { readonly kind: "named" }>["kind"];
 
 /**
  * The words for every position that names no tool.

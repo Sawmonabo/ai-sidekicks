@@ -40,8 +40,8 @@ import {
   useConsoleBridge,
   type ConsoleBridge,
 } from "../../bridge/index.js";
-import { FIRST_RUN_SCENARIO } from "../../bridge/scenarios/first-run.js";
-import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
+import { FIRST_RUN_SCENARIO } from "../../bridge/scenario/first-run.js";
+import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { SCHEME_PREFERENCE_KEY, type UiStateStore } from "../../persistence/index.js";
 import { settle as settleReactWork } from "../../core/settle.test-support.js";
 

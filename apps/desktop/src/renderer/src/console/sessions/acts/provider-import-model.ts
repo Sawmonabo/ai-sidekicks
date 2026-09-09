@@ -48,21 +48,6 @@ import { useSubjectScopedState } from "../../store/index.js";
 /** The holder key the import's opening act is addressed by, within a port. */
 const IMPORT_ACT_KEY = "provider-session-import";
 
-/**
- * What the begin call takes, derived from the port rather than restated beside it.
- *
- * The request shape is declared once, in `bridge/growth-signatures/sessions.ts`, and a
- * hand-written copy here would be a second declaration of a closed shape — free to
- * drift the day the wire lands and grows a member.
- */
-type ProviderImportRequest = Parameters<GrowthPort["providerSessionImportBegin"]>[0];
-
-/** What a settled begin answers with, derived from that same port's served arm. */
-type ProviderImportAnswer = Extract<
-  Awaited<ReturnType<GrowthPort["providerSessionImportBegin"]>>,
-  { readonly status: "served" }
->["value"];
-
 /** Everything a surface needs to render one import, and the one act that starts one. */
 export interface ProviderImportModel {
   /** Where the opening call got to. Its refused arm is the act's own refusal. */
@@ -93,37 +78,6 @@ export interface ProviderImportModel {
   readonly retryProgress: (() => void) | undefined;
   /** Put one import. Refuses in the act's own words while one is already running. */
   readonly put: (request: ProviderImportRequest) => void;
-}
-
-/**
- * Mint the act, on the port and not on the mount.
- *
- * A declared function taking the port rather than a closure written at the call site,
- * on the rule `session-pins.ts` states for its own acts: the seed is read only when
- * the subject changes, so it names the port it was minted for and nothing else.
- */
-function mintProviderImportAct(
-  growth: GrowthPort,
-): SessionAct<ProviderImportRequest, ProviderImportAnswer> {
-  return new SessionAct<ProviderImportRequest, ProviderImportAnswer>({
-    // Through `settleGrowthRead`, which is the console's one reader of a growth call
-    // that REJECTED rather than answering — the fixture throws a scripted daemon
-    // refusal verbatim, and the live seam will throw the same shape the day the wire
-    // lands, so a call site reading only the fulfilment arm leaves the form pinned on
-    // "running" for the life of the mount while an unhandled rejection reaches the
-    // window.
-    //
-    // The refusing arm IS a `ConsoleRefusal` either way and carries the operation, the
-    // slate row, and the document that owes the wire, so it travels onto the act's
-    // refused arm untouched rather than being re-minted here.
-    attempt: async (request) => {
-      const outcome = await settleGrowthRead(growth.providerSessionImportBegin(request));
-      return outcome.status === "served"
-        ? { status: "served", value: outcome.value }
-        : { status: "refused", refusal: outcome };
-    },
-    describeWhat: "The import",
-  });
 }
 
 /**
@@ -159,4 +113,50 @@ export function useProviderImport(growth: GrowthPort): ProviderImportModel {
       void act.run(request);
     },
   };
+}
+
+/**
+ * What the begin call takes, derived from the port rather than restated beside it.
+ *
+ * The request shape is declared once, in `bridge/growth-signatures/sessions.ts`, and a
+ * hand-written copy here would be a second declaration of a closed shape — free to
+ * drift the day the wire lands and grows a member.
+ */
+type ProviderImportRequest = Parameters<GrowthPort["providerSessionImportBegin"]>[0];
+
+/** What a settled begin answers with, derived from that same port's served arm. */
+type ProviderImportAnswer = Extract<
+  Awaited<ReturnType<GrowthPort["providerSessionImportBegin"]>>,
+  { readonly status: "served" }
+>["value"];
+
+/**
+ * Mint the act, on the port and not on the mount.
+ *
+ * A declared function taking the port rather than a closure written at the call site,
+ * on the rule `session-pins.ts` states for its own acts: the seed is read only when
+ * the subject changes, so it names the port it was minted for and nothing else.
+ */
+function mintProviderImportAct(
+  growth: GrowthPort,
+): SessionAct<ProviderImportRequest, ProviderImportAnswer> {
+  return new SessionAct<ProviderImportRequest, ProviderImportAnswer>({
+    // Through `settleGrowthRead`, which is the console's one reader of a growth call
+    // that REJECTED rather than answering — the fixture throws a scripted daemon
+    // refusal verbatim, and the live seam will throw the same shape the day the wire
+    // lands, so a call site reading only the fulfilment arm leaves the form pinned on
+    // "running" for the life of the mount while an unhandled rejection reaches the
+    // window.
+    //
+    // The refusing arm IS a `ConsoleRefusal` either way and carries the operation, the
+    // slate row, and the document that owes the wire, so it travels onto the act's
+    // refused arm untouched rather than being re-minted here.
+    attempt: async (request) => {
+      const outcome = await settleGrowthRead(growth.providerSessionImportBegin(request));
+      return outcome.status === "served"
+        ? { status: "served", value: outcome.value }
+        : { status: "refused", refusal: outcome };
+    },
+    describeWhat: "The import",
+  });
 }

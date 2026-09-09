@@ -103,41 +103,6 @@ export function supersededBandKey(band: SupersededBand): string {
   return `superseded ${band.runId} ${String(band.epoch)} ${String(band.targetPosition)}`;
 }
 
-/** A rankable row: the two arms that carry a position and an epoch. */
-interface RankableRow {
-  readonly id: string;
-  readonly runId: string;
-  readonly position: number;
-  readonly epoch: number;
-  readonly carriedTargetPosition: number | undefined;
-}
-
-/**
- * The two arms `Spec-013` allows a superseded marker on.
- *
- * `legacy_stub` is excluded structurally rather than filtered: the arm carries no
- * `position` and no `epoch` at all, "because they are unknowable, not because they
- * were omitted", so it cannot be ranked and can never be marked. `general` is
- * excluded for the same structural reason — it carries no run attribution.
- */
-function rankableOf(row: TimelineRow): RankableRow | undefined {
-  if (row.kind === "run" || row.kind === "rollback_boundary") {
-    return {
-      id: row.id,
-      runId: row.runId,
-      position: row.position,
-      epoch: row.epoch,
-      carriedTargetPosition: row.superseded?.targetPosition,
-    };
-  }
-  return undefined;
-}
-
-/** `runId` and `epoch` as one map key. Marks are epoch-scoped (I-013-4). */
-function epochKeyOf(runId: string, epoch: number): string {
-  return `${runId} ${String(epoch)}`;
-}
-
 /**
  * Derive every superseded band over one loaded window.
  *
@@ -188,6 +153,41 @@ export function deriveSupersededBands(rows: readonly TimelineRow[]): readonly Su
   }
 
   return [...bandsByKey.values()].map((entry) => entry.band);
+}
+
+/** A rankable row: the two arms that carry a position and an epoch. */
+interface RankableRow {
+  readonly id: string;
+  readonly runId: string;
+  readonly position: number;
+  readonly epoch: number;
+  readonly carriedTargetPosition: number | undefined;
+}
+
+/**
+ * The two arms `Spec-013` allows a superseded marker on.
+ *
+ * `legacy_stub` is excluded structurally rather than filtered: the arm carries no
+ * `position` and no `epoch` at all, "because they are unknowable, not because they
+ * were omitted", so it cannot be ranked and can never be marked. `general` is
+ * excluded for the same structural reason — it carries no run attribution.
+ */
+function rankableOf(row: TimelineRow): RankableRow | undefined {
+  if (row.kind === "run" || row.kind === "rollback_boundary") {
+    return {
+      id: row.id,
+      runId: row.runId,
+      position: row.position,
+      epoch: row.epoch,
+      carriedTargetPosition: row.superseded?.targetPosition,
+    };
+  }
+  return undefined;
+}
+
+/** `runId` and `epoch` as one map key. Marks are epoch-scoped (I-013-4). */
+function epochKeyOf(runId: string, epoch: number): string {
+  return `${runId} ${String(epoch)}`;
 }
 
 /**

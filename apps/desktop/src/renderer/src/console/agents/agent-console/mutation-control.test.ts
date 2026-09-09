@@ -20,10 +20,6 @@ class HeldAttachCall {
   #release: ((reading: AgentAttachReading) => void) | undefined;
   #refuse: ((error: unknown) => void) | undefined;
 
-  public get callCount(): number {
-    return this.#callCount;
-  }
-
   public readonly perform = async (): Promise<AgentAttachReading> => {
     this.#callCount += 1;
     return await new Promise<AgentAttachReading>((resolve, reject) => {
@@ -31,6 +27,10 @@ class HeldAttachCall {
       this.#refuse = reject;
     });
   };
+
+  public get callCount(): number {
+    return this.#callCount;
+  }
 
   public async settle(reading: AgentAttachReading): Promise<void> {
     this.#release?.(reading);

@@ -97,29 +97,6 @@ const UPDATE_STATUS_SETTLEMENTS: Readonly<Record<UpdateState["status"], string>>
   error: "Update state read. The updater reported a failure.",
 };
 
-/**
- * The one sentence this block announces, or `undefined` while nothing has settled.
- *
- * The `unreachable` arm carries the thrown message rather than a sentence of this
- * console's own, which is the same rule the read-out beside it renders under: the
- * words are whoever refused's, never a paraphrase. The `error` arm appends the
- * updater's message for the same reason — it is a served reading whose content is a
- * failure, and dropping the message would announce that something failed while
- * withholding what.
- */
-function updateSettlementSentence(reading: UpdateReading): string | undefined {
-  switch (reading.kind) {
-    case "not-read":
-      return undefined;
-    case "unreachable":
-      return `The update feed was not reached from this window. ${reading.refusal.detail}`;
-    case "state":
-      return reading.state.status === "error"
-        ? `${UPDATE_STATUS_SETTLEMENTS.error} ${reading.state.message}`
-        : UPDATE_STATUS_SETTLEMENTS[reading.state.status];
-  }
-}
-
 export function UpdatesBlock(props: {
   readonly bridge: ConsoleBridge;
   /**
@@ -226,4 +203,27 @@ export function UpdatesBlock(props: {
       {requestRefusal === undefined ? null : <InlineRefusal {...requestRefusal} />}
     </section>
   );
+}
+
+/**
+ * The one sentence this block announces, or `undefined` while nothing has settled.
+ *
+ * The `unreachable` arm carries the thrown message rather than a sentence of this
+ * console's own, which is the same rule the read-out beside it renders under: the
+ * words are whoever refused's, never a paraphrase. The `error` arm appends the
+ * updater's message for the same reason — it is a served reading whose content is a
+ * failure, and dropping the message would announce that something failed while
+ * withholding what.
+ */
+function updateSettlementSentence(reading: UpdateReading): string | undefined {
+  switch (reading.kind) {
+    case "not-read":
+      return undefined;
+    case "unreachable":
+      return `The update feed was not reached from this window. ${reading.refusal.detail}`;
+    case "state":
+      return reading.state.status === "error"
+        ? `${UPDATE_STATUS_SETTLEMENTS.error} ${reading.state.message}`
+        : UPDATE_STATUS_SETTLEMENTS[reading.state.status];
+  }
 }

@@ -12,50 +12,6 @@ import { type TimelineRow } from "@ai-sidekicks/contracts";
 import { type LedgerViewportRow } from "../../frame/index.js";
 
 /**
- * The cut unit the window cap prunes by.
- *
- * `LedgerWindowRow.rootCursor` is the `timeline.read` cursor a row was read at. This
- * console holds one live subscription and reads earlier pages on demand, and every
- * row a page delivers is merged into the same window one at a time. So each row is
- * its own cut unit, which is the FINEST the cap can act on and therefore the least
- * it can over-drop: a single shared cursor would make the cap all-or-nothing over
- * every row that page delivered.
- */
-function cutUnitFor(row: TimelineRow): string {
-  return row.id;
-}
-
-/**
- * Whether two projections of one row say the same thing, member for member.
- *
- * Asked of the object's OWN KEYS rather than of a list written here, and that is the
- * point: `TimelineRow` is a four-arm union the contracts package owns, and a member
- * added there that this file forgot to compare would make a changed row compare
- * equal — which is a stale card on screen, the one failure a retention table can
- * cause. Reading the keys off the candidate costs two small arrays per row per pass
- * and cannot fall behind the type.
- *
- * Every member is compared by identity, which is exact for the primitives and right
- * for the two object-valued ones: `payload` is the delivered envelope's own object,
- * held by the store across revisions, and `superseded` is rebuilt only when the
- * ranking that produced it moved.
- */
-function hasSameMembers(previous: TimelineRow, candidate: TimelineRow): boolean {
-  const previousMembers = previous as unknown as Record<string, unknown>;
-  const candidateMembers = candidate as unknown as Record<string, unknown>;
-  const candidateKeys = Object.keys(candidateMembers);
-  if (Object.keys(previousMembers).length !== candidateKeys.length) {
-    return false;
-  }
-  for (const memberName of candidateKeys) {
-    if (!Object.is(previousMembers[memberName], candidateMembers[memberName])) {
-      return false;
-    }
-  }
-  return true;
-}
-
-/**
  * The row objects one derivation publishes, held across its own passes.
  *
  * WHY IT EXISTS, MEASURED. `projectFixtureShellRows` rebuilds every `TimelineRow` on
@@ -160,4 +116,48 @@ export class LedgerRowRetention {
     this.#publishedIdentitiesByKey.set(key, published);
     return published;
   }
+}
+
+/**
+ * The cut unit the window cap prunes by.
+ *
+ * `LedgerWindowRow.rootCursor` is the `timeline.read` cursor a row was read at. This
+ * console holds one live subscription and reads earlier pages on demand, and every
+ * row a page delivers is merged into the same window one at a time. So each row is
+ * its own cut unit, which is the FINEST the cap can act on and therefore the least
+ * it can over-drop: a single shared cursor would make the cap all-or-nothing over
+ * every row that page delivered.
+ */
+function cutUnitFor(row: TimelineRow): string {
+  return row.id;
+}
+
+/**
+ * Whether two projections of one row say the same thing, member for member.
+ *
+ * Asked of the object's OWN KEYS rather than of a list written here, and that is the
+ * point: `TimelineRow` is a four-arm union the contracts package owns, and a member
+ * added there that this file forgot to compare would make a changed row compare
+ * equal — which is a stale card on screen, the one failure a retention table can
+ * cause. Reading the keys off the candidate costs two small arrays per row per pass
+ * and cannot fall behind the type.
+ *
+ * Every member is compared by identity, which is exact for the primitives and right
+ * for the two object-valued ones: `payload` is the delivered envelope's own object,
+ * held by the store across revisions, and `superseded` is rebuilt only when the
+ * ranking that produced it moved.
+ */
+function hasSameMembers(previous: TimelineRow, candidate: TimelineRow): boolean {
+  const previousMembers = previous as unknown as Record<string, unknown>;
+  const candidateMembers = candidate as unknown as Record<string, unknown>;
+  const candidateKeys = Object.keys(candidateMembers);
+  if (Object.keys(previousMembers).length !== candidateKeys.length) {
+    return false;
+  }
+  for (const memberName of candidateKeys) {
+    if (!Object.is(previousMembers[memberName], candidateMembers[memberName])) {
+      return false;
+    }
+  }
+  return true;
 }

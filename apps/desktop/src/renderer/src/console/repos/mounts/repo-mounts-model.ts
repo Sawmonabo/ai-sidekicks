@@ -85,58 +85,6 @@ export const NO_WORKSPACE_REFUSALS: WorkspaceRefusals = {
 };
 
 /**
- * The one refusal a workspace row renders, where it has one.
- *
- * THE SELECTION REFUSAL WINS, because it is about what the participant just did and the
- * capabilities refusal is about a read they did not ask for. A row showing "this
- * workspace's modes could not be read" over "the switch you pressed was refused" answers
- * a question nobody put and hides the one they did.
- */
-export function workspaceRefusalFor(
-  refusals: WorkspaceRefusals,
-  workspaceId: string,
-): ConsoleRefusal | undefined {
-  return refusals.bySelection[workspaceId]?.refusal ?? refusals.byCapabilitiesRead[workspaceId];
-}
-
-/**
- * The mode a refused switch on this row was about, where the refusal is the act's.
- *
- * ANSWERS FOR THE SELECTION ARM ONLY, and the asymmetry is the point: a capabilities
- * READ is about the workspace and names no mode, so a mode returned for it would be
- * invented. A row whose rendered refusal came from the read therefore has no subject
- * mode, and the recovery for it says so rather than reaching for the wrong reason.
- */
-export function workspaceSelectionModeFor(
-  refusals: WorkspaceRefusals,
-  workspaceId: string,
-): ExecutionMode | undefined {
-  return refusals.bySelection[workspaceId]?.mode;
-}
-
-/**
- * Keep only the selection refusals whose workspace the roster still names.
- *
- * SCOPED RATHER THAN CARRIED WHOLE, because a workspace that has left the session has
- * no row to render its refusal on, and an entry with no row is a leak that grows for as
- * long as the section is mounted. The refused-roster path carries the map unscoped
- * instead: it learned no roster, so it knows of no workspace that has gone.
- */
-export function retainForRoster<TEntry>(
-  bySelection: Readonly<Record<string, TEntry>>,
-  workspaces: readonly RepoWorkspaceRow[],
-): Record<string, TEntry> {
-  const retained: Record<string, TEntry> = {};
-  for (const workspace of workspaces) {
-    const entry = bySelection[workspace.id];
-    if (entry !== undefined) {
-      retained[workspace.id] = entry;
-    }
-  }
-  return retained;
-}
-
-/**
  * Everything the section renders from, in one immutable value.
  *
  * `status` is the read's own position, three-valued for the three absences rule 8
@@ -212,6 +160,58 @@ export interface RepoMountsReading {
    * cannot collide with anything.
    */
   readonly pendingModeByWorkspaceId: Readonly<Record<string, ExecutionMode>>;
+}
+
+/**
+ * The one refusal a workspace row renders, where it has one.
+ *
+ * THE SELECTION REFUSAL WINS, because it is about what the participant just did and the
+ * capabilities refusal is about a read they did not ask for. A row showing "this
+ * workspace's modes could not be read" over "the switch you pressed was refused" answers
+ * a question nobody put and hides the one they did.
+ */
+export function workspaceRefusalFor(
+  refusals: WorkspaceRefusals,
+  workspaceId: string,
+): ConsoleRefusal | undefined {
+  return refusals.bySelection[workspaceId]?.refusal ?? refusals.byCapabilitiesRead[workspaceId];
+}
+
+/**
+ * The mode a refused switch on this row was about, where the refusal is the act's.
+ *
+ * ANSWERS FOR THE SELECTION ARM ONLY, and the asymmetry is the point: a capabilities
+ * READ is about the workspace and names no mode, so a mode returned for it would be
+ * invented. A row whose rendered refusal came from the read therefore has no subject
+ * mode, and the recovery for it says so rather than reaching for the wrong reason.
+ */
+export function workspaceSelectionModeFor(
+  refusals: WorkspaceRefusals,
+  workspaceId: string,
+): ExecutionMode | undefined {
+  return refusals.bySelection[workspaceId]?.mode;
+}
+
+/**
+ * Keep only the selection refusals whose workspace the roster still names.
+ *
+ * SCOPED RATHER THAN CARRIED WHOLE, because a workspace that has left the session has
+ * no row to render its refusal on, and an entry with no row is a leak that grows for as
+ * long as the section is mounted. The refused-roster path carries the map unscoped
+ * instead: it learned no roster, so it knows of no workspace that has gone.
+ */
+export function retainForRoster<TEntry>(
+  bySelection: Readonly<Record<string, TEntry>>,
+  workspaces: readonly RepoWorkspaceRow[],
+): Record<string, TEntry> {
+  const retained: Record<string, TEntry> = {};
+  for (const workspace of workspaces) {
+    const entry = bySelection[workspace.id];
+    if (entry !== undefined) {
+      retained[workspace.id] = entry;
+    }
+  }
+  return retained;
 }
 
 /** The reading before anything has been asked. Every absence in its unasked form. */

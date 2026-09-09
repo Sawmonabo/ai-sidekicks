@@ -13,8 +13,8 @@ import { StepIn } from "./StepIn.js";
 import { type ConsoleBridge } from "../../../bridge/index.js";
 import { type FrameStore } from "../../../store/index.js";
 import { quietShell } from "../../../store/shell-condition.test-support.js";
-import type { ScenarioReply } from "../../../bridge/scenario-runtime/scenario-reply.js";
-import type { ConsoleScenario } from "../../../bridge/scenario-runtime/scenario.js";
+import type { ScenarioReply } from "../../../bridge/scenario/runtime/reply.js";
+import type { ConsoleScenario } from "../../../bridge/scenario/runtime/vocabulary.js";
 
 /** A real UUID, because the registered run identifier is a branded UUID. */
 export const TARGET_RUN_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";

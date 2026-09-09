@@ -92,14 +92,6 @@ const PROVENANCE_READ_DISPOSAL: SubjectScopedDisposal<ProducedArtifactLedger> = 
   isClosed: isProvenanceReadClosed,
 };
 
-function disposeProvenanceRead(read: ProducedArtifactLedger): void {
-  read.dispose();
-}
-
-function isProvenanceReadClosed(read: ProducedArtifactLedger): boolean {
-  return read.isDisposed;
-}
-
 /**
  * The daemon's ledger for one session, refreshed by the beats the shelf folds.
  *
@@ -191,21 +183,6 @@ export function useBrowserProducedObjects(
 }
 
 /**
- * The ledger as a membership set, or nothing where the daemon has not answered.
- *
- * BOTH UNSETTLED ARMS READ AS UNANSWERED, and that is the whole of the rule an empty
- * set would break. An empty set is the daemon saying the browser produced nothing;
- * `not-loaded` is a read still in flight and `failed` is a build where the wire is not
- * registered at all, and publishing "nothing produced" for either would put a claim in
- * front of a person that nothing established.
- */
-function ledgerSetOf(
-  state: PushDrivenReadState<readonly string[]>,
-): ReadonlySet<string> | undefined {
-  return state.kind === "loaded" ? new Set(state.value) : undefined;
-}
-
-/**
  * The union, as a pure reduction so a test can drive it without a bridge.
  *
  * THE LOCAL CARDS WIN ON A SHARED KEY, and that is the only ordering that can be
@@ -224,4 +201,27 @@ export function joinProducedObjects(
     joined.set(producedObjectArtifactId(card), card);
   }
   return joined;
+}
+
+function disposeProvenanceRead(read: ProducedArtifactLedger): void {
+  read.dispose();
+}
+
+function isProvenanceReadClosed(read: ProducedArtifactLedger): boolean {
+  return read.isDisposed;
+}
+
+/**
+ * The ledger as a membership set, or nothing where the daemon has not answered.
+ *
+ * BOTH UNSETTLED ARMS READ AS UNANSWERED, and that is the whole of the rule an empty
+ * set would break. An empty set is the daemon saying the browser produced nothing;
+ * `not-loaded` is a read still in flight and `failed` is a build where the wire is not
+ * registered at all, and publishing "nothing produced" for either would put a claim in
+ * front of a person that nothing established.
+ */
+function ledgerSetOf(
+  state: PushDrivenReadState<readonly string[]>,
+): ReadonlySet<string> | undefined {
+  return state.kind === "loaded" ? new Set(state.value) : undefined;
 }

@@ -9,7 +9,7 @@
 // EVERY EVENT CARRIES A REAL ROW ID. The hydrated-event read is keyed by it, so a
 // store seeded without one holds rows nothing could ever ask about.
 
-import { EVENT_ID_STEM } from "../../../bridge/scenarios/ledger/ledger-cast.js";
+import { EVENT_ID_STEM } from "../../../bridge/scenario/ledger/ledger-cast.js";
 import { SessionStore } from "../../../store/index.js";
 
 export const SESSION_ID = "session-ledger-feed";

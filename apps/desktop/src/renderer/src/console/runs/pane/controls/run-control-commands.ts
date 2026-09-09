@@ -210,55 +210,6 @@ export function runControlCommandRows(
 }
 
 /**
- * One command, closed over nothing that moves.
- *
- * The ref is read inside `run` rather than at build time, so a command built when
- * a run was at version 4 dispatches against whatever version the stream has
- * reached by the time somebody presses Enter, which is exactly what the row's own
- * button does and the reason a stale comparand cannot be baked into a palette
- * entry that outlives it.
- */
-function buildRunControlCommand(
-  row: RunControlCommandRow,
-  inputRef: React.RefObject<RunControlCommandInput>,
-  /** The block's own sentence where one closes this control's method, else absent. */
-  unavailable: string | undefined,
-): ConsoleCommand {
-  return {
-    id: `runs.${row.control}.${row.runId}`,
-    title: row.title,
-    group: RUN_CONTROL_COMMAND_GROUP,
-    when: RUN_CONTROL_COMMAND_WHEN,
-    keywords: [row.runId, RUN_CONTROL_PRESENTATION[row.control].label],
-    ...(unavailable === undefined ? {} : { unavailable }),
-    run: () => {
-      dispatchRunControlCommand(row, inputRef.current);
-    },
-  };
-}
-
-/**
- * The empty state's act, as a palette row.
- *
- * It carries the button's own label rather than a title of its own, so the two names
- * for one act cannot drift, and it reads the offer through the ref for the reason
- * every row here does: the pane can fill with runs between the row being contributed
- * and somebody pressing Enter.
- */
-function buildRunStartCommand(inputRef: React.RefObject<RunControlCommandInput>): ConsoleCommand {
-  return {
-    id: RUN_START_COMMAND_ID,
-    title: RUN_START_ACTION_LABEL,
-    group: RUN_CONTROL_COMMAND_GROUP,
-    when: RUN_CONTROL_COMMAND_WHEN,
-    keywords: ["compose", "message", "start"],
-    run: () => {
-      performRunStart(inputRef.current);
-    },
-  };
-}
-
-/**
  * Ask the composer for the caret, while the pane's own control still asks for it.
  *
  * The re-read is not ceremony: a run arriving in the gap takes the empty state off
@@ -326,4 +277,53 @@ export function dispatchRunControlCommand(
       }
     }
   });
+}
+
+/**
+ * One command, closed over nothing that moves.
+ *
+ * The ref is read inside `run` rather than at build time, so a command built when
+ * a run was at version 4 dispatches against whatever version the stream has
+ * reached by the time somebody presses Enter, which is exactly what the row's own
+ * button does and the reason a stale comparand cannot be baked into a palette
+ * entry that outlives it.
+ */
+function buildRunControlCommand(
+  row: RunControlCommandRow,
+  inputRef: React.RefObject<RunControlCommandInput>,
+  /** The block's own sentence where one closes this control's method, else absent. */
+  unavailable: string | undefined,
+): ConsoleCommand {
+  return {
+    id: `runs.${row.control}.${row.runId}`,
+    title: row.title,
+    group: RUN_CONTROL_COMMAND_GROUP,
+    when: RUN_CONTROL_COMMAND_WHEN,
+    keywords: [row.runId, RUN_CONTROL_PRESENTATION[row.control].label],
+    ...(unavailable === undefined ? {} : { unavailable }),
+    run: () => {
+      dispatchRunControlCommand(row, inputRef.current);
+    },
+  };
+}
+
+/**
+ * The empty state's act, as a palette row.
+ *
+ * It carries the button's own label rather than a title of its own, so the two names
+ * for one act cannot drift, and it reads the offer through the ref for the reason
+ * every row here does: the pane can fill with runs between the row being contributed
+ * and somebody pressing Enter.
+ */
+function buildRunStartCommand(inputRef: React.RefObject<RunControlCommandInput>): ConsoleCommand {
+  return {
+    id: RUN_START_COMMAND_ID,
+    title: RUN_START_ACTION_LABEL,
+    group: RUN_CONTROL_COMMAND_GROUP,
+    when: RUN_CONTROL_COMMAND_WHEN,
+    keywords: ["compose", "message", "start"],
+    run: () => {
+      performRunStart(inputRef.current);
+    },
+  };
 }

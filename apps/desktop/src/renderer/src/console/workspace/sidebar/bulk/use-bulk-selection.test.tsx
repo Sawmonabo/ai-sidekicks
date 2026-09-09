@@ -9,7 +9,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
-import { COMPOSER_SCENARIO } from "../../../bridge/scenarios/composer.js";
+import { COMPOSER_SCENARIO } from "../../../bridge/scenario/composer/composer.js";
 import { type SidebarBulkItem } from "../../../seats/index.js";
 import { useBulkSelectionModel, useBulkSelectionSnapshot } from "./use-bulk-selection.js";
 

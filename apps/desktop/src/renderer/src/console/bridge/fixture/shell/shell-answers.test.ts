@@ -24,9 +24,9 @@ import { describe, expect, it } from "vitest";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import type { ShellReport } from "../../../store/index.js";
 import type { GrowthStream } from "../../growth-port/growth-outcome.js";
-import { ScenarioEngine } from "../../scenario-runtime/index.js";
-import { BRING_YOUR_HISTORY_SCENARIO } from "../../scenarios/bring-your-history.js";
-import { SHELL_SCENARIO } from "../../scenarios/shell.js";
+import { ScenarioEngine } from "../../scenario/runtime/index.js";
+import { BRING_YOUR_HISTORY_SCENARIO } from "../../scenario/bring-your-history.js";
+import { SHELL_SCENARIO } from "../../scenario/shell.js";
 import { fixtureShellAnswers } from "./shell-answers.js";
 
 /** The plane under test, over one shipped scenario. */

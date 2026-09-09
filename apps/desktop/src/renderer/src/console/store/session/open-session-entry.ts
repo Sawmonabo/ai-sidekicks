@@ -168,26 +168,6 @@ export interface OpenSessionEntryOptions {
   readonly refreshMaxWaitMs?: number;
 }
 
-/**
- * Whether one `applyBatch` left the projection known-incomplete, so an
- * authoritative re-read is owed.
- *
- * Read off the outcome's OWN discriminants, never off the store's degraded cause —
- * that flag is sticky until a re-pull clears it, so it would make every batch after
- * the first look repair-worthy. These four are exactly the counts `applyBatch`
- * raises one for. `duplicates` and `refusedForeignSession` are absent on purpose: a
- * re-delivery costs nothing, a foreign-session event is a routing defect one layer
- * up, and neither leaves a hole in THIS store that a read could fill.
- */
-function needsAuthoritativeRepull(outcome: ApplyOutcome): boolean {
-  return (
-    outcome.gapDetected ||
-    outcome.droppedBeforeInitialisation > 0 ||
-    outcome.refusedDivergedSequence > 0 ||
-    outcome.projectionFailures > 0
-  );
-}
-
 /** One open session: its store and the two schedulers bound to it. */
 export class OpenSessionEntry {
   public readonly store: SessionStore;
@@ -382,4 +362,24 @@ export class OpenSessionEntry {
     this.#resumeFromCursor =
       decision.fromCursor === this.#unresolvableCursor ? undefined : decision.fromCursor;
   }
+}
+
+/**
+ * Whether one `applyBatch` left the projection known-incomplete, so an
+ * authoritative re-read is owed.
+ *
+ * Read off the outcome's OWN discriminants, never off the store's degraded cause —
+ * that flag is sticky until a re-pull clears it, so it would make every batch after
+ * the first look repair-worthy. These four are exactly the counts `applyBatch`
+ * raises one for. `duplicates` and `refusedForeignSession` are absent on purpose: a
+ * re-delivery costs nothing, a foreign-session event is a routing defect one layer
+ * up, and neither leaves a hole in THIS store that a read could fill.
+ */
+function needsAuthoritativeRepull(outcome: ApplyOutcome): boolean {
+  return (
+    outcome.gapDetected ||
+    outcome.droppedBeforeInitialisation > 0 ||
+    outcome.refusedDivergedSequence > 0 ||
+    outcome.projectionFailures > 0
+  );
 }

@@ -50,11 +50,8 @@ import { ForwardingConsoleClock, type ConsoleClock } from "../core/index.js";
 import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
 import { createFixtureBridge } from "./fixture/index.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
-import { consoleScenario } from "./scenario-runtime/scenario-manifest.js";
-import {
-  DEFAULT_SCENARIO_ID,
-  ScenarioFixtureControl,
-} from "./scenario-runtime/scenario-selection.js";
+import { consoleScenario } from "./scenario/index.js";
+import { DEFAULT_SCENARIO_ID, ScenarioFixtureControl } from "./scenario/selection.js";
 
 /** Why the console has no bridge at all. Rendered as the "error" kind of nothing. */
 export interface BridgeUnavailable {
@@ -88,6 +85,115 @@ export interface SidekicksBridgeProviderProps {
    * for, on the boards' rule: a test or an auxiliary window composes its own.
    */
   readonly clockToRebind?: ForwardingConsoleClock;
+}
+
+/**
+ * Resolve the bridge once and hand it down.
+ *
+ * The resolution is held as STATE, replaced only when the props it was resolved
+ * from change or its own engine has been torn down — see the module header for why
+ * neither a memo nor a plain re-creation is correct for a resource with a lifetime.
+ */
+export function SidekicksBridgeProvider(props: SidekicksBridgeProviderProps): React.JSX.Element {
+  const { children, bridge, scenarioId, clockToRebind } = props;
+  const [resolved, setResolved] = useState<ResolvedConsoleBridge>(
+    () => new ResolvedConsoleBridge(bridge, scenarioId),
+  );
+
+  // The one clock the window reads, handed to the identity a caller armed before this
+  // tree existed. From the LAYOUT phase for `useConsoleClock`'s own reason: every
+  // layout effect for a commit runs before any passive effect for it, so a consumer
+  // reading time from an effect reads the clock this commit resolved. An unavailable
+  // resolution has no clock to hand over and leaves the identity on whatever it was
+  // constructed with, which is the honest reading for a window that has no bridge.
+  useLayoutEffect(() => {
+    const resolution = resolved.resolution;
+    if (clockToRebind === undefined || resolution.status !== "ready") {
+      return;
+    }
+    clockToRebind.holdClock(consoleClockFor(resolution.bridge));
+  }, [clockToRebind, resolved]);
+
+  // One effect, because replacement and installation are one decision made in one
+  // order: the previous resolution's teardown has already run by the time this
+  // body sees a superseded one, so the replacement never disposes something a
+  // later commit still reads.
+  //
+  // `__SIDEKICKS_CONSOLE_FIXTURES__` is a literal at build time, so a release
+  // bundle folds the install to nothing and drops `scenario-selection.js` with it.
+  // The replacement arm is NOT inside that guard: the resolution is replaced under
+  // the live bridge too, and a `bridge` prop that changes has to be honoured in
+  // every build.
+  useEffect(() => {
+    if (resolved.isSupersededBy(bridge, scenarioId)) {
+      setResolved(new ResolvedConsoleBridge(bridge, scenarioId));
+      return undefined;
+    }
+    if (__SIDEKICKS_CONSOLE_FIXTURES__) {
+      return installScenarioControl(resolved, globalThis as unknown as Record<string, unknown>);
+    }
+    return undefined;
+  }, [resolved, bridge, scenarioId]);
+
+  return <BridgeContext.Provider value={resolved.resolution}>{children}</BridgeContext.Provider>;
+}
+
+/**
+ * The bridge, or a throw. A component that reaches for the bridge outside the
+ * provider is a wiring bug, and a `undefined` return would let it render an empty
+ * state that looks like "no data" — the exact conflation the five kinds of nothing
+ * forbid.
+ */
+export function useConsoleBridge(): ConsoleBridge {
+  const resolution = useBridgeResolution();
+  if (resolution.status === "unavailable") {
+    throw new Error(`console bridge unavailable: ${resolution.unavailable.detail}`);
+  }
+  return resolution.bridge;
+}
+
+/**
+ * The clock this window runs on, pinned to the bridge it was resolved from.
+ *
+ * `consoleClockFor` is the one answer to which clock a window reads, and the
+ * resolution is HELD rather than recomputed: its real arm mints a fresh `RealClock`
+ * per call, so read straight from a render body the value would have a new identity
+ * on every pass and every consumer that treats a clock as a resource identity would
+ * tear itself down and rebuild once per render. A resource identity is state.
+ *
+ * A WINDOW'S CLOCK DOES CHANGE UNDER IT, WHICH IS WHY THE PIN IS AN OBJECT AND NOT A
+ * READING. The provider above replaces its resolution IN PLACE — `setResolved`, with
+ * no remount of the tree below — so a bridge carrying a different scenario engine
+ * arrives under a live mount, and a pinned reading would go on answering from the
+ * retired engine's frozen clock. `ForwardingConsoleClock` is one identity whose
+ * methods answer from whichever clock the window holds now, and whose `cancel` routes
+ * to the clock that armed the work rather than to the current one — the announcer
+ * arms a hold deadline and cancels it, across exactly this replacement.
+ *
+ * The clock is handed over from the LAYOUT phase for the reason the resource
+ * substrate states about a disposal: every layout effect for a commit runs before any
+ * passive effect for it, so a consumer's effect reads the clock that commit resolved.
+ * The one render that first sees a new bridge still answers from the old clock, which
+ * costs nothing here — every consumer of this hook reads time from an effect.
+ */
+export function useConsoleClock(): ConsoleClock {
+  const bridge = useConsoleBridge();
+  const [clock] = useState(() => new ForwardingConsoleClock(consoleClockFor(bridge)));
+  useLayoutEffect(() => {
+    clock.holdClock(consoleClockFor(bridge));
+  }, [clock, bridge]);
+  return clock;
+}
+
+/** The resolution including its failure arm, for the frame's own error surface. */
+export function useBridgeResolution(): BridgeResolution {
+  const resolution = useContext(BridgeContext);
+  if (resolution === undefined) {
+    throw new Error(
+      "useConsoleBridge was called outside <SidekicksBridgeProvider>. Every console surface renders inside the provider so the fixture is substitutable.",
+    );
+  }
+  return resolution;
 }
 
 /**
@@ -197,57 +303,6 @@ function installScenarioControl(
   };
 }
 
-/**
- * Resolve the bridge once and hand it down.
- *
- * The resolution is held as STATE, replaced only when the props it was resolved
- * from change or its own engine has been torn down — see the module header for why
- * neither a memo nor a plain re-creation is correct for a resource with a lifetime.
- */
-export function SidekicksBridgeProvider(props: SidekicksBridgeProviderProps): React.JSX.Element {
-  const { children, bridge, scenarioId, clockToRebind } = props;
-  const [resolved, setResolved] = useState<ResolvedConsoleBridge>(
-    () => new ResolvedConsoleBridge(bridge, scenarioId),
-  );
-
-  // The one clock the window reads, handed to the identity a caller armed before this
-  // tree existed. From the LAYOUT phase for `useConsoleClock`'s own reason: every
-  // layout effect for a commit runs before any passive effect for it, so a consumer
-  // reading time from an effect reads the clock this commit resolved. An unavailable
-  // resolution has no clock to hand over and leaves the identity on whatever it was
-  // constructed with, which is the honest reading for a window that has no bridge.
-  useLayoutEffect(() => {
-    const resolution = resolved.resolution;
-    if (clockToRebind === undefined || resolution.status !== "ready") {
-      return;
-    }
-    clockToRebind.holdClock(consoleClockFor(resolution.bridge));
-  }, [clockToRebind, resolved]);
-
-  // One effect, because replacement and installation are one decision made in one
-  // order: the previous resolution's teardown has already run by the time this
-  // body sees a superseded one, so the replacement never disposes something a
-  // later commit still reads.
-  //
-  // `__SIDEKICKS_CONSOLE_FIXTURES__` is a literal at build time, so a release
-  // bundle folds the install to nothing and drops `scenario-selection.js` with it.
-  // The replacement arm is NOT inside that guard: the resolution is replaced under
-  // the live bridge too, and a `bridge` prop that changes has to be honoured in
-  // every build.
-  useEffect(() => {
-    if (resolved.isSupersededBy(bridge, scenarioId)) {
-      setResolved(new ResolvedConsoleBridge(bridge, scenarioId));
-      return undefined;
-    }
-    if (__SIDEKICKS_CONSOLE_FIXTURES__) {
-      return installScenarioControl(resolved, globalThis as unknown as Record<string, unknown>);
-    }
-    return undefined;
-  }, [resolved, bridge, scenarioId]);
-
-  return <BridgeContext.Provider value={resolved.resolution}>{children}</BridgeContext.Provider>;
-}
-
 function resolveBridge(
   suppliedBridge: ConsoleBridge | undefined,
   scenarioId: string | undefined,
@@ -275,62 +330,4 @@ function resolveBridge(
     };
   }
   return { status: "ready", bridge: createLiveBridge(installed) };
-}
-
-/**
- * The bridge, or a throw. A component that reaches for the bridge outside the
- * provider is a wiring bug, and a `undefined` return would let it render an empty
- * state that looks like "no data" — the exact conflation the five kinds of nothing
- * forbid.
- */
-export function useConsoleBridge(): ConsoleBridge {
-  const resolution = useBridgeResolution();
-  if (resolution.status === "unavailable") {
-    throw new Error(`console bridge unavailable: ${resolution.unavailable.detail}`);
-  }
-  return resolution.bridge;
-}
-
-/**
- * The clock this window runs on, pinned to the bridge it was resolved from.
- *
- * `consoleClockFor` is the one answer to which clock a window reads, and the
- * resolution is HELD rather than recomputed: its real arm mints a fresh `RealClock`
- * per call, so read straight from a render body the value would have a new identity
- * on every pass and every consumer that treats a clock as a resource identity would
- * tear itself down and rebuild once per render. A resource identity is state.
- *
- * A WINDOW'S CLOCK DOES CHANGE UNDER IT, WHICH IS WHY THE PIN IS AN OBJECT AND NOT A
- * READING. The provider above replaces its resolution IN PLACE — `setResolved`, with
- * no remount of the tree below — so a bridge carrying a different scenario engine
- * arrives under a live mount, and a pinned reading would go on answering from the
- * retired engine's frozen clock. `ForwardingConsoleClock` is one identity whose
- * methods answer from whichever clock the window holds now, and whose `cancel` routes
- * to the clock that armed the work rather than to the current one — the announcer
- * arms a hold deadline and cancels it, across exactly this replacement.
- *
- * The clock is handed over from the LAYOUT phase for the reason the resource
- * substrate states about a disposal: every layout effect for a commit runs before any
- * passive effect for it, so a consumer's effect reads the clock that commit resolved.
- * The one render that first sees a new bridge still answers from the old clock, which
- * costs nothing here — every consumer of this hook reads time from an effect.
- */
-export function useConsoleClock(): ConsoleClock {
-  const bridge = useConsoleBridge();
-  const [clock] = useState(() => new ForwardingConsoleClock(consoleClockFor(bridge)));
-  useLayoutEffect(() => {
-    clock.holdClock(consoleClockFor(bridge));
-  }, [clock, bridge]);
-  return clock;
-}
-
-/** The resolution including its failure arm, for the frame's own error surface. */
-export function useBridgeResolution(): BridgeResolution {
-  const resolution = useContext(BridgeContext);
-  if (resolution === undefined) {
-    throw new Error(
-      "useConsoleBridge was called outside <SidekicksBridgeProvider>. Every console surface renders inside the provider so the fixture is substitutable.",
-    );
-  }
-  return resolution;
 }

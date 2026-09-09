@@ -104,21 +104,6 @@ import type { SessionStoreRegistry } from "../../store/index.js";
 /** The site every tripwire this module reports names. */
 const SITE = "console/frame/session-event-binder.ts";
 
-/**
- * The subscribe call, with the one brand bypass this module makes.
- *
- * The bridge declares `daemon.subscribe<E extends DaemonEvent>(event: E, handler:
- * (payload: DaemonEventPayload<E>) => void): Unsubscribe`, where the event name is
- * a `never`-shaped brand and the payload resolves to `unknown` — both stubs until
- * the daemon's event union lands. The event name is pinned to `string` (the
- * genuinely untypeable half) and the payload left `unknown`, which is honest: a
- * tighter payload type here would be a fiction, and `readConsoleSessionEvent`
- * (`bridge/daemon/session-event-payload.ts`) is what turns the `unknown` into something the
- * store may hold. Same posture as the two shipped renderer families that already
- * subscribe this way.
- */
-type SessionStreamSubscribe = (event: string, handler: (payload: unknown) => void) => Unsubscribe;
-
 export interface SessionEventBinderOptions {
   readonly registry: SessionStoreRegistry;
   readonly bridge: ConsoleBridge;
@@ -398,3 +383,18 @@ export class SessionEventBinder {
     });
   }
 }
+
+/**
+ * The subscribe call, with the one brand bypass this module makes.
+ *
+ * The bridge declares `daemon.subscribe<E extends DaemonEvent>(event: E, handler:
+ * (payload: DaemonEventPayload<E>) => void): Unsubscribe`, where the event name is
+ * a `never`-shaped brand and the payload resolves to `unknown` — both stubs until
+ * the daemon's event union lands. The event name is pinned to `string` (the
+ * genuinely untypeable half) and the payload left `unknown`, which is honest: a
+ * tighter payload type here would be a fiction, and `readConsoleSessionEvent`
+ * (`bridge/daemon/session-event-payload.ts`) is what turns the `unknown` into something the
+ * store may hold. Same posture as the two shipped renderer families that already
+ * subscribe this way.
+ */
+type SessionStreamSubscribe = (event: string, handler: (payload: unknown) => void) => Unsubscribe;

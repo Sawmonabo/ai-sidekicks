@@ -28,8 +28,8 @@ import {
   subscribeThroughBridge,
 } from "./bridge.test-support.js";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
-import type { ConsoleScenario } from "../../scenario-runtime/scenario.js";
-import { FLAGSHIP_SCENARIO } from "../../scenarios/flagship.js";
+import type { ConsoleScenario } from "../../scenario/runtime/vocabulary.js";
+import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
 import { SESSION_EVENT_STREAM } from "../../daemon/session-event-streams.js";
 import { SCENARIO_PENDING_REPLY_CAP } from "../../../core/index.js";
 

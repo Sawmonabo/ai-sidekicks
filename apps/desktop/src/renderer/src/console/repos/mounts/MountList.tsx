@@ -7,6 +7,27 @@ import { SessionStore, type FrameStore } from "../../store/index.js";
 import { type WorkspaceId, type ExecutionMode } from "@ai-sidekicks/contracts";
 import { NOT_READ_TITLE } from "./repo-mounts-copy.js";
 
+export interface MountListProps {
+  readonly reading: RepoMountsReading;
+  /** Passed down rather than reached for: each root's gate performs its own read. */
+  readonly bridge: ConsoleBridge;
+  /** Passed down for the same reason: each root's gate arms its own refresh triggers. */
+  readonly sessionStore: SessionStore;
+  /**
+   * The window's own shell condition, handed down so each act can read the one method
+   * it sends. The FRAME's store and not the session's: a supervisor going down is a
+   * fact about this window's runtime, and every window watching the same session reads
+   * its own.
+   */
+  readonly frameStore: FrameStore;
+  readonly onCopy: (canonicalRoot: string) => void;
+  /** Read the section again after a participant's own act. Passed through to each card. */
+  readonly onRequestRead: () => void;
+  readonly onSelect: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
+  /** Open a change set over one row's subject. Passed through to each card. */
+  readonly onOpenDiff: (subject: OpenDiffSubject) => void;
+}
+
 export function MountList(props: MountListProps): React.JSX.Element | null {
   const { reading } = props;
   if (reading.mounts.length > 0) {
@@ -70,25 +91,4 @@ export function MountList(props: MountListProps): React.JSX.Element | null {
       detail="This section will name each mount's resolved root, the node that owns it, and whether it is still the repository it was attached as."
     />
   );
-}
-
-export interface MountListProps {
-  readonly reading: RepoMountsReading;
-  /** Passed down rather than reached for: each root's gate performs its own read. */
-  readonly bridge: ConsoleBridge;
-  /** Passed down for the same reason: each root's gate arms its own refresh triggers. */
-  readonly sessionStore: SessionStore;
-  /**
-   * The window's own shell condition, handed down so each act can read the one method
-   * it sends. The FRAME's store and not the session's: a supervisor going down is a
-   * fact about this window's runtime, and every window watching the same session reads
-   * its own.
-   */
-  readonly frameStore: FrameStore;
-  readonly onCopy: (canonicalRoot: string) => void;
-  /** Read the section again after a participant's own act. Passed through to each card. */
-  readonly onRequestRead: () => void;
-  readonly onSelect: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
-  /** Open a change set over one row's subject. Passed through to each card. */
-  readonly onOpenDiff: (subject: OpenDiffSubject) => void;
 }

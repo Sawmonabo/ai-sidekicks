@@ -22,7 +22,7 @@ import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../call-plane/bridge.js";
 import { fixtureSessionSnapshot } from "./session-snapshot.js";
-import { FLAGSHIP_SCENARIO } from "../../scenarios/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
 import { membershipRoleOf } from "../../daemon/entity-body-reads.js";
 import type { ConsoleEntity } from "../../../store/index.js";
 import { SessionStore } from "../../../store/session/session-store.js";

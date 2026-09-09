@@ -85,17 +85,6 @@ export const ATTENTION_RUN_STATE_KINDS: readonly string[] = ATTENTION_RUN_STATES
 const RUN_CORRELATION_MEMBER = "runId";
 
 /**
- * The run a run-lifecycle event is about, or `undefined` where the wire named none.
- *
- * Here rather than at the call site so the member name is spelt once: a caller reading
- * the payload itself would be a second place that knows what a run event calls its run,
- * and the two would drift the first time the taxonomy moved.
- */
-export function runIdOf(event: ConsoleSessionEvent): string | undefined {
-  return correlationIdOf(event, RUN_CORRELATION_MEMBER);
-}
-
-/**
  * One request-scoped lifecycle: what opens it, what closes it, and where its id is.
  *
  * A table rather than three `if` branches because the correlation member is the part
@@ -124,6 +113,17 @@ export interface RequestLifecycle {
    * `core/driver-ask-identity.ts` is.
    */
   readonly scopeMember?: string;
+}
+
+/**
+ * The run a run-lifecycle event is about, or `undefined` where the wire named none.
+ *
+ * Here rather than at the call site so the member name is spelt once: a caller reading
+ * the payload itself would be a second place that knows what a run event calls its run,
+ * and the two would drift the first time the taxonomy moved.
+ */
+export function runIdOf(event: ConsoleSessionEvent): string | undefined {
+  return correlationIdOf(event, RUN_CORRELATION_MEMBER);
 }
 
 export const REQUEST_LIFECYCLES: readonly RequestLifecycle[] = [
@@ -164,18 +164,6 @@ export const REQUEST_LIFECYCLES: readonly RequestLifecycle[] = [
  */
 export function isAttentionRunState(state: string | undefined): boolean {
   return state !== undefined && (ATTENTION_RUN_STATES as readonly string[]).includes(state);
-}
-
-/**
- * Read one correlation id off a payload, or `undefined`.
- *
- * A non-string is `undefined` rather than coerced: an id is what the wire says it is,
- * and stringifying whatever arrived would key two different asks on `"[object Object]"`
- * and let one close the other.
- */
-function correlationIdOf(event: ConsoleSessionEvent, member: string): string | undefined {
-  const value = event.payload?.[member];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 /**
@@ -238,4 +226,16 @@ export function lifecycleFor(kind: string): RequestLifecycle | undefined {
   return REQUEST_LIFECYCLES.find(
     (lifecycle) => lifecycle.openedBy === kind || lifecycle.closedBy.includes(kind),
   );
+}
+
+/**
+ * Read one correlation id off a payload, or `undefined`.
+ *
+ * A non-string is `undefined` rather than coerced: an id is what the wire says it is,
+ * and stringifying whatever arrived would key two different asks on `"[object Object]"`
+ * and let one close the other.
+ */
+function correlationIdOf(event: ConsoleSessionEvent, member: string): string | undefined {
+  const value = event.payload?.[member];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }

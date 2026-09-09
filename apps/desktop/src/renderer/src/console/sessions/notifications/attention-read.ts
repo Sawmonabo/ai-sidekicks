@@ -64,61 +64,6 @@ import {
 const ATTENTION_READ_ORIGIN = "attention-plane";
 
 /**
- * Watch both halves of the set this read is fanned out over, as one signal.
- *
- * TWO SUBSCRIPTIONS AND ONE READ. They answer different sessions — the stores speak
- * for the ones this window has open, the bridge for every session it can name — and
- * a window that took only the first went permanently quiet about a directory session
- * it never opened. Both are opaque, both call the same handler, and the read they
- * wake coalesces through `store/read/refresh-scheduler.ts`, so a change the two happen to report
- * together still costs one read rather than two.
- *
- * Released in the order they were taken, and every one of them: a partial teardown
- * would leave the surviving half signalling into a read that has been disposed.
- */
-function subscribeToAttentionChanges(
-  bridge: ConsoleBridge,
-  sessionStoreRegistry: SessionStoreRegistry,
-  onChangeSignal: () => void,
-): Unsubscribe {
-  const releases: readonly Unsubscribe[] = [
-    subscribeToOpenSessions(sessionStoreRegistry, onChangeSignal),
-    bridge.attentionSubscribe(onChangeSignal),
-  ];
-  return () => {
-    for (const release of releases) {
-      release();
-    }
-  };
-}
-
-/** The read's three states as the plane's four phases. Written once, here. */
-function attentionReadingFrom(
-  state: PushDrivenReadState<AttentionProjectionRead | undefined>,
-): AttentionReading {
-  if (state.kind === "not-loaded") {
-    return { phase: "reading" };
-  }
-  if (state.kind === "failed") {
-    return { phase: "refused", refusal: state.refusal };
-  }
-  if (state.value === undefined) {
-    return { phase: "not-asked" };
-  }
-  const narrowed = narrowAttentionProjection(state.value.members);
-  return {
-    phase: "read",
-    plane: new AttentionPlane(narrowed.items),
-    droppedCount: narrowed.droppedCount,
-    // Both halves of coverage carried through untouched: which sessions were asked
-    // and which of them went unanswered are the reader's facts, and re-deriving
-    // either here would be a second authority on what this read speaks for.
-    refusedSessions: state.value.refusedSessions,
-    addressedSessionIds: state.value.addressedSessionIds,
-  };
-}
-
-/**
  * What this destination holds: the reading, and the way back into a read that refused.
  *
  * A pair rather than a phase on {@link AttentionReading}, because the plane's phases
@@ -227,4 +172,59 @@ export function useAttentionSettlementAnnouncement(reading: AttentionReading): v
   useSettlementAnnouncement(
     reading.phase === "reading" ? undefined : describeAttentionSettlement(reading),
   );
+}
+
+/**
+ * Watch both halves of the set this read is fanned out over, as one signal.
+ *
+ * TWO SUBSCRIPTIONS AND ONE READ. They answer different sessions — the stores speak
+ * for the ones this window has open, the bridge for every session it can name — and
+ * a window that took only the first went permanently quiet about a directory session
+ * it never opened. Both are opaque, both call the same handler, and the read they
+ * wake coalesces through `store/read/refresh-scheduler.ts`, so a change the two happen to report
+ * together still costs one read rather than two.
+ *
+ * Released in the order they were taken, and every one of them: a partial teardown
+ * would leave the surviving half signalling into a read that has been disposed.
+ */
+function subscribeToAttentionChanges(
+  bridge: ConsoleBridge,
+  sessionStoreRegistry: SessionStoreRegistry,
+  onChangeSignal: () => void,
+): Unsubscribe {
+  const releases: readonly Unsubscribe[] = [
+    subscribeToOpenSessions(sessionStoreRegistry, onChangeSignal),
+    bridge.attentionSubscribe(onChangeSignal),
+  ];
+  return () => {
+    for (const release of releases) {
+      release();
+    }
+  };
+}
+
+/** The read's three states as the plane's four phases. Written once, here. */
+function attentionReadingFrom(
+  state: PushDrivenReadState<AttentionProjectionRead | undefined>,
+): AttentionReading {
+  if (state.kind === "not-loaded") {
+    return { phase: "reading" };
+  }
+  if (state.kind === "failed") {
+    return { phase: "refused", refusal: state.refusal };
+  }
+  if (state.value === undefined) {
+    return { phase: "not-asked" };
+  }
+  const narrowed = narrowAttentionProjection(state.value.members);
+  return {
+    phase: "read",
+    plane: new AttentionPlane(narrowed.items),
+    droppedCount: narrowed.droppedCount,
+    // Both halves of coverage carried through untouched: which sessions were asked
+    // and which of them went unanswered are the reader's facts, and re-deriving
+    // either here would be a second authority on what this read speaks for.
+    refusedSessions: state.value.refusedSessions,
+    addressedSessionIds: state.value.addressedSessionIds,
+  };
 }

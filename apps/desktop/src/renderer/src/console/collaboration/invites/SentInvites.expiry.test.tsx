@@ -25,8 +25,8 @@ import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-suppo
 import { quietShell } from "../../store/shell-condition.test-support.js";
 import { SentInvites } from "./SentInvites.js";
 import { settle } from "./sent-invites.test-support.js";
-import { COLLABORATION_SCENARIO } from "../../bridge/scenarios/collaboration.js";
-import { INVITE_EXPIRING } from "../../bridge/scenarios/collaboration/identifiers.js";
+import { COLLABORATION_SCENARIO } from "../../bridge/scenario/collaboration/collaboration.js";
+import { INVITE_EXPIRING } from "../../bridge/scenario/collaboration/identifiers.js";
 import { createFixtureBridge } from "../../bridge/fixture/call-plane/bridge.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 

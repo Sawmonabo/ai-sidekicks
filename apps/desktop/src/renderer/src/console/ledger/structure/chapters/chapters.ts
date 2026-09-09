@@ -149,45 +149,6 @@ export interface LedgerChapterFold {
   readonly unchapteredRowIds: readonly string[];
 }
 
-/** A chapter under construction. Mutable only inside the fold. */
-interface ChapterAccumulator {
-  readonly runId: string;
-  readonly rowIds: string[];
-  actorId: string | undefined;
-  terminalEventType: ChapterTerminalEventType | undefined;
-  terminalRowId: string | undefined;
-  runStateEventType: string | undefined;
-  payingAccountId: string | undefined;
-  /** The bounded head this chapter's body will draw. Fed one row at a time. */
-  readonly bodyRows: ChapterBodyRowWindow;
-  firstSequence: number;
-  lastSequence: number;
-  firstTimestamp: string;
-  lastTimestamp: string;
-  /**
-   * The LATEST completeness this chapter's rows reported for each child run.
-   *
-   * Per child and replaced in row order rather than folded into a boolean, because the
-   * question the header asks — is any child of this chapter still partly expanded — is
-   * a question about the current readings and not about every reading there has ever
-   * been. Keyed by the child's own run id, which is the key
-   * `child-runs/child-run-entries.ts` re-summarizes on, so the header and the card
-   * cannot disagree about which observation is current.
-   */
-  readonly childExpandCompletenessByChildRunId: Map<string, ChildRunCompleteness["state"]>;
-}
-
-/**
- * The run a row belongs to, or `undefined` for a row that belongs to none.
- *
- * Narrowed on `kind` rather than on `type`, which is the narrowing
- * `@ai-sidekicks/contracts` states its own arms are for: `runId` is a required
- * member of three arms and structurally absent from the fourth.
- */
-export function runIdOfChapteredRow(row: TimelineRow): string | undefined {
-  return row.kind === "general" ? undefined : row.runId;
-}
-
 /**
  * The chapter fold over one loaded window.
  *
@@ -238,6 +199,17 @@ export class LedgerChapterIndex {
 }
 
 /**
+ * The run a row belongs to, or `undefined` for a row that belongs to none.
+ *
+ * Narrowed on `kind` rather than on `type`, which is the narrowing
+ * `@ai-sidekicks/contracts` states its own arms are for: `runId` is a required
+ * member of three arms and structurally absent from the fourth.
+ */
+export function runIdOfChapteredRow(row: TimelineRow): string | undefined {
+  return row.kind === "general" ? undefined : row.runId;
+}
+
+/**
  * Partition one loaded window into chapters.
  *
  * Exported beside the class so the derivation can be driven directly by a test
@@ -266,6 +238,34 @@ export function foldChapters(rows: readonly TimelineRow[]): LedgerChapterFold {
     chapters: [...accumulatorsByRunId.values()].map(sealChapter),
     unchapteredRowIds,
   };
+}
+
+/** A chapter under construction. Mutable only inside the fold. */
+interface ChapterAccumulator {
+  readonly runId: string;
+  readonly rowIds: string[];
+  actorId: string | undefined;
+  terminalEventType: ChapterTerminalEventType | undefined;
+  terminalRowId: string | undefined;
+  runStateEventType: string | undefined;
+  payingAccountId: string | undefined;
+  /** The bounded head this chapter's body will draw. Fed one row at a time. */
+  readonly bodyRows: ChapterBodyRowWindow;
+  firstSequence: number;
+  lastSequence: number;
+  firstTimestamp: string;
+  lastTimestamp: string;
+  /**
+   * The LATEST completeness this chapter's rows reported for each child run.
+   *
+   * Per child and replaced in row order rather than folded into a boolean, because the
+   * question the header asks — is any child of this chapter still partly expanded — is
+   * a question about the current readings and not about every reading there has ever
+   * been. Keyed by the child's own run id, which is the key
+   * `child-runs/child-run-entries.ts` re-summarizes on, so the header and the card
+   * cannot disagree about which observation is current.
+   */
+  readonly childExpandCompletenessByChildRunId: Map<string, ChildRunCompleteness["state"]>;
 }
 
 function newAccumulator(runId: string, row: TimelineRow): ChapterAccumulator {

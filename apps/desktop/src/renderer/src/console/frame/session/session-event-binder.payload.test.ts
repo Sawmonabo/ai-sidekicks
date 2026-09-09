@@ -13,8 +13,8 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
-import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
+import type { ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
+import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { consoleTripwires } from "../../core/tripwires.js";
 import type { ConsoleSessionEvent } from "../../store/index.js";
 import { SESSION_ID, createHarness } from "./session-event-binder.test-support.js";

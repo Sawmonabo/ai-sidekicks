@@ -22,7 +22,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { SETTINGS_SCENARIO } from "../../bridge/scenarios/settings.js";
+import { SETTINGS_SCENARIO } from "../../bridge/scenario/settings/settings.js";
 import { AgentConsoleBody } from "./AgentConsoleBody.js";
 
 /** The tick this scenario's two machines are both attached at. */

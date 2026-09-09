@@ -72,6 +72,22 @@ export type KeyBindingRefusalCode = (typeof KEY_BINDING_REFUSAL_CODES)[number];
 export const KEY_BINDING_REFUSAL_ORIGIN = "keybindings";
 
 /**
+ * Anything a listener can be attached to. Narrowed to the two methods actually
+ * used, so `Window`, `Document`, and any `HTMLElement` all satisfy it without a
+ * union whose call signatures would have to be reconciled.
+ */
+export type KeyBindingTarget = Pick<EventTarget, "addEventListener" | "removeEventListener">;
+
+/** How the table reaches the world. */
+export interface KeyBindingTableOptions {
+  readonly registry: CommandRegistry;
+  /** Read the live context at dispatch time — never a snapshot taken at install. */
+  readonly readContext: () => WhenClauseContext;
+  /** Every dispatch decision, for diagnostics and for the Keyboard settings page. */
+  readonly onDispatch?: (dispatch: KeyBindingDispatch) => void;
+}
+
+/**
  * Thrown by `setBindings` when two bindings can be live on one chord.
  *
  * A `ConsoleRefusalError` and not a bare `Error`. `core/refusal.ts` names the
@@ -105,22 +121,6 @@ export class KeyBindingConflictError extends ConsoleRefusalError {
     this.name = "KeyBindingConflictError";
     this.conflicts = conflicts;
   }
-}
-
-/**
- * Anything a listener can be attached to. Narrowed to the two methods actually
- * used, so `Window`, `Document`, and any `HTMLElement` all satisfy it without a
- * union whose call signatures would have to be reconciled.
- */
-export type KeyBindingTarget = Pick<EventTarget, "addEventListener" | "removeEventListener">;
-
-/** How the table reaches the world. */
-export interface KeyBindingTableOptions {
-  readonly registry: CommandRegistry;
-  /** Read the live context at dispatch time — never a snapshot taken at install. */
-  readonly readContext: () => WhenClauseContext;
-  /** Every dispatch decision, for diagnostics and for the Keyboard settings page. */
-  readonly onDispatch?: (dispatch: KeyBindingDispatch) => void;
 }
 
 /**

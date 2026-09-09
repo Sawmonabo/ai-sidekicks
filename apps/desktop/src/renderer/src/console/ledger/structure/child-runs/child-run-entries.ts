@@ -186,22 +186,6 @@ export function deriveChildRunEntries(rows: readonly TimelineRow[]): readonly Ch
 }
 
 /**
- * One entry while the fold is still running.
- *
- * The two members a later row may still move are writable HERE and readonly on
- * {@link ChildRunEntry}, so the fold can advance them and a consumer cannot: the
- * published type is what every reader holds, and the pass that builds it is the only
- * thing that ever writes one.
- */
-interface ChildRunEntryUnderConstruction {
-  readonly rowId: string;
-  summary: ChildRunSummary;
-  readonly actorId: string | undefined;
-  readonly timestamp: string;
-  readonly resummarizedRowIds: string[];
-}
-
-/**
  * Every handoff in the window, in log order.
  *
  * A row qualifies on its `type` alone — the projected event type, which is free-form
@@ -237,6 +221,22 @@ export function deriveHandoffEntries(rows: readonly TimelineRow[]): readonly Han
     }
   }
   return entries;
+}
+
+/**
+ * One entry while the fold is still running.
+ *
+ * The two members a later row may still move are writable HERE and readonly on
+ * {@link ChildRunEntry}, so the fold can advance them and a consumer cannot: the
+ * published type is what every reader holds, and the pass that builds it is the only
+ * thing that ever writes one.
+ */
+interface ChildRunEntryUnderConstruction {
+  readonly rowId: string;
+  summary: ChildRunSummary;
+  readonly actorId: string | undefined;
+  readonly timestamp: string;
+  readonly resummarizedRowIds: string[];
 }
 
 /**

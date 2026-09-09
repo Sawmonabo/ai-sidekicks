@@ -32,11 +32,6 @@ import type { SessionDirectoryState } from "../seats/index.js";
 import { Nothing } from "../primitives/index.js";
 import { sessionsAbsenceKindFor } from "./rows/session-directory-rows.js";
 
-interface SessionsAbsenceProps {
-  readonly directory: SessionDirectoryState;
-  readonly action: ReactNode;
-}
-
 export function SessionsAbsence(props: SessionsAbsenceProps): React.JSX.Element {
   const { directory } = props;
   if (directory.status === "reading") {
@@ -90,4 +85,9 @@ export function SessionsAbsence(props: SessionsAbsenceProps): React.JSX.Element 
       action={props.action}
     />
   );
+}
+
+interface SessionsAbsenceProps {
+  readonly directory: SessionDirectoryState;
+  readonly action: ReactNode;
 }

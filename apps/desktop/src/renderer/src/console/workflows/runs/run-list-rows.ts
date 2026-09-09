@@ -27,41 +27,6 @@ import type {
 } from "../../bridge/index.js";
 import { parseInstant, type InstantReading } from "../../core/index.js";
 
-/**
- * What this console does with one member of a wire shape.
- *
- * Three answers and no fourth: carried through unchanged, replaced by a shape of the
- * console's own, or deliberately not consumed. Naming the third is the point — a
- * member simply left out of a `Pick` reads exactly like one nobody noticed.
- */
-type WireMemberDisposition = "projected" | "replaced" | "dropped";
-
-/**
- * The members of a wire shape a row carries through unchanged, chosen by a TOTAL
- * disposition map.
- *
- * The CONSTRAINT is the compile-time control: `Dispositions extends
- * Record<keyof WireShape, …>` fails at the use site, naming the missing key, the
- * moment a member is added on the substrate and not dispositioned here. The maps are
- * TYPES rather than `as const` values for two reasons that point the same way — a
- * value read only as a type is dead weight at runtime and the lint rules say so, and
- * `--isolatedDeclarations` refuses to emit a `satisfies`-narrowed variable without an
- * annotation that would widen away the literal types this `Pick` reads.
- *
- * `-?` on the mapped type is load-bearing rather than decorative — a homomorphic map
- * over a shape with optional members yields `Member | undefined` at those keys, and
- * `Pick` refuses a key set that admits `undefined`.
- */
-type ProjectedFrom<
-  WireShape,
-  Dispositions extends Readonly<Record<keyof WireShape, WireMemberDisposition>>,
-> = Pick<
-  WireShape,
-  {
-    [Member in keyof WireShape]-?: Dispositions[Member] extends "projected" ? Member : never;
-  }[keyof WireShape]
->;
-
 /** One run status, read off the substrate's own declaration. Never restated. */
 export type WorkflowRunState = WorkflowWireRunSnapshot["state"];
 
@@ -104,32 +69,6 @@ export interface WorkflowPhasePark {
   readonly parkAttentionKey?: string | undefined;
 }
 
-/**
- * What a list row does with each member of the wire's phase projection.
- *
- * The six dropped members go on one rule: a row says whether a phase is parked and
- * never opens the phase. `phaseRunId` and `attemptNumber` address one execution of
- * it, `formRevision` is the token a form submit carries back, `gateState` is the
- * phase's own gate, and `prompt` and `inputSchema` are the question a waiting phase
- * asks — all six are the run pane's subject, and a list that read one would be
- * growing into the view that owns the question. The last two most of all: drawing a
- * form is opening the phase, which is the one thing a row is for not doing.
- */
-type WirePhaseMemberDispositions = {
-  readonly phaseId: "projected";
-  readonly phaseRunId: "dropped";
-  readonly attemptNumber: "dropped";
-  readonly state: "projected";
-  readonly gateState: "dropped";
-  readonly formRevision: "dropped";
-  readonly prompt: "dropped";
-  readonly inputSchema: "dropped";
-  readonly parkReason: "projected";
-  readonly parkCause: "projected";
-  readonly autoResumeAt: "projected";
-  readonly parkAttentionKey: "projected";
-};
-
 /** One phase's projected state, with the park members exactly as the wire carries them. */
 export type WorkflowPhaseStateRow = ProjectedFrom<
   WorkflowPhaseState,
@@ -147,25 +86,6 @@ export type WorkflowPhaseStateRow = ProjectedFrom<
    * id as the wire value it is.
    */
   readonly phaseName?: string;
-};
-
-/**
- * What a list row does with each member of the wire's run shape.
- *
- * `sessionId` is dropped because a list is rendered inside one session's context and
- * a row carrying its own would invite a list holding two. `phaseStates` is REPLACED
- * rather than projected: the phase rows above are this console's narrowing, and a
- * snapshot carrying both collections would leave every caller to pick one.
- */
-type WireRunMemberDispositions = {
-  readonly workflowRunId: "projected";
-  readonly sessionId: "dropped";
-  readonly workflowVersionId: "projected";
-  readonly state: "projected";
-  readonly phaseStates: "replaced";
-  readonly failureReason: "projected";
-  readonly startedAt: "projected";
-  readonly endedAt: "projected";
 };
 
 /**
@@ -224,6 +144,30 @@ export interface WorkflowParkedPhase {
 }
 
 /**
+ * What a park says about when, if ever, the engine picks the phase back up.
+ *
+ * Three arms and no boolean, because the three are three different things to draw. A
+ * park that armed a readable boundary resumes itself and asks nobody for anything. A
+ * park that armed nothing waits for a person. And a park that armed an instant this
+ * console cannot read waits for a person too — the fail-closed reading of "we cannot
+ * tell when this resumes" — but it is not the same fact, and a surface that folded it
+ * into the second would drop the only evidence a daemon sent something malformed.
+ */
+export type WorkflowParkSchedule =
+  /**
+   * The wire's instant, carried verbatim, on the arm the reading admitted it to.
+   *
+   * The parsed milliseconds used to ride this arm as well, for a row-level
+   * earliest-resume pick that has since been deleted for having no reader. Nothing
+   * compares two resumes now — every surface that draws one draws the park it belongs
+   * to — so the number would be a second derived value carried for nobody, which is
+   * the member class the projection next door records purging.
+   */
+  | { readonly kind: "armed"; readonly autoResumeAt: string }
+  | { readonly kind: "unscheduled" }
+  | { readonly kind: "unreadable"; readonly autoResumeAt: string };
+
+/**
  * Read one of this plane's instants: RFC 3339, in UTC, and nothing wider.
  *
  * THE ENCODING IS THE WIRE'S RULE RATHER THAN A CONVENTION CHOSEN HERE. The workflow
@@ -266,30 +210,6 @@ export interface WorkflowParkedPhase {
 export function workflowInstant(iso: string): InstantReading {
   return parseInstant(iso, "utc-only");
 }
-
-/**
- * What a park says about when, if ever, the engine picks the phase back up.
- *
- * Three arms and no boolean, because the three are three different things to draw. A
- * park that armed a readable boundary resumes itself and asks nobody for anything. A
- * park that armed nothing waits for a person. And a park that armed an instant this
- * console cannot read waits for a person too — the fail-closed reading of "we cannot
- * tell when this resumes" — but it is not the same fact, and a surface that folded it
- * into the second would drop the only evidence a daemon sent something malformed.
- */
-export type WorkflowParkSchedule =
-  /**
-   * The wire's instant, carried verbatim, on the arm the reading admitted it to.
-   *
-   * The parsed milliseconds used to ride this arm as well, for a row-level
-   * earliest-resume pick that has since been deleted for having no reader. Nothing
-   * compares two resumes now — every surface that draws one draws the park it belongs
-   * to — so the number would be a second derived value carried for nobody, which is
-   * the member class the projection next door records purging.
-   */
-  | { readonly kind: "armed"; readonly autoResumeAt: string }
-  | { readonly kind: "unscheduled" }
-  | { readonly kind: "unreadable"; readonly autoResumeAt: string };
 
 /**
  * Whether this park is waiting on a PERSON, read off the classified schedule.
@@ -343,3 +263,83 @@ export function phasePark(phase: WorkflowPhaseStateRow): WorkflowPhasePark | und
     parkAttentionKey: phase.parkAttentionKey,
   };
 }
+
+/**
+ * What this console does with one member of a wire shape.
+ *
+ * Three answers and no fourth: carried through unchanged, replaced by a shape of the
+ * console's own, or deliberately not consumed. Naming the third is the point — a
+ * member simply left out of a `Pick` reads exactly like one nobody noticed.
+ */
+type WireMemberDisposition = "projected" | "replaced" | "dropped";
+
+/**
+ * The members of a wire shape a row carries through unchanged, chosen by a TOTAL
+ * disposition map.
+ *
+ * The CONSTRAINT is the compile-time control: `Dispositions extends
+ * Record<keyof WireShape, …>` fails at the use site, naming the missing key, the
+ * moment a member is added on the substrate and not dispositioned here. The maps are
+ * TYPES rather than `as const` values for two reasons that point the same way — a
+ * value read only as a type is dead weight at runtime and the lint rules say so, and
+ * `--isolatedDeclarations` refuses to emit a `satisfies`-narrowed variable without an
+ * annotation that would widen away the literal types this `Pick` reads.
+ *
+ * `-?` on the mapped type is load-bearing rather than decorative — a homomorphic map
+ * over a shape with optional members yields `Member | undefined` at those keys, and
+ * `Pick` refuses a key set that admits `undefined`.
+ */
+type ProjectedFrom<
+  WireShape,
+  Dispositions extends Readonly<Record<keyof WireShape, WireMemberDisposition>>,
+> = Pick<
+  WireShape,
+  {
+    [Member in keyof WireShape]-?: Dispositions[Member] extends "projected" ? Member : never;
+  }[keyof WireShape]
+>;
+
+/**
+ * What a list row does with each member of the wire's phase projection.
+ *
+ * The six dropped members go on one rule: a row says whether a phase is parked and
+ * never opens the phase. `phaseRunId` and `attemptNumber` address one execution of
+ * it, `formRevision` is the token a form submit carries back, `gateState` is the
+ * phase's own gate, and `prompt` and `inputSchema` are the question a waiting phase
+ * asks — all six are the run pane's subject, and a list that read one would be
+ * growing into the view that owns the question. The last two most of all: drawing a
+ * form is opening the phase, which is the one thing a row is for not doing.
+ */
+type WirePhaseMemberDispositions = {
+  readonly phaseId: "projected";
+  readonly phaseRunId: "dropped";
+  readonly attemptNumber: "dropped";
+  readonly state: "projected";
+  readonly gateState: "dropped";
+  readonly formRevision: "dropped";
+  readonly prompt: "dropped";
+  readonly inputSchema: "dropped";
+  readonly parkReason: "projected";
+  readonly parkCause: "projected";
+  readonly autoResumeAt: "projected";
+  readonly parkAttentionKey: "projected";
+};
+
+/**
+ * What a list row does with each member of the wire's run shape.
+ *
+ * `sessionId` is dropped because a list is rendered inside one session's context and
+ * a row carrying its own would invite a list holding two. `phaseStates` is REPLACED
+ * rather than projected: the phase rows above are this console's narrowing, and a
+ * snapshot carrying both collections would leave every caller to pick one.
+ */
+type WireRunMemberDispositions = {
+  readonly workflowRunId: "projected";
+  readonly sessionId: "dropped";
+  readonly workflowVersionId: "projected";
+  readonly state: "projected";
+  readonly phaseStates: "replaced";
+  readonly failureReason: "projected";
+  readonly startedAt: "projected";
+  readonly endedAt: "projected";
+};

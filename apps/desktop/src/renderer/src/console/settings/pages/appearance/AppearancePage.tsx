@@ -107,48 +107,6 @@ const SCHEME_OPTIONS: readonly SchemeOption[] = [
   },
 ];
 
-/**
- * Watch the applied scheme attribute.
- *
- * A `MutationObserver` and never a poll: the attribute changes exactly when
- * something writes it, and the console's budget forbids a timer on a question the
- * platform will answer by event.
- */
-function subscribeToAppliedScheme(onSchemeChange: () => void): () => void {
-  if (typeof document === "undefined") {
-    return () => undefined;
-  }
-  const observer = new MutationObserver(onSchemeChange);
-  observer.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: [SCHEME_ATTRIBUTE],
-  });
-  return () => {
-    observer.disconnect();
-  };
-}
-
-/**
- * What the document is carrying, or `undefined` when it is carrying something this
- * console does not recognise.
- *
- * The absent attribute is `"system"` — that is the frame's own encoding, stated in
- * `frame/bindings/token-installation.ts`, and reading it any other way would make this page
- * disagree with the module that wrote it. An unrecognised VALUE is neither a
- * preference nor the system choice, so it answers `undefined` and the page says so
- * rather than lighting up an option nobody chose.
- */
-function readAppliedScheme(): SchemePreference | undefined {
-  if (typeof document === "undefined") {
-    return SYSTEM_SCHEME_PREFERENCE;
-  }
-  const applied = document.documentElement.getAttribute(SCHEME_ATTRIBUTE);
-  if (applied === null) {
-    return SYSTEM_SCHEME_PREFERENCE;
-  }
-  return isSchemePreference(applied) ? applied : undefined;
-}
-
 export function AppearancePage(props: { readonly context: SettingsPageContext }): ReactNode {
   const appliedScheme = useSyncExternalStore(
     subscribeToAppliedScheme,
@@ -251,4 +209,46 @@ export function registerAppearancePage(registry: SettingsPageRegistry): void {
     keywords: ["theme", "dark", "light", "colour", "color", "scheme", "contrast", "display"],
     render: (context) => <AppearancePage context={context} />,
   });
+}
+
+/**
+ * Watch the applied scheme attribute.
+ *
+ * A `MutationObserver` and never a poll: the attribute changes exactly when
+ * something writes it, and the console's budget forbids a timer on a question the
+ * platform will answer by event.
+ */
+function subscribeToAppliedScheme(onSchemeChange: () => void): () => void {
+  if (typeof document === "undefined") {
+    return () => undefined;
+  }
+  const observer = new MutationObserver(onSchemeChange);
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: [SCHEME_ATTRIBUTE],
+  });
+  return () => {
+    observer.disconnect();
+  };
+}
+
+/**
+ * What the document is carrying, or `undefined` when it is carrying something this
+ * console does not recognise.
+ *
+ * The absent attribute is `"system"` — that is the frame's own encoding, stated in
+ * `frame/bindings/token-installation.ts`, and reading it any other way would make this page
+ * disagree with the module that wrote it. An unrecognised VALUE is neither a
+ * preference nor the system choice, so it answers `undefined` and the page says so
+ * rather than lighting up an option nobody chose.
+ */
+function readAppliedScheme(): SchemePreference | undefined {
+  if (typeof document === "undefined") {
+    return SYSTEM_SCHEME_PREFERENCE;
+  }
+  const applied = document.documentElement.getAttribute(SCHEME_ATTRIBUTE);
+  if (applied === null) {
+    return SYSTEM_SCHEME_PREFERENCE;
+  }
+  return isSchemePreference(applied) ? applied : undefined;
 }

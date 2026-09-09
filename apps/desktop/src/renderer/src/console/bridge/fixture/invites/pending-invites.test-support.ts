@@ -21,7 +21,7 @@ import type {
   ScenarioPendingInviteAttemptFrame,
   ScenarioPendingInviteFrame,
   ScenarioPendingInviteRefusedFrame,
-} from "../../scenario-runtime/index.js";
+} from "../../scenario/runtime/index.js";
 
 /** The reference the frames below are keyed by. Opaque, as `I-023-5` requires. */
 export const LATE_REFERENCE = "pending-reference-late";

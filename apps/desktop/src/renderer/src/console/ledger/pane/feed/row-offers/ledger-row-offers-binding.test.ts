@@ -20,7 +20,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { FilePathRef } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../../bridge/index.js";
-import { FIRST_RUN_SCENARIO } from "../../../../bridge/scenarios/first-run.js";
+import { FIRST_RUN_SCENARIO } from "../../../../bridge/scenario/first-run.js";
 import { type ConsoleRefusal } from "../../../../core/index.js";
 import { publishConsoleActRefusalSink } from "../../../../palette/index.js";
 import { type LedgerRowLease } from "../../../frame/index.js";

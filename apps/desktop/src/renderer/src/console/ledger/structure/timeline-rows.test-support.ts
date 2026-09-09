@@ -62,28 +62,6 @@ export function fixtureTimestamp(sequence: number): string {
   return new Date(Date.UTC(2026, 0, 1, 9, 0, sequence)).toISOString();
 }
 
-function commonFields(input: FixtureRowInput): {
-  readonly id: string;
-  readonly sessionId: SessionId;
-  readonly sequence: number;
-  readonly category: EventCategory;
-  readonly type: string;
-  readonly actor: string | undefined;
-  readonly summary: string;
-  readonly timestamp: string;
-} {
-  return {
-    id: input.id,
-    sessionId: FIXTURE_SESSION_ID,
-    sequence: input.sequence,
-    category: input.category ?? "run_lifecycle",
-    type: input.type,
-    actor: input.actor,
-    summary: input.summary ?? input.type,
-    timestamp: input.timestamp ?? fixtureTimestamp(input.sequence),
-  };
-}
-
 /** The `general` arm — a row carrying no run attribution. */
 export function generalRow(input: FixtureRowInput): TimelineRow {
   return { ...commonFields(input), kind: "general", payload: input.payload ?? {} };
@@ -201,5 +179,27 @@ export function rollbackBoundaryRow(
       ...(input.channelId === undefined ? {} : { channelId: input.channelId as ChannelId }),
       targetPosition: input.targetPosition ?? input.position,
     },
+  };
+}
+
+function commonFields(input: FixtureRowInput): {
+  readonly id: string;
+  readonly sessionId: SessionId;
+  readonly sequence: number;
+  readonly category: EventCategory;
+  readonly type: string;
+  readonly actor: string | undefined;
+  readonly summary: string;
+  readonly timestamp: string;
+} {
+  return {
+    id: input.id,
+    sessionId: FIXTURE_SESSION_ID,
+    sequence: input.sequence,
+    category: input.category ?? "run_lifecycle",
+    type: input.type,
+    actor: input.actor,
+    summary: input.summary ?? input.type,
+    timestamp: input.timestamp ?? fixtureTimestamp(input.sequence),
   };
 }

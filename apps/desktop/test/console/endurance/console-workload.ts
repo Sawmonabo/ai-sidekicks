@@ -51,7 +51,7 @@ import {
   type ConsoleSessionDiagnostics,
   type ScenarioFixtureHandle,
 } from "../fixture-handles.js";
-import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/flagship/flagship.js";
 
 /**
  * How every launch in this tier is asked for: the flagship script, and the

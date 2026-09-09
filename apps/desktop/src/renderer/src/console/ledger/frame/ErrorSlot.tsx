@@ -45,6 +45,12 @@ export interface LedgerErrorEntry {
   readonly refusal: ConsoleRefusal;
 }
 
+export interface LedgerErrorSlotProps {
+  readonly entries: readonly LedgerErrorEntry[];
+  /** The operator's next move for the highest-ranked slot, when there is one. */
+  readonly action?: React.ReactNode;
+}
+
 /**
  * The ledger's error slots.
  *
@@ -81,12 +87,6 @@ export class LedgerErrorSlots {
   public get occupiedSlotCount(): number {
     return this.#refusalByKind.size;
   }
-}
-
-export interface LedgerErrorSlotProps {
-  readonly entries: readonly LedgerErrorEntry[];
-  /** The operator's next move for the highest-ranked slot, when there is one. */
-  readonly action?: React.ReactNode;
 }
 
 /**

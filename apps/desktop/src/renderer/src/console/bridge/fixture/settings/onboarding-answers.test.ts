@@ -12,8 +12,8 @@ import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../call-plane/bridge.js";
 import type { GrowthOutcome, GrowthPort } from "../../growth-port/index.js";
-import type { ConsoleScenario, ScenarioReply } from "../../scenario-runtime/index.js";
-import { ONBOARDING_SCENARIO } from "../../scenarios/onboarding.js";
+import type { ConsoleScenario, ScenarioReply } from "../../scenario/runtime/index.js";
+import { ONBOARDING_SCENARIO } from "../../scenario/onboarding.js";
 
 /** The onboarding scenario's own port, which is the port under test. */
 function onboardingPort(scenario: ConsoleScenario = ONBOARDING_SCENARIO): GrowthPort {

@@ -185,23 +185,6 @@ export function chapterKeyFor(row: TimelineRow): string | undefined {
 }
 
 /**
- * Which rows are collapsed: every row of a chapter that has reached a terminal.
- *
- * Rule 7 in terms — "run chapters collapse once terminal and the live chapter stays
- * open" — asked of the chapter index's own `terminalChapters()` rather than
- * re-derived from a terminal event type here, so the fold that decides a chapter is
- * over and the fold that decides a row is collapsed are one fold.
- */
-function collapsedRowIdsOf(chapterIndex: LedgerChapterIndex): ReadonlySet<string> {
-  const collapsed = new Set<string>();
-  for (const chapter of chapterIndex.terminalChapters()) {
-    for (const rowId of chapter.rowIds) {
-      collapsed.add(rowId);
-    }
-  }
-  return collapsed;
-}
-/**
  * Derive the whole window from one log.
  *
  * Exported beside the hook so the fold can be driven by a test and by the bench tier
@@ -317,6 +300,23 @@ export function useLedgerProjection(
     () => deriveLedgerWindow(timeline, hasUnreceivedEntries, heldRetention, channelId),
     [timeline, hasUnreceivedEntries, heldRetention, channelId],
   );
+}
+/**
+ * Which rows are collapsed: every row of a chapter that has reached a terminal.
+ *
+ * Rule 7 in terms — "run chapters collapse once terminal and the live chapter stays
+ * open" — asked of the chapter index's own `terminalChapters()` rather than
+ * re-derived from a terminal event type here, so the fold that decides a chapter is
+ * over and the fold that decides a row is collapsed are one fold.
+ */
+function collapsedRowIdsOf(chapterIndex: LedgerChapterIndex): ReadonlySet<string> {
+  const collapsed = new Set<string>();
+  for (const chapter of chapterIndex.terminalChapters()) {
+    for (const rowId of chapter.rowIds) {
+      collapsed.add(rowId);
+    }
+  }
+  return collapsed;
 }
 /** The log this window holds. A named function, so the selector identity is stable. */
 function readTimeline(state: {

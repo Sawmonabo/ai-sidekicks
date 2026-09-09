@@ -80,12 +80,6 @@ export interface ChildRunLinkageLease {
   release: () => void;
 }
 
-/** The linkage read the models hold, with the run it answers for. */
-interface HeldChildRunLinkage {
-  readonly parentRunId: string;
-  readonly read: ChildRunLinkageRead;
-}
-
 /**
  * One session's agent-console reads.
  *
@@ -319,4 +313,10 @@ export function useAgentConsoleModels(
   }, [bridge, sessionStore]);
 
   return isCurrentSessionSubject(models?.subject, bridge, sessionStore) ? models : undefined;
+}
+
+/** The linkage read the models hold, with the run it answers for. */
+interface HeldChildRunLinkage {
+  readonly parentRunId: string;
+  readonly read: ChildRunLinkageRead;
 }

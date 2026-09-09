@@ -20,6 +20,15 @@ import { ProvenanceRail } from "./ProvenanceRail.js";
 import { ProvenanceRailModel } from "./rail-model.js";
 import { generalRow, runRow } from "../timeline-rows.test-support.js";
 
+/** What a mounted rail lets a case observe. */
+export interface RailHarness {
+  readonly slider: HTMLElement;
+  /** Row ids the rail asked the ledger to scroll to, in press order. */
+  readonly jumps: readonly string[];
+  /** Hand the SAME mounted rail a different model — a replay, a filter, a prune. */
+  showModel(model: ProvenanceRailModel): void;
+}
+
 /** Four marks: a message, an approval, a tool error, and a handoff. */
 export function storyRows(): readonly TimelineRow[] {
   return [
@@ -69,15 +78,6 @@ export function railModel(hasEarlierRows = false): ProvenanceRailModel {
  * cache rather than a fixture. */
 export function emptyRail(): ProvenanceRailModel {
   return new ProvenanceRailModel({ rows: [], hasEarlierRows: false });
-}
-
-/** What a mounted rail lets a case observe. */
-export interface RailHarness {
-  readonly slider: HTMLElement;
-  /** Row ids the rail asked the ledger to scroll to, in press order. */
-  readonly jumps: readonly string[];
-  /** Hand the SAME mounted rail a different model — a replay, a filter, a prune. */
-  showModel(model: ProvenanceRailModel): void;
 }
 
 export function renderRail(

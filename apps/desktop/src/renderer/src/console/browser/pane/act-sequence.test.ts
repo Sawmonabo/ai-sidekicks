@@ -9,7 +9,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
+import { BROWSER_SCENARIO } from "../../bridge/scenario/browser.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import { settle as settleReactWork } from "../../core/settle.test-support.js";

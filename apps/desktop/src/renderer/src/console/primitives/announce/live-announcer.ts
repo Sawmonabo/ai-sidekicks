@@ -111,12 +111,6 @@ export class LiveAnnouncer {
   #armedHandle: ScheduledHandle | undefined;
   #disposed = false;
 
-  public constructor(options: LiveAnnouncerOptions = {}) {
-    this.#clock = options.clock ?? new RealClock();
-    this.#queueCap = options.queueCap ?? LIVE_ANNOUNCEMENT_QUEUE_CAP;
-    this.#holdMs = options.holdMs ?? LIVE_ANNOUNCEMENT_HOLD_MS;
-  }
-
   /**
    * Say something.
    *
@@ -148,6 +142,12 @@ export class LiveAnnouncer {
     }
     this.#armNextClear();
   };
+
+  public constructor(options: LiveAnnouncerOptions = {}) {
+    this.#clock = options.clock ?? new RealClock();
+    this.#queueCap = options.queueCap ?? LIVE_ANNOUNCEMENT_QUEUE_CAP;
+    this.#holdMs = options.holdMs ?? LIVE_ANNOUNCEMENT_HOLD_MS;
+  }
 
   /** Subscribe to region text. The `LiveRegion` component is the only caller. */
   public subscribe(sink: EmitterSink<LiveAnnouncementState>): Unsubscribe {

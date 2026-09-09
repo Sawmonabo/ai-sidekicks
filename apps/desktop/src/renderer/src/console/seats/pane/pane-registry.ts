@@ -60,12 +60,6 @@ export interface ConsolePaneDescriptor {
   readonly render: (context: ConsolePaneContext) => React.ReactNode;
 }
 
-/** What every registration carries, whichever form it takes. */
-interface ConsolePaneRegistrationBase {
-  readonly kind: PaneKind;
-  readonly owner: string;
-}
-
 /**
  * What a family hands `register`, in one of exactly two forms.
  *
@@ -203,6 +197,12 @@ export class ConsolePaneRegistry {
   public registeredPaneKinds(): readonly PaneKind[] {
     return PANE_KINDS.filter((kind) => this.#descriptorsByKind.has(kind));
   }
+}
+
+/** What every registration carries, whichever form it takes. */
+interface ConsolePaneRegistrationBase {
+  readonly kind: PaneKind;
+  readonly owner: string;
 }
 
 /** The process-wide registry the view families call at module scope. */

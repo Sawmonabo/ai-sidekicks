@@ -15,9 +15,9 @@
 // caller a parameter it passes the same way.
 
 import { createFixtureBridge } from "../../bridge/index.js";
-import type { ScenarioEngine } from "../../bridge/scenario-runtime/scenario-engine.js";
-import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
-import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
+import type { ScenarioEngine } from "../../bridge/scenario/runtime/engine.js";
+import type { ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
+import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { SessionStoreRegistry } from "../../store/index.js";
 import { SessionEventBinder } from "./session-event-binder.js";
 

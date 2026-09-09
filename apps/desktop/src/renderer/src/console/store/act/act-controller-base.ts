@@ -94,23 +94,6 @@ export abstract class ActSurfaceController<TValue, TSettlement extends ActSettle
     });
   }
 
-  /**
-   * Ask the question this act depends on. The string is whatever {@link askPrerequisite}
-   * was given — a constant for a roster, the branch name for a reuse check.
-   *
-   * THE SIGNAL IS PART OF THE OVERRIDE'S CONTRACT AND NOT AN OPTION IT MAY DECLINE.
-   * It belongs to the round the machine's scheduler opened for this read, so an
-   * override that hands it to its call door lets a controller that is disposed — or
-   * whose read has been superseded by a newer fire — drop the reply before it is
-   * parsed and before any projection is built from it. An override whose port takes
-   * no signal stops WAITING on it instead, through `settleUnlessAbandoned`; what no
-   * override may do is take one and use it for neither.
-   */
-  protected abstract readPrerequisite(
-    question: string,
-    signal: AbortSignal,
-  ): Promise<ActOutcome<TValue>>;
-
   public get snapshot(): ActReading<TValue, TSettlement> {
     return this.#acts.snapshot;
   }
@@ -163,6 +146,23 @@ export abstract class ActSurfaceController<TValue, TSettlement extends ActSettle
   public dispose(): void {
     this.#acts.dispose();
   }
+
+  /**
+   * Ask the question this act depends on. The string is whatever {@link askPrerequisite}
+   * was given — a constant for a roster, the branch name for a reuse check.
+   *
+   * THE SIGNAL IS PART OF THE OVERRIDE'S CONTRACT AND NOT AN OPTION IT MAY DECLINE.
+   * It belongs to the round the machine's scheduler opened for this read, so an
+   * override that hands it to its call door lets a controller that is disposed — or
+   * whose read has been superseded by a newer fire — drop the reply before it is
+   * parsed and before any projection is built from it. An override whose port takes
+   * no signal stops WAITING on it instead, through `settleUnlessAbandoned`; what no
+   * override may do is take one and use it for neither.
+   */
+  protected abstract readPrerequisite(
+    question: string,
+    signal: AbortSignal,
+  ): Promise<ActOutcome<TValue>>;
 
   /** Arm the refresh triggers and take NO read. Idempotent. */
   protected startTriggers(): void {

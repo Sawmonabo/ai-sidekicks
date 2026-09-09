@@ -84,19 +84,6 @@ import {
 import { asAnswerRecord, type SchemaFormAnswer } from "./schema-answer-shape.js";
 import { isSameMemberPath, type SchemaMemberPath } from "../../../bridge/index.js";
 
-/**
- * Every control the plan drew, in the order it drew them, with groups walked through.
- *
- * Flat because a group is one level deep by construction — `SchemaGroupDescriptor` holds
- * leaves and never another group — so a recursive walk here would be machinery for a
- * shape the type forbids.
- */
-function drawnLeaves(plan: SchemaFormPlan): readonly SchemaLeafEntry[] {
-  return plan.shape === "fields"
-    ? plan.entries.flatMap((entry) => (entry.form === "group" ? entry.group.entries : [entry]))
-    : [];
-}
-
 /** The leaf the plan drew at one path, or nothing where it drew none there. */
 export function leafDrawnAt(
   plan: SchemaFormPlan,
@@ -136,44 +123,6 @@ export function groupDrawnUnder(
 }
 
 /**
- * A collection's declared `default`, taken only where it declared a list.
- *
- * Narrowed HERE, before the entries are minted, rather than trusted from the descriptor:
- * a `default` of another shape is one the compiled validator refuses on its own terms, and
- * seeding it would put a string at a member whose control renders lists — the answer
- * holding one thing while the surface showed another, which is what this module exists
- * to prevent.
- */
-function declaredEntries(declared: unknown): readonly unknown[] | undefined {
-  return Array.isArray(declared) ? (declared as readonly unknown[]) : undefined;
-}
-
-/**
- * The NEAREST value declared for one leaf: its control's own, else its group's for it.
- *
- * Nearest and not merged, because the two are answers to the same question and a control
- * that declares one has said what it opens at. A group one level up is the only other
- * place a value for this member can be written — `SchemaGroupDescriptor` holds leaves and
- * never another group, so there is no third level for a walk to reach.
- */
-function nearestDeclaredValue(
-  leaf: SchemaLeafEntry,
-  groupDefault: SchemaFormAnswer | undefined,
-): unknown {
-  const ownValue = leaf.form === "list" ? leaf.list.defaultValue : leaf.field.defaultValue;
-  if (ownValue !== undefined || groupDefault === undefined) {
-    return ownValue;
-  }
-  const key = leafKeyOf(leaf);
-  return key === undefined ? undefined : groupDefault[key];
-}
-
-/** The rows a collection opens holding once somebody IS answering it. */
-function openingListEntries(declaredValue: unknown): SchemaListDraft {
-  return listDraftOf((declaredEntries(declaredValue) ?? []).map(answeredScalar));
-}
-
-/**
  * A collection's node once somebody is answering it, holding whatever the schema declared.
  *
  * Exported for the write path, which needs it at exactly two moments: when the control on
@@ -182,23 +131,6 @@ function openingListEntries(declaredValue: unknown): SchemaListDraft {
  */
 export function answeredListDraft(list: SchemaListDescriptor): SchemaListDraft {
   return openingListEntries(list.defaultValue);
-}
-
-/** One leaf's opening node: its declared value where the schema wrote one, else nothing. */
-function openingLeafDraft(
-  leaf: SchemaLeafEntry,
-  groupDefault: SchemaFormAnswer | undefined,
-): SchemaLeafDraft {
-  const declaredValue = nearestDeclaredValue(leaf, groupDefault);
-  if (leaf.form === "list") {
-    return containerOpensAnswered(
-      leaf.list.isRequired,
-      declaredEntries(declaredValue) !== undefined,
-    )
-      ? openingListEntries(declaredValue)
-      : INACTIVE_LIST;
-  }
-  return declaredValue === undefined ? UNANSWERED_SCALAR : answeredScalar(declaredValue);
 }
 
 /** Every member of one group, opened at whatever that group and its controls declared. */
@@ -247,31 +179,6 @@ export function seedDraftFromPlan(plan: SchemaFormPlan): SchemaFormDraft {
 }
 
 /**
- * Whether a section opens answered.
- *
- * ONE RULE AND NOT TWO: a required group always, and an optional one exactly while the
- * schema declared a VALUE for it — its own `default`, whatever that object names, or a
- * child's own, or a collection's opening entries. An empty declared object counts, and
- * counts on its own: `default: {}` is the schema saying the member is there, so the
- * section is answered even though no child came out of the seed holding anything. A
- * section holding a declared value and drawn unanswered would show that value nowhere
- * while the schema's own reading of the answer supplied it, which is the divergence this
- * whole module exists to close; a section the schema declared nothing for has nothing to
- * display, so it opens inactive and a person answers it on its legend.
- */
-function openingGroupDraft(group: SchemaGroupDescriptor) {
-  // Asked of the DESCRIPTORS rather than of the nodes they seeded, because a seeded node
-  // no longer answers it: a collection the schema declared `[]` for opens answered holding
-  // no rows, so counting what came out would read that declaration as nothing at all.
-  const isDeclared =
-    group.defaultValue !== undefined ||
-    group.entries.some((leaf) => nearestDeclaredValue(leaf, undefined) !== undefined);
-  return containerOpensAnswered(group.isRequired, isDeclared)
-    ? activeGroup(seededGroupMembers(group))
-    : INACTIVE_GROUP;
-}
-
-/**
  * What an entry added to this collection opens holding.
  *
  * The item schema's own declared value where it has one, and otherwise whatever an
@@ -294,6 +201,99 @@ export function newListEntryDraft(
     return undefined;
   }
   return openingEntryDraft(list.item);
+}
+
+/**
+ * Every control the plan drew, in the order it drew them, with groups walked through.
+ *
+ * Flat because a group is one level deep by construction — `SchemaGroupDescriptor` holds
+ * leaves and never another group — so a recursive walk here would be machinery for a
+ * shape the type forbids.
+ */
+function drawnLeaves(plan: SchemaFormPlan): readonly SchemaLeafEntry[] {
+  return plan.shape === "fields"
+    ? plan.entries.flatMap((entry) => (entry.form === "group" ? entry.group.entries : [entry]))
+    : [];
+}
+
+/**
+ * A collection's declared `default`, taken only where it declared a list.
+ *
+ * Narrowed HERE, before the entries are minted, rather than trusted from the descriptor:
+ * a `default` of another shape is one the compiled validator refuses on its own terms, and
+ * seeding it would put a string at a member whose control renders lists — the answer
+ * holding one thing while the surface showed another, which is what this module exists
+ * to prevent.
+ */
+function declaredEntries(declared: unknown): readonly unknown[] | undefined {
+  return Array.isArray(declared) ? (declared as readonly unknown[]) : undefined;
+}
+
+/**
+ * The NEAREST value declared for one leaf: its control's own, else its group's for it.
+ *
+ * Nearest and not merged, because the two are answers to the same question and a control
+ * that declares one has said what it opens at. A group one level up is the only other
+ * place a value for this member can be written — `SchemaGroupDescriptor` holds leaves and
+ * never another group, so there is no third level for a walk to reach.
+ */
+function nearestDeclaredValue(
+  leaf: SchemaLeafEntry,
+  groupDefault: SchemaFormAnswer | undefined,
+): unknown {
+  const ownValue = leaf.form === "list" ? leaf.list.defaultValue : leaf.field.defaultValue;
+  if (ownValue !== undefined || groupDefault === undefined) {
+    return ownValue;
+  }
+  const key = leafKeyOf(leaf);
+  return key === undefined ? undefined : groupDefault[key];
+}
+
+/** The rows a collection opens holding once somebody IS answering it. */
+function openingListEntries(declaredValue: unknown): SchemaListDraft {
+  return listDraftOf((declaredEntries(declaredValue) ?? []).map(answeredScalar));
+}
+
+/** One leaf's opening node: its declared value where the schema wrote one, else nothing. */
+function openingLeafDraft(
+  leaf: SchemaLeafEntry,
+  groupDefault: SchemaFormAnswer | undefined,
+): SchemaLeafDraft {
+  const declaredValue = nearestDeclaredValue(leaf, groupDefault);
+  if (leaf.form === "list") {
+    return containerOpensAnswered(
+      leaf.list.isRequired,
+      declaredEntries(declaredValue) !== undefined,
+    )
+      ? openingListEntries(declaredValue)
+      : INACTIVE_LIST;
+  }
+  return declaredValue === undefined ? UNANSWERED_SCALAR : answeredScalar(declaredValue);
+}
+
+/**
+ * Whether a section opens answered.
+ *
+ * ONE RULE AND NOT TWO: a required group always, and an optional one exactly while the
+ * schema declared a VALUE for it — its own `default`, whatever that object names, or a
+ * child's own, or a collection's opening entries. An empty declared object counts, and
+ * counts on its own: `default: {}` is the schema saying the member is there, so the
+ * section is answered even though no child came out of the seed holding anything. A
+ * section holding a declared value and drawn unanswered would show that value nowhere
+ * while the schema's own reading of the answer supplied it, which is the divergence this
+ * whole module exists to close; a section the schema declared nothing for has nothing to
+ * display, so it opens inactive and a person answers it on its legend.
+ */
+function openingGroupDraft(group: SchemaGroupDescriptor) {
+  // Asked of the DESCRIPTORS rather than of the nodes they seeded, because a seeded node
+  // no longer answers it: a collection the schema declared `[]` for opens answered holding
+  // no rows, so counting what came out would read that declaration as nothing at all.
+  const isDeclared =
+    group.defaultValue !== undefined ||
+    group.entries.some((leaf) => nearestDeclaredValue(leaf, undefined) !== undefined);
+  return containerOpensAnswered(group.isRequired, isDeclared)
+    ? activeGroup(seededGroupMembers(group))
+    : INACTIVE_GROUP;
 }
 
 /** One entry's opening node, from its item schema alone. */

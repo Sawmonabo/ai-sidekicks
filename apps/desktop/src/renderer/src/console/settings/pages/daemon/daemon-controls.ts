@@ -77,20 +77,17 @@ export interface DaemonStatusFreshness {
 /** The holder key the status answer is addressed by, within one growth port. */
 const DAEMON_STATUS_KEY = "daemon-status";
 
-/**
- * The subject one status answer belongs to.
- *
- * THE CONNECTION'S KIND AND NEVER THE WHOLE CONNECTION. `reconnecting` carries an
- * attempt number that advances on every retry of the supervisor's ladder, and a
- * heartbeat timestamp moves on the healthy path — so keying on either would put a read
- * on the wire per attempt and per beat, which is the interval poll
- * `Spec-023 §Console Design (Meridian)` forbids arriving by the back door. What the
- * kind changing means is that the runtime is somewhere else than it was, which is
- * exactly when its own status line is worth asking for again.
- */
-function daemonStatusSubject(freshness: DaemonStatusFreshness): string {
-  return `${DAEMON_STATUS_KEY}:${freshness.connection.kind}:${freshness.settledControlCount}`;
-}
+/** Which of the two controls was pressed. Closed, because the page offers two. */
+export type DaemonControl = "stop" | "restart";
+
+/** What a dispatched control settled as, or `undefined` while none has been. */
+export type DaemonControlSettlement =
+  | { readonly control: DaemonControl; readonly outcome: "sent" }
+  | {
+      readonly control: DaemonControl;
+      readonly outcome: "refused";
+      readonly refusal: ConsoleRefusal;
+    };
 
 /**
  * Read the daemon's own status line, and read it again when it can have changed.
@@ -128,17 +125,20 @@ export function useDaemonStatus(
   }).value;
 }
 
-/** Which of the two controls was pressed. Closed, because the page offers two. */
-export type DaemonControl = "stop" | "restart";
-
-/** What a dispatched control settled as, or `undefined` while none has been. */
-export type DaemonControlSettlement =
-  | { readonly control: DaemonControl; readonly outcome: "sent" }
-  | {
-      readonly control: DaemonControl;
-      readonly outcome: "refused";
-      readonly refusal: ConsoleRefusal;
-    };
+/**
+ * The subject one status answer belongs to.
+ *
+ * THE CONNECTION'S KIND AND NEVER THE WHOLE CONNECTION. `reconnecting` carries an
+ * attempt number that advances on every retry of the supervisor's ladder, and a
+ * heartbeat timestamp moves on the healthy path — so keying on either would put a read
+ * on the wire per attempt and per beat, which is the interval poll
+ * `Spec-023 §Console Design (Meridian)` forbids arriving by the back door. What the
+ * kind changing means is that the runtime is somewhere else than it was, which is
+ * exactly when its own status line is worth asking for again.
+ */
+function daemonStatusSubject(freshness: DaemonStatusFreshness): string {
+  return `${DAEMON_STATUS_KEY}:${freshness.connection.kind}:${freshness.settledControlCount}`;
+}
 
 /**
  * The single-flight key the two controls SHARE, within one growth port.

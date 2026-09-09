@@ -17,7 +17,7 @@ import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 // because no cross-family production module takes either one through it.
 import { SCRIPTED_PANE_VIEW_HOST_TRANSPORT } from "../../bridge/fixture/pane-view-host-script.js";
 import { createLiveBridge } from "../../bridge/live-bridge.js";
-import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
+import { BROWSER_SCENARIO } from "../../bridge/scenario/browser.js";
 import { isConsoleRefusal } from "../../core/index.js";
 import type { PaneGeometrySample } from "./pane-geometry.js";
 import {

@@ -47,6 +47,16 @@ export const SESSIONS_ABSENCE_KINDS = ["not-loaded", "empty", "not-checked", "er
 /** One of the four. Derived from the enumeration, never restated beside it. */
 export type SessionsAbsenceKind = (typeof SESSIONS_ABSENCE_KINDS)[number];
 
+/** What a caller hands in for the sessions only this window can describe. */
+export interface SessionRowSources {
+  /** The node's answer, whatever it was. */
+  readonly directory: SessionDirectoryState;
+  /** Every session this window holds a store for, in open order. */
+  readonly windowSessionIds: readonly string[];
+  /** The rows the local projection can describe in full, in any order. */
+  readonly projectedRows: readonly SessionListRow[];
+}
+
 /**
  * Which absence a directory state means.
  *
@@ -65,16 +75,6 @@ export function sessionsAbsenceKindFor(directory: SessionDirectoryState): Sessio
     case "unavailable":
       return isUnbuiltWireRefusal(directory.refusal) ? "not-checked" : "error";
   }
-}
-
-/** What a caller hands in for the sessions only this window can describe. */
-export interface SessionRowSources {
-  /** The node's answer, whatever it was. */
-  readonly directory: SessionDirectoryState;
-  /** Every session this window holds a store for, in open order. */
-  readonly windowSessionIds: readonly string[];
-  /** The rows the local projection can describe in full, in any order. */
-  readonly projectedRows: readonly SessionListRow[];
 }
 
 /**

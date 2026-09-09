@@ -18,7 +18,7 @@ import {
   unscriptedScenario,
 } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import type { ConsoleBridge, ServedInvite } from "../../bridge/index.js";
-import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
+import type { ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
 import { settle as settleReactWork } from "../../core/settle.test-support.js";
 
 /**
@@ -103,19 +103,6 @@ export function bridgeServing(invites: readonly ServedInvite[]): ConsoleBridge {
   });
 }
 
-/**
- * A scenario whose only scripted reply is the one `invite.revoke` answers with.
- *
- * The reply is the shipped `InviteRevokeResponse` shape — `{inviteId, state}` and
- * nothing else — so what the ledger consumes here is what the daemon actually sends.
- */
-function scenarioSettlingRevoke(inviteId: string): ConsoleScenario {
-  return {
-    ...unscriptedScenario("collaboration-invites-revoke-test"),
-    replies: [{ call: "invite.revoke", result: { inviteId, state: "revoked" } }],
-  };
-}
-
 /** The bridge for a revoke that settles, with every `invitesList` call counted. */
 export function bridgeSettlingRevoke(invites: readonly ServedInvite[]): {
   readonly bridge: ConsoleBridge;
@@ -144,4 +131,17 @@ export async function pressRevoke(container: HTMLElement): Promise<void> {
 /** Let the one-shot read and the effects it schedules land. */
 export async function settle(): Promise<void> {
   await settleReactWork();
+}
+
+/**
+ * A scenario whose only scripted reply is the one `invite.revoke` answers with.
+ *
+ * The reply is the shipped `InviteRevokeResponse` shape — `{inviteId, state}` and
+ * nothing else — so what the ledger consumes here is what the daemon actually sends.
+ */
+function scenarioSettlingRevoke(inviteId: string): ConsoleScenario {
+  return {
+    ...unscriptedScenario("collaboration-invites-revoke-test"),
+    replies: [{ call: "invite.revoke", result: { inviteId, state: "revoked" } }],
+  };
 }

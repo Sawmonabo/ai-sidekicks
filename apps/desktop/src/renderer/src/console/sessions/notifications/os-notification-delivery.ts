@@ -68,14 +68,6 @@ const UNREAD_DELIVERY: OsNotificationDelivery = { status: "unread" };
 const PERMITTED_DELIVERY: OsNotificationDelivery = { status: "permitted" };
 const WITHHELD_DELIVERY: OsNotificationDelivery = { status: "withheld" };
 
-/** The centre's reading of one permission answer. Total, so no call site branches. */
-function deliveryFor(reading: OsNotificationPermissionReading): OsNotificationDelivery {
-  if (reading.kind !== "read") {
-    return UNREAD_DELIVERY;
-  }
-  return reading.state === "denied" ? WITHHELD_DELIVERY : PERMITTED_DELIVERY;
-}
-
 /**
  * Read this machine's notification permission, and read it again when it can have
  * changed.
@@ -89,4 +81,12 @@ function deliveryFor(reading: OsNotificationPermissionReading): OsNotificationDe
  */
 export function useOsNotificationDelivery(bridge: ConsoleBridge): OsNotificationDelivery {
   return deliveryFor(useOsNotificationPermission(bridge));
+}
+
+/** The centre's reading of one permission answer. Total, so no call site branches. */
+function deliveryFor(reading: OsNotificationPermissionReading): OsNotificationDelivery {
+  if (reading.kind !== "read") {
+    return UNREAD_DELIVERY;
+  }
+  return reading.state === "denied" ? WITHHELD_DELIVERY : PERMITTED_DELIVERY;
 }

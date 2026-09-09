@@ -97,6 +97,52 @@ export interface SidebarCommandTargets {
 }
 
 /**
+ * The sidebar's keyboard: one registry, one table, one listener, one disposer.
+ *
+ * A class because the pairing is an invariant over state — a table installed twice
+ * would run every act twice per press, and the table itself throws on that — and
+ * because `install` / `dispose` have to be callable from an effect without the
+ * component holding the three objects between them.
+ */
+export class SidebarKeyboard {
+  readonly #registry = new CommandRegistry();
+  readonly #table: KeyBindingTable;
+  #detachListener: (() => void) | undefined;
+
+  public constructor(model: SidebarModel, targets: SidebarCommandTargets) {
+    this.#registry.registerAll(sidebarCursorCommands(model, targets));
+    this.#table = new KeyBindingTable({
+      registry: this.#registry,
+      // Every sidebar act is unconditional inside the sidebar, and the scope IS the
+      // listener's target. An empty context is therefore the accurate one, not a
+      // placeholder: a `when` clause here would name a key nothing computes, and the
+      // fail-closed rule would hide the command.
+      readContext: () => ({}),
+    });
+    this.#table.setBindings(SIDEBAR_KEY_BINDINGS);
+  }
+
+  /** The chord bound to one act, for `ChordHint`. `undefined` where none is live. */
+  public chordFor(commandId: string): string | undefined {
+    return this.#table.chordFor(commandId, {});
+  }
+
+  /** Attach the one listener to the sidebar's own element. */
+  public install(target: HTMLElement): void {
+    this.#detachListener = this.#table.install(target);
+  }
+
+  /** Detach. Safe to call when nothing is installed, so an effect cleanup is unconditional. */
+  public dispose(): void {
+    this.#detachListener?.();
+    this.#detachListener = undefined;
+    for (const commandId of Object.values(SIDEBAR_COMMAND_IDS)) {
+      this.#registry.unregister(commandId);
+    }
+  }
+}
+
+/**
  * The four acts, closing over one model.
  *
  * Built rather than declared at module scope for the reason `frame-commands.ts` gives
@@ -157,50 +203,4 @@ export function sidebarCursorCommands(
       },
     },
   ];
-}
-
-/**
- * The sidebar's keyboard: one registry, one table, one listener, one disposer.
- *
- * A class because the pairing is an invariant over state — a table installed twice
- * would run every act twice per press, and the table itself throws on that — and
- * because `install` / `dispose` have to be callable from an effect without the
- * component holding the three objects between them.
- */
-export class SidebarKeyboard {
-  readonly #registry = new CommandRegistry();
-  readonly #table: KeyBindingTable;
-  #detachListener: (() => void) | undefined;
-
-  public constructor(model: SidebarModel, targets: SidebarCommandTargets) {
-    this.#registry.registerAll(sidebarCursorCommands(model, targets));
-    this.#table = new KeyBindingTable({
-      registry: this.#registry,
-      // Every sidebar act is unconditional inside the sidebar, and the scope IS the
-      // listener's target. An empty context is therefore the accurate one, not a
-      // placeholder: a `when` clause here would name a key nothing computes, and the
-      // fail-closed rule would hide the command.
-      readContext: () => ({}),
-    });
-    this.#table.setBindings(SIDEBAR_KEY_BINDINGS);
-  }
-
-  /** The chord bound to one act, for `ChordHint`. `undefined` where none is live. */
-  public chordFor(commandId: string): string | undefined {
-    return this.#table.chordFor(commandId, {});
-  }
-
-  /** Attach the one listener to the sidebar's own element. */
-  public install(target: HTMLElement): void {
-    this.#detachListener = this.#table.install(target);
-  }
-
-  /** Detach. Safe to call when nothing is installed, so an effect cleanup is unconditional. */
-  public dispose(): void {
-    this.#detachListener?.();
-    this.#detachListener = undefined;
-    for (const commandId of Object.values(SIDEBAR_COMMAND_IDS)) {
-      this.#registry.unregister(commandId);
-    }
-  }
 }

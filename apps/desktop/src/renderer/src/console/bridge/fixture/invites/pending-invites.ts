@@ -75,7 +75,7 @@ import type {
   GrowthInviteOutcome,
   GrowthPendingInviteState,
 } from "../../growth-values/index.js";
-import type { ScenarioEngine } from "../../scenario-runtime/index.js";
+import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /**
  * The fixture's stand-in for the main process's pending-invite lifecycle.

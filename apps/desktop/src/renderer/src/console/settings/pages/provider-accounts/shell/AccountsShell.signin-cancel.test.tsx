@@ -24,7 +24,7 @@ import {
 } from "../../../../bridge/index.js";
 import type { ProviderAccountLoginCancelResponse } from "@ai-sidekicks/contracts";
 import { settleScriptedRead } from "../../../../bridge/readings/scheduled-read.test-support.js";
-import { SETTINGS_PROVIDER_ACCOUNT_LOGIN } from "../../../../bridge/scenarios/settings/account-plane.js";
+import { SETTINGS_PROVIDER_ACCOUNT_LOGIN } from "../../../../bridge/scenario/settings/account-plane.js";
 import {
   bridgeHoldingTheTail,
   bridgeHoldingTheTailAndCountingCalls,

@@ -109,30 +109,6 @@ export function unvouchedAttachAxes(
 }
 
 /**
- * Which of those axes to NAME, as words a person reads.
- *
- * A form carrying no ENTRY among the three needs no catalog at all — which is what
- * keeps the definition arm submittable while the catalog read is still in flight,
- * since the daemon resolves a definition's own driver and model itself and a
- * definition is internally coherent by construction. The moment one IS entered the
- * whole chain is in question, because an entry can retire the vocabulary an inherited
- * axis was published under; an unread catalog is then named as the thing still missing
- * rather than treated as permission.
- */
-function axesNoVocabularyCarries(
-  reading: AttachFormReading,
-  catalog: DriverCatalogReading | undefined,
-): readonly string[] {
-  if (!DEPENDENT_AXES.some((axis) => reading.entered[axis] !== undefined)) {
-    return [];
-  }
-  if (catalog === undefined) {
-    return ["the model catalog"];
-  }
-  return unvouchedAttachAxes(reading, catalog).map((axis) => UNVOUCHED_AXIS_WORDS[axis]);
-}
-
-/**
  * The request, or what is still missing.
  *
  * The definition arm sends the id plus ONLY the fields the caller entered, which is
@@ -188,4 +164,28 @@ export function attachReadinessFor(
     // two members that could disagree with the first.
     request: { sessionId, name, ...reading.entered },
   };
+}
+
+/**
+ * Which of those axes to NAME, as words a person reads.
+ *
+ * A form carrying no ENTRY among the three needs no catalog at all — which is what
+ * keeps the definition arm submittable while the catalog read is still in flight,
+ * since the daemon resolves a definition's own driver and model itself and a
+ * definition is internally coherent by construction. The moment one IS entered the
+ * whole chain is in question, because an entry can retire the vocabulary an inherited
+ * axis was published under; an unread catalog is then named as the thing still missing
+ * rather than treated as permission.
+ */
+function axesNoVocabularyCarries(
+  reading: AttachFormReading,
+  catalog: DriverCatalogReading | undefined,
+): readonly string[] {
+  if (!DEPENDENT_AXES.some((axis) => reading.entered[axis] !== undefined)) {
+    return [];
+  }
+  if (catalog === undefined) {
+    return ["the model catalog"];
+  }
+  return unvouchedAttachAxes(reading, catalog).map((axis) => UNVOUCHED_AXIS_WORDS[axis]);
 }

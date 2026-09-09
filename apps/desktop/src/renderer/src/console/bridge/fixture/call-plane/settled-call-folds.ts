@@ -38,7 +38,7 @@
 import { foldChannelDirectoryOverLog } from "../collaboration/channel-directory.js";
 import type { FixtureChannelLifecycle } from "../collaboration/channel-lifecycle.js";
 import type { FixtureInviteLedger } from "../invites/invite-ledger.js";
-import type { ScenarioEngine } from "../../scenario-runtime/index.js";
+import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /** The registered method whose answer is the session's channel directory. */
 const CHANNEL_LIST_METHOD = "channel.list";
@@ -46,16 +46,6 @@ const CHANNEL_LIST_METHOD = "channel.list";
 /** The two registered invite mutations whose receipts the ledger read owes. */
 const INVITE_CREATE_METHOD = "invite.create";
 const INVITE_REVOKE_METHOD = "invite.revoke";
-
-/**
- * One call's fold: what the caller receives, given what the scenario settled.
- *
- * THE REQUEST TRAVELS WITH IT, because half the calls in the table are mutations and a
- * receipt does not carry everything the act asked for — an invite receipt names no
- * role, and a ledger built from receipts alone could not say what the invitation
- * grants. A fold that does not need it ignores it, which is cheaper than two tables.
- */
-type SettledCallFold = (engine: ScenarioEngine, request: unknown, settled: unknown) => unknown;
 
 /** Which calls this bridge folds, and the fold each one takes. */
 export type SettledCallFolds = Readonly<Record<string, SettledCallFold>>;
@@ -109,3 +99,13 @@ export function foldSettledCall(
   const fold = Object.hasOwn(folds, call) ? folds[call] : undefined;
   return fold === undefined ? settled : fold(engine, request, settled);
 }
+
+/**
+ * One call's fold: what the caller receives, given what the scenario settled.
+ *
+ * THE REQUEST TRAVELS WITH IT, because half the calls in the table are mutations and a
+ * receipt does not carry everything the act asked for — an invite receipt names no
+ * role, and a ledger built from receipts alone could not say what the invitation
+ * grants. A fold that does not need it ignores it, which is cheaper than two tables.
+ */
+type SettledCallFold = (engine: ScenarioEngine, request: unknown, settled: unknown) => unknown;

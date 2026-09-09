@@ -32,12 +32,6 @@
 
 import type { ConsoleClock, ScheduledHandle } from "./clock.js";
 
-/** Which clock is behind one handed-out handle, and what that clock called the work. */
-interface ArmedElsewhere {
-  readonly clock: ConsoleClock;
-  readonly handle: ScheduledHandle;
-}
-
 /**
  * A stable `ConsoleClock` over a clock the caller may replace.
  *
@@ -121,4 +115,10 @@ export class ForwardingConsoleClock implements ConsoleClock {
     this.#armed.set(handle, { clock, handle: underlying });
     return handle;
   }
+}
+
+/** Which clock is behind one handed-out handle, and what that clock called the work. */
+interface ArmedElsewhere {
+  readonly clock: ConsoleClock;
+  readonly handle: ScheduledHandle;
 }

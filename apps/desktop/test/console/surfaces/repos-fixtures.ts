@@ -24,7 +24,7 @@ import type { ReactNode } from "react";
 import {
   REPOS_PINNED_ARTIFACT_ID,
   REPOS_SCENARIO,
-} from "../../../src/renderer/src/console/bridge/scenarios/repos.js";
+} from "../../../src/renderer/src/console/bridge/scenario/repos/repos.js";
 import {
   type ConsoleBridge,
   type GrowthArtifactSummary,

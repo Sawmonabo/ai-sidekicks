@@ -24,12 +24,6 @@ import { RopeSmoother, type ProvenAppendToken } from "../scroll/index.js";
 /** Where a lane's diagnostics go. The engine's emitter, in practice. */
 export type RevealDiagnosticSink = (diagnostic: RevealDiagnostic) => void;
 
-/** One authoritative commit the lane can be re-anchored against. */
-interface RevealCheckpoint {
-  readonly sequence: number;
-  readonly sourceLength: number;
-}
-
 export class RevealLane {
   #smoother: RopeSmoother;
   #checkpoints: RevealCheckpoint[] = [];
@@ -251,6 +245,12 @@ export class RevealLane {
       );
     }
   }
+}
+
+/** One authoritative commit the lane can be re-anchored against. */
+interface RevealCheckpoint {
+  readonly sequence: number;
+  readonly sourceLength: number;
 }
 
 /**

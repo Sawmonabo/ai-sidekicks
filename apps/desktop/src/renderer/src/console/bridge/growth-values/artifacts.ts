@@ -197,37 +197,6 @@ export type GrowthArtifactPayloadEncoding = "utf8" | "base64";
  */
 export type GrowthArtifactRead = GrowthArtifactReadDeferred | GrowthArtifactReadInline;
 
-/** What both arms carry: the envelope the read is about. */
-interface GrowthArtifactReadBase {
-  readonly manifest: GrowthArtifactSummary;
-}
-
-/**
- * The reply that hands back a key to fetch the bytes with, rather than the bytes.
- *
- * Not published, and neither is the inline arm: a reader narrows the union STRUCTURALLY
- * — `payload` is `never` here and required there, so testing for it is exhaustive and
- * the compiler proves it — rather than by naming an arm. A published arm name is a
- * second way to spell a narrowing the type system already performs, and the two can
- * disagree once a third arm appears.
- */
-interface GrowthArtifactReadDeferred extends GrowthArtifactReadBase {
-  /** The CAS key or URL for deferred retrieval. Required on this arm: it IS this arm. */
-  readonly payloadHandle: string;
-  readonly payload?: never;
-  readonly payloadEncoding?: never;
-}
-
-/** The reply that carries the bytes, and the encoding a reader switches on. */
-interface GrowthArtifactReadInline extends GrowthArtifactReadBase {
-  /** Permitted beside the bytes, because the registered response permits it. */
-  readonly payloadHandle?: string;
-  /** The bytes, present when `includePayload` was set and the size permitted. */
-  readonly payload: string;
-  /** Present exactly when `payload` is. Read, never sniffed from the bytes. */
-  readonly payloadEncoding: GrowthArtifactPayloadEncoding;
-}
-
 /**
  * What became of the payload behind a deleted manifest.
  *
@@ -276,4 +245,35 @@ export interface GrowthArtifactDeleteReceipt {
   /** True when the delete destroyed the retained relay key, foreclosing re-publish. */
   readonly rePublishForeclosed: boolean;
   readonly deletedAt: string;
+}
+
+/** What both arms carry: the envelope the read is about. */
+interface GrowthArtifactReadBase {
+  readonly manifest: GrowthArtifactSummary;
+}
+
+/**
+ * The reply that hands back a key to fetch the bytes with, rather than the bytes.
+ *
+ * Not published, and neither is the inline arm: a reader narrows the union STRUCTURALLY
+ * — `payload` is `never` here and required there, so testing for it is exhaustive and
+ * the compiler proves it — rather than by naming an arm. A published arm name is a
+ * second way to spell a narrowing the type system already performs, and the two can
+ * disagree once a third arm appears.
+ */
+interface GrowthArtifactReadDeferred extends GrowthArtifactReadBase {
+  /** The CAS key or URL for deferred retrieval. Required on this arm: it IS this arm. */
+  readonly payloadHandle: string;
+  readonly payload?: never;
+  readonly payloadEncoding?: never;
+}
+
+/** The reply that carries the bytes, and the encoding a reader switches on. */
+interface GrowthArtifactReadInline extends GrowthArtifactReadBase {
+  /** Permitted beside the bytes, because the registered response permits it. */
+  readonly payloadHandle?: string;
+  /** The bytes, present when `includePayload` was set and the size permitted. */
+  readonly payload: string;
+  /** Present exactly when `payload` is. Read, never sniffed from the bytes. */
+  readonly payloadEncoding: GrowthArtifactPayloadEncoding;
 }

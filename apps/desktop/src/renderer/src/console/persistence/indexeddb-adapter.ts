@@ -51,17 +51,6 @@ export const UI_STATE_STORE_NAME = "ui-state";
 /** How long the console will wait for a database before rendering without one. */
 export const DATABASE_OPEN_TIMEOUT_MS = 3000;
 
-interface ConsoleDatabaseSchema extends DBSchema {
-  [UI_STATE_STORE_NAME]: {
-    key: [string, string];
-    value: StoredRecord;
-    indexes: {
-      "by-partition": string;
-      "by-updated-at": number;
-    };
-  };
-}
-
 /** What `openConsoleDatabase` returns: a usable adapter, or the reason there is none. */
 export type DatabaseOpenOutcome =
   | { readonly outcome: "opened"; readonly adapter: IndexedDbPersistenceAdapter }
@@ -109,100 +98,6 @@ export interface OpenConsoleDatabaseOptions {
    * testable in milliseconds of frozen time rather than in three real seconds.
    */
   readonly clock?: ConsoleClock;
-}
-
-/**
- * The factory this open is gated on, distinguishing an OMITTED option from one
- * explicitly supplied as `undefined`.
- *
- * See `OpenConsoleDatabaseOptions.indexedDbFactory` for why the distinction is the
- * contract rather than a nicety.
- */
-function resolveIndexedDbFactory(options: OpenConsoleDatabaseOptions): IDBFactory | undefined {
-  if ("indexedDbFactory" in options) {
-    return options.indexedDbFactory;
-  }
-  return typeof indexedDB === "undefined" ? undefined : indexedDB;
-}
-
-/**
- * Attempt the durable open. Never throws: the failure modes above are outcomes the
- * caller renders, not exceptions it swallows.
- */
-export async function openConsoleDatabase(
-  options: OpenConsoleDatabaseOptions = {},
-): Promise<DatabaseOpenOutcome> {
-  const indexedDbFactory = resolveIndexedDbFactory(options);
-  if (indexedDbFactory === undefined) {
-    return { outcome: "unavailable", reason: "no-indexeddb-global" };
-  }
-
-  const databaseName = options.databaseName ?? CONSOLE_DATABASE_NAME;
-  const openTimeoutMs = options.openTimeoutMs ?? DATABASE_OPEN_TIMEOUT_MS;
-  const clock = options.clock ?? new RealClock();
-
-  let timeoutHandle: ScheduledHandle | undefined;
-  const timedOut = Symbol("database-open-timed-out");
-  const timeout = new Promise<typeof timedOut>((resolve) => {
-    timeoutHandle = clock.scheduleTimeout(() => {
-      resolve(timedOut);
-    }, openTimeoutMs);
-  });
-
-  try {
-    const opening = openDB<ConsoleDatabaseSchema>(databaseName, CONSOLE_DATABASE_VERSION, {
-      upgrade(database) {
-        const store = database.createObjectStore(UI_STATE_STORE_NAME, {
-          keyPath: ["partition", "key"],
-        });
-        store.createIndex("by-partition", "partition");
-        store.createIndex("by-updated-at", "updatedAt");
-      },
-    });
-    const settled = await Promise.race([opening, timeout]);
-    if (settled === timedOut) {
-      // The open may still land later. Close it when it does rather than leaking a
-      // connection that would block the NEXT window's upgrade.
-      void opening.then(
-        (database) => {
-          database.close();
-        },
-        () => undefined,
-      );
-      return { outcome: "unavailable", reason: "open-timed-out" };
-    }
-    return {
-      outcome: "opened",
-      adapter: new IndexedDbPersistenceAdapter(settled, options.storageManager),
-    };
-  } catch (error) {
-    return { outcome: "unavailable", reason: classifyOpenFailure(error), cause: error };
-  } finally {
-    if (timeoutHandle !== undefined) {
-      clock.cancel(timeoutHandle);
-    }
-  }
-}
-
-/**
- * Map an open failure to its reason.
- *
- * Exported because the three failures reach it by different routes — Chromium
- * throws `SecurityError` synchronously on an opaque origin, while `VersionError`
- * arrives on the request's `error` event — and a test that could only drive one
- * route would leave the other two classifications unasserted.
- */
-export function classifyOpenFailure(error: unknown): PersistenceUnavailableReason {
-  if (typeof error === "object" && error !== null && "name" in error) {
-    const name = (error as { readonly name: unknown }).name;
-    if (name === "VersionError") {
-      return "version-mismatch";
-    }
-    if (name === "SecurityError" || name === "InvalidStateError" || name === "UnknownError") {
-      return "open-refused";
-    }
-  }
-  return "open-refused";
 }
 
 export class IndexedDbPersistenceAdapter implements PersistenceAdapter {
@@ -356,6 +251,111 @@ export class IndexedDbPersistenceAdapter implements PersistenceAdapter {
       );
     }
   }
+}
+
+/**
+ * Attempt the durable open. Never throws: the failure modes above are outcomes the
+ * caller renders, not exceptions it swallows.
+ */
+export async function openConsoleDatabase(
+  options: OpenConsoleDatabaseOptions = {},
+): Promise<DatabaseOpenOutcome> {
+  const indexedDbFactory = resolveIndexedDbFactory(options);
+  if (indexedDbFactory === undefined) {
+    return { outcome: "unavailable", reason: "no-indexeddb-global" };
+  }
+
+  const databaseName = options.databaseName ?? CONSOLE_DATABASE_NAME;
+  const openTimeoutMs = options.openTimeoutMs ?? DATABASE_OPEN_TIMEOUT_MS;
+  const clock = options.clock ?? new RealClock();
+
+  let timeoutHandle: ScheduledHandle | undefined;
+  const timedOut = Symbol("database-open-timed-out");
+  const timeout = new Promise<typeof timedOut>((resolve) => {
+    timeoutHandle = clock.scheduleTimeout(() => {
+      resolve(timedOut);
+    }, openTimeoutMs);
+  });
+
+  try {
+    const opening = openDB<ConsoleDatabaseSchema>(databaseName, CONSOLE_DATABASE_VERSION, {
+      upgrade(database) {
+        const store = database.createObjectStore(UI_STATE_STORE_NAME, {
+          keyPath: ["partition", "key"],
+        });
+        store.createIndex("by-partition", "partition");
+        store.createIndex("by-updated-at", "updatedAt");
+      },
+    });
+    const settled = await Promise.race([opening, timeout]);
+    if (settled === timedOut) {
+      // The open may still land later. Close it when it does rather than leaking a
+      // connection that would block the NEXT window's upgrade.
+      void opening.then(
+        (database) => {
+          database.close();
+        },
+        () => undefined,
+      );
+      return { outcome: "unavailable", reason: "open-timed-out" };
+    }
+    return {
+      outcome: "opened",
+      adapter: new IndexedDbPersistenceAdapter(settled, options.storageManager),
+    };
+  } catch (error) {
+    return { outcome: "unavailable", reason: classifyOpenFailure(error), cause: error };
+  } finally {
+    if (timeoutHandle !== undefined) {
+      clock.cancel(timeoutHandle);
+    }
+  }
+}
+
+/**
+ * Map an open failure to its reason.
+ *
+ * Exported because the three failures reach it by different routes — Chromium
+ * throws `SecurityError` synchronously on an opaque origin, while `VersionError`
+ * arrives on the request's `error` event — and a test that could only drive one
+ * route would leave the other two classifications unasserted.
+ */
+export function classifyOpenFailure(error: unknown): PersistenceUnavailableReason {
+  if (typeof error === "object" && error !== null && "name" in error) {
+    const name = (error as { readonly name: unknown }).name;
+    if (name === "VersionError") {
+      return "version-mismatch";
+    }
+    if (name === "SecurityError" || name === "InvalidStateError" || name === "UnknownError") {
+      return "open-refused";
+    }
+  }
+  return "open-refused";
+}
+
+interface ConsoleDatabaseSchema extends DBSchema {
+  [UI_STATE_STORE_NAME]: {
+    key: [string, string];
+    value: StoredRecord;
+    indexes: {
+      "by-partition": string;
+      "by-updated-at": number;
+    };
+  };
+}
+
+/**
+ * The factory this open is gated on, distinguishing an OMITTED option from one
+ * explicitly supplied as `undefined`.
+ *
+ * See `OpenConsoleDatabaseOptions.indexedDbFactory` for why the distinction is the
+ * contract rather than a nicety.
+ */
+function resolveIndexedDbFactory(options: OpenConsoleDatabaseOptions): IDBFactory | undefined {
+  if ("indexedDbFactory" in options) {
+    return options.indexedDbFactory;
+  }
+  return typeof indexedDB === "undefined" ? undefined : indexedDB;
 }
 
 function describeError(error: unknown): string {

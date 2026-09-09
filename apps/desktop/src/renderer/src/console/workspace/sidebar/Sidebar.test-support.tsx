@@ -19,7 +19,7 @@ import { render } from "@testing-library/react";
 import { useSyncExternalStore, type ReactElement } from "react";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { COMPOSER_SCENARIO } from "../../bridge/scenarios/composer.js";
+import { COMPOSER_SCENARIO } from "../../bridge/scenario/composer/composer.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { FrameStore, SessionStore } from "../../store/index.js";
 import { SidebarSectionRegistry } from "../../seats/index.js";
@@ -36,33 +36,6 @@ export interface RenderedSidebar {
   readonly announcements: HTMLElement;
   /** Re-read the column, which is replaced wholesale when it collapses to its rail. */
   column(): HTMLElement;
-}
-
-/** The frame plus the one subscription its owner makes, and nothing else. */
-function SidebarHost(props: {
-  readonly model: SidebarModel;
-  readonly registry: SidebarSectionRegistry;
-  readonly seat: MountedSidebarSeat;
-  readonly bridge: ConsoleBridge;
-  readonly sessionStore: SessionStore;
-  readonly frameStore: FrameStore;
-}): ReactElement {
-  const snapshot = useSyncExternalStore(
-    (listener) => props.model.subscribe(listener),
-    () => props.model.snapshot,
-  );
-  return (
-    <Sidebar
-      sessionStore={props.sessionStore}
-      bridge={props.bridge}
-      frameStore={props.frameStore}
-      openPane={() => undefined}
-      model={props.model}
-      snapshot={snapshot}
-      sectionRegistry={props.registry}
-      commandSeat={props.seat}
-    />
-  );
 }
 
 export function renderSidebar(
@@ -109,4 +82,31 @@ export function filterField(sidebar: HTMLElement): HTMLInputElement {
     throw new Error("the sidebar rendered no filter field");
   }
   return field;
+}
+
+/** The frame plus the one subscription its owner makes, and nothing else. */
+function SidebarHost(props: {
+  readonly model: SidebarModel;
+  readonly registry: SidebarSectionRegistry;
+  readonly seat: MountedSidebarSeat;
+  readonly bridge: ConsoleBridge;
+  readonly sessionStore: SessionStore;
+  readonly frameStore: FrameStore;
+}): ReactElement {
+  const snapshot = useSyncExternalStore(
+    (listener) => props.model.subscribe(listener),
+    () => props.model.snapshot,
+  );
+  return (
+    <Sidebar
+      sessionStore={props.sessionStore}
+      bridge={props.bridge}
+      frameStore={props.frameStore}
+      openPane={() => undefined}
+      model={props.model}
+      snapshot={snapshot}
+      sectionRegistry={props.registry}
+      commandSeat={props.seat}
+    />
+  );
 }

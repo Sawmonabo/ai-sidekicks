@@ -56,6 +56,11 @@ export const IDLE_REMEMBERED_GRANT_INTENT: RememberedGrantIntent = {
   pattern: "",
 };
 
+export interface RememberDecisionProps {
+  readonly intent: RememberedGrantIntent;
+  readonly onChange: (intent: RememberedGrantIntent) => void;
+}
+
 /**
  * The `rememberedScope` member this intent composes, or nothing at all.
  *
@@ -72,11 +77,6 @@ export function rememberedScopeFor(
   return intent.pattern === ""
     ? { kind: intent.kind }
     : { kind: intent.kind, pattern: intent.pattern };
-}
-
-export interface RememberDecisionProps {
-  readonly intent: RememberedGrantIntent;
-  readonly onChange: (intent: RememberedGrantIntent) => void;
 }
 
 export function RememberDecision(props: RememberDecisionProps): React.JSX.Element {

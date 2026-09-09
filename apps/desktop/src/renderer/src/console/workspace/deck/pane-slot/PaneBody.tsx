@@ -9,13 +9,6 @@ import { InlineRefusal } from "../../../primitives/index.js";
 import { type ConsoleRefusal } from "../../../core/index.js";
 import { type ConsolePaneContext, type ConsolePaneDescriptor } from "../../../seats/index.js";
 
-/** Whether what the deck resolved for a pane is an address or a refusal. */
-function isPaneContext(
-  resolved: ConsolePaneContext | ConsoleRefusal,
-): resolved is ConsolePaneContext {
-  return !("code" in resolved);
-}
-
 /** The registered body, or the refusal that says why this pane has no address. */
 export function PaneBody(props: {
   readonly descriptor: ConsolePaneDescriptor;
@@ -26,4 +19,11 @@ export function PaneBody(props: {
   ) : (
     <InlineRefusal code={props.context.code} detail={props.context.detail} />
   );
+}
+
+/** Whether what the deck resolved for a pane is an address or a refusal. */
+function isPaneContext(
+  resolved: ConsolePaneContext | ConsoleRefusal,
+): resolved is ConsolePaneContext {
+  return !("code" in resolved);
 }

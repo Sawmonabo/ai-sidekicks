@@ -38,27 +38,6 @@ const EMPTY_SCENARIO: FixtureScenario = {
   startedAtIso: "2026-01-01T10:05:00.000Z",
 };
 
-export function definition(
-  overrides: Partial<SidekickDefinitionRecord> = {},
-): SidekickDefinitionRecord {
-  return {
-    definitionId: "definition-1",
-    name: "Reviewer",
-    description: "Reads a diff and says what it would change.",
-    driverName: "claude",
-    modelId: "claude-opus-4-6",
-    providerAccountId: "account-work",
-    effort: "high",
-    executionPostureMode: "workspace-sandboxed",
-    instructions: "Be exact.",
-    goal: "Ship a clean diff.",
-    toolAllowlist: ["read", "grep"],
-    createdAt: "2026-01-01T10:00:00.000Z",
-    updatedAt: "2026-01-02T11:30:00.000Z",
-    ...overrides,
-  };
-}
-
 /**
  * A registry that answers, and counts what it was asked.
  *
@@ -143,6 +122,27 @@ export class RegistryStub {
     bridgeUnderTest = built;
     return built;
   }
+}
+
+export function definition(
+  overrides: Partial<SidekickDefinitionRecord> = {},
+): SidekickDefinitionRecord {
+  return {
+    definitionId: "definition-1",
+    name: "Reviewer",
+    description: "Reads a diff and says what it would change.",
+    driverName: "claude",
+    modelId: "claude-opus-4-6",
+    providerAccountId: "account-work",
+    effort: "high",
+    executionPostureMode: "workspace-sandboxed",
+    instructions: "Be exact.",
+    goal: "Ship a clean diff.",
+    toolAllowlist: ["read", "grep"],
+    createdAt: "2026-01-01T10:00:00.000Z",
+    updatedAt: "2026-01-02T11:30:00.000Z",
+    ...overrides,
+  };
 }
 
 export function served(definitions: readonly SidekickDefinitionRecord[]): ListOutcome {

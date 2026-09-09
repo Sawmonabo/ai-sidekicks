@@ -97,12 +97,6 @@ import {
 } from "../../store/index.js";
 import { SessionEventBinder } from "./session-event-binder.js";
 
-/** This window's session plumbing: the stores, and the one thing that feeds them. */
-interface WindowSessionPlumbing {
-  readonly registry: SessionStoreRegistry;
-  readonly binder: SessionEventBinder;
-}
-
 /**
  * This window's session-store registry, rebuilt on a new bridge and disposed with
  * the window.
@@ -183,6 +177,12 @@ export function useActiveSessionStore(
     registry.open(activeSessionId);
   }, [registry, activeSessionId]);
   return useOpenSessionStore(registry, activeSessionId);
+}
+
+/** This window's session plumbing: the stores, and the one thing that feeds them. */
+interface WindowSessionPlumbing {
+  readonly registry: SessionStoreRegistry;
+  readonly binder: SessionEventBinder;
 }
 
 /**

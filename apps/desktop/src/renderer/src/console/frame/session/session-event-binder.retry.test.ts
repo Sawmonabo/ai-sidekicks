@@ -21,8 +21,8 @@ import {
   type ConsoleBridge,
 } from "../../bridge/index.js";
 import { withDaemonSubscribe } from "../../bridge/fixture/call-plane/bridge.test-support.js";
-import type { ScenarioEngine } from "../../bridge/scenario-runtime/scenario-engine.js";
-import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
+import type { ScenarioEngine } from "../../bridge/scenario/runtime/engine.js";
+import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { APPLY_COALESCE_MS, type Unsubscribe } from "../../core/index.js";
 import { consoleTripwires } from "../../core/tripwires.js";
 import { SessionStoreRegistry } from "../../store/index.js";

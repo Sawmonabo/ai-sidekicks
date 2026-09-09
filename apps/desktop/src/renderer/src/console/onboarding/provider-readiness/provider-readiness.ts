@@ -277,6 +277,27 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
     this.#refresh.dispose();
   }
 
+  /**
+   * Probe one account, then read the projection again.
+   *
+   * FAIL-CLOSED AT THE DISPATCH SITE, ahead of the in-flight publish and not only on
+   * the control. The row is disabled from the same block and renders it, so a press
+   * cannot ordinarily arrive here — but the block can land in the frame between the
+   * render that enabled the control and the click that reaches this method, and what
+   * must not happen then is a write. Publishing `rechecking` first would also leave a
+   * spinner nothing settles, so the guard sits above the act; nothing is published at
+   * all, because the cause is already on screen beside the control that was pressed.
+   *
+   * The guard is here rather than inside the act for the same reason it is fail-closed:
+   * this is where the window state is, and an act reached from here has been admitted.
+   */
+  public async recheck(providerName: string, accountId: ProviderAccountId): Promise<void> {
+    if (this.#currentRecheckBlock() !== undefined) {
+      return;
+    }
+    await this.#acts.recheck(providerName, accountId);
+  }
+
   /** What the supervisor's condition currently costs a re-check. Derived, never held. */
   #currentRecheckBlock(): ShellMutationBlock | undefined {
     return currentShellBlock(this.#frameStore, RECHECK_METHOD);
@@ -331,27 +352,6 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
             : { kind: "unreadable", refusal: reply.refusal },
       });
     });
-  }
-
-  /**
-   * Probe one account, then read the projection again.
-   *
-   * FAIL-CLOSED AT THE DISPATCH SITE, ahead of the in-flight publish and not only on
-   * the control. The row is disabled from the same block and renders it, so a press
-   * cannot ordinarily arrive here — but the block can land in the frame between the
-   * render that enabled the control and the click that reaches this method, and what
-   * must not happen then is a write. Publishing `rechecking` first would also leave a
-   * spinner nothing settles, so the guard sits above the act; nothing is published at
-   * all, because the cause is already on screen beside the control that was pressed.
-   *
-   * The guard is here rather than inside the act for the same reason it is fail-closed:
-   * this is where the window state is, and an act reached from here has been admitted.
-   */
-  public async recheck(providerName: string, accountId: ProviderAccountId): Promise<void> {
-    if (this.#currentRecheckBlock() !== undefined) {
-      return;
-    }
-    await this.#acts.recheck(providerName, accountId);
   }
 
   /**

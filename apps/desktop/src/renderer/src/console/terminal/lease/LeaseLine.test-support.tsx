@@ -29,8 +29,8 @@ import { render, type RenderResult } from "@testing-library/react";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import type { CallerMembershipRoleResult } from "../../store/index.js";
-import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
-import { TERMINAL_SCENARIO } from "../../bridge/scenarios/terminal.js";
+import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
+import { TERMINAL_SCENARIO } from "../../bridge/scenario/terminal/terminal.js";
 import {
   leaseEventWithPayload,
   OTHER_PARTICIPANT,
@@ -59,64 +59,6 @@ export const SESSION_ID: string = TERMINAL_SCENARIO.sessionId;
  * made under, so the id it is compared against has to be one a daemon could emit.
  */
 export const OTHER_SESSION_ID: string = FLAGSHIP_SCENARIO.sessionId;
-
-export function refusingBridge(): ConsoleBridge {
-  return createFixtureBridge({ scenario: TERMINAL_SCENARIO });
-}
-
-/**
- * A bridge whose lease calls are SERVED and whose scenario scripts neither of them.
- *
- * The port's own refusal rather than a daemon's: the flagship models no shared shell,
- * so a take against it reaches the `reply-unscripted` arm — which is what a served
- * operation with nothing to answer from says, and the arm a surface has to render
- * without inventing a sentence for it.
- */
-export function scriptlessLeaseBridge(): ConsoleBridge {
-  return createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
-}
-
-/** A bridge whose lease calls are SERVED, to prove the holder still does not move. */
-export function servingBridge(): ConsoleBridge {
-  const base = createFixtureBridge({ scenario: TERMINAL_SCENARIO });
-  return {
-    ...base,
-    growth: {
-      ...base.growth,
-      // The registered replies, verbatim: a take answers with the caller as
-      // `controlHolder`, a release answers with the freed lease.
-      terminalAcquireWriteLease: async () => ({
-        status: "served" as const,
-        value: { controlHolder: VIEWER_PARTICIPANT },
-      }),
-      terminalReleaseWriteLease: async () => ({
-        status: "served" as const,
-        value: { controlHolder: null },
-      }),
-    },
-  };
-}
-
-/**
- * A bridge whose lease calls REJECT with the wire's own `{ code, message }`.
- *
- * The shape a rejected registered call actually carries across the preload
- * boundary (`src/shared/wire-errors.ts` owns it, for every renderer surface). The
- * port ANSWERS a refusal, so a rejection is the bridge itself failing — and a
- * daemon that refused a claim because somebody else holds the shell said so with a
- * code the person can act on.
- */
-export function bridgeRejectingWith(rejection: unknown): ConsoleBridge {
-  const base = createFixtureBridge({ scenario: TERMINAL_SCENARIO });
-  return {
-    ...base,
-    growth: {
-      ...base.growth,
-      terminalAcquireWriteLease: () => Promise.reject(rejection),
-      terminalReleaseWriteLease: () => Promise.reject(rejection),
-    },
-  };
-}
 
 /**
  * The lease wire, with every claim held until a case settles it by name.
@@ -183,6 +125,64 @@ export class HeldLeaseWire {
     }
     reject(HeldLeaseWire.LEASE_CONFLICT);
   }
+}
+
+export function refusingBridge(): ConsoleBridge {
+  return createFixtureBridge({ scenario: TERMINAL_SCENARIO });
+}
+
+/**
+ * A bridge whose lease calls are SERVED and whose scenario scripts neither of them.
+ *
+ * The port's own refusal rather than a daemon's: the flagship models no shared shell,
+ * so a take against it reaches the `reply-unscripted` arm — which is what a served
+ * operation with nothing to answer from says, and the arm a surface has to render
+ * without inventing a sentence for it.
+ */
+export function scriptlessLeaseBridge(): ConsoleBridge {
+  return createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+}
+
+/** A bridge whose lease calls are SERVED, to prove the holder still does not move. */
+export function servingBridge(): ConsoleBridge {
+  const base = createFixtureBridge({ scenario: TERMINAL_SCENARIO });
+  return {
+    ...base,
+    growth: {
+      ...base.growth,
+      // The registered replies, verbatim: a take answers with the caller as
+      // `controlHolder`, a release answers with the freed lease.
+      terminalAcquireWriteLease: async () => ({
+        status: "served" as const,
+        value: { controlHolder: VIEWER_PARTICIPANT },
+      }),
+      terminalReleaseWriteLease: async () => ({
+        status: "served" as const,
+        value: { controlHolder: null },
+      }),
+    },
+  };
+}
+
+/**
+ * A bridge whose lease calls REJECT with the wire's own `{ code, message }`.
+ *
+ * The shape a rejected registered call actually carries across the preload
+ * boundary (`src/shared/wire-errors.ts` owns it, for every renderer surface). The
+ * port ANSWERS a refusal, so a rejection is the bridge itself failing — and a
+ * daemon that refused a claim because somebody else holds the shell said so with a
+ * code the person can act on.
+ */
+export function bridgeRejectingWith(rejection: unknown): ConsoleBridge {
+  const base = createFixtureBridge({ scenario: TERMINAL_SCENARIO });
+  return {
+    ...base,
+    growth: {
+      ...base.growth,
+      terminalAcquireWriteLease: () => Promise.reject(rejection),
+      terminalReleaseWriteLease: () => Promise.reject(rejection),
+    },
+  };
 }
 
 export function markFor(participantId: string): TerminalParticipantMark | undefined {

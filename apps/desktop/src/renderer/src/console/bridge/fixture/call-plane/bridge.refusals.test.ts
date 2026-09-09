@@ -31,8 +31,8 @@ import {
   createFixture,
 } from "./bridge.test-support.js";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
-import type { ConsoleScenario } from "../../scenario-runtime/scenario.js";
-import { FLAGSHIP_SCENARIO } from "../../scenarios/flagship.js";
+import type { ConsoleScenario } from "../../scenario/runtime/vocabulary.js";
+import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
 import {
   readWireErrorEnvelope,
   type WireErrorEnvelope,

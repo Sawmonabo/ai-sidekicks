@@ -78,11 +78,6 @@ export function accountQuotaRowsFrom(
     }));
 }
 
-/** What a quota row sorts on: the provider's own label, else its limit identifier. */
-function quotaSortKey(window: ProviderAccountUsageWindow): string {
-  return window.label ?? window.limitId;
-}
-
 /**
  * How many whole days a re-login estimate sits after the sign-in it is anchored to,
  * or `undefined` where either stamp is unreadable.
@@ -148,4 +143,9 @@ export function readinessForProvider(
   provider: ProviderAccount["provider"],
 ): ProviderReadiness | undefined {
   return readiness.find((entry) => entry.provider === provider);
+}
+
+/** What a quota row sorts on: the provider's own label, else its limit identifier. */
+function quotaSortKey(window: ProviderAccountUsageWindow): string {
+  return window.label ?? window.limitId;
 }

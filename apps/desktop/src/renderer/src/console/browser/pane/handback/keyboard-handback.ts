@@ -116,40 +116,6 @@ export type ChordReplayOutcome =
   | { readonly status: "replayed" }
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
 
-/**
- * An authored chord with `$mod` resolved for the platform the keystroke was raised on.
- *
- * Resolved here rather than left to the parser, which resolves it against the host at
- * import time — `primitives/chord/chord-format.ts` says the same about the printer, for the
- * same reason. The platform is an input, so a test can drive all three.
- */
-function resolvePlatformModifier(chord: string, platform: ChordPlatform): string {
-  return chord.replaceAll(PLATFORM_MODIFIER_CHORD_TOKEN, PLATFORM_MODIFIER_TOKEN[platform]);
-}
-
-/**
- * The keystroke as a `KeyboardEvent` again — the shape both the matcher and the
- * replay need.
- *
- * One author for both, because they have to agree: a stand-in built for the match
- * that answered `getModifierState` differently from the event actually dispatched
- * would claim one chord from the page and replay another. `bubbles`, `cancelable`,
- * and `composed` are the replay's, and cost the match nothing.
- */
-function authorKeyboardEvent(descriptor: ChordDescriptor): KeyboardEvent {
-  return new KeyboardEvent("keydown", {
-    key: descriptor.key,
-    code: descriptor.code,
-    ctrlKey: descriptor.ctrlKey,
-    metaKey: descriptor.metaKey,
-    altKey: descriptor.altKey,
-    shiftKey: descriptor.shiftKey,
-    bubbles: true,
-    cancelable: true,
-    composed: true,
-  });
-}
-
 export interface KeyboardHandbackOptions {
   /**
    * The chords the console has installed, or `undefined` while the registry has not
@@ -219,27 +185,6 @@ export class KeyboardHandback {
   }
 
   /**
-   * Whether the mirror holds a chord THIS keystroke satisfies. A match, never a
-   * presence test.
-   *
-   * It is handed the mirror `decide` just read, so a supplier that changes answer
-   * mid-decision cannot make the claim disagree with the reason given for it. Nothing
-   * is cached across keystrokes, for `mirrorChords`' reason: an operator rebinding a
-   * key changes the set, and a cached comparison would claim what they gave away.
-   *
-   * A chord the parser refuses — a multi-press sequence, or modifiers with no key —
-   * matches nothing rather than throwing, so an unparseable mirror entry leaves the
-   * keystroke with the page, which is this module's fourth rule.
-   */
-  #isMirrored(descriptor: ChordDescriptor, mirror: readonly string[]): boolean {
-    const pressed = authorKeyboardEvent(descriptor);
-    return mirror.some((chord) => {
-      const parsed = parseChord(resolvePlatformModifier(chord, this.#platform));
-      return parsed.ok && chordMatchesEvent(parsed.press, pressed);
-    });
-  }
-
-  /**
    * Focus the pane and replay the chord into it as a key event.
    *
    * An EVENT and not a direct command invocation, which is the point of the whole
@@ -277,7 +222,62 @@ export class KeyboardHandback {
     return { status: "replayed" };
   }
 
+  /**
+   * Whether the mirror holds a chord THIS keystroke satisfies. A match, never a
+   * presence test.
+   *
+   * It is handed the mirror `decide` just read, so a supplier that changes answer
+   * mid-decision cannot make the claim disagree with the reason given for it. Nothing
+   * is cached across keystrokes, for `mirrorChords`' reason: an operator rebinding a
+   * key changes the set, and a cached comparison would claim what they gave away.
+   *
+   * A chord the parser refuses — a multi-press sequence, or modifiers with no key —
+   * matches nothing rather than throwing, so an unparseable mirror entry leaves the
+   * keystroke with the page, which is this module's fourth rule.
+   */
+  #isMirrored(descriptor: ChordDescriptor, mirror: readonly string[]): boolean {
+    const pressed = authorKeyboardEvent(descriptor);
+    return mirror.some((chord) => {
+      const parsed = parseChord(resolvePlatformModifier(chord, this.#platform));
+      return parsed.ok && chordMatchesEvent(parsed.press, pressed);
+    });
+  }
+
   #refuse(code: KeyboardHandbackRefusalCode, detail: string): ChordReplayOutcome {
     return { status: "refused", refusal: refuse(KEYBOARD_HANDBACK_REFUSAL_ORIGIN, code, detail) };
   }
+}
+
+/**
+ * An authored chord with `$mod` resolved for the platform the keystroke was raised on.
+ *
+ * Resolved here rather than left to the parser, which resolves it against the host at
+ * import time — `primitives/chord/chord-format.ts` says the same about the printer, for the
+ * same reason. The platform is an input, so a test can drive all three.
+ */
+function resolvePlatformModifier(chord: string, platform: ChordPlatform): string {
+  return chord.replaceAll(PLATFORM_MODIFIER_CHORD_TOKEN, PLATFORM_MODIFIER_TOKEN[platform]);
+}
+
+/**
+ * The keystroke as a `KeyboardEvent` again — the shape both the matcher and the
+ * replay need.
+ *
+ * One author for both, because they have to agree: a stand-in built for the match
+ * that answered `getModifierState` differently from the event actually dispatched
+ * would claim one chord from the page and replay another. `bubbles`, `cancelable`,
+ * and `composed` are the replay's, and cost the match nothing.
+ */
+function authorKeyboardEvent(descriptor: ChordDescriptor): KeyboardEvent {
+  return new KeyboardEvent("keydown", {
+    key: descriptor.key,
+    code: descriptor.code,
+    ctrlKey: descriptor.ctrlKey,
+    metaKey: descriptor.metaKey,
+    altKey: descriptor.altKey,
+    shiftKey: descriptor.shiftKey,
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+  });
 }

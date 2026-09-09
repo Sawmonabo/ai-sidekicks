@@ -42,10 +42,6 @@ export function collectFootnoteDefinitions(nodes: readonly RootContent[]): Footn
   };
 }
 
-function isFootnoteDefinition(node: RootContent): node is MdastFootnoteDefinition {
-  return node.type === "footnoteDefinition";
-}
-
 /**
  * Every footnote identifier anything in these nodes refers to.
  *
@@ -77,4 +73,8 @@ export function collectFootnoteReferences(nodes: readonly RootContent[]): Readon
   }
 
   return identifiers;
+}
+
+function isFootnoteDefinition(node: RootContent): node is MdastFootnoteDefinition {
+  return node.type === "footnoteDefinition";
 }

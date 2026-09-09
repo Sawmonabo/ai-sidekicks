@@ -61,6 +61,56 @@ import type { TerminalLeaseState } from "./lease-model.js";
 import type { TerminalParticipantMarkReader } from "./participant-mark.js";
 import { terminalLeaseTransitionSentence } from "./lease-transition.js";
 
+export interface LeaseTransitionLedgerProps {
+  readonly state: TerminalLeaseState;
+  readonly markFor: TerminalParticipantMarkReader;
+}
+
+export function LeaseTransitionLedger(props: LeaseTransitionLedgerProps): React.JSX.Element {
+  const { state, markFor } = props;
+  const readings = transitionReadings(state);
+  if (state.transitions.length === 0) {
+    return (
+      <div className="meridian-lease-line__ledger">
+        <PartialRead states={readings} subject="this transition history" />
+        <Nothing
+          kind="not-checked"
+          placement="surface"
+          title="No transition has been read."
+          detail={emptyLedgerDetail(state.unreadableTransitionCount)}
+        />
+      </div>
+    );
+  }
+  const labelFor = (participantId: string): string =>
+    markFor(participantId)?.displayName ?? participantId;
+  return (
+    <div className="meridian-lease-line__ledger">
+      <PartialRead states={readings} subject="this transition history" />
+      <div className="meridian-lease-line__ledger-feed" role="feed" aria-label="Lease transitions">
+        {state.transitions.map((transition) => {
+          const actorId = transition.actorId;
+          const mark = actorId === undefined ? undefined : markFor(actorId);
+          return (
+            <LedgerRow
+              key={transition.sequence}
+              participantHueStep={mark?.hueStep ?? -1}
+              ringTreatment={mark?.ringTreatment ?? "solid"}
+              occurredAtIso={transition.occurredAtIso}
+              actorLabel={mark?.displayName ?? actorId ?? "The daemon"}
+              kindLabel={transition.reason}
+            >
+              <p className="meridian-lease-line__sentence">
+                {terminalLeaseTransitionSentence(transition, labelFor)}
+              </p>
+            </LedgerRow>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /**
  * How completely the ledger's rows answer "every transition this console read".
  *
@@ -112,55 +162,5 @@ function emptyLedgerDetail(unreadableTransitionCount: number): string {
   return (
     "Every transition this session's log carried here arrived in a form this build cannot read, " +
     "so how often the shell has moved is not something this history can say."
-  );
-}
-
-export interface LeaseTransitionLedgerProps {
-  readonly state: TerminalLeaseState;
-  readonly markFor: TerminalParticipantMarkReader;
-}
-
-export function LeaseTransitionLedger(props: LeaseTransitionLedgerProps): React.JSX.Element {
-  const { state, markFor } = props;
-  const readings = transitionReadings(state);
-  if (state.transitions.length === 0) {
-    return (
-      <div className="meridian-lease-line__ledger">
-        <PartialRead states={readings} subject="this transition history" />
-        <Nothing
-          kind="not-checked"
-          placement="surface"
-          title="No transition has been read."
-          detail={emptyLedgerDetail(state.unreadableTransitionCount)}
-        />
-      </div>
-    );
-  }
-  const labelFor = (participantId: string): string =>
-    markFor(participantId)?.displayName ?? participantId;
-  return (
-    <div className="meridian-lease-line__ledger">
-      <PartialRead states={readings} subject="this transition history" />
-      <div className="meridian-lease-line__ledger-feed" role="feed" aria-label="Lease transitions">
-        {state.transitions.map((transition) => {
-          const actorId = transition.actorId;
-          const mark = actorId === undefined ? undefined : markFor(actorId);
-          return (
-            <LedgerRow
-              key={transition.sequence}
-              participantHueStep={mark?.hueStep ?? -1}
-              ringTreatment={mark?.ringTreatment ?? "solid"}
-              occurredAtIso={transition.occurredAtIso}
-              actorLabel={mark?.displayName ?? actorId ?? "The daemon"}
-              kindLabel={transition.reason}
-            >
-              <p className="meridian-lease-line__sentence">
-                {terminalLeaseTransitionSentence(transition, labelFor)}
-              </p>
-            </LedgerRow>
-          );
-        })}
-      </div>
-    </div>
   );
 }

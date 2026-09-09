@@ -32,7 +32,7 @@ import { growthSlateRow } from "./growth-slate.js";
 import {
   SCRIPT_ABSENT_REFUSAL_CODE,
   type ScriptedReplyRefusalCode,
-} from "../scenario-runtime/index.js";
+} from "../scenario/runtime/index.js";
 
 /**
  * Build the refusal one operation returns when its wire is not registered.

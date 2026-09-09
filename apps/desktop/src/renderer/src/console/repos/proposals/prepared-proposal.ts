@@ -37,25 +37,6 @@ import { GROWTH_PR_PREPARATION_STATES, type GrowthPrPreparationState } from "../
 export type ProposalState = GrowthPrPreparationState;
 
 /**
- * Whether a served preparation reply's state is one this console can render.
- *
- * THE ALIAS IS A COMPILE-TIME CLAIM AND THE PORT IS A PROCESS BOUNDARY. The signature
- * table types `gitflowPrPrepare`'s reply, and what arrives is whatever was sent — so a
- * state outside the two words reaches `PROPOSAL_STATE_SUMMARY_LINE` as a missing key
- * and `proposal-actions.ts`'s `=== "ready"` as a silent `false`, which withholds the
- * remote act and prints no summary line while nothing fails. The gate refuses the
- * reply instead, which is the reader-side code it already has a place for.
- *
- * Reads the wire's own enumeration, so the guard and the type cannot disagree about
- * which words exist.
- */
-export function isProposalState(value: unknown): value is ProposalState {
-  return (
-    typeof value === "string" && (GROWTH_PR_PREPARATION_STATES as readonly string[]).includes(value)
-  );
-}
-
-/**
  * What a prepared proposal puts on screen, before any remote mutation.
  *
  * `blob` is deliberately untyped and deliberately last. THIS MODULE'S RULE, because no
@@ -91,6 +72,25 @@ export interface PreparedProposal {
   /** The paths this proposal publishes. Named so the gate can offer the diff half. */
   readonly changedPaths?: readonly string[] | undefined;
   readonly blob?: Readonly<Record<string, unknown>> | undefined;
+}
+
+/**
+ * Whether a served preparation reply's state is one this console can render.
+ *
+ * THE ALIAS IS A COMPILE-TIME CLAIM AND THE PORT IS A PROCESS BOUNDARY. The signature
+ * table types `gitflowPrPrepare`'s reply, and what arrives is whatever was sent — so a
+ * state outside the two words reaches `PROPOSAL_STATE_SUMMARY_LINE` as a missing key
+ * and `proposal-actions.ts`'s `=== "ready"` as a silent `false`, which withholds the
+ * remote act and prints no summary line while nothing fails. The gate refuses the
+ * reply instead, which is the reader-side code it already has a place for.
+ *
+ * Reads the wire's own enumeration, so the guard and the type cannot disagree about
+ * which words exist.
+ */
+export function isProposalState(value: unknown): value is ProposalState {
+  return (
+    typeof value === "string" && (GROWTH_PR_PREPARATION_STATES as readonly string[]).includes(value)
+  );
 }
 
 /**
@@ -137,6 +137,12 @@ export interface ProposalContextKey {
   readonly headBranch: string;
 }
 
+/** One inert row read out of the untyped proposal blob. Both halves are display text. */
+export interface ProposalBlobRow {
+  readonly key: string;
+  readonly text: string;
+}
+
 /**
  * The key a context supplies, narrowed to the three members that decide the pairing.
  *
@@ -162,12 +168,6 @@ export function proposalContextKeysMatch(
     key.baseBranch === context.baseBranch &&
     key.headBranch === context.headBranch
   );
-}
-
-/** One inert row read out of the untyped proposal blob. Both halves are display text. */
-export interface ProposalBlobRow {
-  readonly key: string;
-  readonly text: string;
 }
 
 /**

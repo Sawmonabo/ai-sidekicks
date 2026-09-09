@@ -37,7 +37,7 @@ import {
   restoreTesterViewport,
 } from "./reflow.js";
 
-import { FLAGSHIP_SCENARIO_ID } from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
+import { FLAGSHIP_SCENARIO_ID } from "../../../src/renderer/src/console/bridge/scenario/flagship/flagship.js";
 import {
   ConsoleRoot,
   installMeridianTokens,

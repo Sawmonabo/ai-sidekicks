@@ -23,8 +23,8 @@ import type {
   DriverCatalogHolder,
 } from "../../../console/agents/index.js";
 import type { ConsoleRefusal } from "../../../console/core/index.js";
-import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
-import { AGENT_IMPLEMENTER } from "../../../console/bridge/scenarios/composer.identifiers.js";
+import { COMPOSER_SCENARIO } from "../../../console/bridge/scenario/composer/composer.js";
+import { AGENT_IMPLEMENTER } from "../../../console/bridge/scenario/composer/identifiers.js";
 import type { AgentBindingReading } from "./agent-binding-read.js";
 import { failedSwitchOf, resolveTargetAxisReach, switchRefusalOf } from "./target-axis-reach.js";
 

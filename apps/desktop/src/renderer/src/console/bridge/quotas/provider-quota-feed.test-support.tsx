@@ -27,51 +27,6 @@ export const ACCOUNT_ID = "acct-team";
 export const OTHER_ACCOUNT_ID = "acct-personal";
 export const OBSERVED_AT = "2026-01-01T11:00:00.000Z";
 
-/** One registry row, in the registered shape and nothing narrower. */
-export function account(
-  overrides: Readonly<Record<string, unknown>> = {},
-): Record<string, unknown> {
-  return {
-    accountId: ACCOUNT_ID,
-    provider: "claude",
-    displayLabel: "Team",
-    credentialGeneration: 1,
-    billingMode: "subscription",
-    isDefault: true,
-    healthState: "authenticated",
-    healthObservedAt: OBSERVED_AT,
-    observedAuthMode: "oauth_subscription",
-    loggedInAt: null,
-    expectedReloginAtEstimate: null,
-    probeEnabled: true,
-    ...overrides,
-  };
-}
-
-/** One quota row, in the registered shape and nothing narrower. */
-export function usageWindow(
-  overrides: Readonly<Record<string, unknown>> = {},
-): Record<string, unknown> {
-  return {
-    accountId: ACCOUNT_ID,
-    limitId: "weekly-all",
-    windowMins: 10_080,
-    label: "Weekly, all models",
-    usedPercent: 62,
-    observedAt: OBSERVED_AT,
-    observedCredentialGeneration: 1,
-    source: "probe",
-    ...overrides,
-  };
-}
-
-export function listReply(
-  accounts: readonly Record<string, unknown>[],
-  usageWindows: readonly Record<string, unknown>[],
-): Record<string, unknown> {
-  return { accounts, usageWindows, readiness: [] };
-}
-
 /** How a case wants the registry read to behave. */
 export interface AccountPlaneOptions {
   /**
@@ -84,6 +39,12 @@ export interface AccountPlaneOptions {
   readonly holdsReads?: boolean;
   /** What the SECOND and later reads answer, where a case makes the reads differ. */
   readonly laterReply?: unknown;
+}
+
+/** The partial-read arm as a case reads it — what the rail would render. */
+export interface QuotaPartialArm {
+  readonly unreadableDeliveryCount: number;
+  readonly unreadableRefusalCode: string | undefined;
 }
 
 /**
@@ -171,10 +132,49 @@ export class AccountPlaneBridge {
   }
 }
 
-/** The partial-read arm as a case reads it — what the rail would render. */
-export interface QuotaPartialArm {
-  readonly unreadableDeliveryCount: number;
-  readonly unreadableRefusalCode: string | undefined;
+/** One registry row, in the registered shape and nothing narrower. */
+export function account(
+  overrides: Readonly<Record<string, unknown>> = {},
+): Record<string, unknown> {
+  return {
+    accountId: ACCOUNT_ID,
+    provider: "claude",
+    displayLabel: "Team",
+    credentialGeneration: 1,
+    billingMode: "subscription",
+    isDefault: true,
+    healthState: "authenticated",
+    healthObservedAt: OBSERVED_AT,
+    observedAuthMode: "oauth_subscription",
+    loggedInAt: null,
+    expectedReloginAtEstimate: null,
+    probeEnabled: true,
+    ...overrides,
+  };
+}
+
+/** One quota row, in the registered shape and nothing narrower. */
+export function usageWindow(
+  overrides: Readonly<Record<string, unknown>> = {},
+): Record<string, unknown> {
+  return {
+    accountId: ACCOUNT_ID,
+    limitId: "weekly-all",
+    windowMins: 10_080,
+    label: "Weekly, all models",
+    usedPercent: 62,
+    observedAt: OBSERVED_AT,
+    observedCredentialGeneration: 1,
+    source: "probe",
+    ...overrides,
+  };
+}
+
+export function listReply(
+  accounts: readonly Record<string, unknown>[],
+  usageWindows: readonly Record<string, unknown>[],
+): Record<string, unknown> {
+  return { accounts, usageWindows, readiness: [] };
 }
 
 export const NOTHING_UNREADABLE: QuotaPartialArm = {

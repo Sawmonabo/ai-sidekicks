@@ -53,10 +53,6 @@ import {
   useGoalSectionCommands,
 } from "./goal-section-commands.js";
 
-function selectTimeline(state: SessionStoreState): SessionStoreState["timeline"] {
-  return state.timeline;
-}
-
 export function GoalSection(context: SidebarSectionContext): React.JSX.Element {
   const timeline = useSessionStore(context.sessionStore, selectTimeline);
   const isInitialised = useSessionInitialised(context.sessionStore);
@@ -78,4 +74,8 @@ export function GoalSection(context: SidebarSectionContext): React.JSX.Element {
       </button>
     </div>
   );
+}
+
+function selectTimeline(state: SessionStoreState): SessionStoreState["timeline"] {
+  return state.timeline;
 }

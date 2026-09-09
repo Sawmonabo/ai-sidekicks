@@ -38,12 +38,6 @@ import { useRunFeed } from "./run-state-feed.js";
 import { NoRuns } from "./NoRuns.js";
 import { AwaitingProjection } from "./AwaitingProjection.js";
 
-/** Which run is being composed against, and with which of the two body controls. */
-interface ComposerTarget {
-  readonly runId: string;
-  readonly control: ComposedControl;
-}
-
 /**
  * The pane's reads, held once for the whole pane.
  *
@@ -251,4 +245,10 @@ export function RunsPaneBody(props: {
       </section>
     </div>
   );
+}
+
+/** Which run is being composed against, and with which of the two body controls. */
+interface ComposerTarget {
+  readonly runId: string;
+  readonly control: ComposedControl;
 }

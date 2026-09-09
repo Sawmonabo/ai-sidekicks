@@ -114,6 +114,24 @@ export interface AttachFormResolution {
   readonly verdict: AttachFormVerdict;
 }
 
+/** One node the picker offers, with both of the roster's health axes disclosed. */
+export interface AttachNodeOption {
+  readonly nodeId: string;
+  /** The slot axis, verbatim: `registering` / `online` / `degraded` / `offline` / `revoked`. */
+  readonly state: string;
+  /**
+   * The sweep-owned liveness axis, or the sentence for a node that has never beat.
+   *
+   * KEPT SEPARATE FROM `state` because the wire keeps them separate: a node whose slot
+   * reads `online` and whose presence reads `offline` is a real and reportable
+   * disagreement, and a picker that collapsed them into one word would pick which of
+   * the two to believe on the participant's behalf.
+   */
+  readonly healthState: string;
+  /** Whether this node reports itself read-only. Disclosed, never used as a gate. */
+  readonly readOnly: boolean;
+}
+
 /**
  * Read one form against the roster that is currently served.
  *
@@ -188,24 +206,6 @@ function attachVerdictFor(
     case "unresolved":
       return { status: "incomplete", because: "Choose the node that can reach that path." };
   }
-}
-
-/** One node the picker offers, with both of the roster's health axes disclosed. */
-export interface AttachNodeOption {
-  readonly nodeId: string;
-  /** The slot axis, verbatim: `registering` / `online` / `degraded` / `offline` / `revoked`. */
-  readonly state: string;
-  /**
-   * The sweep-owned liveness axis, or the sentence for a node that has never beat.
-   *
-   * KEPT SEPARATE FROM `state` because the wire keeps them separate: a node whose slot
-   * reads `online` and whose presence reads `offline` is a real and reportable
-   * disagreement, and a picker that collapsed them into one word would pick which of
-   * the two to believe on the participant's behalf.
-   */
-  readonly healthState: string;
-  /** Whether this node reports itself read-only. Disclosed, never used as a gate. */
-  readonly readOnly: boolean;
 }
 
 /** The sentence a node with no presence row gets, in place of a health word. */

@@ -14,7 +14,7 @@ import { settleScheduledRead } from "../../../bridge/readings/scheduled-read.tes
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 
 import type { QueueFeed } from "../../../bridge/index.js";
-import { RUNS_SCENARIO } from "../../../bridge/scenarios/runs.js";
+import { RUNS_SCENARIO } from "../../../bridge/scenario/runs/runs.js";
 import { refuse } from "../../../core/index.js";
 import { QueueContents } from "./QueueContents.js";
 import { useQueueFeed } from "../../../bridge/index.js";

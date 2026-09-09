@@ -29,7 +29,7 @@ import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.j
 import { DrivenGrowthStream } from "../../bridge/growth-port/driven-growth-stream.test-support.js";
 import type { GrowthStream } from "../../bridge/growth-port/growth-outcome.js";
 import { FrameStore, SessionStoreRegistry, type ShellReport } from "../../store/index.js";
-import { SHELL_SCENARIO } from "../../bridge/scenarios/shell.js";
+import { SHELL_SCENARIO } from "../../bridge/scenario/shell.js";
 import { createFixtureBridge } from "../../bridge/index.js";
 import { CONNECTED_SHELL_REPORT, refusingBridge } from "./shell-status.test-support.js";
 import { useShellStateBinding } from "./shell-status-binding.js";

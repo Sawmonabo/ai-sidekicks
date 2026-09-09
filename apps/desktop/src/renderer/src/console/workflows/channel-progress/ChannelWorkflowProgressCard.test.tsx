@@ -19,13 +19,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { SidekicksBridgeProvider } from "../../bridge/BridgeProvider.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { WORKFLOWS_SCENARIO } from "../../bridge/scenarios/workflows.js";
+import { WORKFLOWS_SCENARIO } from "../../bridge/scenario/workflows/workflows.js";
 import { PAST_REFRESH_DEBOUNCE_MS, settle } from "../../core/settle.test-support.js";
-import {
-  WORKFLOWS_CHANNEL_ID,
-  WORKFLOWS_SESSION_ID,
-} from "../../bridge/scenarios/workflow-fixture-ids.js";
-import { WORKFLOWS_PARKED_RUN } from "../../bridge/scenarios/workflow-fixture-runs.js";
+import { WORKFLOWS_CHANNEL_ID, WORKFLOWS_SESSION_ID } from "../../bridge/scenario/workflows/ids.js";
+import { WORKFLOWS_PARKED_RUN } from "../../bridge/scenario/workflows/runs.js";
 import type { ConsolePaneOpener } from "../../seats/index.js";
 import { ChannelWorkflowProgressCard } from "./ChannelWorkflowProgressCard.js";
 

@@ -117,7 +117,7 @@ const MEMBERSHIP_ROLE_MEMBER = "role";
  * Placeholders, every one: they are never read, never rendered, and never sent.
  * They exist because the only reachable parse for a posture is declared per EVENT
  * and is strict, so the posture cannot be presented to it on its own — the same
- * constraint `bridge/scenarios/wire-truth.ts` records about having to present a
+ * constraint `bridge/scenario/wire-truth/wire-truth.ts` records about having to present a
  * beat as the whole envelope it claims to be.
  *
  * A member added to the registered event would make this carrier stop parsing and

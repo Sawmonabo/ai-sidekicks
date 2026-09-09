@@ -61,6 +61,24 @@ export interface DiffFileListReading {
   readonly matchCount: number;
 }
 
+/**
+ * Where the current narrowing sits in the drawn rows, or that this filter hides it.
+ *
+ * A CLOSED TWO-ARM ANSWER RATHER THAN AN INDEX WITH A FALLBACK. A narrowing the filter
+ * hides has no row, and answering row zero for it made the list say the opposite of
+ * what the pane was doing: "All files" took `aria-current` while the renderer went on
+ * showing the one hidden file. The narrowing is the participant's own choice and the
+ * filter is a way of looking at the list, so the choice STANDS and the list reports
+ * that it has no row to point at — which is a state, not a value, and so is a member
+ * of this union rather than a number outside the index space (`-1` is a number every
+ * arithmetic in the caller would happily use).
+ */
+export type SelectedEntryRow =
+  /** Row zero for the whole change set, or the row a selected path is drawn on. */
+  | { readonly kind: "row"; readonly index: number }
+  /** A file is narrowed to and this filter draws no row for it. */
+  | { readonly kind: "hidden-by-filter" };
+
 /** Read the rows a change set and a filter produce, in the order they are drawn. */
 export function diffFileListReading(
   diff: ConsoleDiffModel,
@@ -83,24 +101,6 @@ export function diffFileListReading(
     matchCount: matching.length,
   };
 }
-
-/**
- * Where the current narrowing sits in the drawn rows, or that this filter hides it.
- *
- * A CLOSED TWO-ARM ANSWER RATHER THAN AN INDEX WITH A FALLBACK. A narrowing the filter
- * hides has no row, and answering row zero for it made the list say the opposite of
- * what the pane was doing: "All files" took `aria-current` while the renderer went on
- * showing the one hidden file. The narrowing is the participant's own choice and the
- * filter is a way of looking at the list, so the choice STANDS and the list reports
- * that it has no row to point at — which is a state, not a value, and so is a member
- * of this union rather than a number outside the index space (`-1` is a number every
- * arithmetic in the caller would happily use).
- */
-export type SelectedEntryRow =
-  /** Row zero for the whole change set, or the row a selected path is drawn on. */
-  | { readonly kind: "row"; readonly index: number }
-  /** A file is narrowed to and this filter draws no row for it. */
-  | { readonly kind: "hidden-by-filter" };
 
 /** Read which row the current narrowing is on, or that the filter hides it. */
 export function selectedEntryRow(

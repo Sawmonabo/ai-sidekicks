@@ -24,17 +24,6 @@
 
 import { type ConsoleClock, type ScheduledHandle } from "../../../core/index.js";
 
-/**
- * Fonts, as much of the API as this module uses.
- *
- * Declared rather than reached through `document.fonts` typing, because the console
- * runs under a DOM shim in the unit tier where the set is absent, and an optional
- * declaration is the honest statement of that.
- */
-interface FontLoadingDocument {
-  readonly fonts?: { readonly ready: Promise<unknown> };
-}
-
 export interface OverflowMeasurementBatchOptions {
   readonly clock: ConsoleClock;
   /** Run once per batched frame. Composed by the caller, opaque here. */
@@ -168,4 +157,15 @@ export class OverflowMeasurementBatch {
     this.release();
     this.#disposed = true;
   }
+}
+
+/**
+ * Fonts, as much of the API as this module uses.
+ *
+ * Declared rather than reached through `document.fonts` typing, because the console
+ * runs under a DOM shim in the unit tier where the set is absent, and an optional
+ * declaration is the honest statement of that.
+ */
+interface FontLoadingDocument {
+  readonly fonts?: { readonly ready: Promise<unknown> };
 }

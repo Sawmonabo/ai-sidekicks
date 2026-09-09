@@ -23,7 +23,7 @@ import {
   type RecordedDaemonCall,
 } from "../../../console/bridge/fixture/call-plane/bridge.test-support.js";
 import { crossMacrotaskBoundary } from "../../../console/core/macrotask-boundary.test-support.js";
-import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
+import { COMPOSER_SCENARIO } from "../../../console/bridge/scenario/composer/composer.js";
 import { consoleCommands } from "../../../console/palette/index.js";
 import { RUN_LIFECYCLE_PROJECTORS } from "../../../console/frame/run-projection/run-lifecycle-projector.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";

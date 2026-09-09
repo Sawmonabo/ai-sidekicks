@@ -36,7 +36,7 @@ import {
   ConsoleRoot,
   installMeridianTokens,
 } from "../../../src/renderer/src/console/frame/index.js";
-import { FIRST_RUN_SCENARIO_ID } from "../../../src/renderer/src/console/bridge/scenarios/first-run.js";
+import { FIRST_RUN_SCENARIO_ID } from "../../../src/renderer/src/console/bridge/scenario/first-run.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 
 /** What the console's outermost mounted element is, and what this file captures. */

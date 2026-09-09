@@ -56,27 +56,6 @@ import { useAnnounce } from "./LiveAnnouncerProvider.js";
 import { partialReadNotices, type PartialReadNotice, type ReadingState } from "../reading/index.js";
 
 /**
- * The words a notice is spoken as, or `undefined` where it says nothing aloud.
- *
- * A `reading` notice is deliberately silent: rule 8's `not-loaded` absence announces
- * its own title through `Nothing`, and saying it here as well would be the second
- * read this family's absolute exists to prevent. The figure travels with its
- * sentence, because "3" and "deliveries could not be read" spoken apart are two
- * fragments.
- */
-function spokenSentenceFor(notice: PartialReadNotice): string | undefined {
-  switch (notice.shape) {
-    case "none":
-    case "reading":
-      return undefined;
-    case "sentence":
-      return notice.copy;
-    case "counted-sentence":
-      return `${notice.figure} ${notice.copy}`;
-  }
-}
-
-/**
  * What "once" is counted by, where the sentence itself is the wrong answer.
  *
  * Compared by IDENTITY, which is the same comparison for both members it admits — a
@@ -197,4 +176,25 @@ export function useReadingAnnouncement(states: readonly ReadingState[], subject:
     [states, subject],
   );
   useAnnounceOncePerSentence(sentences);
+}
+
+/**
+ * The words a notice is spoken as, or `undefined` where it says nothing aloud.
+ *
+ * A `reading` notice is deliberately silent: rule 8's `not-loaded` absence announces
+ * its own title through `Nothing`, and saying it here as well would be the second
+ * read this family's absolute exists to prevent. The figure travels with its
+ * sentence, because "3" and "deliveries could not be read" spoken apart are two
+ * fragments.
+ */
+function spokenSentenceFor(notice: PartialReadNotice): string | undefined {
+  switch (notice.shape) {
+    case "none":
+    case "reading":
+      return undefined;
+    case "sentence":
+      return notice.copy;
+    case "counted-sentence":
+      return `${notice.figure} ${notice.copy}`;
+  }
 }

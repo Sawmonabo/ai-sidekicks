@@ -104,6 +104,46 @@ export function useSectionAttention(
 }
 
 /**
+ * Say what the sidebar came back as, once, when its saved arrangement settles.
+ *
+ * Not on a re-render, not when the person opens a section, and not when there is
+ * nothing to report. `hasSettled` only ever goes false to true for one model, so the
+ * capture above is the transition itself.
+ *
+ * NAMED FOR THE SIDEBAR, because the general name is the primitive's. Two exported hooks
+ * called `useSettlementAnnouncement` — one taking a sentence, one taking three arguments
+ * — were two contracts under one name across the console DAG, which is the shape a
+ * reader resolves by opening whichever file they happened to land in.
+ *
+ * ONCE PER SESSION AND NOT ONCE PER MOUNT, which is the same distinction the deck's
+ * persistence draws and for the same cause: the workspace stays mounted across a route
+ * between two open sessions, and the sidebar's model is re-minted with the session. A
+ * memory that lived for the mount stayed set after the first session's settlement, so
+ * the second session's saved open-section state — or its restore refusal — changed the
+ * column in front of somebody in silence, which is the one thing a live region is for.
+ * The MODEL is the subject rather than the session id, because it is the thing whose
+ * settlement this describes and it is re-minted per session already; a second reading of
+ * which session is on screen could disagree with it.
+ *
+ * AND ONLY WHERE THE SETTLED STATE SAYS SOMETHING THE COLUMN DOES NOT. A sidebar that
+ * restored nothing and opened nothing is a sidebar a person is looking at, and
+ * announcing it would spend the window's one polite lane on it — the announcer
+ * serialises, so a sentence nobody needed delays the next one that somebody does.
+ */
+export function useSidebarSettlementAnnouncement(
+  model: SidebarModel,
+  snapshot: SidebarSnapshot,
+): void {
+  const { value: settlement } = useSubjectScopedState(
+    model,
+    undefined,
+    () => new SidebarSettlementSentences(),
+  );
+  const sentences = useMemo(() => settlement.capturedFrom(snapshot), [settlement, snapshot]);
+  useAnnounceOncePerSentence(sentences);
+}
+
+/**
  * What one session's settlement turned out to say, frozen at the moment it settled.
  *
  * NOT A LATCH, and the distinction is the whole point of this class. Whether a sentence
@@ -149,46 +189,6 @@ class SidebarSettlementSentences {
     }
     return this.#captured;
   }
-}
-
-/**
- * Say what the sidebar came back as, once, when its saved arrangement settles.
- *
- * Not on a re-render, not when the person opens a section, and not when there is
- * nothing to report. `hasSettled` only ever goes false to true for one model, so the
- * capture above is the transition itself.
- *
- * NAMED FOR THE SIDEBAR, because the general name is the primitive's. Two exported hooks
- * called `useSettlementAnnouncement` — one taking a sentence, one taking three arguments
- * — were two contracts under one name across the console DAG, which is the shape a
- * reader resolves by opening whichever file they happened to land in.
- *
- * ONCE PER SESSION AND NOT ONCE PER MOUNT, which is the same distinction the deck's
- * persistence draws and for the same cause: the workspace stays mounted across a route
- * between two open sessions, and the sidebar's model is re-minted with the session. A
- * memory that lived for the mount stayed set after the first session's settlement, so
- * the second session's saved open-section state — or its restore refusal — changed the
- * column in front of somebody in silence, which is the one thing a live region is for.
- * The MODEL is the subject rather than the session id, because it is the thing whose
- * settlement this describes and it is re-minted per session already; a second reading of
- * which session is on screen could disagree with it.
- *
- * AND ONLY WHERE THE SETTLED STATE SAYS SOMETHING THE COLUMN DOES NOT. A sidebar that
- * restored nothing and opened nothing is a sidebar a person is looking at, and
- * announcing it would spend the window's one polite lane on it — the announcer
- * serialises, so a sentence nobody needed delays the next one that somebody does.
- */
-export function useSidebarSettlementAnnouncement(
-  model: SidebarModel,
-  snapshot: SidebarSnapshot,
-): void {
-  const { value: settlement } = useSubjectScopedState(
-    model,
-    undefined,
-    () => new SidebarSettlementSentences(),
-  );
-  const sentences = useMemo(() => settlement.capturedFrom(snapshot), [settlement, snapshot]);
-  useAnnounceOncePerSentence(sentences);
 }
 
 /**

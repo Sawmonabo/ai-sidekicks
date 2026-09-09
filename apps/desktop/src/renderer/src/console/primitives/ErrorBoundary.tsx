@@ -42,12 +42,6 @@ export interface SurfaceErrorBoundaryProps {
   readonly fallback?: (error: Error, retry: () => void) => ReactNode;
 }
 
-interface SurfaceErrorBoundaryState {
-  readonly error: Error | undefined;
-  /** Bumped by `retry`, remounting the subtree so a transient failure can clear. */
-  readonly attempt: number;
-}
-
 export class SurfaceErrorBoundary extends Component<
   SurfaceErrorBoundaryProps,
   SurfaceErrorBoundaryState
@@ -104,6 +98,12 @@ export class SurfaceErrorBoundary extends Component<
     }
     return <SurfaceFailure surfaceName={this.props.surfaceName} error={error} onRetry={retry} />;
   }
+}
+
+interface SurfaceErrorBoundaryState {
+  readonly error: Error | undefined;
+  /** Bumped by `retry`, remounting the subtree so a transient failure can clear. */
+  readonly attempt: number;
 }
 
 /**

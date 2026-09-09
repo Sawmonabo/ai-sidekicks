@@ -140,19 +140,6 @@ export interface ConsoleCommandSurface {
 }
 
 /**
- * One live contributor's rows, held under its owner until its own release runs.
- *
- * The ENTRY is the identity a release removes, and it is minted inside `contribute`
- * rather than taken from the caller: a surface memoises the row list it hands over, so
- * two mounts of one kind can contribute the very same array, and a release matching on
- * that value would withdraw whichever of the two it found first. A token beside the
- * entry would be a second name for one thing.
- */
-interface LiveContribution {
-  readonly contribution: ConsoleFamilyCommandContribution;
-}
-
-/**
  * The families' contributions, owner-scoped, and the signal that they changed.
  *
  * OWNER-SCOPED RATHER THAN ADDITIVE, for the reason composition is idempotent
@@ -231,6 +218,16 @@ export class ConsoleFamilyContributions implements ConsoleCommandSurface {
     };
   }
 
+  public subscribe(listener: () => void): Unsubscribe {
+    return this.#changes.subscribe(listener);
+  }
+
+  public keyBindings(): readonly KeyBinding[] {
+    return [...this.#contributionsByOwner.values()].flatMap(
+      (contribution) => contribution.keyBindings,
+    );
+  }
+
   /**
    * Withdraw one contribution, wherever it sits in its owner's register.
    *
@@ -287,16 +284,19 @@ export class ConsoleFamilyContributions implements ConsoleCommandSurface {
     // signal raised mid-replace would hand it this owner's chords twice or none.
     this.#changes.emit();
   }
+}
 
-  public subscribe(listener: () => void): Unsubscribe {
-    return this.#changes.subscribe(listener);
-  }
-
-  public keyBindings(): readonly KeyBinding[] {
-    return [...this.#contributionsByOwner.values()].flatMap(
-      (contribution) => contribution.keyBindings,
-    );
-  }
+/**
+ * One live contributor's rows, held under its owner until its own release runs.
+ *
+ * The ENTRY is the identity a release removes, and it is minted inside `contribute`
+ * rather than taken from the caller: a surface memoises the row list it hands over, so
+ * two mounts of one kind can contribute the very same array, and a release matching on
+ * that value would withdraw whichever of the two it found first. A token beside the
+ * entry would be a second name for one thing.
+ */
+interface LiveContribution {
+  readonly contribution: ConsoleFamilyCommandContribution;
 }
 
 /** This window's family contributions. */

@@ -30,7 +30,7 @@ import {
   withDaemonSubscribe,
 } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import type { ConsoleBridge, GrowthPresenceDetail } from "../../bridge/index.js";
-import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
+import type { ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
 import { PAST_REFRESH_DEBOUNCE_MS, settle } from "../../core/settle.test-support.js";
 import type { SidebarSectionContext } from "../../seats/index.js";
 import { FrameStore, SessionStore } from "../../store/index.js";

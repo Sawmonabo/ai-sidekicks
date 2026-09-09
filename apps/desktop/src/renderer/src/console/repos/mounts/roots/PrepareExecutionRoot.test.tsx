@@ -17,13 +17,13 @@ import { describe, expect, it } from "vitest";
 import { WORKTREE_GIT_REF_MAX_LEN, type ExecutionMode } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
-import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
+import { REPOS_SCENARIO } from "../../../bridge/scenario/repos/repos.js";
 import {
   GIT_MOUNT_ID,
   GIT_WORKSPACE_ID,
-} from "../../../bridge/scenarios/repos/repos-fixture-data.js";
+} from "../../../bridge/scenario/repos/repos-fixture-data.js";
 import { SessionStore } from "../../../store/index.js";
-import { advanceScenarioUntil } from "../../../bridge/scenario-runtime/scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../../bridge/scenario/runtime/clock.test-support.js";
 import { workspaceControlPosture, type WorkspaceControlPosture } from "../mount-health.js";
 import { PrepareExecutionRoot } from "./PrepareExecutionRoot.js";
 import { REUSE_UNANSWERED_COPY } from "./root-act-model.js";

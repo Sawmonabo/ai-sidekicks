@@ -10,6 +10,18 @@ import {
 } from "./attention-preference-model.js";
 import { type TogglePreferenceRow } from "./notification-preference-writer.js";
 
+/** What one preference edit is doing right now: busy per record, refused per switch. */
+export interface StoredPreferenceBinding {
+  readonly participantReading: CallerParticipantReading | undefined;
+  readonly preferenceReading: AttentionPreferenceReading | undefined;
+  /** True while the set is being read again. The rows stay; they stop taking presses. */
+  readonly isReadInFlight: boolean;
+  /** True while any switch in this record has a write out or queued behind one. */
+  readonly isRecordBusy: (recordKey: string) => boolean;
+  readonly refusalFor: (memberKey: string) => ConsoleRefusal | undefined;
+  readonly toggleMember: (row: TogglePreferenceRow, member: PreferenceToggleMember) => void;
+}
+
 /** One stored value: switches where the rule allows it, and reading where it does not. */
 export function StoredPreferenceValue(props: {
   readonly row: PreferenceRow;
@@ -46,18 +58,6 @@ export function StoredPreferenceValue(props: {
       ))}
     </>
   );
-}
-
-/** What one preference edit is doing right now: busy per record, refused per switch. */
-export interface StoredPreferenceBinding {
-  readonly participantReading: CallerParticipantReading | undefined;
-  readonly preferenceReading: AttentionPreferenceReading | undefined;
-  /** True while the set is being read again. The rows stay; they stop taking presses. */
-  readonly isReadInFlight: boolean;
-  /** True while any switch in this record has a write out or queued behind one. */
-  readonly isRecordBusy: (recordKey: string) => boolean;
-  readonly refusalFor: (memberKey: string) => ConsoleRefusal | undefined;
-  readonly toggleMember: (row: TogglePreferenceRow, member: PreferenceToggleMember) => void;
 }
 
 /**

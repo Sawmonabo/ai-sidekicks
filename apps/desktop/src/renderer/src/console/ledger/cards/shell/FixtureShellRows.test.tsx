@@ -5,7 +5,7 @@ import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
-import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenarios/ledger/ledger-quiet.js";
+import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenario/ledger/ledger-quiet.js";
 import {
   LedgerRowLeaseProvider,
   LedgerShellConditionProvider,

@@ -10,12 +10,12 @@
 import { createFixtureBridge } from "../call-plane/bridge.js";
 import type { GrowthOperationId, GrowthOutcome } from "../../growth-port/index.js";
 import type { GrowthPort } from "../../index.js";
-import type { ConsoleScenario } from "../../scenario-runtime/index.js";
-import { FLAGSHIP_SCENARIO } from "../../scenarios/flagship.js";
-import { WORKFLOWS_SCENARIO_DEFINITIONS } from "../../scenarios/workflow-fixture-definitions.js";
-import { DEFINITION_RELEASE_CHECKS_SESSION } from "../../scenarios/workflow-fixture-ids.js";
-import { WORKFLOWS_COMPLETED_PHASE_ID } from "../../scenarios/workflow-fixture-phase-outputs.js";
-import { WORKFLOWS_PARKED_RUN } from "../../scenarios/workflow-fixture-runs.js";
+import type { ConsoleScenario } from "../../scenario/runtime/index.js";
+import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
+import { WORKFLOWS_SCENARIO_DEFINITIONS } from "../../scenario/workflows/definitions.js";
+import { DEFINITION_RELEASE_CHECKS_SESSION } from "../../scenario/workflows/ids.js";
+import { WORKFLOWS_COMPLETED_PHASE_ID } from "../../scenario/workflows/phase-outputs.js";
+import { WORKFLOWS_PARKED_RUN } from "../../scenario/workflows/runs.js";
 
 /**
  * The definition the two body reads are probed at, resolved out of the summary table.
@@ -202,6 +202,20 @@ export function findScenariosStatingCallbackTool(
     .map((scenario) => scenario.id);
 }
 
+/**
+ * The value a served outcome carries, or a failure naming what the port answered.
+ *
+ * Hoisted here on its second reader rather than copied: the plane suites beside the
+ * port all narrow the same union the same way, and a second copy would report a
+ * refusal as an unhelpful `undefined` in whichever suite drifted.
+ */
+export function servedValueOf<TValue>(outcome: GrowthOutcome<TValue>): TValue {
+  if (outcome.status !== "served") {
+    throw new Error(`the fixture port answered ${outcome.status} rather than serving a value`);
+  }
+  return outcome.value;
+}
+
 /** Whether this value, or anything under it, is a stated callback tool. */
 function statesCallbackTool(candidate: unknown): boolean {
   if (Array.isArray(candidate)) {
@@ -220,18 +234,4 @@ function statesCallbackTool(candidate: unknown): boolean {
     return true;
   }
   return Object.values(members).some(statesCallbackTool);
-}
-
-/**
- * The value a served outcome carries, or a failure naming what the port answered.
- *
- * Hoisted here on its second reader rather than copied: the plane suites beside the
- * port all narrow the same union the same way, and a second copy would report a
- * refusal as an unhelpful `undefined` in whichever suite drifted.
- */
-export function servedValueOf<TValue>(outcome: GrowthOutcome<TValue>): TValue {
-  if (outcome.status !== "served") {
-    throw new Error(`the fixture port answered ${outcome.status} rather than serving a value`);
-  }
-  return outcome.value;
 }

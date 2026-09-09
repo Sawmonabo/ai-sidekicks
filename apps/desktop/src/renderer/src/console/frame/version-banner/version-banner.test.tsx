@@ -20,8 +20,11 @@ import {
   createRefusingGrowthPort,
   type GrowthServedValue,
 } from "../../bridge/growth-port/growth-port.js";
-import { FLAGSHIP_SCENARIO, FLAGSHIP_SCENARIO_ID } from "../../bridge/scenarios/flagship.js";
-import { LEDGER_SCENARIO, LEDGER_SCENARIO_ID } from "../../bridge/scenarios/ledger/ledger.js";
+import {
+  FLAGSHIP_SCENARIO,
+  FLAGSHIP_SCENARIO_ID,
+} from "../../bridge/scenario/flagship/flagship.js";
+import { LEDGER_SCENARIO, LEDGER_SCENARIO_ID } from "../../bridge/scenario/ledger/ledger.js";
 import { settle as settleReactWork } from "../../core/settle.test-support.js";
 import { liveRegionText } from "../../primitives/announce/live-region.test-support.js";
 import { parseRoute } from "../../routing/index.js";

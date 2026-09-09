@@ -12,7 +12,7 @@
 // THE CLOCK IS WHY THE HELPER EXISTS. The round is released by the console's one
 // `RefreshScheduler`, which arms its debounce on the clock the pane resolved from its
 // bridge — under the fixture, the scenario's frozen one. Real time moves it not at all,
-// so the advance runs through `bridge/scenario-runtime/scenario-clock.test-support.ts`,
+// so the advance runs through `bridge/scenario/runtime/clock.test-support.ts`,
 // which sits beside the engine that owns that clock precisely so a second view family
 // could reach it without importing a sibling family's fixture.
 //
@@ -33,9 +33,9 @@ import { type ConsoleBridge } from "../../../bridge/index.js";
 import {
   advanceScenarioOneInterval,
   advanceScenarioUntil,
-} from "../../../bridge/scenario-runtime/scenario-clock.test-support.js";
-import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenarios/workflow-fixture-runs.js";
-import { WORKFLOWS_SCENARIO } from "../../../bridge/scenarios/workflows.js";
+} from "../../../bridge/scenario/runtime/clock.test-support.js";
+import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenario/workflows/runs.js";
+import { WORKFLOWS_SCENARIO } from "../../../bridge/scenario/workflows/workflows.js";
 import { REFRESH_DEBOUNCE_MS, REFRESH_MAX_WAIT_MS } from "../../../core/index.js";
 import type { SessionStore } from "../../../store/index.js";
 import { eventOfKind } from "../../../store/session-event.test-support.js";

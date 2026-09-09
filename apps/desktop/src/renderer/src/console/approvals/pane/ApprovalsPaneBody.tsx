@@ -52,15 +52,6 @@ import { DaemonHostedToolsSection } from "./body/DaemonHostedToolsSection.js";
 import { ExecutionBoundaryReading } from "./body/ExecutionBoundaryReading.js";
 import { RulesRead } from "./RulesRead.js";
 
-interface ApprovalsPaneBodyProps {
-  readonly bridgeContext: PaneContextOf<"approvals">;
-  readonly sessionStore: SessionStore;
-}
-
-function selectTimeline(state: SessionStoreState): SessionStoreState["timeline"] {
-  return state.timeline;
-}
-
 export function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Element {
   const bridge = props.bridgeContext.bridge;
   const { snapshot, reader } = useApprovalsReader(
@@ -278,4 +269,13 @@ export function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Elem
       />
     </div>
   );
+}
+
+interface ApprovalsPaneBodyProps {
+  readonly bridgeContext: PaneContextOf<"approvals">;
+  readonly sessionStore: SessionStore;
+}
+
+function selectTimeline(state: SessionStoreState): SessionStoreState["timeline"] {
+  return state.timeline;
 }

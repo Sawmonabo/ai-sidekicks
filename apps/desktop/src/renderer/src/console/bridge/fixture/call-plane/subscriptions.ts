@@ -35,8 +35,8 @@ import { FixtureBridgeError } from "./refusal.js";
 import { subscribeToScenarioPresence } from "../shell/presence-signal.js";
 import { RUN_QUEUE_ROW_READ } from "../../run-streams/index.js";
 import { projectRunStreamDelivery } from "../../run-streams/index.js";
-import { ScenarioEngine } from "../../scenario-runtime/index.js";
-import { composeScenarioEventEnvelope } from "../../scenario-runtime/index.js";
+import { ScenarioEngine } from "../../scenario/runtime/index.js";
+import { composeScenarioEventEnvelope } from "../../scenario/runtime/index.js";
 import { sessionEventStreamFor, subscriptionDeliversEventKind } from "../../daemon/index.js";
 
 /**

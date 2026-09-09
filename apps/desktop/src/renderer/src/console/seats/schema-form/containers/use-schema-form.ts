@@ -175,18 +175,6 @@ const EMPTY_RAW_TEXT = "{}";
 /** What a control with no descriptor behind it displays, which is nothing at all. */
 const NOTHING_DISPLAYED: SchemaControlView = { value: undefined, unreadableText: "" };
 
-/** Parse the raw editor's text, reporting a syntax failure as a value. */
-function readRawText(rawText: string): RawAnswerReading {
-  try {
-    return { status: "parsed", answer: JSON.parse(rawText) as unknown };
-  } catch (error) {
-    return {
-      status: "unparsable",
-      detail: error instanceof SyntaxError ? error.message : "This is not JSON yet.",
-    };
-  }
-}
-
 /**
  * Hold one schema-derived form.
  *
@@ -363,4 +351,16 @@ export function useSchemaForm(inputSchema: unknown): SchemaFormState {
     validator,
     report,
   };
+}
+
+/** Parse the raw editor's text, reporting a syntax failure as a value. */
+function readRawText(rawText: string): RawAnswerReading {
+  try {
+    return { status: "parsed", answer: JSON.parse(rawText) as unknown };
+  } catch (error) {
+    return {
+      status: "unparsable",
+      detail: error instanceof SyntaxError ? error.message : "This is not JSON yet.",
+    };
+  }
 }

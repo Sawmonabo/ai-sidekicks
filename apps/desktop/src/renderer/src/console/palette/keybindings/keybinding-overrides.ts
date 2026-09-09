@@ -59,11 +59,16 @@ export interface KeybindingOverrideRefusal extends ConsoleRefusal {
   readonly code: KeybindingOverrideRefusalCode;
 }
 
-function refuseOverride(
-  code: KeybindingOverrideRefusalCode,
-  detail: string,
-): KeybindingOverrideRefusal {
-  return refuse(KEYBINDING_OVERRIDE_REFUSAL_ORIGIN, code, detail);
+/** What deciding a candidate chord needs beyond the chord and the command. */
+export interface CandidateChordInput {
+  /** The chords the console ships. Overrides are composed onto this table. */
+  readonly defaults: readonly KeyBinding[];
+  /** The overrides already held. The candidate is judged against them. */
+  readonly overrides: KeybindingOverrideMap;
+  readonly commandId: string;
+  readonly chord: string;
+  /** Whose reserved chords to refuse. Defaults to the host being run on. */
+  readonly platform?: ChordPlatform;
 }
 
 /**
@@ -120,18 +125,6 @@ export function readOverrideMap(value: unknown): KeybindingOverrideMap {
   return map;
 }
 
-/** What deciding a candidate chord needs beyond the chord and the command. */
-export interface CandidateChordInput {
-  /** The chords the console ships. Overrides are composed onto this table. */
-  readonly defaults: readonly KeyBinding[];
-  /** The overrides already held. The candidate is judged against them. */
-  readonly overrides: KeybindingOverrideMap;
-  readonly commandId: string;
-  readonly chord: string;
-  /** Whose reserved chords to refuse. Defaults to the host being run on. */
-  readonly platform?: ChordPlatform;
-}
-
 /**
  * Would this chord install on this command, given these overrides?
  *
@@ -164,4 +157,11 @@ export function refuseCandidateChord(
     );
   }
   return undefined;
+}
+
+function refuseOverride(
+  code: KeybindingOverrideRefusalCode,
+  detail: string,
+): KeybindingOverrideRefusal {
+  return refuse(KEYBINDING_OVERRIDE_REFUSAL_ORIGIN, code, detail);
 }

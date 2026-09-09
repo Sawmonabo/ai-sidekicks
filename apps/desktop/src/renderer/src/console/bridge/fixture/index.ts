@@ -23,7 +23,7 @@
 // `no-circular` fails. The deep specifier is the remedy for that one edge, never a
 // shim and never a wider door.
 //
-// WHAT IS NOT HERE: the scenario itself. `scenario-runtime/` holds the vocabulary a
+// WHAT IS NOT HERE: the scenario itself. `scenario/runtime/` holds the vocabulary a
 // scenario is written in and the engine that plays one, and `scenarios/` holds the
 // instances. This directory holds only the side that answers.
 //
@@ -40,12 +40,12 @@
 // rule. `bridge/index.ts` publishes `createFixtureBridge` from the module that
 // DECLARES it, because `console-no-barrel-chain` fails a forward through here.
 //
-// AND ONE NAME IS HELD OFF THIS DOOR ON PURPOSE. `scenarios/workflow-fixture-replies.ts`
+// AND ONE NAME IS HELD OFF THIS DOOR ON PURPOSE. `scenario/workflows/replies.ts`
 // takes `workflowSubjectNotFound` by its own specifier, `../fixture/workflows/workflow-scope.js`,
 // because reading it through here would close a real cycle: this door reaches
 // `growth/growth-port.ts`, which reads `workflows/workflow-reads.ts`, which reads
-// `scenarios/workflows.ts`, which is composed from that very module. The deep edge is
-// the remedy, exactly as `scenario-runtime/index.ts` records for its own; a wider door
+// `scenario/workflows/workflows.ts`, which is composed from that very module. The deep edge is
+// the remedy, exactly as `scenario/runtime/index.ts` records for its own; a wider door
 // would turn `no-circular` red rather than tidy anything.
 
 export { createFixtureBridge } from "./call-plane/bridge.js";

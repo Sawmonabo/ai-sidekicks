@@ -144,6 +144,48 @@ export class BrowserSettingsView implements ReadTriggerTarget {
   #hasStarted = false;
   #isDisposed = false;
 
+  /**
+   * Flip one switch, then re-read rather than patching a local copy.
+   *
+   * The node owns the record, and a page holding its own edited copy is a second
+   * version of it nothing reconciles. An arrow field so the page's prop identity is
+   * stable across renders without the mount composing a callback of its own.
+   */
+  public readonly toggleSwitch = (switchId: BrowserPolicySwitchId, nextEnabled: boolean): void => {
+    void this.#write(switchId, nextEnabled);
+  };
+
+  /**
+   * Clear one partition, then ask for a fresh listing.
+   *
+   * The re-read is the point of doing this here rather than at the button: a clear
+   * that reported success and left the old byte figure on screen would be telling a
+   * person their data is gone while showing them how much of it there is.
+   *
+   * A REJECTION IS NOT SWALLOWED HERE, and it is not left alone either.
+   * `PartitionClearControl` knows which STEP it had reached and this carrier does not,
+   * so the rejection is re-thrown verbatim rather than folded into a refusal whose
+   * sentence could not name the step — but the node may have removed the partition and
+   * lost the reply, so the listing is reconciled first: the re-read the control's own
+   * words promise and nothing performed.
+   */
+  public readonly clearSiteData = async (sessionId: string): Promise<SiteDataActOutcome> => {
+    const outcome = await this.#bridge.growth
+      .browserSiteDataClear({ sessionId })
+      .catch((rejection: unknown) => {
+        this.#reconcileAfterAmbiguousAct();
+        throw rejection;
+      });
+    if (outcome.status !== "served") {
+      // Nothing moved, so nothing published and nothing superseded: the refusal is
+      // this row's and the control renders it beside the row it was pressed on.
+      return { status: "refused", refusal: outcome };
+    }
+    this.#supersedeReads();
+    this.requestRead("participant-request");
+    return { status: "done" };
+  };
+
   public constructor(bridge: ConsoleBridge) {
     this.#bridge = bridge;
     this.#scheduler = new RefreshScheduler({
@@ -195,48 +237,6 @@ export class BrowserSettingsView implements ReadTriggerTarget {
     this.#scheduler.dispose();
     this.#reads.supersedeAll();
   }
-
-  /**
-   * Flip one switch, then re-read rather than patching a local copy.
-   *
-   * The node owns the record, and a page holding its own edited copy is a second
-   * version of it nothing reconciles. An arrow field so the page's prop identity is
-   * stable across renders without the mount composing a callback of its own.
-   */
-  public readonly toggleSwitch = (switchId: BrowserPolicySwitchId, nextEnabled: boolean): void => {
-    void this.#write(switchId, nextEnabled);
-  };
-
-  /**
-   * Clear one partition, then ask for a fresh listing.
-   *
-   * The re-read is the point of doing this here rather than at the button: a clear
-   * that reported success and left the old byte figure on screen would be telling a
-   * person their data is gone while showing them how much of it there is.
-   *
-   * A REJECTION IS NOT SWALLOWED HERE, and it is not left alone either.
-   * `PartitionClearControl` knows which STEP it had reached and this carrier does not,
-   * so the rejection is re-thrown verbatim rather than folded into a refusal whose
-   * sentence could not name the step — but the node may have removed the partition and
-   * lost the reply, so the listing is reconciled first: the re-read the control's own
-   * words promise and nothing performed.
-   */
-  public readonly clearSiteData = async (sessionId: string): Promise<SiteDataActOutcome> => {
-    const outcome = await this.#bridge.growth
-      .browserSiteDataClear({ sessionId })
-      .catch((rejection: unknown) => {
-        this.#reconcileAfterAmbiguousAct();
-        throw rejection;
-      });
-    if (outcome.status !== "served") {
-      // Nothing moved, so nothing published and nothing superseded: the refusal is
-      // this row's and the control renders it beside the row it was pressed on.
-      return { status: "refused", refusal: outcome };
-    }
-    this.#supersedeReads();
-    this.requestRead("participant-request");
-    return { status: "done" };
-  };
 
   /**
    * One pass over both reads, installed together or not at all.

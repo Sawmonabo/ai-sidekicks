@@ -36,22 +36,6 @@ export function declaredType(schema: Readonly<Record<string, unknown>>): string 
   return typeof schema["type"] === "string" ? schema["type"] : undefined;
 }
 
-/** The enum's members where every one of them is a string, else nothing. */
-function stringEnumOf(schema: Readonly<Record<string, unknown>>): readonly string[] | undefined {
-  const members = schema["enum"];
-  if (!Array.isArray(members) || members.length === 0) {
-    return undefined;
-  }
-  return members.every((member) => typeof member === "string")
-    ? (members as readonly string[])
-    : undefined;
-}
-
-/** The schema's `format`, which is where the two string-shaped kinds are declared. */
-function declaredFormat(schema: Readonly<Record<string, unknown>>): string | undefined {
-  return typeof schema["format"] === "string" ? schema["format"] : undefined;
-}
-
 /**
  * Which of the six a member schema is, or nothing where it is none of them.
  *
@@ -102,20 +86,6 @@ export function requiredKeysOf(schema: Readonly<Record<string, unknown>>): Reado
 }
 
 /**
- * The schema's `multipleOf`, or nothing where it declared none worth stepping by.
- *
- * JSON Schema requires it to be strictly positive; a zero, a negative, or a non-finite
- * value is a schema the validator will refuse on its own terms, and a control given
- * that as a step would refuse every answer before the validator could say why.
- */
-function multipleOfOf(schema: Readonly<Record<string, unknown>>): number | undefined {
-  const declared = schema["multipleOf"];
-  return typeof declared === "number" && Number.isFinite(declared) && declared > 0
-    ? declared
-    : undefined;
-}
-
-/**
  * One STANDALONE control, composed from the member schema and where it sits.
  *
  * A member the enclosing level does not require may be left out of the answer, which is
@@ -160,4 +130,34 @@ export function listItemDescriptor(
   isRequired: boolean,
 ): SchemaFieldDescriptor {
   return { ...fieldDescriptor(schema, kind, memberPath, key, isRequired), canBeUnanswered: false };
+}
+
+/** The enum's members where every one of them is a string, else nothing. */
+function stringEnumOf(schema: Readonly<Record<string, unknown>>): readonly string[] | undefined {
+  const members = schema["enum"];
+  if (!Array.isArray(members) || members.length === 0) {
+    return undefined;
+  }
+  return members.every((member) => typeof member === "string")
+    ? (members as readonly string[])
+    : undefined;
+}
+
+/** The schema's `format`, which is where the two string-shaped kinds are declared. */
+function declaredFormat(schema: Readonly<Record<string, unknown>>): string | undefined {
+  return typeof schema["format"] === "string" ? schema["format"] : undefined;
+}
+
+/**
+ * The schema's `multipleOf`, or nothing where it declared none worth stepping by.
+ *
+ * JSON Schema requires it to be strictly positive; a zero, a negative, or a non-finite
+ * value is a schema the validator will refuse on its own terms, and a control given
+ * that as a step would refuse every answer before the validator could say why.
+ */
+function multipleOfOf(schema: Readonly<Record<string, unknown>>): number | undefined {
+  const declared = schema["multipleOf"];
+  return typeof declared === "number" && Number.isFinite(declared) && declared > 0
+    ? declared
+    : undefined;
 }

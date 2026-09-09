@@ -88,20 +88,6 @@ export const WORKFLOW_RUN_CONTROL_ORIGIN = "workflow-run-control";
 export type WorkflowRunControlRefusalCode = "reason-past-bound" | "act-already-in-flight";
 
 /**
- * The served arm of whatever outcome one growth operation answers with.
- *
- * A conditional rather than `Extract<…>["value"]`, which does not compile: over an
- * unresolved generic the extraction is not yet known to carry a `value` member at all,
- * so the member is inferred out of the matching arm instead.
- */
-type ServedGrowthValue<TOutcome> = TOutcome extends {
-  readonly status: "served";
-  readonly value: infer TValue;
-}
-  ? TValue
-  : never;
-
-/**
  * What a served `workflow.runCancel` answers with, taken from the port's signature.
  *
  * DERIVED AND NEVER RESTATED. The reply narrows the run union to the outcomes this
@@ -147,6 +133,20 @@ export type WorkflowRunControlOutcome =
       readonly detail: string;
     }
   | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+
+/**
+ * The served arm of whatever outcome one growth operation answers with.
+ *
+ * A conditional rather than `Extract<…>["value"]`, which does not compile: over an
+ * unresolved generic the extraction is not yet known to carry a `value` member at all,
+ * so the member is inferred out of the matching arm instead.
+ */
+type ServedGrowthValue<TOutcome> = TOutcome extends {
+  readonly status: "served";
+  readonly value: infer TValue;
+}
+  ? TValue
+  : never;
 
 /** The outcome a control stands at before anything has been pressed on this run. */
 export const IDLE_RUN_CONTROL_OUTCOME: WorkflowRunControlOutcome = { kind: "idle" };
@@ -207,29 +207,6 @@ const ACTION_PROSE: Readonly<Record<WorkflowRunControlAction, string>> = {
   resume: "Resuming a run",
 };
 
-/**
- * The refusal a second press earns while the first call is still outstanding.
- *
- * REFUSED AND NEVER QUEUED, and never dropped either. Queued, the second press would
- * perform an act nobody re-confirmed against a run whose state the first call has by
- * then moved; dropped, the operator presses a button that does nothing and is told
- * nothing, which is the one failure rule 9 exists to prevent. So the press is
- * answered, in the control's own body, with the fact that the run already has this
- * act in flight.
- *
- * "In flight" and never "denied": no question was put to a daemon by this press at
- * all, so a console that rendered it as an adjudication would be asserting one that
- * never happened.
- */
-export function actAlreadyInFlightRefusal(action: WorkflowRunControlAction): ConsoleRefusal {
-  const code: WorkflowRunControlRefusalCode = "act-already-in-flight";
-  return refuse(
-    WORKFLOW_RUN_CONTROL_ORIGIN,
-    code,
-    `${ACTION_PROSE[action]} is already in flight for this run. Wait for the answer; a second press is not queued.`,
-  );
-}
-
 /** One version a resume may re-pin onto, as the caller resolved it from the chain. */
 export interface WorkflowVersionChoice {
   /** Opaque and wire-verbatim. Passed through, never parsed. */
@@ -284,4 +261,27 @@ export interface WorkflowResumeControl extends WorkflowResumeDispatch {
    * not a disabled picker, and never a silent "latest".
    */
   readonly versionChain: readonly WorkflowVersionChoice[];
+}
+
+/**
+ * The refusal a second press earns while the first call is still outstanding.
+ *
+ * REFUSED AND NEVER QUEUED, and never dropped either. Queued, the second press would
+ * perform an act nobody re-confirmed against a run whose state the first call has by
+ * then moved; dropped, the operator presses a button that does nothing and is told
+ * nothing, which is the one failure rule 9 exists to prevent. So the press is
+ * answered, in the control's own body, with the fact that the run already has this
+ * act in flight.
+ *
+ * "In flight" and never "denied": no question was put to a daemon by this press at
+ * all, so a console that rendered it as an adjudication would be asserting one that
+ * never happened.
+ */
+export function actAlreadyInFlightRefusal(action: WorkflowRunControlAction): ConsoleRefusal {
+  const code: WorkflowRunControlRefusalCode = "act-already-in-flight";
+  return refuse(
+    WORKFLOW_RUN_CONTROL_ORIGIN,
+    code,
+    `${ACTION_PROSE[action]} is already in flight for this run. Wait for the answer; a second press is not queued.`,
+  );
 }

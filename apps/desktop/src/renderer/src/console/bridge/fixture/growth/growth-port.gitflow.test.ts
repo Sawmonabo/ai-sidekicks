@@ -19,14 +19,14 @@ import { describe, expect, it } from "vitest";
 import { findScenariosNaming, fixturePort } from "./growth-port.test-support.js";
 import { createFixtureBridge } from "../call-plane/bridge.js";
 import type { GrowthBranchContext } from "../../growth-values/index.js";
-import type { ConsoleScenario } from "../../scenario-runtime/scenario.js";
-import { CONSOLE_SCENARIOS } from "../../scenarios/index.js";
-import { FLAGSHIP_SCENARIO } from "../../scenarios/flagship.js";
-import { REPOS_SCENARIO } from "../../scenarios/repos.js";
+import type { ConsoleScenario } from "../../scenario/runtime/vocabulary.js";
+import { CONSOLE_SCENARIOS } from "../../scenario/index.js";
+import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
+import { REPOS_SCENARIO } from "../../scenario/repos/repos.js";
 import {
   GIT_WORKSPACE_ID,
   IMPLEMENTER_WORKTREE_ID,
-} from "../../scenarios/repos/repos-fixture-data.js";
+} from "../../scenario/repos/repos-fixture-data.js";
 import { createLiveBridge } from "../../live-bridge.js";
 import { createTier1Bridge } from "@ai-sidekicks/contracts";
 

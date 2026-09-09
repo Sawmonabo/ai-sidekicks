@@ -57,6 +57,15 @@ export interface EarlierWindowMerge {
   readonly duplicates: number;
 }
 
+/** Everything the state-level fold below advances beside the state it answers with. */
+export interface EarlierWindowCollaborators {
+  readonly sessionId: string;
+  readonly hueAllocator: ParticipantHueAllocator;
+  /** The ledger of what is still waiting on a person. Recovered rows advance it too. */
+  readonly outstandingAsks: OutstandingAskJournal;
+  readonly timelineCap: number | undefined;
+}
+
 /**
  * Grow a log at its head with the rows a backward page carried.
  *
@@ -98,15 +107,6 @@ export function mergeEarlierWindow(
     refusedNotEarlier,
     duplicates,
   };
-}
-
-/** Everything the state-level fold below advances beside the state it answers with. */
-export interface EarlierWindowCollaborators {
-  readonly sessionId: string;
-  readonly hueAllocator: ParticipantHueAllocator;
-  /** The ledger of what is still waiting on a person. Recovered rows advance it too. */
-  readonly outstandingAsks: OutstandingAskJournal;
-  readonly timelineCap: number | undefined;
 }
 
 /**

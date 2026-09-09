@@ -21,7 +21,7 @@ import { useEffect, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { CommittedFrameRecorder } from "../../core/committed-frame.test-support.js";
 import { ConsoleRefusalError } from "../../core/index.js";
 import { settle } from "../../core/settle.test-support.js";

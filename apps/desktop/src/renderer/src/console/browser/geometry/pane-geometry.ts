@@ -85,56 +85,6 @@ export interface PaneGeometrySample {
 }
 
 /**
- * Round a raw box to the sample's precision.
- *
- * Exported because the rounding factor is part of the ARITHMETIC and there may only be
- * one of it: a caller that read a DOM box and rounded it its own way would produce
- * samples that compare unequal to these for the same rectangle, and the publisher's
- * dedupe is a string comparison over exactly those numbers.
- */
-export function roundPaneRect(box: {
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-}): PaneRect {
-  return {
-    x: roundCoordinate(box.x),
-    y: roundCoordinate(box.y),
-    width: roundCoordinate(box.width),
-    height: roundCoordinate(box.height),
-  };
-}
-
-function roundCoordinate(value: number): number {
-  return Math.round(value * GEOMETRY_ROUNDING_FACTOR) / GEOMETRY_ROUNDING_FACTOR;
-}
-
-/** The overlap of two rectangles, or a zero-area rectangle where they do not meet. */
-export function intersectRects(first: PaneRect, second: PaneRect): PaneRect {
-  const left = Math.max(first.x, second.x);
-  const top = Math.max(first.y, second.y);
-  const right = Math.min(first.x + first.width, second.x + second.width);
-  const bottom = Math.min(first.y + first.height, second.y + second.height);
-  return {
-    x: roundCoordinate(left),
-    y: roundCoordinate(top),
-    width: roundCoordinate(Math.max(0, right - left)),
-    height: roundCoordinate(Math.max(0, bottom - top)),
-  };
-}
-
-/** Whether two rectangles share any area. Touching edges do not count. */
-function rectsOverlap(first: PaneRect, second: PaneRect): boolean {
-  const overlap = intersectRects(first, second);
-  return overlap.width > 0 && overlap.height > 0;
-}
-
-function isBelowMinimumEdge(rect: PaneRect): boolean {
-  return rect.width < MINIMUM_VISIBLE_EDGE_PX || rect.height < MINIMUM_VISIBLE_EDGE_PX;
-}
-
-/**
  * What the publisher needs from the overlay registry, and nothing more — a port rather
  * than an import, so the edge runs one way and the two modules do not cycle.
  *
@@ -172,6 +122,42 @@ export interface PaneGeometryInput {
 }
 
 /**
+ * Round a raw box to the sample's precision.
+ *
+ * Exported because the rounding factor is part of the ARITHMETIC and there may only be
+ * one of it: a caller that read a DOM box and rounded it its own way would produce
+ * samples that compare unequal to these for the same rectangle, and the publisher's
+ * dedupe is a string comparison over exactly those numbers.
+ */
+export function roundPaneRect(box: {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}): PaneRect {
+  return {
+    x: roundCoordinate(box.x),
+    y: roundCoordinate(box.y),
+    width: roundCoordinate(box.width),
+    height: roundCoordinate(box.height),
+  };
+}
+
+/** The overlap of two rectangles, or a zero-area rectangle where they do not meet. */
+export function intersectRects(first: PaneRect, second: PaneRect): PaneRect {
+  const left = Math.max(first.x, second.x);
+  const top = Math.max(first.y, second.y);
+  const right = Math.min(first.x + first.width, second.x + second.width);
+  const bottom = Math.min(first.y + first.height, second.y + second.height);
+  return {
+    x: roundCoordinate(left),
+    y: roundCoordinate(top),
+    width: roundCoordinate(Math.max(0, right - left)),
+    height: roundCoordinate(Math.max(0, bottom - top)),
+  };
+}
+
+/**
  * Compose one sample — the whole of 12.3's arithmetic, as a pure function, because a
  * version reachable only by mounting a pane in a real window is one nobody could write
  * a negative control for.
@@ -200,6 +186,20 @@ export function composePaneGeometrySample(input: PaneGeometryInput): PaneGeometr
     reason: input.reason,
     sampledAtMs: input.sampledAtMs,
   };
+}
+
+function roundCoordinate(value: number): number {
+  return Math.round(value * GEOMETRY_ROUNDING_FACTOR) / GEOMETRY_ROUNDING_FACTOR;
+}
+
+/** Whether two rectangles share any area. Touching edges do not count. */
+function rectsOverlap(first: PaneRect, second: PaneRect): boolean {
+  const overlap = intersectRects(first, second);
+  return overlap.width > 0 && overlap.height > 0;
+}
+
+function isBelowMinimumEdge(rect: PaneRect): boolean {
+  return rect.width < MINIMUM_VISIBLE_EDGE_PX || rect.height < MINIMUM_VISIBLE_EDGE_PX;
 }
 
 function readHiddenReason(

@@ -111,15 +111,6 @@ interface HeldSubjectValue<TValue> {
  */
 const NO_ADDRESSING = 0;
 
-/** Whether an addressing, if there is one at all, is the one for this exact pair. */
-function addresses<TValue>(
-  held: HeldSubjectValue<TValue> | undefined,
-  subject: object,
-  key: SubjectKey,
-): boolean {
-  return held !== undefined && held.subject === subject && held.key === key;
-}
-
 /**
  * One value, held per `(subject, key)` and readable only about that pair.
  *
@@ -396,4 +387,13 @@ export class SubjectScopedHolder<TValue> {
     }
     this.#disposal.disposeRefused(next);
   }
+}
+
+/** Whether an addressing, if there is one at all, is the one for this exact pair. */
+function addresses<TValue>(
+  held: HeldSubjectValue<TValue> | undefined,
+  subject: object,
+  key: SubjectKey,
+): boolean {
+  return held !== undefined && held.subject === subject && held.key === key;
 }

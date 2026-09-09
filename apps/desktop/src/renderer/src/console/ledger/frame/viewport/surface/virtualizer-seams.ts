@@ -39,23 +39,6 @@ export class LedgerVirtualizerSeams {
 
   #surface: HTMLElement | undefined;
 
-  public constructor(options: LedgerVirtualizerSeamsOptions) {
-    this.#scroll = options.scroll;
-    this.#measurements = options.measurements;
-    this.#virtualKeyAt = options.virtualKeyAt;
-  }
-
-  /**
-   * Point the seams at the box the chokepoint just took, or at nothing.
-   *
-   * Only an `HTMLElement` can be handed to the library; a structural surface driven
-   * by a test leaves the library detached, which is the honest state rather than a
-   * stand-in element it would try to observe.
-   */
-  public bindSurface(surface: LedgerScrollSurface | undefined): void {
-    this.#surface = surface instanceof HTMLElement ? surface : undefined;
-  }
-
   /** The surface the library and the chokepoint both address. */
   public readonly getScrollElement = (): HTMLElement | null => this.#surface ?? null;
 
@@ -120,6 +103,23 @@ export class LedgerVirtualizerSeams {
     const rowKey = String(instance.options.getItemKey(index));
     return this.#measurements.acceptedHeight(rowKey, observedHeightOf(element, entry));
   };
+
+  public constructor(options: LedgerVirtualizerSeamsOptions) {
+    this.#scroll = options.scroll;
+    this.#measurements = options.measurements;
+    this.#virtualKeyAt = options.virtualKeyAt;
+  }
+
+  /**
+   * Point the seams at the box the chokepoint just took, or at nothing.
+   *
+   * Only an `HTMLElement` can be handed to the library; a structural surface driven
+   * by a test leaves the library detached, which is the honest state rather than a
+   * stand-in element it would try to observe.
+   */
+  public bindSurface(surface: LedgerScrollSurface | undefined): void {
+    this.#surface = surface instanceof HTMLElement ? surface : undefined;
+  }
 }
 
 /**

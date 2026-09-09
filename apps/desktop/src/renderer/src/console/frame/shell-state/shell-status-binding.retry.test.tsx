@@ -33,7 +33,7 @@ import {
   growthServing,
 } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import type { GrowthOutcome } from "../../bridge/growth-port/growth-outcome.js";
-import { SHELL_SCENARIO } from "../../bridge/scenarios/shell.js";
+import { SHELL_SCENARIO } from "../../bridge/scenario/shell.js";
 import { FrameStore, shellMutationBlock } from "../../store/index.js";
 import { CONNECTED_SHELL_REPORT, refusingBridge } from "./shell-status.test-support.js";
 import { useDaemonStartAction } from "./shell-status-binding.js";

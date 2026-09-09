@@ -12,8 +12,8 @@ import { describe, expect, it } from "vitest";
 import type { DaemonMethod } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge } from "../call-plane/bridge.js";
-import { COLLABORATION_SCENARIO } from "../../scenarios/collaboration.js";
-import { FLAGSHIP_SCENARIO } from "../../scenarios/flagship.js";
+import { COLLABORATION_SCENARIO } from "../../scenario/collaboration/collaboration.js";
+import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
 import type { ConsoleBridge } from "../../console-bridge.js";
 
 /** The room that scripts them, and the session every call is scoped to. */

@@ -14,11 +14,11 @@ import { RuntimeNodesPage, registerRuntimeNodesPage } from "./RuntimeNodesPage.j
 import { SettingsPageRegistry, type SettingsPageContext } from "../../settings-page-registry.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
 import { unscriptedScenario } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
-import { SETTINGS_SCENARIO } from "../../../bridge/scenarios/settings.js";
+import { SETTINGS_SCENARIO } from "../../../bridge/scenario/settings/settings.js";
 import {
   PARTICIPANT_YOU,
   SETTINGS_RUNTIME_NODE_ATTACH_DRAFT,
-} from "../../../bridge/scenarios/settings/runtime-nodes.js";
+} from "../../../bridge/scenario/settings/runtime-nodes.js";
 import { consoleTestUiStateStore } from "../../settings-page-mount.test-support.js";
 import { settle } from "../../../core/settle.test-support.js";
 import { UNREPORTED_SHELL_STATE } from "../../../store/index.js";

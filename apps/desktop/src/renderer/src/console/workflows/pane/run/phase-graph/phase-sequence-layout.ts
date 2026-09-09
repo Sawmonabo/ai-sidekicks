@@ -112,22 +112,42 @@ export interface MalformedPhaseSequence {
 
 export type PhaseSequenceLayout = DrawnPhaseSequence | MalformedPhaseSequence;
 
-/** The rank of the phase at `index`. The one place the edge set reaches the geometry. */
-function rankOf(index: number): number {
-  return index;
-}
+/**
+ * One layout, held until the sequence actually changes.
+ *
+ * WHY A CLASS. The graph renderer is controlled: it reads the node and edge arrays
+ * it is handed and re-enters its own store whenever their identity moves, so a
+ * layout rebuilt on every render would restart that work on every keystroke
+ * anywhere in the pane. The memo therefore has to key on CONTENT rather than on
+ * array identity, because a caller composing its phase list per render hands over a
+ * fresh array each time with the same run inside it.
+ *
+ * A private field rather than a module-level `let`, per `apps/desktop/AGENTS.md`:
+ * one instance per mounted graph, so two graphs on screen never share a memo, and a
+ * test can hold two caches side by side and watch them disagree.
+ */
+export class PhaseSequenceLayoutCache {
+  #signature: string | undefined;
+  #layout: PhaseSequenceLayout | undefined;
 
-/** Every phase id that appears more than once, in first-repeat order and once each. */
-function repeatedPhaseIds(phases: readonly PhaseGraphNode[]): readonly string[] {
-  const seen = new Set<string>();
-  const repeated = new Set<string>();
-  for (const phase of phases) {
-    if (seen.has(phase.phaseId)) {
-      repeated.add(phase.phaseId);
+  /**
+   * The layout for `phases` under `topology`, recomputed only when either moved.
+   * The returned object is reference-stable across calls that describe one run.
+   */
+  public layoutFor(
+    phases: readonly PhaseGraphNode[],
+    topology?: PhaseTopology,
+  ): PhaseSequenceLayout {
+    const signature = phaseSequenceSignature(phases, topology);
+    const held = this.#layout;
+    if (held !== undefined && this.#signature === signature) {
+      return held;
     }
-    seen.add(phase.phaseId);
+    const layout = layoutPhaseSequence(phases, topology);
+    this.#signature = signature;
+    this.#layout = layout;
+    return layout;
   }
-  return [...repeated];
 }
 
 /**
@@ -197,40 +217,20 @@ export function phaseSequenceSignature(
   ]);
 }
 
-/**
- * One layout, held until the sequence actually changes.
- *
- * WHY A CLASS. The graph renderer is controlled: it reads the node and edge arrays
- * it is handed and re-enters its own store whenever their identity moves, so a
- * layout rebuilt on every render would restart that work on every keystroke
- * anywhere in the pane. The memo therefore has to key on CONTENT rather than on
- * array identity, because a caller composing its phase list per render hands over a
- * fresh array each time with the same run inside it.
- *
- * A private field rather than a module-level `let`, per `apps/desktop/AGENTS.md`:
- * one instance per mounted graph, so two graphs on screen never share a memo, and a
- * test can hold two caches side by side and watch them disagree.
- */
-export class PhaseSequenceLayoutCache {
-  #signature: string | undefined;
-  #layout: PhaseSequenceLayout | undefined;
+/** The rank of the phase at `index`. The one place the edge set reaches the geometry. */
+function rankOf(index: number): number {
+  return index;
+}
 
-  /**
-   * The layout for `phases` under `topology`, recomputed only when either moved.
-   * The returned object is reference-stable across calls that describe one run.
-   */
-  public layoutFor(
-    phases: readonly PhaseGraphNode[],
-    topology?: PhaseTopology,
-  ): PhaseSequenceLayout {
-    const signature = phaseSequenceSignature(phases, topology);
-    const held = this.#layout;
-    if (held !== undefined && this.#signature === signature) {
-      return held;
+/** Every phase id that appears more than once, in first-repeat order and once each. */
+function repeatedPhaseIds(phases: readonly PhaseGraphNode[]): readonly string[] {
+  const seen = new Set<string>();
+  const repeated = new Set<string>();
+  for (const phase of phases) {
+    if (seen.has(phase.phaseId)) {
+      repeated.add(phase.phaseId);
     }
-    const layout = layoutPhaseSequence(phases, topology);
-    this.#signature = signature;
-    this.#layout = layout;
-    return layout;
+    seen.add(phase.phaseId);
   }
+  return [...repeated];
 }

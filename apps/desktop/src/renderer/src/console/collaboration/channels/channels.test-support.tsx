@@ -33,7 +33,7 @@ import {
   type GrowthChannelRosterEntry,
   type GrowthPort,
 } from "../../bridge/index.js";
-import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
+import type { ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
 import { ManualClock } from "../../core/index.js";
 import { PAST_REFRESH_DEBOUNCE_MS, settle } from "../../core/settle.test-support.js";
 import type { PushDrivenReadState, SidebarSectionContext } from "../../seats/index.js";
@@ -78,6 +78,14 @@ export const LABELS: ChannelActivityLabels = {
   runLabel: (runId) => runId,
 };
 
+/** What one roster entry may say, spelled member by member. */
+export interface RosterEntryOptions {
+  readonly name?: string;
+  readonly kind?: GrowthChannelKind;
+  readonly memberPair?: readonly [string, string];
+  readonly audience?: GrowthChannelAudience;
+}
+
 /** One row of the directory, in the shape `channel.list` serves it. */
 export function channel(
   id: string,
@@ -120,14 +128,6 @@ export function loaded(
   return { kind: "loaded", value: { channels, settlements, position: settlements.openRead() } };
 }
 
-/** What one roster entry may say, spelled member by member. */
-export interface RosterEntryOptions {
-  readonly name?: string;
-  readonly kind?: GrowthChannelKind;
-  readonly memberPair?: readonly [string, string];
-  readonly audience?: GrowthChannelAudience;
-}
-
 /**
  * One roster entry, built member by member rather than by spreading a partial.
  *
@@ -153,16 +153,32 @@ export function rosterEntry(
 const SCENARIO_ID = "collaboration-channels-test";
 
 /**
- * A scenario playing the session these suites render, and scripting nothing else.
+ * How the roster read answers: one fixed list, the port's own refusal, or a list read
+ * at the moment of the call.
  *
- * The session is stated rather than left to `unscriptedScenario`'s own, because the
- * surfaces below are rendered with `SESSION_ID` and the fixture's session-scoped
- * answers are scoped to the session the scenario plays: a harness addressing one
- * session while its bridge played another was being answered anyway, and every case
- * built on it was passing for a reason no daemon would reproduce.
+ * The third arm is what a REFRESH case needs and the first cannot give: a fixed value
+ * answers every read the same way, so a list whose roster arrived after a second read
+ * could not be told from one whose roster never moved.
  */
-function channelsScenario(): ConsoleScenario {
-  return { ...unscriptedScenario(SCENARIO_ID), sessionId: SESSION_ID };
+export type ChannelsBridgeRoster =
+  | readonly GrowthChannelRosterEntry[]
+  | "refused"
+  | (() => readonly GrowthChannelRosterEntry[]);
+
+/** How a case wants its bridge to answer: which script, and what the roster read says. */
+export interface ChannelsBridgeOptions {
+  readonly scenario?: ConsoleScenario;
+  readonly roster?: ChannelsBridgeRoster;
+}
+
+/** What a case may steer about the directory it renders. */
+export interface ChannelListOverrides {
+  readonly bridge?: ConsoleBridge;
+  readonly viewerParticipantId?: string | undefined;
+  readonly participantIds?: readonly string[];
+  readonly openPane?: SidebarSectionContext["openPane"];
+  readonly isCatchingUp?: boolean;
+  readonly onReopen?: () => void;
 }
 
 /**
@@ -198,38 +214,6 @@ export function scenarioRefusing(call: string, code: string, message: string): C
 }
 
 /**
- * How the roster read answers: one fixed list, the port's own refusal, or a list read
- * at the moment of the call.
- *
- * The third arm is what a REFRESH case needs and the first cannot give: a fixed value
- * answers every read the same way, so a list whose roster arrived after a second read
- * could not be told from one whose roster never moved.
- */
-export type ChannelsBridgeRoster =
-  | readonly GrowthChannelRosterEntry[]
-  | "refused"
-  | (() => readonly GrowthChannelRosterEntry[]);
-
-/** How a case wants its bridge to answer: which script, and what the roster read says. */
-export interface ChannelsBridgeOptions {
-  readonly scenario?: ConsoleScenario;
-  readonly roster?: ChannelsBridgeRoster;
-}
-
-/** The roster override one of those three arms asks for. */
-function rosterAnswer(roster: ChannelsBridgeRoster): Partial<GrowthPort> {
-  if (roster === "refused") {
-    return { channelRosterRead: growthRefusing("channelRosterRead") };
-  }
-  return {
-    channelRosterRead:
-      typeof roster === "function"
-        ? growthAnswering(async () => await Promise.resolve(roster()))
-        : growthServing(roster),
-  };
-}
-
-/**
  * The real fixture bridge, scripted as the case asks.
  *
  * The roster is an OVERRIDE rather than a scripted reply because the two answers a
@@ -242,16 +226,6 @@ export function channelsBridge(options: ChannelsBridgeOptions = {}): ConsoleBrid
   const scenario = options.scenario ?? channelsScenario();
   const { roster } = options;
   return fixtureBridgeWithGrowth(scenario, roster === undefined ? {} : rosterAnswer(roster));
-}
-
-/** What a case may steer about the directory it renders. */
-export interface ChannelListOverrides {
-  readonly bridge?: ConsoleBridge;
-  readonly viewerParticipantId?: string | undefined;
-  readonly participantIds?: readonly string[];
-  readonly openPane?: SidebarSectionContext["openPane"];
-  readonly isCatchingUp?: boolean;
-  readonly onReopen?: () => void;
 }
 
 /**
@@ -272,35 +246,6 @@ export function viewerOf(overrides: {
   return Object.hasOwn(overrides, "viewerParticipantId")
     ? overrides.viewerParticipantId
     : PARTICIPANT_YOU;
-}
-
-/**
- * The element itself, so a case can serve a SECOND read into the same list.
- *
- * Declared once and rendered twice rather than spelled again beside a `rerender`: a
- * second copy of this prop table is a case whose re-render quietly changes a prop it
- * did not mean to, and the props that must not move — the bridge above all — are
- * exactly the ones a subject-scoped surface reads as a re-address.
- */
-function channelListElement(
-  state: PushDrivenReadState<ChannelDirectoryReading>,
-  overrides: ChannelListOverrides,
-  bridge: ConsoleBridge,
-): React.JSX.Element {
-  return (
-    <ChannelList
-      state={state}
-      bridge={bridge}
-      sessionId={SESSION_ID}
-      viewerParticipantId={viewerOf(overrides)}
-      participantIds={overrides.participantIds ?? [PARTICIPANT_YOU, PARTICIPANT_OTHER]}
-      openPane={overrides.openPane ?? (() => undefined)}
-      activity={new ActivityIndicatorRegistry(new ManualClock())}
-      labels={LABELS}
-      isCatchingUp={overrides.isCatchingUp ?? false}
-      onReopen={overrides.onReopen ?? (() => undefined)}
-    />
-  );
 }
 
 /**
@@ -364,4 +309,59 @@ export async function renderChannelListSettled(
   const rendered = renderChannelList(state, overrides);
   await settleChannelReads(rendered.bridge);
   return rendered;
+}
+
+/**
+ * A scenario playing the session these suites render, and scripting nothing else.
+ *
+ * The session is stated rather than left to `unscriptedScenario`'s own, because the
+ * surfaces below are rendered with `SESSION_ID` and the fixture's session-scoped
+ * answers are scoped to the session the scenario plays: a harness addressing one
+ * session while its bridge played another was being answered anyway, and every case
+ * built on it was passing for a reason no daemon would reproduce.
+ */
+function channelsScenario(): ConsoleScenario {
+  return { ...unscriptedScenario(SCENARIO_ID), sessionId: SESSION_ID };
+}
+
+/** The roster override one of those three arms asks for. */
+function rosterAnswer(roster: ChannelsBridgeRoster): Partial<GrowthPort> {
+  if (roster === "refused") {
+    return { channelRosterRead: growthRefusing("channelRosterRead") };
+  }
+  return {
+    channelRosterRead:
+      typeof roster === "function"
+        ? growthAnswering(async () => await Promise.resolve(roster()))
+        : growthServing(roster),
+  };
+}
+
+/**
+ * The element itself, so a case can serve a SECOND read into the same list.
+ *
+ * Declared once and rendered twice rather than spelled again beside a `rerender`: a
+ * second copy of this prop table is a case whose re-render quietly changes a prop it
+ * did not mean to, and the props that must not move — the bridge above all — are
+ * exactly the ones a subject-scoped surface reads as a re-address.
+ */
+function channelListElement(
+  state: PushDrivenReadState<ChannelDirectoryReading>,
+  overrides: ChannelListOverrides,
+  bridge: ConsoleBridge,
+): React.JSX.Element {
+  return (
+    <ChannelList
+      state={state}
+      bridge={bridge}
+      sessionId={SESSION_ID}
+      viewerParticipantId={viewerOf(overrides)}
+      participantIds={overrides.participantIds ?? [PARTICIPANT_YOU, PARTICIPANT_OTHER]}
+      openPane={overrides.openPane ?? (() => undefined)}
+      activity={new ActivityIndicatorRegistry(new ManualClock())}
+      labels={LABELS}
+      isCatchingUp={overrides.isCatchingUp ?? false}
+      onReopen={overrides.onReopen ?? (() => undefined)}
+    />
+  );
 }

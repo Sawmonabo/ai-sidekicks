@@ -46,7 +46,7 @@
 // real `SidekicksBridge` and carry the Plan-007 / Plan-008 brand casts. The FIXTURE arm
 // is `fixture/settings/runtime-node-roster.ts`, one directory over, because that is
 // where a module exists so the fixture can answer — and keeping it here was what gave
-// this directory its only edge into `scenario-runtime/`, for one function.
+// this directory its only edge into `scenario/runtime/`, for one function.
 //
 // Each arm declares the refusal codes it itself raises, beside the code that raises
 // them: the wire fallbacks below, the scenario's two in the fixture module.

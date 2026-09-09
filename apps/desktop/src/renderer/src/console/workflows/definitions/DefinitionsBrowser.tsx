@@ -105,6 +105,28 @@ const CONTINUATION_SUBJECT = "more definitions";
 /** The continuation with nothing to report, which is what an absent one means. */
 const WHOLE_CONTINUATION: ReadingState = { kind: "served" };
 
+/** The three scope groups, in resolution order, with their rows. */
+export function DefinitionsBrowser(props: DefinitionsBrowserProps): React.JSX.Element {
+  const pendingScopes = props.pendingScopes ?? [];
+  return (
+    <>
+      <ol className="meridian-workflow__scopes">
+        {WORKFLOW_DEFINITION_SCOPES.map((scope) => (
+          <DefinitionScopeGroup
+            key={scope}
+            scope={scope}
+            definitions={props.definitions.filter((definition) => definition.scope === scope)}
+            isPending={pendingScopes.includes(scope)}
+            hasUnreadPages={props.hasUnreadPages === true}
+            onOpenDefinition={props.onOpenDefinition}
+          />
+        ))}
+      </ol>
+      {renderContinuation(props)}
+    </>
+  );
+}
+
 /**
  * What stands under the groups: the handle to the next page, or a wait, or nothing.
  *
@@ -137,27 +159,5 @@ function renderContinuation(props: DefinitionsBrowserProps): React.ReactNode {
         </button>
       )}
     </div>
-  );
-}
-
-/** The three scope groups, in resolution order, with their rows. */
-export function DefinitionsBrowser(props: DefinitionsBrowserProps): React.JSX.Element {
-  const pendingScopes = props.pendingScopes ?? [];
-  return (
-    <>
-      <ol className="meridian-workflow__scopes">
-        {WORKFLOW_DEFINITION_SCOPES.map((scope) => (
-          <DefinitionScopeGroup
-            key={scope}
-            scope={scope}
-            definitions={props.definitions.filter((definition) => definition.scope === scope)}
-            isPending={pendingScopes.includes(scope)}
-            hasUnreadPages={props.hasUnreadPages === true}
-            onOpenDefinition={props.onOpenDefinition}
-          />
-        ))}
-      </ol>
-      {renderContinuation(props)}
-    </>
   );
 }

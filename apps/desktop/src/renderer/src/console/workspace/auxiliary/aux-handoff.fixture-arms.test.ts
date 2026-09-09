@@ -23,7 +23,7 @@ import { AUXILIARY_WINDOW_CHANNELS } from "@ai-sidekicks/contracts";
 
 import { SIDEKICKS_BRIDGE_NAMESPACES } from "../../bridge/bridge-shape.js";
 import { createFixtureBridge } from "../../bridge/index.js";
-import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { AuxiliaryHandoff } from "./aux-handoff.js";
 
 /** The pane these cases move into a window. */

@@ -97,23 +97,6 @@ export const REUSE_VERDICT_COPY: Readonly<Record<ReuseVerdict["kind"], string>> 
     "A checkout of that branch exists and cannot be bound. This is not a consent you can give — prepare under a different branch name, or retire that root first.",
 };
 
-/**
- * Whether this verdict needs a consent, narrowing to the candidate that carries one.
- *
- * A TYPE PREDICATE RATHER THAN A BOOLEAN, because every caller that asks the question
- * then needs the candidate's own id — the control that records the consent, the reader
- * that decides whether a recorded one still applies, and the act that sends it. Handing
- * back the narrowing is what keeps those three from each re-testing `kind` by hand.
- */
-export function reuseConsentRequired(verdict: ReuseVerdict): verdict is DirtyReuseCandidate {
-  return verdict.kind === "dirty";
-}
-
-/** Whether a prepare against this verdict can be sent at all. */
-export function reusePreparable(verdict: ReuseVerdict): boolean {
-  return verdict.kind !== "incompatible";
-}
-
 /** What a prepare form holds. The branch is the only field a writable prepare needs. */
 export interface PrepareFormState {
   readonly branchName: string;
@@ -130,6 +113,23 @@ export interface PrepareFormState {
    * tree by construction: a served candidate that is not this one matches nothing.
    */
   readonly acknowledgedCandidateId: string | undefined;
+}
+
+/**
+ * Whether this verdict needs a consent, narrowing to the candidate that carries one.
+ *
+ * A TYPE PREDICATE RATHER THAN A BOOLEAN, because every caller that asks the question
+ * then needs the candidate's own id — the control that records the consent, the reader
+ * that decides whether a recorded one still applies, and the act that sends it. Handing
+ * back the narrowing is what keeps those three from each re-testing `kind` by hand.
+ */
+export function reuseConsentRequired(verdict: ReuseVerdict): verdict is DirtyReuseCandidate {
+  return verdict.kind === "dirty";
+}
+
+/** Whether a prepare against this verdict can be sent at all. */
+export function reusePreparable(verdict: ReuseVerdict): boolean {
+  return verdict.kind !== "incompatible";
 }
 
 /** An empty prepare form: no branch, no consent. */
@@ -155,6 +155,11 @@ export interface PrepareReuseStanding {
 
 /** The standing's verdict wherever there is no candidate on the table to act on. */
 const NO_REUSE_CANDIDATE: ReuseVerdict = { kind: "none" };
+
+/** Whether a prepare can be sent, and if not, what is missing. */
+export type PrepareFormVerdict =
+  | { readonly status: "sendable" }
+  | { readonly status: "incomplete"; readonly because: string };
 
 /**
  * Read the reuse half of one prepare reading into the standing a form is read against.
@@ -188,14 +193,19 @@ export function prepareReuseStanding(
   }
 }
 
-/** Whether a prepare can be sent, and if not, what is missing. */
-export type PrepareFormVerdict =
-  | { readonly status: "sendable" }
-  | { readonly status: "incomplete"; readonly because: string };
-
 /** The sentence a form held shut by a reuse check that has not come back puts on screen. */
 export const REUSE_UNANSWERED_COPY =
   "The reuse check for that branch has not answered yet. Preparing before it does could take a live checkout without asking.";
+
+/** What one disposal is about, and the consequence its confirmation must state. */
+export interface DisposalSubject {
+  /** Which of the two roots this is. Decides which call the act sends. */
+  readonly kind: "worktree" | "ephemeral-clone";
+  /** The root's own id, sent verbatim. */
+  readonly rootId: string;
+  /** What the person is agreeing to. Different for the two kinds, so it is not shared. */
+  readonly consequence: string;
+}
 
 /**
  * Read one prepare form against the reuse standing it is being sent under.
@@ -275,16 +285,6 @@ export function prepareFormVerdict(
  */
 export function prepareAcknowledgement(form: PrepareFormState, verdict: ReuseVerdict): boolean {
   return reuseConsentRequired(verdict) && form.acknowledgedCandidateId === verdict.worktreeId;
-}
-
-/** What one disposal is about, and the consequence its confirmation must state. */
-export interface DisposalSubject {
-  /** Which of the two roots this is. Decides which call the act sends. */
-  readonly kind: "worktree" | "ephemeral-clone";
-  /** The root's own id, sent verbatim. */
-  readonly rootId: string;
-  /** What the person is agreeing to. Different for the two kinds, so it is not shared. */
-  readonly consequence: string;
 }
 
 /**

@@ -151,6 +151,17 @@ const SIDEBAR_CARD_ENTITY_KINDS: readonly SidebarCardEntityKind[] = CONSOLE_ENTI
 );
 
 /**
+ * Which pane, over which entity — the address a pane is opened at.
+ *
+ * A discriminated union over `kind`, so narrowing on the kind narrows the entity
+ * with it: an `artifact` arm's entity is an artifact reference and nothing else,
+ * and a `runs` arm has no `entity` member to read. Both halves matter — the
+ * first refuses the wrong entity, the second refuses a caller that forgot to
+ * resolve one.
+ */
+export type ConsolePaneAddress = { [K in PaneKind]: ConsolePaneAddressOf<K> }[PaneKind];
+
+/**
  * What each pane kind is a view of. THE declaration.
  *
  * `never` where the pane is session-scoped and takes no entity; `| undefined`
@@ -223,17 +234,6 @@ type ConsolePaneAddressOf<TKind extends PaneKind> = [PaneEntityScopeByKind[TKind
     ? { readonly kind: TKind; readonly entity: PaneEntityScopeByKind[TKind] }
     : { readonly kind: TKind; readonly entity?: PaneEntityScopeByKind[TKind] };
 
-/**
- * Which pane, over which entity — the address a pane is opened at.
- *
- * A discriminated union over `kind`, so narrowing on the kind narrows the entity
- * with it: an `artifact` arm's entity is an artifact reference and nothing else,
- * and a `runs` arm has no `entity` member to read. Both halves matter — the
- * first refuses the wrong entity, the second refuses a caller that forgot to
- * resolve one.
- */
-export type ConsolePaneAddress = { [K in PaneKind]: ConsolePaneAddressOf<K> }[PaneKind];
-
 /** The entity kinds one pane kind admits, read off the declaration. */
 type AdmittedEntityKind<TKind extends PaneKind> = NonNullable<PaneEntityScopeByKind[TKind]>["kind"];
 
@@ -289,17 +289,6 @@ export interface PaneEntityScopeDeclaration {
   readonly entityRequired: boolean;
 }
 
-// Consumed by T-023p-1C-2, T-023p-1C-3
-/**
- * One pane kind's entity scope, for the callers that decide at runtime — the
- * deck's layout validator and the sidebar's open-pane call.
- *
- * The read door onto the table above, so no caller keeps its own copy of a row.
- */
-export function paneEntityScopeFor(kind: PaneKind): PaneEntityScopeDeclaration {
-  return PANE_ENTITY_SCOPES[kind];
-}
-
 /**
  * The pane kinds whose address can be written bare — session-scoped, or entity-optional.
  *
@@ -309,27 +298,6 @@ export function paneEntityScopeFor(kind: PaneKind): PaneEntityScopeDeclaration {
 export type EntityOptionalPaneKind = {
   [K in PaneKind]: EntityRequired<K> extends true ? never : K;
 }[PaneKind];
-
-/**
- * Whether this kind's address may be written with no entity.
- *
- * A narrowing predicate rather than a bare boolean read, because it is what lets
- * `pane-address-parse.ts` RETURN the bare address without a cast: the table's `entityRequired` column is
- * annotated `EntityRequired<K>`, so the runtime value and the type it narrows to are
- * the same fact, checked by the compiler at the table rather than asserted here.
- */
-export function isEntityOptionalPaneKind(kind: PaneKind): kind is EntityOptionalPaneKind {
-  return !PANE_ENTITY_SCOPES[kind].entityRequired;
-}
-
-// THE OPENER AND ITS LINK LIVE HERE, WITH THE ADDRESS THEY CARRY, and not in
-// `pane-registry.ts`, which declared them until a second reader arrived. That module
-// mounts bodies, so it imports `PendingPaneBody.tsx`, which imports the pane chrome —
-// and the chrome now forwards an opener to the pinned region it draws, which made
-// `chrome → seat → registry → pending body → chrome` a cycle `no-circular` fails. The
-// remedy is the hoist the layering rules name: the type is about an ADDRESS, this is
-// the module that declares addresses, and nothing here imports a module that could
-// reach back.
 
 // Consumed by T-023p-1C-2, T-023p-1C-3
 /**
@@ -361,3 +329,35 @@ export interface ConsolePaneLink {
  * of those inventing a value to pass.
  */
 export type ConsolePaneOpener = (address: ConsolePaneAddress, link?: ConsolePaneLink) => void;
+
+// THE OPENER AND ITS LINK LIVE HERE, WITH THE ADDRESS THEY CARRY, and not in
+// `pane-registry.ts`, which declared them until a second reader arrived. That module
+// mounts bodies, so it imports `PendingPaneBody.tsx`, which imports the pane chrome —
+// and the chrome now forwards an opener to the pinned region it draws, which made
+// `chrome → seat → registry → pending body → chrome` a cycle `no-circular` fails. The
+// remedy is the hoist the layering rules name: the type is about an ADDRESS, this is
+// the module that declares addresses, and nothing here imports a module that could
+// reach back.
+
+// Consumed by T-023p-1C-2, T-023p-1C-3
+/**
+ * One pane kind's entity scope, for the callers that decide at runtime — the
+ * deck's layout validator and the sidebar's open-pane call.
+ *
+ * The read door onto the table above, so no caller keeps its own copy of a row.
+ */
+export function paneEntityScopeFor(kind: PaneKind): PaneEntityScopeDeclaration {
+  return PANE_ENTITY_SCOPES[kind];
+}
+
+/**
+ * Whether this kind's address may be written with no entity.
+ *
+ * A narrowing predicate rather than a bare boolean read, because it is what lets
+ * `pane-address-parse.ts` RETURN the bare address without a cast: the table's `entityRequired` column is
+ * annotated `EntityRequired<K>`, so the runtime value and the type it narrows to are
+ * the same fact, checked by the compiler at the table rather than asserted here.
+ */
+export function isEntityOptionalPaneKind(kind: PaneKind): kind is EntityOptionalPaneKind {
+  return !PANE_ENTITY_SCOPES[kind].entityRequired;
+}

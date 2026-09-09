@@ -228,24 +228,6 @@ export class RunStateProjection {
  */
 const UNTIMED_FIRST_SEEN = "";
 
-/** Append, keeping the newest `RUN_STATUS_ROW_CAP` rows with the newest last. */
-function appendBounded(rows: readonly RunStatusRow[], row: RunStatusRow): readonly RunStatusRow[] {
-  const appended = [...rows, row];
-  return appended.length <= RUN_STATUS_ROW_CAP
-    ? appended
-    : appended.slice(appended.length - RUN_STATUS_ROW_CAP);
-}
-
-/** Newest activity first, with the run id breaking an exact tie deterministically. */
-function byMostRecentlyTouched(left: RunProjection, right: RunProjection): number {
-  const ranked = compareInstants(
-    parseInstant(left.updatedAtIso),
-    parseInstant(right.updatedAtIso),
-    "newest-first",
-  );
-  return ranked === 0 ? left.runId.localeCompare(right.runId) : ranked;
-}
-
 /**
  * Elapsed between the two wire instants a run reported, in milliseconds.
  *
@@ -263,4 +245,22 @@ export function runElapsedMilliseconds(run: RunProjection): number | undefined {
   }
   const elapsed = to.epochMilliseconds - from.epochMilliseconds;
   return elapsed < 0 ? undefined : elapsed;
+}
+
+/** Append, keeping the newest `RUN_STATUS_ROW_CAP` rows with the newest last. */
+function appendBounded(rows: readonly RunStatusRow[], row: RunStatusRow): readonly RunStatusRow[] {
+  const appended = [...rows, row];
+  return appended.length <= RUN_STATUS_ROW_CAP
+    ? appended
+    : appended.slice(appended.length - RUN_STATUS_ROW_CAP);
+}
+
+/** Newest activity first, with the run id breaking an exact tie deterministically. */
+function byMostRecentlyTouched(left: RunProjection, right: RunProjection): number {
+  const ranked = compareInstants(
+    parseInstant(left.updatedAtIso),
+    parseInstant(right.updatedAtIso),
+    "newest-first",
+  );
+  return ranked === 0 ? left.runId.localeCompare(right.runId) : ranked;
 }

@@ -12,7 +12,7 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
+import { BROWSER_SCENARIO } from "../../bridge/scenario/browser.js";
 import { createFixtureBridge } from "../../bridge/index.js";
 import { isFilesystemDestination, useReportedNavigation } from "./navigation-state.js";
 import { refusalOf, reportedStateOf } from "./navigation-state.test-support.js";

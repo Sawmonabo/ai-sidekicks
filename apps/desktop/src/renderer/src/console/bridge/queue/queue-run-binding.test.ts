@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { fixtureBridgeWithGrowth } from "../fixture/call-plane/bridge.test-support.js";
 import { growthUnavailable } from "../growth-port/index.js";
-import { RUNS_SCENARIO } from "../scenarios/runs.js";
+import { RUNS_SCENARIO } from "../scenario/runs/runs.js";
 import type { ConsoleBridge } from "../console-bridge.js";
 import { QueueRunBindings } from "./queue-run-binding.js";
 import { SessionQueueReading } from "./queue-reading.js";

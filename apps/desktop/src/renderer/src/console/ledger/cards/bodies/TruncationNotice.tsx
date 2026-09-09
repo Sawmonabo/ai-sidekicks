@@ -50,18 +50,6 @@ export const RECOVERABLE_TRUNCATION_SLATE_ROW: GrowthSlateRow =
   growthSlateRow("hydrated-event-read");
 
 /**
- * Whether this console could obtain the rest of a truncated body.
- *
- * A function over the ledger rather than a constant `false`, so the day
- * `hydrated-event-read` flips `wireRegistered` the answer changes with it. It is
- * fail-closed by construction: a row the ledger does not carry could not make this
- * true, and neither can anything a body contains.
- */
-export function isTruncatedRemainderRecoverable(): boolean {
-  return RECOVERABLE_TRUNCATION_SLATE_ROW.wireRegistered;
-}
-
-/**
  * What can be done about the part of the body that is not here.
  *
  * Three arms and no fourth, because the two questions are independent and both are
@@ -74,6 +62,35 @@ export type TruncatedRemainderDisposition =
   | { readonly kind: "not-carried" }
   | { readonly kind: "none-recorded" }
   | { readonly kind: "claimable"; readonly remainderByteCount: number };
+
+export interface TruncationNoticeProps {
+  readonly storedBody: string;
+  readonly preTruncationLength: number | undefined;
+  /**
+   * Ask for the rest of the body.
+   *
+   * OPTIONAL, WHICH IS THIS TREE'S EXCEPTION AND NOT ITS RULE — a slot elsewhere in
+   * these cards is required and carries `undefined`, so a caller cannot forget it
+   * silently. It cannot be that here: no caller on this build can supply one, since
+   * the read that would serve a remainder is exactly the wire the gate above says is
+   * unregistered. The control it drives is rendered only on the `claimable`
+   * disposition, which needs both this handler and that wire, so an absent handler
+   * can hide nothing a reader would otherwise have been offered.
+   */
+  readonly onShowAll?: (() => void) | undefined;
+}
+
+/**
+ * Whether this console could obtain the rest of a truncated body.
+ *
+ * A function over the ledger rather than a constant `false`, so the day
+ * `hydrated-event-read` flips `wireRegistered` the answer changes with it. It is
+ * fail-closed by construction: a row the ledger does not carry could not make this
+ * true, and neither can anything a body contains.
+ */
+export function isTruncatedRemainderRecoverable(): boolean {
+  return RECOVERABLE_TRUNCATION_SLATE_ROW.wireRegistered;
+}
 
 /**
  * Read the disposition off the gate and the two recorded lengths.
@@ -99,23 +116,6 @@ export function truncatedRemainderDisposition(
     return { kind: "none-recorded" };
   }
   return { kind: "claimable", remainderByteCount: preTruncationLength - storedByteCount };
-}
-
-export interface TruncationNoticeProps {
-  readonly storedBody: string;
-  readonly preTruncationLength: number | undefined;
-  /**
-   * Ask for the rest of the body.
-   *
-   * OPTIONAL, WHICH IS THIS TREE'S EXCEPTION AND NOT ITS RULE — a slot elsewhere in
-   * these cards is required and carries `undefined`, so a caller cannot forget it
-   * silently. It cannot be that here: no caller on this build can supply one, since
-   * the read that would serve a remainder is exactly the wire the gate above says is
-   * unregistered. The control it drives is rendered only on the `claimable`
-   * disposition, which needs both this handler and that wire, so an absent handler
-   * can hide nothing a reader would otherwise have been offered.
-   */
-  readonly onShowAll?: (() => void) | undefined;
 }
 
 /**

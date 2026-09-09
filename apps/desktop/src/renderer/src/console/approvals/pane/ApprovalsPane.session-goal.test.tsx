@@ -9,8 +9,8 @@ import { act, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ApprovalsPane } from "./ApprovalsPane.js";
 import { createFixtureBridge } from "../../bridge/index.js";
-import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
-import { type ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
+import { APPROVALS_SCENARIO } from "../../bridge/scenario/approvals/approvals.js";
+import { type ConsoleScenario } from "../../bridge/scenario/runtime/vocabulary.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import {
   approvalsPaneContext,

@@ -26,7 +26,7 @@
 import { cleanup, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { WORKFLOWS_SESSION_ID } from "../../../bridge/scenarios/workflow-fixture-ids.js";
+import { WORKFLOWS_SESSION_ID } from "../../../bridge/scenario/workflows/ids.js";
 import {
   authoringBridge,
   expectLocalRefusal,

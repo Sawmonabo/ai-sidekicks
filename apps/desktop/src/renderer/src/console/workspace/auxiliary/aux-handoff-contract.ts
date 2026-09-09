@@ -64,73 +64,6 @@ export const AUXILIARY_HANDOFF_REFUSAL_ORIGIN = "aux-handoff";
 /** A typed hand-off refusal — `core`'s one refusal shape, narrowed on `code`. */
 export type AuxiliaryHandoffRefusal = NarrowedRefusal<AuxiliaryHandoffRefusalCode>;
 
-export function refuseHandoff(
-  code: AuxiliaryHandoffRefusalCode,
-  detail: string,
-): AuxiliaryHandoffRefusal {
-  return refuse(AUXILIARY_HANDOFF_REFUSAL_ORIGIN, code, detail);
-}
-
-/**
- * A plane answer that could not be served, in this subsystem's vocabulary.
- *
- * TWO CODES AND NOT ONE, because the port already knows which happened and throwing
- * that away would put "this build has no shell at all" and "the shell answered with a
- * fault" behind one word. The first is a fact about the build a person can do nothing
- * about; the second is a failure that may not happen again on the next press. The
- * sentence is the port's own either way — it names what went wrong, which is more
- * than this subsystem knows.
- */
-export function refuseHandoffFromShell(refusal: AuxiliaryWindowRefusal): AuxiliaryHandoffRefusal {
-  return refuseHandoff(
-    refusal.code === "shell-absent" ? "shell-absent" : "wire-rejected",
-    refusal.detail,
-  );
-}
-
-/**
- * An act that rejected outright, in the same vocabulary — never a silent no-op.
- *
- * The backstop for a caller dispatching one of these acts from an effect or an event
- * handler. Every wire call inside them settles into an answer rather than rejecting,
- * so reaching this is a defect rather than a wire fault — and a defect that reaches a
- * person as a stated refusal is strictly better than one that reaches nobody at all,
- * which is what a bare `void` promise does with it.
- */
-export function refuseHandoffFromRejection(rejection: unknown): AuxiliaryHandoffRefusal {
-  return refuseHandoff(
-    "wire-rejected",
-    normalizeWireRejection(AUXILIARY_HANDOFF_REFUSAL_ORIGIN, rejection).detail,
-  );
-}
-
-/**
- * Build the fragment a target loads, or the refusal its own grammar raised.
- *
- * The `try` lives HERE, beside the producer half of the grammar, rather than in the
- * class: the only exception this call can raise is that module's own refusal, and a
- * caller catching it would be a second reading of what a bad target means. The
- * offending value is never echoed — an id that failed a shape check is untrusted
- * input, which is that module's own rule.
- */
-export function formatAuxiliaryTargetOrRefuse(
-  target: Parameters<typeof formatAuxiliaryFragment>[0],
-): string | { readonly refusal: AuxiliaryHandoffRefusal } {
-  try {
-    return formatAuxiliaryFragment(target);
-  } catch (error) {
-    if (!(error instanceof InvalidAuxiliaryRouteTargetError)) {
-      throw error;
-    }
-    return {
-      refusal: refuseHandoff(
-        "target-context-invalid",
-        "This pane does not name enough of a session to open in a window of its own.",
-      ),
-    };
-  }
-}
-
 /** One pane currently shown in a window of its own. */
 export interface DetachedPane {
   readonly paneId: string;
@@ -204,6 +137,73 @@ export interface AuxiliaryHandoffRequest {
   readonly sessionId: string | undefined;
   /** Required by the `agent-console` route's grammar, and forbidden by `timeline`'s. */
   readonly agentId?: string;
+}
+
+export function refuseHandoff(
+  code: AuxiliaryHandoffRefusalCode,
+  detail: string,
+): AuxiliaryHandoffRefusal {
+  return refuse(AUXILIARY_HANDOFF_REFUSAL_ORIGIN, code, detail);
+}
+
+/**
+ * A plane answer that could not be served, in this subsystem's vocabulary.
+ *
+ * TWO CODES AND NOT ONE, because the port already knows which happened and throwing
+ * that away would put "this build has no shell at all" and "the shell answered with a
+ * fault" behind one word. The first is a fact about the build a person can do nothing
+ * about; the second is a failure that may not happen again on the next press. The
+ * sentence is the port's own either way — it names what went wrong, which is more
+ * than this subsystem knows.
+ */
+export function refuseHandoffFromShell(refusal: AuxiliaryWindowRefusal): AuxiliaryHandoffRefusal {
+  return refuseHandoff(
+    refusal.code === "shell-absent" ? "shell-absent" : "wire-rejected",
+    refusal.detail,
+  );
+}
+
+/**
+ * An act that rejected outright, in the same vocabulary — never a silent no-op.
+ *
+ * The backstop for a caller dispatching one of these acts from an effect or an event
+ * handler. Every wire call inside them settles into an answer rather than rejecting,
+ * so reaching this is a defect rather than a wire fault — and a defect that reaches a
+ * person as a stated refusal is strictly better than one that reaches nobody at all,
+ * which is what a bare `void` promise does with it.
+ */
+export function refuseHandoffFromRejection(rejection: unknown): AuxiliaryHandoffRefusal {
+  return refuseHandoff(
+    "wire-rejected",
+    normalizeWireRejection(AUXILIARY_HANDOFF_REFUSAL_ORIGIN, rejection).detail,
+  );
+}
+
+/**
+ * Build the fragment a target loads, or the refusal its own grammar raised.
+ *
+ * The `try` lives HERE, beside the producer half of the grammar, rather than in the
+ * class: the only exception this call can raise is that module's own refusal, and a
+ * caller catching it would be a second reading of what a bad target means. The
+ * offending value is never echoed — an id that failed a shape check is untrusted
+ * input, which is that module's own rule.
+ */
+export function formatAuxiliaryTargetOrRefuse(
+  target: Parameters<typeof formatAuxiliaryFragment>[0],
+): string | { readonly refusal: AuxiliaryHandoffRefusal } {
+  try {
+    return formatAuxiliaryFragment(target);
+  } catch (error) {
+    if (!(error instanceof InvalidAuxiliaryRouteTargetError)) {
+      throw error;
+    }
+    return {
+      refusal: refuseHandoff(
+        "target-context-invalid",
+        "This pane does not name enough of a session to open in a window of its own.",
+      ),
+    };
+  }
 }
 
 /**

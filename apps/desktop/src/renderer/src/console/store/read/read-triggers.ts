@@ -112,68 +112,6 @@ export function eventTriggersRead(target: ReadTriggerTarget, event: ConsoleSessi
 export const NO_TRIGGERING_EVENT_KINDS: ReadonlySet<string> = Object.freeze(new Set<string>());
 
 /**
- * Everything one trigger set remembers about one reading of one session.
- *
- * One class rather than a flag beside a cursor, because they are minted and
- * discarded together and for the same reason: a repair flag carried across a rebind
- * reads as a repair nothing repaired, and a cursor carried across one suppresses the
- * new session's first re-read. Both are memories of a session's history, so both die
- * with the pair they were taken under.
- */
-class ReadTriggerMemory {
-  #wasDegraded = false;
-  #examinedThroughSequence = -1;
-  #latestSignalSequence = -1;
-  #requestedThroughSequence = -1;
-
-  /** True exactly on the pass where a standing cause became none. */
-  public observeRepair(degradedCause: string | undefined): boolean {
-    const isDegraded = degradedCause !== undefined;
-    const isRepaired = this.#wasDegraded && !isDegraded;
-    this.#wasDegraded = isDegraded;
-    return isRepaired;
-  }
-
-  /**
-   * Examine the newly appended tail and answer whether it owes a re-read.
-   *
-   * The three sequence numbers are one invariant: the newest signal is only
-   * meaningful relative to how far the timeline has been examined, and asking again
-   * for a signal already requested is the re-read loop this cursor exists to stop.
-   */
-  public observeTimeline(
-    timeline: readonly ConsoleSessionEvent[],
-    target: ReadTriggerTarget,
-  ): boolean {
-    for (let position = timeline.length - 1; position >= 0; position -= 1) {
-      const entry = timeline[position];
-      if (entry === undefined || entry.sequence <= this.#examinedThroughSequence) {
-        break;
-      }
-      // The whole target rather than its kind set, so this memory and the imperative
-      // wiring beside it admit a frame by the same rule — including the frame-level
-      // half, which a kind set alone cannot carry.
-      if (eventTriggersRead(target, entry) && entry.sequence > this.#latestSignalSequence) {
-        this.#latestSignalSequence = entry.sequence;
-      }
-    }
-    const newest = timeline.at(-1);
-    if (newest !== undefined) {
-      this.#examinedThroughSequence = Math.max(this.#examinedThroughSequence, newest.sequence);
-    }
-    if (this.#latestSignalSequence <= this.#requestedThroughSequence) {
-      return false;
-    }
-    this.#requestedThroughSequence = this.#latestSignalSequence;
-    return true;
-  }
-}
-
-function selectTimeline(state: SessionStoreState): readonly ConsoleSessionEvent[] {
-  return state.timeline;
-}
-
-/**
  * The three triggers that are properties of the WINDOW rather than of a session.
  *
  * A node-scoped reading — this node's provider accounts, this node's declared driver
@@ -285,4 +223,66 @@ export function useReadTriggers(
 ): void {
   useWindowReadTriggers(reader, transportReconnect);
   useSessionReadTriggers(reader, sessionStore);
+}
+
+/**
+ * Everything one trigger set remembers about one reading of one session.
+ *
+ * One class rather than a flag beside a cursor, because they are minted and
+ * discarded together and for the same reason: a repair flag carried across a rebind
+ * reads as a repair nothing repaired, and a cursor carried across one suppresses the
+ * new session's first re-read. Both are memories of a session's history, so both die
+ * with the pair they were taken under.
+ */
+class ReadTriggerMemory {
+  #wasDegraded = false;
+  #examinedThroughSequence = -1;
+  #latestSignalSequence = -1;
+  #requestedThroughSequence = -1;
+
+  /** True exactly on the pass where a standing cause became none. */
+  public observeRepair(degradedCause: string | undefined): boolean {
+    const isDegraded = degradedCause !== undefined;
+    const isRepaired = this.#wasDegraded && !isDegraded;
+    this.#wasDegraded = isDegraded;
+    return isRepaired;
+  }
+
+  /**
+   * Examine the newly appended tail and answer whether it owes a re-read.
+   *
+   * The three sequence numbers are one invariant: the newest signal is only
+   * meaningful relative to how far the timeline has been examined, and asking again
+   * for a signal already requested is the re-read loop this cursor exists to stop.
+   */
+  public observeTimeline(
+    timeline: readonly ConsoleSessionEvent[],
+    target: ReadTriggerTarget,
+  ): boolean {
+    for (let position = timeline.length - 1; position >= 0; position -= 1) {
+      const entry = timeline[position];
+      if (entry === undefined || entry.sequence <= this.#examinedThroughSequence) {
+        break;
+      }
+      // The whole target rather than its kind set, so this memory and the imperative
+      // wiring beside it admit a frame by the same rule — including the frame-level
+      // half, which a kind set alone cannot carry.
+      if (eventTriggersRead(target, entry) && entry.sequence > this.#latestSignalSequence) {
+        this.#latestSignalSequence = entry.sequence;
+      }
+    }
+    const newest = timeline.at(-1);
+    if (newest !== undefined) {
+      this.#examinedThroughSequence = Math.max(this.#examinedThroughSequence, newest.sequence);
+    }
+    if (this.#latestSignalSequence <= this.#requestedThroughSequence) {
+      return false;
+    }
+    this.#requestedThroughSequence = this.#latestSignalSequence;
+    return true;
+  }
+}
+
+function selectTimeline(state: SessionStoreState): readonly ConsoleSessionEvent[] {
+  return state.timeline;
 }

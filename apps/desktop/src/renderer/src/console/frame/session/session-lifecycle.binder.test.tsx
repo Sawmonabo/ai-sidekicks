@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
 import { createLiveBridge } from "../../bridge/live-bridge.js";
-import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
+import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { SessionStoreRegistry } from "../../store/index.js";
 import {
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,

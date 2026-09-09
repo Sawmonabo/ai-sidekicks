@@ -117,6 +117,14 @@ export interface AttachmentSourceInput {
   readonly declaredMediaType?: string | undefined;
 }
 
+/** What the daemon found once it had the bytes. This replaces the declaration. */
+export interface AttachmentDerivedTruth {
+  readonly artifactId: string;
+  readonly normalizedName: string;
+  readonly derivedMediaType: string;
+  readonly derivedSizeBytes: number;
+}
+
 /**
  * Mint one source from the payload a participant chose.
  *
@@ -136,14 +144,6 @@ export function attachmentSourceFrom(input: AttachmentSourceInput): AttachmentSo
     },
     payload: input.payload,
   };
-}
-
-/** What the daemon found once it had the bytes. This replaces the declaration. */
-export interface AttachmentDerivedTruth {
-  readonly artifactId: string;
-  readonly normalizedName: string;
-  readonly derivedMediaType: string;
-  readonly derivedSizeBytes: number;
 }
 
 /**
@@ -170,13 +170,6 @@ export type SettledAttachmentIngestState = Exclude<
   AttachmentIngestState,
   SendingAttachmentIngestState
 >;
-
-/** Whether an entry in this state can still put bytes on a stream. */
-export function isSendingAttachmentIngestState(
-  state: AttachmentIngestState,
-): state is SendingAttachmentIngestState {
-  return (SENDING_ATTACHMENT_INGEST_STATES as readonly AttachmentIngestState[]).includes(state);
-}
 
 /** What one entry records about its own ingest, apart from what it was declared over. */
 export interface AttachmentIngestRecord {
@@ -218,6 +211,36 @@ export interface SettledAttachmentIngestEntry extends AttachmentIngestRecord {
  * unchanged and only the byte handle is at issue.
  */
 export type AttachmentIngestEntry = SendingAttachmentIngestEntry | SettledAttachmentIngestEntry;
+
+/**
+ * What one attachment position on a turn has to say. Four arms, none standing in for
+ * another.
+ *
+ * `not-checked` is separate from `unresolved` for rule 8's reason: an unresolved marker
+ * is a manifest row that was READ and carries a cause, while `not-checked` is the
+ * console admitting no read has happened — which is every attachment on a turn today,
+ * because no wire resolves one.
+ */
+export type AttachmentReading =
+  | { readonly kind: "ingesting"; readonly entry: AttachmentIngestEntry }
+  | {
+      readonly kind: "resolved";
+      readonly attachmentId: string;
+      readonly derived: AttachmentDerivedTruth;
+    }
+  | {
+      readonly kind: "unresolved";
+      readonly attachmentId: string;
+      readonly cause: UnresolvedAttachmentCause;
+    }
+  | { readonly kind: "not-checked"; readonly attachmentId: string };
+
+/** Whether an entry in this state can still put bytes on a stream. */
+export function isSendingAttachmentIngestState(
+  state: AttachmentIngestState,
+): state is SendingAttachmentIngestState {
+  return (SENDING_ATTACHMENT_INGEST_STATES as readonly AttachmentIngestState[]).includes(state);
+}
 
 /** Whether this entry still holds the bytes, narrowing so a caller can read them. */
 export function isSendingAttachmentIngestEntry(
@@ -263,26 +286,3 @@ export function attachmentIngestEntryFrom(
   }
   return { ...carried, state: record.state, payload };
 }
-
-/**
- * What one attachment position on a turn has to say. Four arms, none standing in for
- * another.
- *
- * `not-checked` is separate from `unresolved` for rule 8's reason: an unresolved marker
- * is a manifest row that was READ and carries a cause, while `not-checked` is the
- * console admitting no read has happened — which is every attachment on a turn today,
- * because no wire resolves one.
- */
-export type AttachmentReading =
-  | { readonly kind: "ingesting"; readonly entry: AttachmentIngestEntry }
-  | {
-      readonly kind: "resolved";
-      readonly attachmentId: string;
-      readonly derived: AttachmentDerivedTruth;
-    }
-  | {
-      readonly kind: "unresolved";
-      readonly attachmentId: string;
-      readonly cause: UnresolvedAttachmentCause;
-    }
-  | { readonly kind: "not-checked"; readonly attachmentId: string };

@@ -100,6 +100,19 @@ export interface ReadRound extends CurrentGenerationClaim {
 }
 
 /**
+ * How a read finished: with its answer, or with nobody left to give it to.
+ *
+ * A CLOSED PAIR AND NOT A NULLABLE VALUE, because `undefined` is a legitimate answer
+ * to several of the reads this settles and a caller cannot be asked to tell "the wire
+ * said nothing" from "nobody is listening". The abandoned arm carries nothing on
+ * purpose: there is no answer to carry, and a diagnostic here would be a sentence
+ * composed for a surface that is gone.
+ */
+export type ReadSettlement<TValue> =
+  | { readonly status: "settled"; readonly value: TValue }
+  | { readonly status: "abandoned" };
+
+/**
  * One surface's read line, and the two ways a read on it ends.
  *
  * ONE PER `(subject, key)` AND NEVER A SINGLETON. Its whole meaning is that the reads
@@ -192,19 +205,6 @@ export class ReadScope {
     return controller.signal;
   }
 }
-
-/**
- * How a read finished: with its answer, or with nobody left to give it to.
- *
- * A CLOSED PAIR AND NOT A NULLABLE VALUE, because `undefined` is a legitimate answer
- * to several of the reads this settles and a caller cannot be asked to tell "the wire
- * said nothing" from "nobody is listening". The abandoned arm carries nothing on
- * purpose: there is no answer to carry, and a diagnostic here would be a sentence
- * composed for a surface that is gone.
- */
-export type ReadSettlement<TValue> =
-  | { readonly status: "settled"; readonly value: TValue }
-  | { readonly status: "abandoned" };
 
 /**
  * Whether nobody is waiting for this read any more.

@@ -99,6 +99,16 @@ export function readComposerSettlement(outcome: RunControlOutcome): ComposerSett
 }
 
 /**
+ * What a refused admission says, in this form's own words.
+ *
+ * Total over the closed refusal set, so a second reason fails to compile here rather
+ * than reaching a participant as an empty sentence beside a form that did nothing.
+ */
+export function admissionRefusal(reason: RunControlAdmissionRefusal): ConsoleRefusal {
+  return refuse(RUN_CONTROL_REFUSAL_ORIGIN, reason, ADMISSION_REFUSAL_DETAIL[reason]);
+}
+
+/**
  * What the form says beside a rejected settlement.
  *
  * The four structural guards of the edit-and-resend composite each leave a different
@@ -137,16 +147,6 @@ function unreadableSettlement(state: never): ComposerSettlement {
       "The daemon answered with a state this console has no reading for, so nothing here claims the intervention landed. What you typed is still here.",
     ),
   };
-}
-
-/**
- * What a refused admission says, in this form's own words.
- *
- * Total over the closed refusal set, so a second reason fails to compile here rather
- * than reaching a participant as an empty sentence beside a form that did nothing.
- */
-export function admissionRefusal(reason: RunControlAdmissionRefusal): ConsoleRefusal {
-  return refuse(RUN_CONTROL_REFUSAL_ORIGIN, reason, ADMISSION_REFUSAL_DETAIL[reason]);
 }
 
 const ADMISSION_REFUSAL_DETAIL: Readonly<Record<RunControlAdmissionRefusal, string>> = {

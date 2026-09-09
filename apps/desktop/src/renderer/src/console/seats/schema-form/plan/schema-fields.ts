@@ -255,40 +255,6 @@ export type SchemaLeafEntry =
   | { readonly form: "field"; readonly field: SchemaFieldDescriptor }
   | { readonly form: "list"; readonly list: SchemaListDescriptor };
 
-/**
- * Where one leaf sits, whichever of the two forms it took.
- *
- * Declared here beside the two descriptors it reads rather than at any of the surfaces
- * that ask it: the mapper asks which root member a leaf answers under, the form asks
- * which path to address a finding at, and the answer asks where to write a value. One
- * question, and it is about the vocabulary rather than about any of the three.
- */
-export function leafPathOf(leaf: SchemaLeafEntry): SchemaMemberPath {
-  return leaf.form === "field" ? leaf.field.memberPath : leaf.list.memberPath;
-}
-
-/**
- * The key one member path answers under inside its own level: the last segment.
- *
- * ONE IMPLEMENTATION FOR BOTH DEPTHS. A root entry's path is one segment long and a
- * group's leaf is two, and "which key does this answer under" is the same question at
- * either — asking it twice is how a nested reading and a root reading come to disagree.
- */
-export function memberKeyOf(memberPath: SchemaMemberPath): string | undefined {
-  const last = memberPath[memberPath.length - 1];
-  return last === undefined ? undefined : String(last);
-}
-
-/**
- * The key one leaf answers under inside its group: the last segment of its own path.
- *
- * Derived from the path above rather than reading the descriptors a second time, so the
- * two readings cannot disagree about which of the two forms holds the path.
- */
-export function leafKeyOf(leaf: SchemaLeafEntry): string | undefined {
-  return memberKeyOf(leafPathOf(leaf));
-}
-
 /** One level of nesting, and the type is where "one level" is enforced. */
 export interface SchemaGroupDescriptor {
   readonly memberPath: SchemaMemberPath;
@@ -323,6 +289,40 @@ export interface SchemaGroupDescriptor {
 export type SchemaFormEntry =
   | SchemaLeafEntry
   | { readonly form: "group"; readonly group: SchemaGroupDescriptor };
+
+/**
+ * Where one leaf sits, whichever of the two forms it took.
+ *
+ * Declared here beside the two descriptors it reads rather than at any of the surfaces
+ * that ask it: the mapper asks which root member a leaf answers under, the form asks
+ * which path to address a finding at, and the answer asks where to write a value. One
+ * question, and it is about the vocabulary rather than about any of the three.
+ */
+export function leafPathOf(leaf: SchemaLeafEntry): SchemaMemberPath {
+  return leaf.form === "field" ? leaf.field.memberPath : leaf.list.memberPath;
+}
+
+/**
+ * The key one member path answers under inside its own level: the last segment.
+ *
+ * ONE IMPLEMENTATION FOR BOTH DEPTHS. A root entry's path is one segment long and a
+ * group's leaf is two, and "which key does this answer under" is the same question at
+ * either — asking it twice is how a nested reading and a root reading come to disagree.
+ */
+export function memberKeyOf(memberPath: SchemaMemberPath): string | undefined {
+  const last = memberPath[memberPath.length - 1];
+  return last === undefined ? undefined : String(last);
+}
+
+/**
+ * The key one leaf answers under inside its group: the last segment of its own path.
+ *
+ * Derived from the path above rather than reading the descriptors a second time, so the
+ * two readings cannot disagree about which of the two forms holds the path.
+ */
+export function leafKeyOf(leaf: SchemaLeafEntry): string | undefined {
+  return memberKeyOf(leafPathOf(leaf));
+}
 
 /**
  * Why a schema is answered in the raw editor instead of in drawn controls.

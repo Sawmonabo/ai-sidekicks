@@ -21,12 +21,12 @@ import {
 } from "../../../console/bridge/index.js";
 import { withDaemonCall } from "../../../console/bridge/fixture/call-plane/bridge.test-support.js";
 import { settleScriptedRead } from "../../../console/bridge/readings/scheduled-read.test-support.js";
-import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
+import { COMPOSER_SCENARIO } from "../../../console/bridge/scenario/composer/composer.js";
 import {
   AGENT_IMPLEMENTER,
   RUN_ID,
   SESSION_ID,
-} from "../../../console/bridge/scenarios/composer.identifiers.js";
+} from "../../../console/bridge/scenario/composer/identifiers.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import { FrameStore, SessionStore, type ConsoleEntity } from "../../../console/store/index.js";

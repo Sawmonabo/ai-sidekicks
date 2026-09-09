@@ -88,6 +88,12 @@ export interface HeldWorkflowStart {
   readonly rejectAsDaemon: () => void;
 }
 
+/** A start counted and answered, and what it was asked. */
+export interface CountedWorkflowStart {
+  readonly growth: GrowthPort;
+  readonly requests: Parameters<GrowthPort["workflowRunStart"]>[0][];
+}
+
 /**
  * A port whose start stays in flight until the case settles it.
  *
@@ -120,12 +126,6 @@ export function heldStartPort(): HeldWorkflowStart {
     serve: () => serveHeld?.(),
     rejectAsDaemon: () => rejectHeld?.(),
   };
-}
-
-/** A start counted and answered, and what it was asked. */
-export interface CountedWorkflowStart {
-  readonly growth: GrowthPort;
-  readonly requests: Parameters<GrowthPort["workflowRunStart"]>[0][];
 }
 
 /**

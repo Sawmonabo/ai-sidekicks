@@ -111,127 +111,6 @@ const WORD_SEPARATOR_CHARACTERS = " \t-_./\\:,()[]{}@#";
 /** The score of a cell no embedding can reach. */
 const NO_PATH = Number.NEGATIVE_INFINITY;
 
-function readScore(row: Float64Array, index: number): number {
-  return row[index] ?? NO_PATH;
-}
-
-function readParent(parents: Int32Array, index: number): number {
-  return parents[index] ?? -1;
-}
-
-function isAsciiDigit(character: string): boolean {
-  return character >= "0" && character <= "9";
-}
-
-function isLowercaseLetter(character: string): boolean {
-  return character !== character.toUpperCase() && character === character.toLowerCase();
-}
-
-function isUppercaseLetter(character: string): boolean {
-  return character !== character.toLowerCase() && character === character.toUpperCase();
-}
-
-/**
- * Fold one character to lower case WITHOUT changing the string's length.
- *
- * `String.prototype.toLowerCase` is not length-preserving for every code point
- * (the Turkish dotted capital I folds to two code units), and a single such
- * character in a repo path would desynchronise `matchedIndices` from the original
- * string — the renderer would then embolden the wrong characters. So the fold is
- * per character and declines to apply itself when it would change the length,
- * which costs nothing and keeps every index honest.
- */
-function foldedCharacterCode(source: string, index: number): number {
-  const character = source.charAt(index);
-  const folded = character.toLowerCase();
-  return folded.length === 1 ? folded.charCodeAt(0) : character.charCodeAt(0);
-}
-
-function foldToCodes(source: string): Int32Array {
-  const codes = new Int32Array(source.length);
-  for (let characterIndex = 0; characterIndex < source.length; characterIndex += 1) {
-    codes[characterIndex] = foldedCharacterCode(source, characterIndex);
-  }
-  return codes;
-}
-
-/**
- * Word-boundary flags for every position of the candidate, computed once.
- *
- * A boundary is index 0, any position whose predecessor is a separator, or a
- * camelCase hump — an upper-case letter following a lower-case letter or a digit.
- * `parseJSONPayload` therefore has boundaries at `p`, `J`, and `P`, which is what
- * a person means when they type "pjp".
- */
-function computeWordBoundaryFlags(candidate: string): Uint8Array {
-  const flags = new Uint8Array(candidate.length);
-  for (let characterIndex = 0; characterIndex < candidate.length; characterIndex += 1) {
-    if (characterIndex === 0) {
-      flags[characterIndex] = 1;
-      continue;
-    }
-    const previousCharacter = candidate.charAt(characterIndex - 1);
-    if (WORD_SEPARATOR_CHARACTERS.includes(previousCharacter)) {
-      flags[characterIndex] = 1;
-      continue;
-    }
-    const currentCharacter = candidate.charAt(characterIndex);
-    const isCamelHump =
-      isUppercaseLetter(currentCharacter) &&
-      (isLowercaseLetter(previousCharacter) || isAsciiDigit(previousCharacter));
-    flags[characterIndex] = isCamelHump ? 1 : 0;
-  }
-  return flags;
-}
-
-/**
- * Score the candidate character at `candidateIndex` against the query character
- * at `queryIndex`, ignoring how it was reached. The transition bonuses
- * (consecutive, gap) are added by the caller, which is the only place that knows
- * where the previous match landed.
- */
-function characterScore(
-  candidate: string,
-  query: string,
-  candidateIndex: number,
-  queryIndex: number,
-  wordBoundaryFlags: Uint8Array,
-): number {
-  let score = SUBSEQUENCE_BASE_CHARACTER_SCORE;
-  if (candidate.charCodeAt(candidateIndex) === query.charCodeAt(queryIndex)) {
-    score += SUBSEQUENCE_EXACT_CASE_BONUS;
-  }
-  if (wordBoundaryFlags[candidateIndex] === 1) {
-    score += SUBSEQUENCE_WORD_BOUNDARY_BONUS;
-  }
-  if (candidateIndex === 0) {
-    score += SUBSEQUENCE_PREFIX_BONUS;
-  }
-  return score;
-}
-
-/**
- * Is the query a case-insensitive subsequence of the candidate at all?
- *
- * One greedy left-to-right pass. Greedy is exact for the EXISTENCE question even
- * though it is wrong for the QUALITY question, so this is a sound early bail:
- * everything it rejects has no embedding at all, and the O(candidate × query) DP
- * below never runs for it.
- */
-function isSubsequence(candidateCodes: Int32Array, queryCodes: Int32Array): boolean {
-  let queryCursor = 0;
-  for (
-    let candidateCursor = 0;
-    candidateCursor < candidateCodes.length && queryCursor < queryCodes.length;
-    candidateCursor += 1
-  ) {
-    if (candidateCodes[candidateCursor] === queryCodes[queryCursor]) {
-      queryCursor += 1;
-    }
-  }
-  return queryCursor === queryCodes.length;
-}
-
 /**
  * Score one candidate against one query.
  *
@@ -365,4 +244,125 @@ export function scoreSubsequence(candidate: string, query: string): SubsequenceM
   }
 
   return { score: bestTotalScore, matchedIndices };
+}
+
+function readScore(row: Float64Array, index: number): number {
+  return row[index] ?? NO_PATH;
+}
+
+function readParent(parents: Int32Array, index: number): number {
+  return parents[index] ?? -1;
+}
+
+function isAsciiDigit(character: string): boolean {
+  return character >= "0" && character <= "9";
+}
+
+function isLowercaseLetter(character: string): boolean {
+  return character !== character.toUpperCase() && character === character.toLowerCase();
+}
+
+function isUppercaseLetter(character: string): boolean {
+  return character !== character.toLowerCase() && character === character.toUpperCase();
+}
+
+/**
+ * Fold one character to lower case WITHOUT changing the string's length.
+ *
+ * `String.prototype.toLowerCase` is not length-preserving for every code point
+ * (the Turkish dotted capital I folds to two code units), and a single such
+ * character in a repo path would desynchronise `matchedIndices` from the original
+ * string — the renderer would then embolden the wrong characters. So the fold is
+ * per character and declines to apply itself when it would change the length,
+ * which costs nothing and keeps every index honest.
+ */
+function foldedCharacterCode(source: string, index: number): number {
+  const character = source.charAt(index);
+  const folded = character.toLowerCase();
+  return folded.length === 1 ? folded.charCodeAt(0) : character.charCodeAt(0);
+}
+
+function foldToCodes(source: string): Int32Array {
+  const codes = new Int32Array(source.length);
+  for (let characterIndex = 0; characterIndex < source.length; characterIndex += 1) {
+    codes[characterIndex] = foldedCharacterCode(source, characterIndex);
+  }
+  return codes;
+}
+
+/**
+ * Word-boundary flags for every position of the candidate, computed once.
+ *
+ * A boundary is index 0, any position whose predecessor is a separator, or a
+ * camelCase hump — an upper-case letter following a lower-case letter or a digit.
+ * `parseJSONPayload` therefore has boundaries at `p`, `J`, and `P`, which is what
+ * a person means when they type "pjp".
+ */
+function computeWordBoundaryFlags(candidate: string): Uint8Array {
+  const flags = new Uint8Array(candidate.length);
+  for (let characterIndex = 0; characterIndex < candidate.length; characterIndex += 1) {
+    if (characterIndex === 0) {
+      flags[characterIndex] = 1;
+      continue;
+    }
+    const previousCharacter = candidate.charAt(characterIndex - 1);
+    if (WORD_SEPARATOR_CHARACTERS.includes(previousCharacter)) {
+      flags[characterIndex] = 1;
+      continue;
+    }
+    const currentCharacter = candidate.charAt(characterIndex);
+    const isCamelHump =
+      isUppercaseLetter(currentCharacter) &&
+      (isLowercaseLetter(previousCharacter) || isAsciiDigit(previousCharacter));
+    flags[characterIndex] = isCamelHump ? 1 : 0;
+  }
+  return flags;
+}
+
+/**
+ * Score the candidate character at `candidateIndex` against the query character
+ * at `queryIndex`, ignoring how it was reached. The transition bonuses
+ * (consecutive, gap) are added by the caller, which is the only place that knows
+ * where the previous match landed.
+ */
+function characterScore(
+  candidate: string,
+  query: string,
+  candidateIndex: number,
+  queryIndex: number,
+  wordBoundaryFlags: Uint8Array,
+): number {
+  let score = SUBSEQUENCE_BASE_CHARACTER_SCORE;
+  if (candidate.charCodeAt(candidateIndex) === query.charCodeAt(queryIndex)) {
+    score += SUBSEQUENCE_EXACT_CASE_BONUS;
+  }
+  if (wordBoundaryFlags[candidateIndex] === 1) {
+    score += SUBSEQUENCE_WORD_BOUNDARY_BONUS;
+  }
+  if (candidateIndex === 0) {
+    score += SUBSEQUENCE_PREFIX_BONUS;
+  }
+  return score;
+}
+
+/**
+ * Is the query a case-insensitive subsequence of the candidate at all?
+ *
+ * One greedy left-to-right pass. Greedy is exact for the EXISTENCE question even
+ * though it is wrong for the QUALITY question, so this is a sound early bail:
+ * everything it rejects has no embedding at all, and the O(candidate × query) DP
+ * below never runs for it.
+ */
+function isSubsequence(candidateCodes: Int32Array, queryCodes: Int32Array): boolean {
+  let queryCursor = 0;
+  for (
+    let candidateCursor = 0;
+    candidateCursor < candidateCodes.length && queryCursor < queryCodes.length;
+    candidateCursor += 1
+  ) {
+    if (candidateCodes[candidateCursor] === queryCodes[queryCursor]) {
+      queryCursor += 1;
+    }
+  }
+  return queryCursor === queryCodes.length;
 }

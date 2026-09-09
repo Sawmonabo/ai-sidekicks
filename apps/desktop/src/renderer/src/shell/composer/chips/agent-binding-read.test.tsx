@@ -16,12 +16,12 @@ import {
 } from "../../../console/bridge/index.js";
 import { withDaemonCall } from "../../../console/bridge/fixture/call-plane/bridge.test-support.js";
 import { settleScheduledRead } from "../../../console/bridge/readings/scheduled-read.test-support.js";
-import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
+import { COMPOSER_SCENARIO } from "../../../console/bridge/scenario/composer/composer.js";
 import { SessionStore } from "../../../console/store/index.js";
 import {
   AGENT_IMPLEMENTER,
   AGENT_REVIEWER,
-} from "../../../console/bridge/scenarios/composer.identifiers.js";
+} from "../../../console/bridge/scenario/composer/identifiers.js";
 import type { AgentSwitchRound } from "../../../console/agents/index.js";
 import { useAgentBindingReading } from "./agent-binding-read.js";
 

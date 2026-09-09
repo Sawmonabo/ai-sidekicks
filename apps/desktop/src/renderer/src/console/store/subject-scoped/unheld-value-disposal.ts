@@ -12,7 +12,7 @@
 //   • A REFUSED publish settled into a visit that had already ended. That is an
 //     anomaly worth an operator's attention on its own — work arrived for a target
 //     that is gone — on the precedent `frame/session/session-event-binder.ts` and
-//     `bridge/scenario-runtime/scenario-engine.ts` set for exactly this class.
+//     `bridge/scenario/runtime/engine.ts` set for exactly this class.
 //   • A REPLACED value is ordinary. Publishing over a held value is how a window
 //     replaces a store that closed itself, and reporting it would put a defect on
 //     the operator's diagnostics for the substrate working. Only a disposal that
@@ -80,14 +80,6 @@ export interface SubjectScopedHolderOptions<TValue> {
    * `useSubjectScopedResource` answers it.
    */
   readonly disposeUnheldValue: (unheld: TValue) => void;
-}
-
-/** What a caller's disposal did, for the report sentences that differ on it. */
-interface DisposalOutcome {
-  /** Whether the disposal threw, leaving the value held by nothing at all. */
-  readonly threw: boolean;
-  /** What it threw, where it did. */
-  readonly failure: unknown;
 }
 
 /**
@@ -195,4 +187,12 @@ export class UnheldValueDisposal<TValue> {
       return { threw: true, failure };
     }
   }
+}
+
+/** What a caller's disposal did, for the report sentences that differ on it. */
+interface DisposalOutcome {
+  /** Whether the disposal threw, leaving the value held by nothing at all. */
+  readonly threw: boolean;
+  /** What it threw, where it did. */
+  readonly failure: unknown;
 }

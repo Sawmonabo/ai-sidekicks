@@ -79,12 +79,6 @@ export type SessionGoalProjection =
   /** A goal event landed and its payload did not carry a readable goal. */
   | { readonly status: "unreadable"; readonly revision: string };
 
-/** One origin's latest goal event, with the position that made it latest. */
-interface OriginGoalCandidate {
-  readonly event: ConsoleSessionEvent;
-  readonly originSeq: number;
-}
-
 /**
  * Fold the log's goal events into the current goal.
  *
@@ -128,6 +122,37 @@ export function foldSessionGoal(timeline: readonly ConsoleSessionEvent[]): Sessi
   return text === undefined
     ? { status: "unreadable", revision }
     : { status: "set", text, revision };
+}
+
+/**
+ * Set the session's goal.
+ *
+ * Through the GROWTH PORT and not `callDaemon`: `session.goalUpdate` is a registered
+ * method STRING whose request and reply shapes `@ai-sidekicks/contracts` does not
+ * publish, so there is nothing for the call door to parse against and the registered
+ * table admits no row for it. The port refuses by name under the live bridge and says
+ * that Plan-016 owes the pair.
+ */
+export function updateSessionGoal(
+  bridge: ConsoleBridge,
+  sessionId: string,
+  text: string,
+): Promise<GrowthOutcome<undefined>> {
+  return bridge.growth.sessionGoalUpdate({ sessionId, goal: { text } });
+}
+
+/** Clear the session's goal. The distinct operation, on the same seam. */
+export function clearSessionGoal(
+  bridge: ConsoleBridge,
+  sessionId: string,
+): Promise<GrowthOutcome<undefined>> {
+  return bridge.growth.sessionGoalClear({ sessionId });
+}
+
+/** One origin's latest goal event, with the position that made it latest. */
+interface OriginGoalCandidate {
+  readonly event: ConsoleSessionEvent;
+  readonly originSeq: number;
 }
 
 /**
@@ -225,29 +250,4 @@ function compareByEnvelope(left: ConsoleSessionEvent, right: ConsoleSessionEvent
     return 0;
   }
   return left.id > right.id ? 1 : -1;
-}
-
-/**
- * Set the session's goal.
- *
- * Through the GROWTH PORT and not `callDaemon`: `session.goalUpdate` is a registered
- * method STRING whose request and reply shapes `@ai-sidekicks/contracts` does not
- * publish, so there is nothing for the call door to parse against and the registered
- * table admits no row for it. The port refuses by name under the live bridge and says
- * that Plan-016 owes the pair.
- */
-export function updateSessionGoal(
-  bridge: ConsoleBridge,
-  sessionId: string,
-  text: string,
-): Promise<GrowthOutcome<undefined>> {
-  return bridge.growth.sessionGoalUpdate({ sessionId, goal: { text } });
-}
-
-/** Clear the session's goal. The distinct operation, on the same seam. */
-export function clearSessionGoal(
-  bridge: ConsoleBridge,
-  sessionId: string,
-): Promise<GrowthOutcome<undefined>> {
-  return bridge.growth.sessionGoalClear({ sessionId });
 }

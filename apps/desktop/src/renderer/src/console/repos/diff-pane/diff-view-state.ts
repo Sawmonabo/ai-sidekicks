@@ -58,23 +58,6 @@ import { expandGap, type DiffGapExpansion } from "./diff-row-model.js";
  */
 const NO_DIFF_SUBJECT: object = {};
 
-/** The two pieces of view state one diff owns, held as one value. */
-interface HeldDiffViewState {
-  readonly selectedFilePath: string | undefined;
-  readonly expansion: DiffGapExpansion;
-}
-
-/**
- * What a diff opens on: the whole change set, with nothing unfolded.
- *
- * Declared once rather than written at the seed site, because it is also what the
- * pane degrades to when the model moves — the same reading in both places, and one
- * of them cannot drift.
- */
-function unnarrowedDiffViewState(): HeldDiffViewState {
-  return { selectedFilePath: undefined, expansion: new Map() };
-}
-
 /** The two pieces of view state one diff owns, and the two ways they move. */
 export interface DiffModelViewState {
   /** The path whose rows are shown, or `undefined` for the whole change set. */
@@ -128,4 +111,21 @@ export function useDiffModelViewState(diff: ConsoleDiffModel | undefined): DiffM
     selectFilePath,
     expandGapAt,
   };
+}
+
+/** The two pieces of view state one diff owns, held as one value. */
+interface HeldDiffViewState {
+  readonly selectedFilePath: string | undefined;
+  readonly expansion: DiffGapExpansion;
+}
+
+/**
+ * What a diff opens on: the whole change set, with nothing unfolded.
+ *
+ * Declared once rather than written at the seed site, because it is also what the
+ * pane degrades to when the model moves — the same reading in both places, and one
+ * of them cannot drift.
+ */
+function unnarrowedDiffViewState(): HeldDiffViewState {
+  return { selectedFilePath: undefined, expansion: new Map() };
 }

@@ -92,6 +92,17 @@ export interface LedgerRowRendererOptions {
   readonly rowOffers: LedgerRowOffersBinding;
 }
 
+export interface LedgerFeedRowProps extends TimelineRowSlotProps {
+  /** The seat's renderer. STABLE across renders, or this memo moves with it. */
+  readonly renderTimelineRow: TimelineRowRenderer;
+  /** The footer seat's renderer, or `undefined` while nobody has filled it. */
+  readonly renderTimelineRowFooter: TimelineRowFooterRenderer | undefined;
+  /** The run whose chapter this window holds for this row, or `undefined`. */
+  readonly chapterRunId: string | undefined;
+  /** This window's offer binding. STABLE, or this memo moves with it. */
+  readonly rowOffers: LedgerRowOffersBinding;
+}
+
 /**
  * Build the feed's row renderer.
  *
@@ -254,17 +265,6 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
       toggleChapter,
     ],
   );
-}
-
-export interface LedgerFeedRowProps extends TimelineRowSlotProps {
-  /** The seat's renderer. STABLE across renders, or this memo moves with it. */
-  readonly renderTimelineRow: TimelineRowRenderer;
-  /** The footer seat's renderer, or `undefined` while nobody has filled it. */
-  readonly renderTimelineRowFooter: TimelineRowFooterRenderer | undefined;
-  /** The run whose chapter this window holds for this row, or `undefined`. */
-  readonly chapterRunId: string | undefined;
-  /** This window's offer binding. STABLE, or this memo moves with it. */
-  readonly rowOffers: LedgerRowOffersBinding;
 }
 
 /**

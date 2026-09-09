@@ -73,6 +73,16 @@ export interface AttachmentCarrierOptions {
   readonly clock: ConsoleClock;
 }
 
+/** What a surface holding a carrier renders and acts through. */
+export interface AttachmentCarrierBinding {
+  readonly snapshot: AttachmentCarrierSnapshot;
+  readonly attachFiles: (files: readonly File[]) => void;
+  readonly retry: (localId: string) => void;
+  readonly abandon: (localId: string) => void;
+  /** Put one attachment at a new declared position; the ledger's order is the record. */
+  readonly reorder: (localId: string, toPosition: number) => void;
+}
+
 /** One ingest client, its subscription, and the stamped snapshot a surface renders. */
 export class AttachmentCarrier {
   readonly #client: AttachmentIngestClient;
@@ -254,16 +264,6 @@ export class AttachmentCarrier {
     this.#clock.cancel(this.#stallWakeUpHandle);
     this.#stallWakeUpHandle = undefined;
   }
-}
-
-/** What a surface holding a carrier renders and acts through. */
-export interface AttachmentCarrierBinding {
-  readonly snapshot: AttachmentCarrierSnapshot;
-  readonly attachFiles: (files: readonly File[]) => void;
-  readonly retry: (localId: string) => void;
-  readonly abandon: (localId: string) => void;
-  /** Put one attachment at a new declared position; the ledger's order is the record. */
-  readonly reorder: (localId: string, toPosition: number) => void;
 }
 
 /**

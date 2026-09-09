@@ -13,7 +13,7 @@
 // climbs back into `bridge/`: `approval-records.ts` imports `zod` and its own sibling,
 // `approval-vocabulary.ts` imports `primitives/`, and `approval-flow-projection.ts`
 // imports `store/` — every one of them strictly below this family. So neither sibling
-// needs the deep-specifier escape the family door records for `scenario-runtime/`.
+// needs the deep-specifier escape the family door records for `scenario/runtime/`.
 //
 // AND IT PUBLISHES WHAT A SIBLING TAKES AND NOTHING ELSE. The family door
 // (`bridge/index.ts`) re-exports from the modules that DECLARE these symbols, never

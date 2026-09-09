@@ -34,7 +34,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { renderSettled } from "../console-harness.js";
 import { mountApprovalsPane } from "../surfaces/composer.js";
 
-import { APPROVALS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/approvals.js";
+import { APPROVALS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/approvals/approvals.js";
 import { ExecutionPostureChip } from "../../../src/renderer/src/console/primitives/index.js";
 
 /** The reading class the chip composes when it HAS a posture to show. */

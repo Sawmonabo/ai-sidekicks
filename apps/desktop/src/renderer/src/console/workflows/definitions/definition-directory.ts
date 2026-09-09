@@ -73,11 +73,6 @@ import {
 import { subjectReadStart, type SubjectRead } from "../../store/index.js";
 import type { WorkflowDefinitionRow } from "./definition-rows.js";
 
-/** What one settled page of the enumeration is, derived from the port's own answer. */
-type SettledDefinitionPage =
-  | Awaited<ReturnType<GrowthPort["workflowDefinitionList"]>>
-  | SettledReadRefusal;
-
 /**
  * What lies beyond the pages the browser holds, and whether it can be asked for.
  *
@@ -96,15 +91,6 @@ export type WorkflowDefinitionContinuation =
       readonly cursor: string;
       readonly refusal: SettledReadRefusal;
     };
-
-/** What this read looks like once its first page has an answer, either kind. */
-type SettledDefinitionDirectory =
-  | {
-      readonly status: "served";
-      readonly definitions: readonly WorkflowDefinitionRow[];
-      readonly continuation: WorkflowDefinitionContinuation;
-    }
-  | { readonly status: "unavailable"; readonly refusal: SettledReadRefusal };
 
 /**
  * What the browser knows about the definitions visible from here, at one moment.
@@ -255,6 +241,20 @@ export function scopeResolutionOf(
     hasUnreadPages: state.continuation.status !== "exhausted",
   };
 }
+
+/** What one settled page of the enumeration is, derived from the port's own answer. */
+type SettledDefinitionPage =
+  | Awaited<ReturnType<GrowthPort["workflowDefinitionList"]>>
+  | SettledReadRefusal;
+
+/** What this read looks like once its first page has an answer, either kind. */
+type SettledDefinitionDirectory =
+  | {
+      readonly status: "served";
+      readonly definitions: readonly WorkflowDefinitionRow[];
+      readonly continuation: WorkflowDefinitionContinuation;
+    }
+  | { readonly status: "unavailable"; readonly refusal: SettledReadRefusal };
 
 /**
  * The cursor a continuation can be asked with, if any.

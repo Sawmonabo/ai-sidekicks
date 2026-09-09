@@ -66,20 +66,8 @@
 import type { MembershipSummary } from "@ai-sidekicks/contracts";
 
 import { scriptedSessionReadMember } from "./scripted-session-read.js";
-import type { ConsoleScenario } from "../../scenario-runtime/index.js";
+import type { ConsoleScenario } from "../../scenario/runtime/index.js";
 import type { SessionSnapshot } from "../../../store/index.js";
-
-/**
- * One entity a snapshot carries, derived from the snapshot rather than named again.
- *
- * The store family publishes `SessionSnapshot` through its door and not the element
- * type, and a second declaration of that shape here would be one this module could
- * keep compiling against after the family moved it.
- */
-type SnapshotEntity = SessionSnapshot["entities"][number];
-
-/** The body a participant row carries its role on, spelled as the wire spells it. */
-type ParticipantEntityBody = Pick<MembershipSummary, "role">;
 
 /**
  * The base state one scenario establishes for one session.
@@ -110,6 +98,18 @@ export function fixtureSessionSnapshot(
     timelineCursors: scriptedSessionReadMember(scenario, "timelineCursors"),
   };
 }
+
+/**
+ * One entity a snapshot carries, derived from the snapshot rather than named again.
+ *
+ * The store family publishes `SessionSnapshot` through its door and not the element
+ * type, and a second declaration of that shape here would be one this module could
+ * keep compiling against after the family moved it.
+ */
+type SnapshotEntity = SessionSnapshot["entities"][number];
+
+/** The body a participant row carries its role on, spelled as the wire spells it. */
+type ParticipantEntityBody = Pick<MembershipSummary, "role">;
 
 /**
  * The position the fixture's read answers at. See the header for why it is the bottom

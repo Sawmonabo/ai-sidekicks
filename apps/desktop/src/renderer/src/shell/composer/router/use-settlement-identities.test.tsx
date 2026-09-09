@@ -12,7 +12,7 @@ import { Suspense, startTransition, useState } from "react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../console/bridge/index.js";
-import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
+import { COMPOSER_SCENARIO } from "../../../console/bridge/scenario/composer/composer.js";
 import { useSettlementIdentities, type SettlementIdentities } from "./use-settlement-identities.js";
 
 /** A promise that never settles, so a component reading it suspends for the test. */

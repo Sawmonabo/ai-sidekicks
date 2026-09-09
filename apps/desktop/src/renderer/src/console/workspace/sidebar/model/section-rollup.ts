@@ -48,6 +48,21 @@ export const EMPTY_SECTION_ROLLUP: SectionRollup = Object.freeze({
   nodeCount: 0,
 });
 
+/** One row of the rollup, flattened out of the tree with its depth kept. */
+export interface FlattenedRollupNode {
+  readonly node: SidebarRollupNode;
+  /** How deep under the section this node sits. A top-level node is `0`. */
+  readonly depth: number;
+  /**
+   * The strongest level at or under this node.
+   *
+   * The child-to-parent carry, computed once here rather than by whoever renders the
+   * row: a collapsed parent is the only thing on screen, and a parent drawn from its
+   * own level alone would show calm over a failing child.
+   */
+  readonly rolledUpAttention: SidebarSectionAttention | undefined;
+}
+
 /**
  * Which of two levels is the louder one.
  *
@@ -98,21 +113,6 @@ export function foldSectionRollup(nodes: readonly SidebarRollupNode[]): SectionR
   }
 
   return { attention, countsByGroup, nodeCount };
-}
-
-/** One row of the rollup, flattened out of the tree with its depth kept. */
-export interface FlattenedRollupNode {
-  readonly node: SidebarRollupNode;
-  /** How deep under the section this node sits. A top-level node is `0`. */
-  readonly depth: number;
-  /**
-   * The strongest level at or under this node.
-   *
-   * The child-to-parent carry, computed once here rather than by whoever renders the
-   * row: a collapsed parent is the only thing on screen, and a parent drawn from its
-   * own level alone would show calm over a failing child.
-   */
-  readonly rolledUpAttention: SidebarSectionAttention | undefined;
 }
 
 /**

@@ -36,12 +36,28 @@ export const RECT_INVALIDATION_SOURCES = [
   "airspace",
 ] as const;
 
-/** A rectangle in viewport coordinates. The one shape the clip walk passes around. */
-interface ViewportBox {
+/** One invalidation source. Derived, so the vocabulary is declared once. */
+export type RectInvalidationSource = (typeof RECT_INVALIDATION_SOURCES)[number];
+
+/**
+ * One pane's VISIBLE CLIP, in CSS pixels, plus whether it is worth compositing.
+ *
+ * The clip and not the border box: a host that hands these bounds to a native view
+ * has a bounds setter and no clip API, so the intersection with the viewport and
+ * every clipping ancestor is the only rectangle it can act on.
+ */
+export interface TrackedRect {
+  readonly paneId: string;
   readonly x: number;
   readonly y: number;
   readonly width: number;
   readonly height: number;
+  /**
+   * False when either dimension of the visible clip is below one pixel, or while an
+   * overlay owns the airspace. A native view reads this and hides rather than
+   * drawing itself over a dialog.
+   */
+  readonly isVisible: boolean;
 }
 
 /**
@@ -83,49 +99,6 @@ export function visibleClipOf(element: Element): ViewportBox {
   return clip;
 }
 
-/** Whether a box has any extent left to show. The walk's stop condition. */
-function isEmptyBox(box: ViewportBox): boolean {
-  return box.width <= 0 || box.height <= 0;
-}
-
-/** Two boxes overlaid, floored at zero so a disjoint pair reports no extent. */
-function intersectBoxes(first: ViewportBox, second: ViewportBox): ViewportBox {
-  const left = Math.max(first.x, second.x);
-  const top = Math.max(first.y, second.y);
-  const right = Math.min(first.x + first.width, second.x + second.width);
-  const bottom = Math.min(first.y + first.height, second.y + second.height);
-  return {
-    x: left,
-    y: top,
-    width: Math.max(0, right - left),
-    height: Math.max(0, bottom - top),
-  };
-}
-
-/** One invalidation source. Derived, so the vocabulary is declared once. */
-export type RectInvalidationSource = (typeof RECT_INVALIDATION_SOURCES)[number];
-
-/**
- * One pane's VISIBLE CLIP, in CSS pixels, plus whether it is worth compositing.
- *
- * The clip and not the border box: a host that hands these bounds to a native view
- * has a bounds setter and no clip API, so the intersection with the viewport and
- * every clipping ancestor is the only rectangle it can act on.
- */
-export interface TrackedRect {
-  readonly paneId: string;
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-  /**
-   * False when either dimension of the visible clip is below one pixel, or while an
-   * overlay owns the airspace. A native view reads this and hides rather than
-   * drawing itself over a dialog.
-   */
-  readonly isVisible: boolean;
-}
-
 /**
  * The composed key one frame's writes are deduped on.
  *
@@ -144,4 +117,31 @@ export function rectKey(rect: TrackedRect): string {
     Math.round(rect.height),
     rect.isVisible,
   ].join(":");
+}
+
+/** A rectangle in viewport coordinates. The one shape the clip walk passes around. */
+interface ViewportBox {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/** Whether a box has any extent left to show. The walk's stop condition. */
+function isEmptyBox(box: ViewportBox): boolean {
+  return box.width <= 0 || box.height <= 0;
+}
+
+/** Two boxes overlaid, floored at zero so a disjoint pair reports no extent. */
+function intersectBoxes(first: ViewportBox, second: ViewportBox): ViewportBox {
+  const left = Math.max(first.x, second.x);
+  const top = Math.max(first.y, second.y);
+  const right = Math.min(first.x + first.width, second.x + second.width);
+  const bottom = Math.min(first.y + first.height, second.y + second.height);
+  return {
+    x: left,
+    y: top,
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top),
+  };
 }
