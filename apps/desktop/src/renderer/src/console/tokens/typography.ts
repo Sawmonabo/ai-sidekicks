@@ -73,13 +73,20 @@ export const TYPE_SCALE_REM: Readonly<Record<string, number>> = {
  * statement of what the console is set in, and the sheet is how those bytes get
  * to the document.
  *
- * ONE CLAIM THE LIBRARIES ROW MAKES IS NOT TRUE AT THESE PINS. It describes the
- * faces as "variable builds", and `@ibm/plex-sans@1.1.0` and
- * `@ibm/plex-mono@2.5.0` publish static instances only — no variable file under
- * any name, and no `-var` package exists on the registry. The sheet therefore
- * declares one face per weight. The visible consequence is small and worth
- * knowing: an intermediate weight resolves to the nearest declared face rather
- * than being interpolated.
+ * THE FACES THIS REVISION SHIPS ARE STATIC, AND THE LIBRARIES ROW DESCRIBES
+ * VARIABLE ONES. `@ibm/plex-sans@1.1.0` and `@ibm/plex-mono@2.5.0` publish static
+ * instances only — no variable file under any name — so the sheet declares one
+ * face per weight, and an intermediate weight resolves to the nearest declared
+ * face rather than being interpolated.
+ *
+ * That is a property of the packages PINNED here rather than of the foundry: the
+ * variable builds are published as their own packages, `@ibm/plex-sans-variable`
+ * and `@ibm/plex-mono-variable`, which this revision does not take. Which pair
+ * belongs here is a decision with a measurement behind it — the six static
+ * subsets weigh 118,488 B raw against the two variable subsets the libraries row
+ * cites — and it is the amendment's rather than this comment's to make; what this
+ * comment must not do is read the absence of a variable file inside these two
+ * packages as the absence of one anywhere.
  */
 export const FONT_STACKS: Readonly<Record<string, string>> = {
   "font-sans":
