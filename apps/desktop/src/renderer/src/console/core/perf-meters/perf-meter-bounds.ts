@@ -34,24 +34,34 @@ export const PERF_METER_BOUNDS = {
   seriesSampleCount: 240,
 
   /**
-   * Distinct series one meter tracks before it stops opening new ones.
+   * Distinct LIVE series one meter tracks before it stops opening new ones.
    *
-   * A series is keyed by lane or by store scope, both of which are bounded by the
-   * console's own deck and store registries — so 64 is far above what a session can
-   * legitimately produce, and a run that reaches it is a key being MINTED per event
-   * rather than per lane. The meter refuses the sixty-fifth key and counts the
-   * refusal instead of growing: an unbounded map in the module whose job is to
-   * report memory pressure would be the defect it exists to find.
+   * A series is keyed by store scope, which the console's store registry bounds, or
+   * by a producer instance — a ledger feed's frame coordinator, and a reveal engine
+   * under one — which nothing bounds on its own, because a feed is mounted and
+   * unmounted as a person moves around the console. What bounds those is that the
+   * instance RETIRES its series when it is disposed, so what this figure caps is how
+   * many producers are open at once rather than how many have ever existed. 64 is far
+   * above what a session can legitimately hold open, and a run that reaches it is a
+   * key being minted per event, or one minted per producer and never retired — the
+   * two read the same here, which is why the retiring call sites are named in
+   * `perf-meters.ts` rather than left to each producer to remember. The meter refuses
+   * the sixty-fifth key and counts the refusal instead of growing: an unbounded map
+   * in the module whose job is to report memory pressure would be the defect it
+   * exists to find.
    */
   seriesCount: 64,
 
   /**
    * Characters a series key is truncated to.
    *
-   * Keys are lane and store-scope identifiers, which the console spells short. A
-   * key longer than this is a value that was never meant to be a key — a message
-   * body, a path — and truncating it bounds the map's retained bytes without
-   * dropping the reading it labels.
+   * Keys are store-scope, lane, and producer-instance identifiers, which the console
+   * spells short — the longest it composes today is a coordinator's identity and one
+   * frame-task key, well inside this. A key longer than this is a value that was
+   * never meant to be a key — a message body, a path — and truncating it bounds the
+   * map's retained bytes without dropping the reading it labels. Every operation that
+   * addresses a series truncates the same way, so a key past the bound still opens,
+   * reads, and retires one series rather than opening one it can never close.
    */
   seriesKeyCharacterCount: 64,
 

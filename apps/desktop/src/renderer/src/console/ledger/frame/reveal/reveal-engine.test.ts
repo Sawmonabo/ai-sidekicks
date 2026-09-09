@@ -71,6 +71,31 @@ describe("the reveal engine — the frame budget", () => {
     expect(new Set(drains.map((entry) => entry.seriesKey)).size).toBe(2);
   });
 
+  it("has its drain series retired when the coordinator that keyed it is disposed", () => {
+    // The engine's key is composed out of the coordinator's identity, so the
+    // coordinator's dispose is what closes it — one owner for one key. Left open, a
+    // feed's drain series outlives the feed, and the registry's bound then counts
+    // engines this renderer has ever mounted rather than the ones it is drawing.
+    const clock = new ManualClock();
+    const frameCoordinator = new LedgerFrameCoordinator({ clock });
+    const engine = new RevealEngine({ frameCoordinator });
+
+    engine.ingest({ laneId: "lane-a", mode: "direct", text: prose(40) });
+    clock.runFrame();
+    expect(devPerfMeters?.readings().filter((entry) => entry.kind === "reveal-drain")).toHaveLength(
+      1,
+    );
+
+    frameCoordinator.dispose();
+
+    expect(
+      devPerfMeters?.readings().filter((entry) => entry.kind === "reveal-drain"),
+    ).toStrictEqual([]);
+    // And the coordinator's own reading goes with it, so nothing is left holding the
+    // bound for a feed that has been torn down.
+    expect(devPerfMeters?.seriesCount).toBe(0);
+  });
+
   it("arms nothing until there is work, and nothing again once settled", () => {
     const clock = new ManualClock();
     const engine = engineOn(clock);

@@ -1,6 +1,7 @@
 // What the dev perf meters promise: bounded retention, an honest percentile, a
-// counted refusal rather than an unbounded map, and four recording entry points that
-// reach the process registry only under the fixture define.
+// counted refusal rather than an unbounded map, a series bound that counts LIVE
+// producers rather than every producer that ever existed, and recording entry points
+// that reach the process registry only under the fixture define.
 
 import { describe, expect, it } from "vitest";
 
@@ -13,6 +14,8 @@ import {
   recordFrameTime,
   recordRevealDrain,
   recordStoreSize,
+  retireFrameTimeSeries,
+  retireRevealDrainSeries,
 } from "./perf-meters.js";
 
 describe("perf meter series", () => {
@@ -58,6 +61,59 @@ describe("perf meter series", () => {
     expect(registry.reading("store-size", "lane-0")?.latest).toBe(0);
   });
 
+  it("retires a series, so a producer that has gone away stops holding the bound", () => {
+    const registry = new PerfMeterRegistry();
+    for (let feed = 0; feed < PERF_METER_BOUNDS.seriesCount; feed += 1) {
+      registry.record("frame-time", `feed-${String(feed)}`, feed);
+    }
+    expect(registry.seriesCount).toBe(PERF_METER_BOUNDS.seriesCount);
+
+    // The registry is full, so the next key is refused — the state a producer whose
+    // key names an instance reaches by mounting and unmounting, over and over.
+    registry.record("frame-time", "feed-arriving", 1);
+    expect(registry.refusedSeriesCount).toBe(1);
+
+    expect(registry.retire("frame-time", "feed-0")).toBe(true);
+    expect(registry.seriesCount).toBe(PERF_METER_BOUNDS.seriesCount - 1);
+    // The retired series is gone rather than emptied: a reading it could still answer
+    // would be a closed feed's p95 presented as a live one's.
+    expect(registry.reading("frame-time", "feed-0")).toBeNull();
+
+    registry.record("frame-time", "feed-arriving", 7);
+    expect(registry.reading("frame-time", "feed-arriving")?.latest).toBe(7);
+    expect(registry.refusedSeriesCount).toBe(1);
+  });
+
+  it("negative control: retiring a key it never opened answers false and moves nothing", () => {
+    // The underflow this guards: a decrement on a miss makes the open count drift
+    // below the truth, and the bound then admits series past its own figure — which
+    // reads as a working registry until the map is the size the bound exists to cap.
+    const registry = new PerfMeterRegistry();
+    registry.record("frame-time", "feed-1", 3);
+
+    expect(registry.retire("frame-time", "never-opened")).toBe(false);
+    expect(registry.retire("store-size", "feed-1")).toBe(false);
+    expect(registry.seriesCount).toBe(1);
+
+    for (let feed = 0; feed < PERF_METER_BOUNDS.seriesCount; feed += 1) {
+      registry.record("frame-time", `filler-${String(feed)}`, feed);
+    }
+    expect(registry.seriesCount).toBe(PERF_METER_BOUNDS.seriesCount);
+    expect(registry.refusedSeriesCount).toBe(1);
+  });
+
+  it("retires under the same truncation it opened under", () => {
+    // A key past the character bound opens a truncated series, so a retirement that
+    // did not truncate would close nothing and leave a series no producer can reach.
+    const registry = new PerfMeterRegistry();
+    const overlongKey = `${"x".repeat(PERF_METER_BOUNDS.seriesKeyCharacterCount)}-tail`;
+    registry.record("reveal-drain", overlongKey, 12);
+    expect(registry.seriesCount).toBe(1);
+
+    expect(registry.retire("reveal-drain", overlongKey)).toBe(true);
+    expect(registry.seriesCount).toBe(0);
+  });
+
   it("truncates a series key rather than letting a value become an unbounded one", () => {
     const registry = new PerfMeterRegistry();
     const overlongKey = "x".repeat(PERF_METER_BOUNDS.seriesKeyCharacterCount + 40);
@@ -101,7 +157,22 @@ describe("perf meter series", () => {
   });
 });
 
-describe("the four recording entry points", () => {
+describe("the recording and retiring entry points", () => {
+  it("the retiring pair reaches the same process registry the recorders do", () => {
+    expect(devPerfMeters).not.toBeNull();
+    devPerfMeters?.reset();
+    recordFrameTime("ledger-frame#900", 9);
+    recordRevealDrain("ledger-frame#900/ledger-reveal-drain#1", 40);
+    expect(devPerfMeters?.seriesCount).toBe(2);
+
+    retireFrameTimeSeries("ledger-frame#900");
+    retireRevealDrainSeries("ledger-frame#900/ledger-reveal-drain#1");
+
+    expect(devPerfMeters?.seriesCount).toBe(0);
+    expect(devPerfMeters?.reading("frame-time", "ledger-frame#900")).toBeNull();
+    devPerfMeters?.reset();
+  });
+
   it("each reaches the process registry under the fixture define", () => {
     // The unit project compiles with the fixture define true, so the registry exists
     // here. A release build folds the ternary to null and every call below to nothing,

@@ -1,7 +1,7 @@
 // The dev-tier perf meters.
 //
 // Four readings an author needs while the console is running and no shipped build
-// should pay for: frame time per lane, reveal drain per frame, apply latency, and
+// should pay for: frame time per feed, reveal drain per frame, apply latency, and
 // store sizes.
 //
 // EXACTLY ONE OF THE FOUR IS A FIGURE A BUDGET IS STATED OVER, and saying so is the
@@ -57,7 +57,7 @@ export type PerfMeterKind = (typeof PERF_METER_KINDS)[number];
 /** What one series says when it is read. */
 export interface PerfMeterReading {
   readonly kind: PerfMeterKind;
-  /** The lane or store scope the samples came from. */
+  /** The lane, store scope, or coordinator-scoped key the samples came from. */
   readonly seriesKey: string;
   /** Samples retained, which is at most the retention bound. */
   readonly sampleCount: number;
@@ -183,7 +183,9 @@ export class PerfMeterRegistry {
     }
     if (this.#openSeriesCount >= PERF_METER_BOUNDS.seriesCount) {
       // Counted rather than dropped in silence: the count IS the finding, and it says
-      // the producer is minting a key per event instead of per lane.
+      // either that a producer is minting a key per event instead of per producer, or
+      // that one which mints a key per producer is not retiring it when that producer
+      // goes away — which reads identically here and is the failure `retire` closes.
       this.#refusedSeriesCount += 1;
       return;
     }
@@ -195,6 +197,40 @@ export class PerfMeterRegistry {
     opened.record(sample);
     seriesForKind.set(boundedKey, opened);
     this.#openSeriesCount += 1;
+  }
+
+  /**
+   * Retire one series, so the bound above counts LIVE producers and not past ones.
+   *
+   * WITHOUT THIS THE BOUND IS OVER HISTORY, which is the same thing as no bound at
+   * all for any producer whose key names an instance. A ledger feed mints a
+   * coordinator on mount and disposes it on unmount; 64 mounts later every further
+   * series is refused, and the p95 an author reads is the p95 of feeds that closed
+   * hours ago while the feed on screen contributes nothing. That failure is silent —
+   * the refusal count is the only trace, and nothing reads it yet.
+   *
+   * PER KEY AND NEVER BY PREFIX. The composed keys are readable, so a "retire
+   * everything starting with this" would work and would also be the string-parsing
+   * this registry deliberately avoids by nesting its maps: a key is opaque to
+   * everything except the producer that minted it, and that producer is the one
+   * holding the exact string it opened.
+   *
+   * Answers whether it retired anything, so a caller that expected to own a series
+   * can tell "closed it" from "there was nothing there" rather than inferring it from
+   * a count that moved. Truncation runs the same way `record` runs it, so a key past
+   * the character bound retires the series it opened.
+   */
+  public retire(kind: PerfMeterKind, seriesKey: string): boolean {
+    const boundedKey = seriesKey.slice(0, PERF_METER_BOUNDS.seriesKeyCharacterCount);
+    const seriesForKind = this.#seriesByKind.get(kind);
+    if (seriesForKind === undefined || !seriesForKind.delete(boundedKey)) {
+      return false;
+    }
+    this.#openSeriesCount -= 1;
+    if (seriesForKind.size === 0) {
+      this.#seriesByKind.delete(kind);
+    }
+    return true;
   }
 
   /** One series' reading, or `null` where that series has recorded nothing. */
@@ -285,16 +321,44 @@ export function perfMeterNow(): number {
  * expressions at the call site fold away with the call in a release build. A null
  * check would leave the producer computing a figure nothing reads.
  */
-export function recordFrameTime(laneId: string, milliseconds: number): void {
+export function recordFrameTime(seriesKey: string, milliseconds: number): void {
   if (__SIDEKICKS_CONSOLE_FIXTURES__) {
-    devPerfMeters?.record("frame-time", laneId, milliseconds);
+    devPerfMeters?.record("frame-time", seriesKey, milliseconds);
   }
 }
 
-/** Record how many reveal units one lane drained in one frame. */
-export function recordRevealDrain(laneId: string, revealedUnitCount: number): void {
+/**
+ * Record what one reveal engine's drain revealed in one frame, keyed by its
+ * coordinator and its frame task.
+ *
+ * NOT PER LANE, and the distinction is the reading: an engine drains every lane it
+ * holds inside one frame, so the sample is that whole drain and a key naming a lane
+ * would promise a per-lane figure the producer never measures.
+ */
+export function recordRevealDrain(seriesKey: string, revealedUnitCount: number): void {
   if (__SIDEKICKS_CONSOLE_FIXTURES__) {
-    devPerfMeters?.record("reveal-drain", laneId, revealedUnitCount);
+    devPerfMeters?.record("reveal-drain", seriesKey, revealedUnitCount);
+  }
+}
+
+/**
+ * Retire the frame-time series one coordinator opened. Called from its dispose.
+ *
+ * The retiring entry points exist for the two kinds whose key names an INSTANCE. The
+ * other two key by store scope, which is a fixed vocabulary a session does not mint
+ * more of, so neither has a producer with anything to retire and neither is given a
+ * door it would never call.
+ */
+export function retireFrameTimeSeries(seriesKey: string): void {
+  if (__SIDEKICKS_CONSOLE_FIXTURES__) {
+    devPerfMeters?.retire("frame-time", seriesKey);
+  }
+}
+
+/** Retire one composed reveal-drain series. Called from the coordinator's dispose. */
+export function retireRevealDrainSeries(seriesKey: string): void {
+  if (__SIDEKICKS_CONSOLE_FIXTURES__) {
+    devPerfMeters?.retire("reveal-drain", seriesKey);
   }
 }
 

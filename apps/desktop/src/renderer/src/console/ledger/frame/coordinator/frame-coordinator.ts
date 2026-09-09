@@ -51,6 +51,8 @@ import {
   lossyStringify,
   perfMeterNow,
   recordFrameTime,
+  retireFrameTimeSeries,
+  retireRevealDrainSeries,
   type ConsoleClock,
   type ScheduledHandle,
   type Unsubscribe,
@@ -115,6 +117,16 @@ export class LedgerFrameCoordinator {
   /** This coordinator's identity — the prefix every reading it produces is keyed by. */
   readonly #coordinatorId: string;
 
+  /**
+   * Every task key this coordinator has handed out.
+   *
+   * Held so `dispose` can retire the meter series its holders opened under them. It
+   * grows with HOLDERS rather than with frames — a feed's reveal engine and its
+   * scroll chokepoint claim one each at construction — so this set is a handful of
+   * short strings for the coordinator's lifetime and is dropped whole with it.
+   */
+  readonly #claimedTaskKeys = new Set<string>();
+
   #armedFrame: ScheduledHandle | undefined;
   #drainingPhaseIndex: number | undefined;
   #nextTaskKeyOrdinal = 1;
@@ -127,15 +139,33 @@ export class LedgerFrameCoordinator {
   }
 
   /**
-   * This coordinator's identity, for a meter series that has to name which feed it
+   * This coordinator's identity, for a reader that has to name which feed a series
    * came from.
    *
-   * Read by `reveal/reveal-engine.ts`, whose own task key is unique per coordinator
-   * and not across them: every feed's first engine claims the same ordinal, so a
-   * reading keyed by the task key alone merged every feed's drains into one series.
+   * A holder composing a series key of its own takes `meterSeriesKeyFor` below and
+   * not this: its own task key is unique per coordinator and not across them — every
+   * feed's first engine claims the same ordinal — so a reading keyed by the task key
+   * alone merged every feed's drains into one series.
    */
   public get coordinatorId(): string {
     return this.#coordinatorId;
+  }
+
+  /**
+   * The meter series key a holder of one of this coordinator's task keys records
+   * under. One composer for both sides of that key.
+   *
+   * The holder records with it and this coordinator's `dispose` retires with it, and
+   * the two have to spell the identical string or the retirement silently closes
+   * nothing. Composed HERE rather than at each end because the two ends are one seam:
+   * a separator changed at one of them and not the other reads as a working key set
+   * that never shrinks.
+   *
+   * Kind-agnostic on purpose — which meter a holder records into is the holder's
+   * concern, and this answers only "who, under which coordinator".
+   */
+  public meterSeriesKeyFor(taskKey: string): string {
+    return `${this.#coordinatorId}/${taskKey}`;
   }
 
   /**
@@ -148,7 +178,9 @@ export class LedgerFrameCoordinator {
   public claimTaskKey(label: string): string {
     const ordinal = this.#nextTaskKeyOrdinal;
     this.#nextTaskKeyOrdinal += 1;
-    return `${label}#${String(ordinal)}`;
+    const taskKey = `${label}#${String(ordinal)}`;
+    this.#claimedTaskKeys.add(taskKey);
+    return taskKey;
   }
 
   /**
@@ -215,7 +247,23 @@ export class LedgerFrameCoordinator {
     return this.#diagnosticEmitter.subscribe(sink);
   }
 
-  /** Terminal. A disposed coordinator arms nothing, runs nothing, and reaches nobody. */
+  /**
+   * Terminal. A disposed coordinator arms nothing, runs nothing, and reaches nobody.
+   *
+   * AND IT RETIRES THE METER SERIES ITS IDENTITY OPENED — its own `frame-time` key
+   * and one `reveal-drain` key per task key it handed out. The ordinal never resets,
+   * so without this the live key set is bounded by how many feeds this renderer has
+   * ever mounted rather than by how many are open: past the registry's series bound
+   * every further feed is refused, and the p95 an author reads is the p95 of feeds
+   * that closed while the feed on screen contributes nothing.
+   *
+   * THE COORDINATOR RETIRES THE DRAIN KEYS AND THE ENGINE DOES NOT, because the
+   * engine composes its key out of this coordinator's identity and its own task key:
+   * one owner for a composed key is what keeps the two halves from disagreeing, and
+   * an engine outliving its coordinator is not a state `coordinator-binding.ts`
+   * produces. A task key whose holder never recorded a drain retires nothing, which
+   * is what `PerfMeterRegistry.retire` answering `false` means.
+   */
   public dispose(): void {
     if (this.#armedFrame !== undefined) {
       this.#clock.cancel(this.#armedFrame);
@@ -225,6 +273,11 @@ export class LedgerFrameCoordinator {
       queue.clear();
     }
     this.#diagnosticEmitter.clear();
+    retireFrameTimeSeries(this.#coordinatorId);
+    for (const taskKey of this.#claimedTaskKeys) {
+      retireRevealDrainSeries(this.meterSeriesKeyFor(taskKey));
+    }
+    this.#claimedTaskKeys.clear();
     this.#disposed = true;
   }
 

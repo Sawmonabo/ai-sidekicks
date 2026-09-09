@@ -263,10 +263,14 @@ export class RevealEngine {
     // FEED, so every feed's first engine claimed the same key and two feeds' drains
     // folded into one series. The composed key is one series per engine per feed.
     //
-    // Composed inside the define's branch so a release build folds the concatenation
-    // away with the recording it feeds.
+    // Composed by the COORDINATOR rather than here, because the same string is what
+    // its `dispose` retires this series under, and two spellings of one key retire
+    // nothing while looking correct at both ends.
+    //
+    // Asked for inside the define's branch so a release build folds the call away
+    // with the recording it feeds.
     if (__SIDEKICKS_CONSOLE_FIXTURES__) {
-      recordRevealDrain(`${this.#frameCoordinator.coordinatorId}/${this.#frameTaskKey}`, spent);
+      recordRevealDrain(this.#frameCoordinator.meterSeriesKeyFor(this.#frameTaskKey), spent);
     }
     this.#armFrame();
   }
