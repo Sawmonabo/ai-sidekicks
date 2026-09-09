@@ -24,6 +24,7 @@ import { SessionStore } from "../../../store/index.js";
 import { eventOfKind } from "../../../store/session-event.test-support.js";
 import { advanceScenarioUntil } from "../../../bridge/scenario-runtime/scenario-clock.test-support.js";
 import { BindWorkspaceDialog } from "./BindWorkspaceDialog.js";
+import { quietShell } from "../../../store/shell-condition.test-support.js";
 
 /** The read this suite answers for. Every other method stays the fixture's. */
 const CAPABILITIES_METHOD = "repo.executionModeCapabilitiesRead";
@@ -147,6 +148,7 @@ async function openDialog(
         repoMountId={MOUNT_ID}
         canonicalRoot={MOUNT_ROOT}
         sessionStore={sessionStore}
+        frameStore={quietShell()}
         onBound={() => undefined}
       />
     </LiveAnnouncerProvider>,

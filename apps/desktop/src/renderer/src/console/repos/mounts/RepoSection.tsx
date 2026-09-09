@@ -18,7 +18,7 @@ export interface RepoSectionProps {
 }
 
 export function RepoSection(props: RepoSectionProps): React.JSX.Element {
-  const { bridge, sessionStore, isOpen, openPane } = props.context;
+  const { bridge, sessionStore, frameStore, isOpen, openPane } = props.context;
   const { reading, requestModeSelection, requestRead } = useRepoMounts(bridge, sessionStore);
   const [copyRefusal, setCopyRefusal] = useState<ConsoleRefusal | undefined>(undefined);
 
@@ -65,6 +65,7 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
       <AttachRepositoryDialog
         bridge={bridge}
         sessionStore={sessionStore}
+        frameStore={frameStore}
         onAttached={requestRead}
       />
       <div className="meridian-repo-section__mounts">
@@ -78,6 +79,7 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
           reading={reading}
           bridge={bridge}
           sessionStore={sessionStore}
+          frameStore={frameStore}
           onCopy={copyCanonicalRoot}
           onRequestRead={requestRead}
           onSelect={requestModeSelection}
@@ -95,6 +97,7 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
           reading={reading}
           bridge={bridge}
           sessionStore={sessionStore}
+          frameStore={frameStore}
           onRequestRead={requestRead}
         />
       </div>

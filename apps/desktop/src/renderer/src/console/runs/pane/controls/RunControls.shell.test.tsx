@@ -13,6 +13,12 @@
 // true: the control exists, the runtime is down, and the person can bring it back — so
 // withdrawing it would hide an act that is one banner press away from working again.
 //
+// AND CLOSED MEANS `aria-disabled` PLUS A SENTENCE ON SCREEN, never `disabled` plus a
+// `title`. A `disabled` button leaves the tab order and its tooltip is announced by
+// nothing, so the reason was reachable by hover alone; these cases assert the shape
+// `ControlButton.tsx` settled on instead — the button stays focusable, points at the
+// row's one sentence through `aria-describedby`, and runs nothing when pressed.
+//
 // The shell is driven through `FrameStore.publishShellReport`, the writer the shipped
 // supervisor binding uses, so what closes these controls is the fold a real window runs.
 
@@ -21,7 +27,8 @@ import { describe, expect, it } from "vitest";
 
 import { currentShellMutationBlock, type FrameStore } from "../../../store/index.js";
 import { quietShell, stoppedShell } from "../../../store/shell-condition.test-support.js";
-import { PAUSED, RUNNING, renderControls } from "./run-controls.test-support.js";
+import type { RunControlSurface } from "./run-control-surface.js";
+import { PAUSED, RUNNING, renderControls, surfaceHolding } from "./run-controls.test-support.js";
 
 /** The sentence the block itself carries, read off the store rather than retyped. */
 function blockSentence(frameStore: FrameStore): string {
@@ -30,6 +37,24 @@ function blockSentence(frameStore: FrameStore): string {
     throw new Error("the stopped shell produced no block");
   }
   return block.detail;
+}
+
+/** The row's one closing sentence, or `undefined` where the row rendered none. */
+function closingSentence(container: HTMLElement): string | undefined {
+  return container.querySelector(".meridian-run-controls__closed")?.textContent ?? undefined;
+}
+
+/** Whether a control is closed, and whether it points at the sentence that closed it. */
+function closedState(
+  container: HTMLElement,
+  button: HTMLButtonElement,
+): { readonly closed: string | null; readonly describes: string | undefined } {
+  const describedBy = button.getAttribute("aria-describedby");
+  const described =
+    describedBy === null
+      ? undefined
+      : (container.querySelector(`#${CSS.escape(describedBy)}`)?.textContent ?? undefined);
+  return { closed: button.getAttribute("aria-disabled"), describes: described };
 }
 
 /** One control's button, by the class the strip gives it. */
@@ -65,9 +90,9 @@ describe("the primary controls under a stopped supervisor", () => {
 
     const container = renderControls({ frameStore });
 
-    const stepIn = stepInButton(container);
-    expect(stepIn.disabled).toBe(true);
-    expect(stepIn.title).toBe(blockSentence(frameStore));
+    const state = closedState(container, stepInButton(container));
+    expect(state.closed).toBe("true");
+    expect(state.describes).toBe(blockSentence(frameStore));
   });
 
   it("closes stop, which reaches the daemon through the intervention verb", () => {
@@ -75,9 +100,9 @@ describe("the primary controls under a stopped supervisor", () => {
 
     const container = renderControls({ frameStore });
 
-    const interrupt = controlButton(container, "interrupt");
-    expect(interrupt.disabled).toBe(true);
-    expect(interrupt.title).toBe(blockSentence(frameStore));
+    const state = closedState(container, controlButton(container, "interrupt"));
+    expect(state.closed).toBe("true");
+    expect(state.describes).toBe(blockSentence(frameStore));
   });
 
   it("closes resume on a run at rest, which is the other control verb", () => {
@@ -85,9 +110,70 @@ describe("the primary controls under a stopped supervisor", () => {
 
     const container = renderControls({ run: PAUSED, frameStore });
 
-    const resume = controlButton(container, "resume");
-    expect(resume.disabled).toBe(true);
-    expect(resume.title).toBe(blockSentence(frameStore));
+    const state = closedState(container, controlButton(container, "resume"));
+    expect(state.closed).toBe("true");
+    expect(state.describes).toBe(blockSentence(frameStore));
+  });
+
+  it("says it once for the whole row, however many controls it closed", () => {
+    const frameStore = stoppedShell();
+
+    const container = renderControls({ frameStore });
+
+    // One condition closed every control in the row, so the row states it once. Six
+    // copies of one sentence would be six announcements of a single outage.
+    expect(container.querySelectorAll(".meridian-run-controls__closed")).toHaveLength(1);
+    expect(closingSentence(container)).toBe(blockSentence(frameStore));
+  });
+});
+
+describe("a closed control runs nothing when it is pressed", () => {
+  it("puts no dispatch on the wire", () => {
+    const dispatched: string[] = [];
+    const surface = surfaceHolding([]);
+
+    const container = renderControls({
+      run: PAUSED,
+      frameStore: stoppedShell(),
+      surface: {
+        ...surface,
+        dispatch: (runId: string, control: string) => {
+          dispatched.push(`${runId}:${control}`);
+          return { admitted: true, dispatchToken: "token" };
+        },
+      } as RunControlSurface,
+    });
+
+    fireEvent.click(controlButton(container, "resume"));
+
+    // `aria-disabled` stops nothing on its own, so the button guards its own press.
+    // The door would refuse this one anyway; the two controls below it would not be
+    // refused by anything, because they put no call at all.
+    expect(dispatched).toStrictEqual([]);
+  });
+
+  it("opens no composer for the two controls that only compose", () => {
+    let rewindsRequested = 0;
+    let steersRequested = 0;
+
+    const container = renderControls({
+      frameStore: stoppedShell(),
+      onRequestRewind: () => {
+        rewindsRequested += 1;
+      },
+      onRequestSteer: () => {
+        steersRequested += 1;
+      },
+    });
+    fireEvent.click(overflowToggle(container));
+    fireEvent.click(controlButton(container, "rollback"));
+    fireEvent.click(controlButton(container, "steer"));
+
+    // THE CASE THE DOOR CANNOT COVER. Steer and rewind put no daemon call — they open a
+    // composer whose CONFIRM does — so nothing downstream would have refused these two
+    // presses, and a person would have written a message the console could not send.
+    expect(rewindsRequested).toBe(0);
+    expect(steersRequested).toBe(0);
   });
 });
 
@@ -113,9 +199,9 @@ describe("the overflow half under a stopped supervisor", () => {
     // that composer confirms is `run.intervene`, so offering the compose would invite
     // a person to write a message the console cannot send.
     for (const control of ["steer", "cancel", "rollback"]) {
-      const button = controlButton(container, control);
-      expect(button.disabled).toBe(true);
-      expect(button.title).toBe(blockSentence(frameStore));
+      const state = closedState(container, controlButton(container, control));
+      expect(state.closed).toBe("true");
+      expect(state.describes).toBe(blockSentence(frameStore));
     }
   });
 });
@@ -124,10 +210,12 @@ describe("negative control: a serving supervisor closes nothing", () => {
   it("leaves every primary control open and carrying no reason", () => {
     const container = renderControls({ frameStore: quietShell() });
 
-    expect(stepInButton(container).disabled).toBe(false);
-    expect(stepInButton(container).title).toBe("");
-    expect(controlButton(container, "interrupt").disabled).toBe(false);
-    expect(controlButton(container, "interrupt").title).toBe("");
+    expect(stepInButton(container).getAttribute("aria-disabled")).toBe("false");
+    expect(controlButton(container, "interrupt").getAttribute("aria-disabled")).toBe("false");
+    // The negative control that makes the four cases above non-vacuous: with nothing
+    // closing the row there is no sentence to point at, and no control points at one.
+    expect(closingSentence(container)).toBeUndefined();
+    expect(stepInButton(container).getAttribute("aria-describedby")).toBeNull();
   });
 
   it("leaves the overflow half open too", () => {
@@ -136,7 +224,7 @@ describe("negative control: a serving supervisor closes nothing", () => {
     fireEvent.click(overflowToggle(container));
 
     for (const control of ["steer", "cancel", "rollback"]) {
-      expect(controlButton(container, control).disabled).toBe(false);
+      expect(controlButton(container, control).getAttribute("aria-disabled")).toBe("false");
     }
   });
 

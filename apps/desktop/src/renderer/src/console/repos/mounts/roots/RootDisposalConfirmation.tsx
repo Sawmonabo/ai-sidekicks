@@ -29,6 +29,11 @@ import { AlertDialog } from "@base-ui/react/alert-dialog";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import {
+  useShellBlockFor,
+  type FrameStore,
+  type MutatingDaemonMethod,
+} from "../../../store/index.js";
+import {
   InlineRefusal,
   Nothing,
   OverlayAlertDialogPopup,
@@ -45,6 +50,21 @@ const DISPOSAL_VERB: Readonly<Record<DisposalSubject["kind"], string>> = {
   "ephemeral-clone": "Dispose of this clone",
 };
 
+/**
+ * The daemon method each kind's confirm sends. Beside the two copy tables because it is
+ * the same per-kind split they are, and because the shell read has to follow the
+ * dispatch: a retire held open while a clone disposal is closed is a state the wire can
+ * reach, and one read for both kinds could not express it.
+ */
+// The two record methods this confirmation dispatches, TYPED against the roster rather
+// than spelled inline. `useShellBlockFor` takes a `string` — it has to, since it answers
+// `undefined` for every read method — so a misspelled verb is not a compile error but a
+// control that stays live through an outage and says nothing.
+const DISPOSAL_METHODS: Readonly<Record<DisposalSubject["kind"], MutatingDaemonMethod>> = {
+  worktree: "repo.worktreeRetire",
+  "ephemeral-clone": "repo.ephemeralCloneDispose",
+};
+
 /** The question the confirmation asks, per kind. */
 const DISPOSAL_QUESTION: Readonly<Record<DisposalSubject["kind"], string>> = {
   worktree: "Retire this execution root?",
@@ -56,6 +76,8 @@ export interface RootDisposalConfirmationProps {
   readonly kind: DisposalSubject["kind"];
   /** The root's own id. Sent verbatim; nothing about it is re-derived here. */
   readonly rootId: string;
+  /** The window's own shell condition, read here for the one method this kind sends. */
+  readonly frameStore: FrameStore;
   /** Read the section again, so the root's new state reaches the list it is drawn in. */
   readonly onSettled: () => void;
 }
@@ -64,6 +86,10 @@ export function RootDisposalConfirmation(props: RootDisposalConfirmationProps): 
   const subject = disposalSubjectFor(props.kind, props.rootId);
   const { reading, send, clear } = useRootDisposal(props.bridge, subject);
   const { onSettled } = props;
+  // PER KIND, BECAUSE THE TWO KINDS SEND TWO METHODS. One component serves both acts,
+  // so the read follows the same table the dispatch does rather than picking one verb
+  // and spending its answer on the other.
+  const shellBlock = useShellBlockFor(props.frameStore, DISPOSAL_METHODS[props.kind]);
   // The settlement belonged to the press that produced it, so a reconsideration of the
   // question discards it and a walk away discards it — and the confirm press, which
   // closes this dialog on its way to publishing the next one, discards nothing.
@@ -74,7 +100,10 @@ export function RootDisposalConfirmation(props: RootDisposalConfirmationProps): 
       <AlertDialog.Root onOpenChange={lifecycle.openChanged}>
         <AlertDialog.Trigger
           className="meridian-root-disposal__trigger"
+          // `disabled` for this control's own in-flight act, `aria-disabled` for the
+          // supervisor — `ReattachControl`'s header states why the two are not one.
           disabled={reading.status === "sending"}
+          aria-disabled={shellBlock !== undefined}
           aria-label={`${DISPOSAL_VERB[props.kind]} ${props.rootId}`}
         >
           {DISPOSAL_VERB[props.kind]}
@@ -111,6 +140,14 @@ export function RootDisposalConfirmation(props: RootDisposalConfirmationProps): 
           </div>
         </OverlayAlertDialogPopup>
       </AlertDialog.Root>
+      {shellBlock === undefined ? null : (
+        // Before the press rather than after it: the door refuses the confirm with this
+        // same code, but a consent given to a disposal that cannot happen is a consent
+        // this surface should never have collected.
+        <p className="meridian-root-disposal__closed" role="status">
+          {shellBlock.detail}
+        </p>
+      )}
       {renderSettlement(reading, onSettled)}
     </div>
   );

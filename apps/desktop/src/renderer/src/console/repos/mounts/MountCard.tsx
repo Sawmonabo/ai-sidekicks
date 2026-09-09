@@ -71,7 +71,7 @@ import {
   WireFigure,
   formatClockTime,
 } from "../../primitives/index.js";
-import type { SessionStore } from "../../store/index.js";
+import type { FrameStore, SessionStore } from "../../store/index.js";
 import {
   bindControlPosture,
   mountHealthReading,
@@ -130,6 +130,13 @@ export interface MountCardProps {
   readonly bridge: ConsoleBridge;
   /** The session each root's gate takes its reconnect and stale-frame triggers from. */
   readonly sessionStore: SessionStore;
+  /**
+   * The window's own shell condition, handed down so each act can read the one method
+   * it sends. The FRAME's store and not the session's: a supervisor going down is a
+   * fact about this window's runtime, and every window watching the same session reads
+   * its own.
+   */
+  readonly frameStore: FrameStore;
   /** Put the resolved root on the clipboard; the host's own refusal is the caller's to render. */
   readonly onCopyCanonicalRoot: (canonicalRoot: string) => void;
   /** Read the section again, because a participant's act minted a mount it has not seen. */
@@ -216,6 +223,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
           repoMountId={mount.id}
           canonicalRoot={mount.canonicalRoot}
           sessionStore={props.sessionStore}
+          frameStore={props.frameStore}
           onBound={props.onRequestRead}
         />
       ) : null}
@@ -223,6 +231,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
         <ReattachControl
           bridge={props.bridge}
           sessionStore={props.sessionStore}
+          frameStore={props.frameStore}
           localPath={mount.localPath}
           nodeId={mount.nodeId}
           onAttached={props.onRequestRead}
@@ -290,6 +299,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
                 mountCanonicalRoot={mount.canonicalRoot}
                 bridge={props.bridge}
                 sessionStore={props.sessionStore}
+                frameStore={props.frameStore}
                 onRequestRead={props.onRequestRead}
                 bindControls={posture}
                 onSelectExecutionMode={(executionMode) => {
@@ -367,6 +377,7 @@ function renderRoots(props: MountCardProps): React.JSX.Element | null {
           unpairedReason={unpairedReason}
           bridge={props.bridge}
           sessionStore={props.sessionStore}
+          frameStore={props.frameStore}
           nowMilliseconds={props.nowMilliseconds}
           onRequestRead={props.onRequestRead}
           onOpenDiff={props.onOpenDiff}

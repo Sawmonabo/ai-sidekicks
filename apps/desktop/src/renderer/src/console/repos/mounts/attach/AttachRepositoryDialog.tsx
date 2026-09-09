@@ -27,7 +27,12 @@ import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import type { SessionStore } from "../../../store/index.js";
+import {
+  useShellBlockFor,
+  type FrameStore,
+  type SessionStore,
+  type MutatingDaemonMethod,
+} from "../../../store/index.js";
 import {
   InlineRefusal,
   Nothing,
@@ -43,10 +48,24 @@ import { NodePicker } from "./NodePicker.js";
 /** The radio group's name. One dialog is open at a time, so one constant serves it. */
 const NODE_GROUP_NAME = "meridian-attach-node";
 
+// The record method this control dispatches, TYPED against the roster rather than
+// spelled inline. `useShellBlockFor` takes a `string` — it has to, since it answers
+// `undefined` for every read method — so a misspelled literal is not a compile error
+// but a control that stays live through an outage and says nothing. `satisfies` is
+// what turns that into a build failure.
+const REPO_ATTACH_METHOD = "repo.attach" satisfies MutatingDaemonMethod;
+
 export interface AttachRepositoryDialogProps {
   readonly bridge: ConsoleBridge;
   /** The session attached to, and the source of the roster read's refresh triggers. */
   readonly sessionStore: SessionStore;
+  /**
+   * The window's own shell condition, read here for the ONE method this dialog sends.
+   *
+   * The FRAME's store and not the session's: a supervisor going down is a fact about
+   * this window's runtime, and every window watching the same session reads its own.
+   */
+  readonly frameStore: FrameStore;
   /** Ask the section to read again, so a minted mount appears without a second act. */
   readonly onAttached: () => void;
 }
@@ -57,6 +76,11 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
     props.sessionStore,
   );
   const [form, setForm] = useState<AttachFormState>(EMPTY_ATTACH_FORM);
+  // WHETHER THIS WINDOW MAY SEND THE ATTACH AT ALL, subscribed off the one seam every
+  // dispatching surface asks. The RENDERED half only: whether a press is admitted is
+  // settled again at `callDaemon`, which refuses a record method at the door — so the
+  // control below says why before the press, and the door decides at it.
+  const shellBlock = useShellBlockFor(props.frameStore, REPO_ATTACH_METHOD);
   // THE ROSTER ON SCREEN IS AN INPUT TO BOTH HALVES OF THIS DIALOG, which is what keeps
   // the picker and the Attach button from disagreeing: the sole-node default that makes
   // the radio checked is the same reading that makes the control open, and a refresh
@@ -151,7 +175,13 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
           <button
             type="button"
             className="meridian-repo-attach__confirm"
+            // `aria-disabled` for the shell and `disabled` for the form, which are two
+            // different facts about one button. A form that is not filled in yet is not
+            // a control a person needs taken to; a supervisor that is down is, because
+            // no amount of typing lifts it — so that arm keeps the button in the tab
+            // order and points at the sentence below.
             disabled={verdict.status !== "sendable" || reading.act.status === "sending"}
+            aria-disabled={shellBlock !== undefined}
             onClick={submit}
           >
             Attach
@@ -162,7 +192,16 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
             refusal, and a greyed button with nothing beside it is one: this line names
             the one thing missing, in the order a person fills the form in.
           */}
-        {verdict.status === "incomplete" ? (
+        {shellBlock !== undefined ? (
+          // THE SHELL'S SENTENCE COMES FIRST AND REPLACES THE FORM'S. Both would be true
+          // at once, and only one is worth acting on: naming the missing field under a
+          // supervisor that cannot be reached invites somebody to finish a form that
+          // still will not send. The sentence is the block's own, verbatim — the frame's
+          // banner is already saying it, and a paraphrase would be a second account.
+          <p className="meridian-repo-attach__held" role="status">
+            {shellBlock.detail}
+          </p>
+        ) : verdict.status === "incomplete" ? (
           <p className="meridian-repo-attach__blocked" role="status">
             {verdict.because}
           </p>

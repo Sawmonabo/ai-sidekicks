@@ -276,6 +276,23 @@
   cursor: progress;
 }
 
+/* A control the shell has closed. `aria-disabled` and not `disabled`, so the button
+   keeps its place in the tab order and a reader is taken to it and told why — which
+   means the closed LOOK has to be declared here, because the browser paints nothing
+   for the attribute the way it does for the property. */
+.meridian-run-controls__action[aria-disabled="true"],
+.meridian-step-in__action[aria-disabled="true"] {
+  color: var(--meridian-text-muted);
+  cursor: not-allowed;
+}
+
+/* The sentence under the row, rendered once for however many controls it closed. */
+.meridian-run-controls__closed {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
 /* --- Step in --------------------------------------------------------------- */
 
 /* The composite lives in the control row, so its action is styled by the row's own

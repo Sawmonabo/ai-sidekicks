@@ -67,18 +67,23 @@ export function renderControls(
     readonly run?: RunProjection;
     readonly records?: readonly RunControlRecord[];
     readonly frameStore?: FrameStore;
+    /** A surface that records what was dispatched, where a case asks whether one was. */
+    readonly surface?: RunControlSurface;
+    /** The compose callbacks, for the cases that ask whether a press reached them. */
+    readonly onRequestRewind?: () => void;
+    readonly onRequestSteer?: () => void;
   } = {},
 ): HTMLElement {
   const { container } = render(
     <RunControls
       run={options.run ?? RUNNING}
-      surface={surfaceHolding(options.records ?? [])}
+      surface={options.surface ?? surfaceHolding(options.records ?? [])}
       bridge={{} as ConsoleBridge}
       frameStore={options.frameStore ?? quietShell()}
       driverCapabilities={CAPABLE}
       onTakeTheFloor={() => undefined}
-      onRequestRewind={() => undefined}
-      onRequestSteer={() => undefined}
+      onRequestRewind={options.onRequestRewind ?? (() => undefined)}
+      onRequestSteer={options.onRequestSteer ?? (() => undefined)}
     />,
   );
   return container;

@@ -91,6 +91,14 @@ export interface StepInProps {
    * flight would show a run that is still running under a control that says it is not.
    */
   readonly onTakeTheFloor: () => void;
+  /**
+   * The element the strip renders the closing sentence in, where one is being rendered.
+   *
+   * The strip owns the sentence for the same reason `ControlButton` does not: one
+   * outage closes every control in the row, and a sentence per button is one
+   * announcement per button for a single fact.
+   */
+  readonly reasonElementId?: string | undefined;
 }
 
 export function StepIn(props: StepInProps): React.JSX.Element {
@@ -160,9 +168,17 @@ export function StepIn(props: StepInProps): React.JSX.Element {
         type="button"
         className="meridian-step-in__action"
         aria-busy={state.phase === "pausing"}
-        disabled={pauseBlock !== undefined}
-        title={pauseBlock?.detail}
-        onClick={stepIn}
+        // `aria-disabled` and a sentence the strip renders as text, never `disabled`
+        // and a `title`: `ControlButton.tsx`'s header states why, and this button sits
+        // in that same row and is closed by that same condition.
+        aria-disabled={pauseBlock !== undefined}
+        aria-describedby={pauseBlock === undefined ? undefined : props.reasonElementId}
+        onClick={() => {
+          if (pauseBlock !== undefined) {
+            return;
+          }
+          stepIn();
+        }}
       >
         <Glyph name="pause" size={GLYPH_SIZE_ROW} />
         Step in

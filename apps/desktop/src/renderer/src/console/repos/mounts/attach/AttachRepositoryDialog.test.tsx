@@ -24,6 +24,7 @@ import { eventOfKind } from "../../../store/session-event.test-support.js";
 import { advanceScenarioUntil } from "../../../bridge/scenario-runtime/scenario-clock.test-support.js";
 import { AttachRepositoryDialog } from "./AttachRepositoryDialog.js";
 import { rosterEntry } from "./attach-roster.test-support.js";
+import { quietShell } from "../../../store/shell-condition.test-support.js";
 
 /** A path long enough to be a path and short enough to read in a failure. */
 const TYPED_PATH = "/Users/dev/code/ai-sidekicks";
@@ -87,6 +88,7 @@ async function openDialog(nodes: readonly RuntimeNodeRosterEntry[]): Promise<Ope
       <AttachRepositoryDialog
         bridge={roster.bridge}
         sessionStore={sessionStore}
+        frameStore={quietShell()}
         onAttached={() => undefined}
       />
     </LiveAnnouncerProvider>,

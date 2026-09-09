@@ -1,7 +1,7 @@
 import { useCloneExpiryInstant } from "./clone-expiry-wake-up.js";
 import { type RepoMountsReading } from "./repo-mounts-model.js";
 import { type ConsoleBridge } from "../../bridge/index.js";
-import { SessionStore } from "../../store/index.js";
+import { SessionStore, type FrameStore } from "../../store/index.js";
 
 import { EphemeralCloneGateRow } from "../proposals/EphemeralCloneGateRow.js";
 import { ephemeralCloneGateSubject } from "../proposals/proposal-gate-model.js";
@@ -14,6 +14,13 @@ export interface EphemeralCloneListProps {
   readonly bridge: ConsoleBridge;
   /** Passed down for the same reason: each clone's gate arms its own refresh triggers. */
   readonly sessionStore: SessionStore;
+  /**
+   * The window's own shell condition, handed down so each act can read the one method
+   * it sends. The FRAME's store and not the session's: a supervisor going down is a
+   * fact about this window's runtime, and every window watching the same session reads
+   * its own.
+   */
+  readonly frameStore: FrameStore;
   /** Read the section again after a participant's own act on one of these roots. */
   readonly onRequestRead: () => void;
 }
@@ -101,6 +108,7 @@ export function renderCloneRows(
             subject={ephemeralCloneGateSubject(record, reading.workspaces)}
             bridge={props.bridge}
             sessionStore={props.sessionStore}
+            frameStore={props.frameStore}
             nowMilliseconds={nowMilliseconds}
             onRequestRead={props.onRequestRead}
           />

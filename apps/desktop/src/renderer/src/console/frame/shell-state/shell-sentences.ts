@@ -213,6 +213,15 @@ const MUTATING_METHOD_CLASSES: Record<MutatingDaemonMethod, MutationClass> = {
  * the whole point of naming the set at all. The classes are listed in
  * {@link MUTATION_CLASSES}' own order, so the line does not re-order itself when a
  * verb is added, and each appears once however many verbs map to it.
+ *
+ * IT TAKES NO BLOCK CLASS AND IS THE SAME SENTENCE FOR ALL OF THEM, DELIBERATELY.
+ * What stops is the same set of work whether the supervisor is stopped, starting,
+ * reconnecting, offline, or refusing this build's protocol — so this says WHAT is
+ * closed, and the WHY lives one line up in the banner, which composes
+ * `codeForConnection` (the class, in mono) beside `connectionLineFor` (the cause,
+ * with the supervisor's own figures in it) and appends this. A per-class enumeration
+ * here would be five copies of one list differing only in a clause the banner is
+ * already rendering, and the copy that drifted would be the one nobody re-read.
  */
 export function readOnlyLine(): string {
   const closed = new Set<MutationClass>(

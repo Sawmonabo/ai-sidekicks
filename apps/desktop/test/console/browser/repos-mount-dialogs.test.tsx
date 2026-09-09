@@ -36,6 +36,7 @@ import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primiti
 import { advanceScenarioUntil } from "../../../src/renderer/src/console/bridge/scenario-runtime/scenario-clock.test-support.js";
 import { BindWorkspaceDialog } from "../../../src/renderer/src/console/repos/mounts/bind/BindWorkspaceDialog.js";
 import { SessionStore } from "../../../src/renderer/src/console/store/index.js";
+import { quietShell } from "../../../src/renderer/src/console/store/shell-condition.test-support.js";
 
 /** The resolved root the dialog shows above its directory field. Displayed, never joined. */
 const MOUNT_ROOT = "/Users/dev/code/ai-sidekicks";
@@ -56,6 +57,10 @@ async function openBindDialog(repoMountId: string): Promise<{
         repoMountId={repoMountId}
         canonicalRoot={MOUNT_ROOT}
         sessionStore={new SessionStore({ sessionId: REPOS_SCENARIO.sessionId })}
+        // A window whose supervisor has said nothing closes nothing; the two claims here
+        // are about the portal and the picker, and a shell block would close the control
+        // that opens the popup before either could be reached.
+        frameStore={quietShell()}
         onBound={() => undefined}
       />
     </LiveAnnouncerProvider>,

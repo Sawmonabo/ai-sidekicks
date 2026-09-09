@@ -14,7 +14,7 @@
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { Nothing } from "../../primitives/index.js";
-import type { SessionStore } from "../../store/index.js";
+import type { FrameStore, SessionStore } from "../../store/index.js";
 import { RootDisposalConfirmation } from "../mounts/roots/RootDisposalConfirmation.js";
 import { ProposalGateDisclosure } from "./ProposalGateDisclosure.js";
 import { OpenDiffControl, type OpenDiffSubject } from "../mounts/OpenDiffControl.js";
@@ -36,6 +36,13 @@ export interface WorktreeGateRowProps {
   readonly bridge: ConsoleBridge;
   /** The session the gate's own refresh triggers listen to. Passed down, never reached for. */
   readonly sessionStore: SessionStore;
+  /**
+   * The window's own shell condition, handed down so each act can read the one method
+   * it sends. The FRAME's store and not the session's: a supervisor going down is a
+   * fact about this window's runtime, and every window watching the same session reads
+   * its own.
+   */
+  readonly frameStore: FrameStore;
   /** The instant the section read at, so an age moves on a re-read and never on a render. */
   readonly nowMilliseconds: number;
   /** Read the section again, so a retired root's new state reaches this list. */
@@ -77,6 +84,7 @@ export function WorktreeGateRow(props: WorktreeGateRowProps): React.JSX.Element 
         bridge={props.bridge}
         kind="worktree"
         rootId={props.record.worktreeId}
+        frameStore={props.frameStore}
         onSettled={props.onRequestRead}
       />
       {props.subject === undefined ? (

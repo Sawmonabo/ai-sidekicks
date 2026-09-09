@@ -31,7 +31,7 @@
 // the same `surface` every other button here does, so the pause it sends and the
 // pause the palette's row sends are one dispatch through one latch.
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useId, useMemo, useState } from "react";
 import type { ConsoleBridge, DriverCapabilityReadout } from "../../../bridge/index.js";
 import { Glyph, RemediedRefusal } from "../../../primitives/index.js";
 import { GLYPH_SIZE_ROW } from "../../../tokens/index.js";
@@ -102,6 +102,12 @@ export function RunControls(props: RunControlsProps): React.JSX.Element {
     "run.resume": resumeBlock,
     "run.intervene": interveneBlock,
   };
+  // THE SENTENCE IS RENDERED ONCE FOR THE WHOLE ROW, and every closed control points at
+  // it. One supervisor condition closes all six, so a sentence per button would announce
+  // one outage six times; and it is text rather than a `title`, because a tooltip is
+  // reachable by hover alone. `ControlButton.tsx`'s header carries the full argument.
+  const closingSentence = pauseBlock?.detail ?? resumeBlock?.detail ?? interveneBlock?.detail;
+  const reasonElementId = useId();
 
   const onResume = useCallback(() => {
     surface.dispatch(run.runId, "resume", (dispatcher) =>
@@ -160,6 +166,7 @@ export function RunControls(props: RunControlsProps): React.JSX.Element {
             control="resume"
             isBusy={surface.inFlightKeys.has(inFlightKeyFor(run.runId, "resume"))}
             disabledReason={disabledReasonFor("resume", shellBlockByMethod)}
+            reasonElementId={reasonElementId}
             onPress={onResume}
           />
         ) : null}
@@ -175,6 +182,7 @@ export function RunControls(props: RunControlsProps): React.JSX.Element {
             // from the registered shape), so there is no name to render and the
             // wire-verbatim id is the honest stand-in.
             agentLabel={run.runId}
+            reasonElementId={reasonElementId}
             onTakeTheFloor={props.onTakeTheFloor}
           />
         ) : null}
@@ -183,6 +191,7 @@ export function RunControls(props: RunControlsProps): React.JSX.Element {
             control="interrupt"
             isBusy={surface.inFlightKeys.has(inFlightKeyFor(run.runId, "interrupt"))}
             disabledReason={disabledReasonFor("interrupt", shellBlockByMethod)}
+            reasonElementId={reasonElementId}
             onPress={onInterrupt}
           />
         ) : null}
@@ -212,11 +221,21 @@ export function RunControls(props: RunControlsProps): React.JSX.Element {
               control={control}
               isBusy={surface.inFlightKeys.has(inFlightKeyFor(run.runId, control))}
               disabledReason={disabledReasonFor(control, shellBlockByMethod)}
+              reasonElementId={reasonElementId}
               onPress={onOverflowPress[control]}
             />
           ))}
         </div>
       ) : null}
+      {closingSentence === undefined ? null : (
+        // `role="status"` and not an alert: a supervisor that is down is a condition
+        // this row is reporting, not an error this row raised. The frame's banner is
+        // saying the same thing above; this is the same sentence verbatim, because a
+        // second wording would be a second account of one condition.
+        <p className="meridian-run-controls__closed" id={reasonElementId} role="status">
+          {closingSentence}
+        </p>
+      )}
       {refusal === undefined ? null : <RemediedRefusal refusal={refusal} />}
     </div>
   );

@@ -21,7 +21,7 @@
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { Nothing } from "../../primitives/index.js";
-import type { SessionStore } from "../../store/index.js";
+import type { FrameStore, SessionStore } from "../../store/index.js";
 import { EphemeralCloneCard } from "../mounts/EphemeralCloneCard.js";
 import { RootDisposalConfirmation } from "../mounts/roots/RootDisposalConfirmation.js";
 import { ProposalGateDisclosure } from "./ProposalGateDisclosure.js";
@@ -41,6 +41,13 @@ export interface EphemeralCloneGateRowProps {
   readonly bridge: ConsoleBridge;
   /** The session the gate's own refresh triggers listen to. Passed down, never reached for. */
   readonly sessionStore: SessionStore;
+  /**
+   * The window's own shell condition, handed down so each act can read the one method
+   * it sends. The FRAME's store and not the session's: a supervisor going down is a
+   * fact about this window's runtime, and every window watching the same session reads
+   * its own.
+   */
+  readonly frameStore: FrameStore;
   /** The instant the section read at, so a countdown moves on a re-read and never on a render. */
   readonly nowMilliseconds: number;
   /** Read the section again, so a disposed clone's new state reaches this list. */
@@ -60,6 +67,7 @@ export function EphemeralCloneGateRow(props: EphemeralCloneGateRowProps): React.
         bridge={props.bridge}
         kind="ephemeral-clone"
         rootId={props.record.cloneId}
+        frameStore={props.frameStore}
         onSettled={props.onRequestRead}
       />
       {props.subject === undefined ? (
