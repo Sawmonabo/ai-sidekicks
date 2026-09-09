@@ -124,12 +124,12 @@ function isBridgeFamilyModule(module: string): boolean {
  * importing its own name, or reading it off a namespace they imported, which
  * `daemon-call-census.ts` reads as one act in two spellings.
  *
- * FIFTEEN, and PINNED rather than left as a floor. The count was zero when this gate
+ * TWENTY-TWO, and PINNED rather than left as a floor. The count was zero when this gate
  * landed, and zero was the whole reading then: the two reach claims above are
  * satisfied by an empty set, so a scan reporting the tree compliant because nothing
  * called the daemon at all was not making the claim this file's title makes.
  *
- * It is no longer vacuous. The fifteen, by module and by the family that bound it:
+ * It is no longer vacuous. The twenty-two, by module and by the family that bound it:
  *
  *   1. `shell/composer/router/send-dispatch.ts` — the send dispatch. Named by its
  *      module rather than as "the send router": the router was split and imports the
@@ -179,10 +179,38 @@ function isBridgeFamilyModule(module: string): boolean {
  *      family's reach.
  *  16. `console/onboarding/provider-readiness/provider-readiness-acts.ts` — the same
  *      step's two mutations, which re-probe ONE account through
- *      `providerAccount.probe`. TWO ENTRIES FOR ONE STEP AND NOT A WIDENED FOURTEENTH:
+ *      `providerAccount.probe`. TWO ENTRIES FOR ONE STEP AND NOT A WIDENED FIFTEENTH:
  *      the step's reading and the acts over it are two modules because they are two
  *      jobs, and a census that folded them would report one consumer for a directory
  *      where either half could quietly leave the door.
+ *  17. `console/workspace/new-session/new-session-send.ts` — the new-session send: the
+ *      draft module composes the request and imports the door nowhere, so the one
+ *      module here is the one that dispatches it.
+ *  18. `console/ledger/cards/shell/shell-row-reads.ts` — the run-scoped
+ *      reasoning-surface read a reasoning row of the ledger's fixture shell offers. It
+ *      dies with the shell, and the change that deletes that directory moves this
+ *      number back down.
+ *  19. `console/ledger/structure/child-runs/child-run-expansion.ts` — the child-run
+ *      expansion's own read.
+ *  20. `console/workspace/deck/take-the-floor.ts` — the deck's half of "Step in": the
+ *      execution-root read that names which checkout a run created. The repos family
+ *      reads that registry too, and is a sibling this one may not import.
+ *  21. `console/workspace/sidebar/bulk/bulk-acts.ts` — the sidebar's bulk act table. It
+ *      is the one module that names all three bulk verbs, and it names them as LITERALS
+ *      so each request keeps the type the method fixes — a table holding the method as
+ *      data would have to widen every request to `unknown`, which is the check the door
+ *      exists to make.
+ *  22. `console/ledger/frame/paging/earlier-window-reader.ts` — the backward walk into
+ *      the rows below the window's head. The only read here that grows the log at the
+ *      END the stream does not append to, and the one place `timeline.read` is sent
+ *      from: the store owns where the page lands and this owns where the next one
+ *      starts.
+ *  23. `console/ledger/cards/shell/shell-ask-answer.ts` — the answer an input-ask row
+ *      of that same shell delivers. TWO ENTRIES FOR ONE DIRECTORY AND NOT A WIDENED
+ *      EIGHTEENTH, on entry 16's reading and for a sharper reason: the answer is a
+ *      run-changing method and the reasoning read is a read on a line that ends, so a
+ *      module holding both would be a dispatcher naming an abort — which
+ *      `read-cancellation-chokepoint.test.ts` fails. It dies with the shell too.
  *
  * Every surface in these families that reaches the wire, each through `callDaemon` and
  * none around it. TWICE now the number has come DOWN because a surface stopped taking
@@ -193,6 +221,11 @@ function isBridgeFamilyModule(module: string): boolean {
  * `provider-account-quota.ts` already reads it once per window behind the one
  * `providerAccount.subscribe` this console opens, so a second reader was a second
  * snapshot of one node's accounts with nothing on screen saying the two disagreed.
+ *
+ * Two more modules NAME the door in prose and are deliberately not among them:
+ * `workspace/new-session/NewSessionControl.tsx` and the send module's own test both
+ * describe what `callDaemon` answers, and the needle below separates an import clause
+ * from a sentence.
  *
  * The runs half was two until `console/runs/pane/controls/StepIn.tsx` stopped sending
  * its own `run.pause`. It held a second single-flight latch beside the surface's, so
@@ -214,7 +247,7 @@ function isBridgeFamilyModule(module: string): boolean {
  * the console grew a wire — and a surface QUIETLY LEAVING the door, which is the
  * regression this pin exists for, fails it just as loudly.
  */
-const CALL_DOOR_CONSUMER_COUNT = 16;
+const CALL_DOOR_CONSUMER_COUNT = 23;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();

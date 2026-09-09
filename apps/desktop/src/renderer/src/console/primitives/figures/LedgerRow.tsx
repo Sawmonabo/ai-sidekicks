@@ -32,7 +32,7 @@
 // nesting being invalid, and each one is named by its author so a screen reader
 // walking the log hears who wrote what.
 
-import { useId } from "react";
+import { useId, useMemo } from "react";
 import {
   PARTICIPANT_HUE_STEPS,
   type ParticipantRingTreatment,
@@ -66,6 +66,26 @@ interface AttributionEdgeStyle extends React.CSSProperties {
 export function LedgerRow(props: LedgerRowProps): React.JSX.Element {
   const actorId = useId();
 
+  // FORMATTED ONCE PER INSTANT, not once per paint.
+  //
+  // `formatClockTime` builds a fresh `Intl.DateTimeFormat` on every call, and this is
+  // the row every ledger surface in the console is made of — a streaming window
+  // re-renders its mounted rows on a lease write, a hover, a reveal tick and a replay
+  // scrub, and none of those move the instant a row is stamped with.
+  //
+  // A MEMO RATHER THAN A FORMATTED STRING ON THE ROW MODEL, which is the other way to
+  // pay once, because this component is a PRIMITIVE and the instant reaches it as a
+  // prop from callers that share no model: the ledger feed builds its rows by folding
+  // admitted events, and the membership and invite ledgers build theirs from a wire
+  // read that no fold ever sees. Putting the string on one of those models would leave
+  // the others formatting per paint, and putting it on all of them would be three
+  // copies of one formatting rule. Keyed on the instant itself, which is the only
+  // member the string is a function of.
+  const occurredAtClockTime = useMemo(
+    () => formatClockTime(props.occurredAtIso),
+    [props.occurredAtIso],
+  );
+
   // Fail-closed projection: a step outside the wheel is not clamped into someone
   // else's colour, because that would attribute a row to the wrong participant.
   // The edge falls back to the neutral control boundary and the row says, in its
@@ -96,7 +116,7 @@ export function LedgerRow(props: LedgerRowProps): React.JSX.Element {
         <span className="meridian-ledger-row__actor" id={actorId}>
           {props.actorLabel}
         </span>
-        <WireFigure value={formatClockTime(props.occurredAtIso)} title={props.occurredAtIso} />
+        <WireFigure value={occurredAtClockTime} title={props.occurredAtIso} />
       </div>
       <div className="meridian-ledger-row__body">
         <div className="meridian-ledger-row__meta">

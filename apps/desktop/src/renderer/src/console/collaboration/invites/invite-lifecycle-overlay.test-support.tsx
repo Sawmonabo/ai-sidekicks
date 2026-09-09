@@ -20,6 +20,7 @@ import { vi } from "vitest";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { FrameStore, modalSurfaceClaimFor } from "../../store/index.js";
+import { inviteConfirmationMount } from "./invite-confirmation-mount.js";
 import { InviteLifecycleOverlay } from "./InviteLifecycleOverlay.js";
 import { scenarioWithArrivals } from "./pending-invite.test-support.js";
 
@@ -57,6 +58,16 @@ export async function mountOverlay(bridge?: ConsoleBridge): Promise<MountedOverl
     />,
   );
   await act(async () => {
+    await crossMacrotaskBoundary();
+  });
+  // The card arrives on its own chunk, so a mount that has a prompt draws the reserved
+  // region until it lands. Resolved through the MOUNT the overlay itself renders — one
+  // home for the wait rather than a per-spec race — and then one more boundary for React
+  // to commit the settled body. Asked unconditionally: a case that drives an arrival in
+  // later still finds the memo warm, and one that never opens a card pays a resolved
+  // promise.
+  await act(async () => {
+    await inviteConfirmationMount.load();
     await crossMacrotaskBoundary();
   });
   return { body: container.ownerDocument.body, openSession, frameStore, unmount };

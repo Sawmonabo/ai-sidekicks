@@ -9,11 +9,16 @@
 // there names a method's shape.
 
 import type {
+  ChildRunExpandRequest,
+  ChildRunExpandResponse,
   ProviderCommandListResult,
   ListProviderCommandsRequest,
   ListModelsResult,
   ListCapabilitiesResult,
   InterruptRunParams,
+  ReasoningSurfaceReadRequest,
+  ReasoningSurfaceReadResponse,
+  RespondToRequestParams,
   DriverReadParams,
   DriverCompactionResult,
   DriverAckResult,
@@ -59,6 +64,8 @@ import type {
   SessionCreateResponse,
   SessionJoinRequest,
   SessionJoinResponse,
+  TimelineReadRequest,
+  TimelineReadResponse,
   WorkspaceExecutionModeCapabilitiesReadRequest,
   WorkspaceExecutionModeCapabilitiesReadResponse,
   WorkspaceBindRequest,
@@ -141,6 +148,25 @@ export interface ConsoleDaemonMethodContract {
     readonly request: DriverReadParams;
     readonly response: ListModelsResult;
   };
+  // The answer to a provider-raised ask. The one row whose `response` is `unknown` by
+  // contract and deliberately so: the ask's own choice set or the participant's free
+  // text both travel this member, which is why the input-ask card mints no wire of its
+  // own. `DriverAckResult` is the reply — an acknowledgement that the answer reached
+  // the driver, never a settlement of the ask, which only the ask's own row may state.
+  readonly "driver.respondToRequest": {
+    readonly request: RespondToRequestParams;
+    readonly response: DriverAckResult;
+  };
+
+  // timeline — the run-scoped reasoning surface, whose reply is the CLOSED four-arm
+  // availability discriminant. It is here rather than on the growth port because the
+  // corpus registers both shapes: the admission rule the reply registry states is met
+  // in all three conjuncts, and a growth row for a registered wire would be a second
+  // answer to a method that already has one.
+  readonly "timeline.reasoningSurfaceRead": {
+    readonly request: ReasoningSurfaceReadRequest;
+    readonly response: ReasoningSurfaceReadResponse;
+  };
 
   // repo — the mounts, workspaces, and execution roots the repos section reads AND
   // mutates. One namespace and two registry tables behind it: the six mount-and-
@@ -194,6 +220,11 @@ export interface ConsoleDaemonMethodContract {
     readonly request: EphemeralCloneDisposeRequest;
     readonly response: EphemeralCloneDisposeResponse;
   };
+  /**
+   * The worktree plane's one mutation the console sends. Bound because the sidebar's
+   * bulk retire is its caller — a row bound ahead of a caller is the shape this
+   * registry's own header forbids, and this one arrives with the surface that sends it.
+   */
   readonly "repo.worktreeRetire": {
     readonly request: WorktreeRetireRequest;
     readonly response: WorktreeRetireResponse;
@@ -202,7 +233,6 @@ export interface ConsoleDaemonMethodContract {
     readonly request: WorktreeStatusReadRequest;
     readonly response: WorktreeStatusReadResponse;
   };
-
   // session, channels, membership, presence, invites — the collaboration plane.
   readonly "session.create": {
     readonly request: SessionCreateRequest;
@@ -238,6 +268,32 @@ export interface ConsoleDaemonMethodContract {
   readonly "invite.revoke": {
     readonly request: InviteRevoke;
     readonly response: InviteRevokeResponse;
+  };
+
+  // timeline — the child-run expansion, and the backward read window.
+  //
+  // The live stream is the store's own subscription rather than a call, so it is not
+  // here. The READ is, and only in one direction: a session's stream replays from the
+  // position this participant was last acknowledged at, so the store's log grows at
+  // the tail on its own and has no way at all to reach what came before that
+  // position. `beforeCursor` is what asks for it.
+  readonly "timeline.childRunExpand": {
+    readonly request: ChildRunExpandRequest;
+    readonly response: ChildRunExpandResponse;
+  };
+  /**
+   * One bounded window of rows BEFORE a position the console already holds.
+   *
+   * The forward direction of this same method is deliberately not a caller here: the
+   * subscription already delivers it, and a second forward reader would be a second
+   * source of truth for a log the reconciler orders. What the ledger's head control
+   * sends carries `beforeCursor`, and the reply's own `hasMore` — never a page's
+   * fullness and never a cursor's absence — is what says whether rows remain behind
+   * it.
+   */
+  readonly "timeline.read": {
+    readonly request: TimelineReadRequest;
+    readonly response: TimelineReadResponse;
   };
 
   // providerAccount — the node-local registry read. The subscription beside it is a

@@ -125,6 +125,93 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
   "focus-ring": { light: oklch(0.55, 0.11, 215), dark: oklch(0.8, 0.09, 205) },
 };
 
+/**
+ * The five code-token families that carry a colour of their own.
+ *
+ * HERE RATHER THAN IN THE LEDGER'S OWN SHEET, and the reason is measurement. These
+ * five and the twelve ANSI ones below were hand-written `oklch()` literals in
+ * `ledger/ledger.css`, outside every guarantee this module exists to make — and both
+ * consequences were invisible: nothing fitted them into the sRGB gamut, so seven of
+ * the thirty-four requests were remapped by the browser to a colour no file states,
+ * and nothing measured them against their ground, so six sat below rule 3's text
+ * floor in the light scheme.
+ *
+ * WHAT THE SHEET'S OLD ARGUMENT GOT RIGHT AND WHERE IT STOPS. It said a syntax
+ * palette is none of the three closed sets above, so folding it in would blur the
+ * boundary rule 3 depends on. The first half is true, and is why this is its own
+ * record rather than more members of `ATTENTION_TOKENS`: the two-hue rule governs
+ * what the console colours FOR ATTENTION, and a keyword is not. The second half does
+ * not follow — a separate record here keeps the sets distinct while still putting
+ * every colour through one resolver and one measurement, which a table in a
+ * stylesheet cannot.
+ *
+ * Painted on `surface-sunken` and nothing else, which is the single ground the
+ * contrast census measures these against.
+ */
+export const CODE_TOKENS: Readonly<Record<string, SchemePair>> = {
+  "code-keyword": { light: oklch(0.45, 0.12, 300), dark: oklch(0.8, 0.11, 300) },
+  "code-name": { light: oklch(0.44, 0.1, 250), dark: oklch(0.82, 0.09, 250) },
+  "code-string": { light: oklch(0.42, 0.1, 150), dark: oklch(0.83, 0.1, 150) },
+  "code-number": { light: oklch(0.45, 0.11, 45), dark: oklch(0.83, 0.1, 60) },
+  "code-type": { light: oklch(0.45, 0.09, 200), dark: oklch(0.83, 0.08, 200) },
+};
+
+/**
+ * The twelve hued ANSI names, as the console's own colours rather than a terminal's.
+ *
+ * WHY "BRIGHT" IS NOT A LIGHTNESS RULE. On the DARK scheme a brighter colour is a
+ * higher-contrast one, so the bright set sits above its normal sibling and gains
+ * legibility by doing so. On the LIGHT scheme the same move SPENDS contrast, because
+ * the ground is near white and lightness is the ratio — which is how the previous
+ * values came to sit between 3.8:1 and 4.5:1 on the well they are painted on,
+ * failing WCAG 1.4.3 in the one scheme where looking would not show it. So a light
+ * bright name is distinguished by CHROMA first and lightness second, at the deepest
+ * lightness the 4.5:1 floor admits with a little margin — still above its own normal
+ * sibling, so the sixteen names stay eight pairs rather than collapsing to eight.
+ *
+ * A run whose BACKGROUND the stream set is deliberately outside the census: which of
+ * the sixteen a stream pairs with which is the stream's composition, and no palette
+ * of sixteen colours can hold every one of its own pairs to a text floor.
+ */
+export const ANSI_TOKENS: Readonly<Record<string, SchemePair>> = {
+  "ansi-red": { light: oklch(0.48, 0.16, 25), dark: oklch(0.76, 0.14, 25) },
+  "ansi-green": { light: oklch(0.45, 0.12, 150), dark: oklch(0.8, 0.12, 150) },
+  "ansi-yellow": { light: oklch(0.48, 0.11, 85), dark: oklch(0.84, 0.11, 85) },
+  "ansi-blue": { light: oklch(0.46, 0.11, 255), dark: oklch(0.79, 0.1, 255) },
+  "ansi-magenta": { light: oklch(0.47, 0.13, 330), dark: oklch(0.79, 0.12, 330) },
+  "ansi-cyan": { light: oklch(0.46, 0.09, 205), dark: oklch(0.81, 0.08, 205) },
+  "ansi-bright-red": { light: oklch(0.535, 0.18, 25), dark: oklch(0.83, 0.14, 25) },
+  "ansi-bright-green": { light: oklch(0.5, 0.14, 150), dark: oklch(0.87, 0.13, 150) },
+  "ansi-bright-yellow": { light: oklch(0.515, 0.12, 85), dark: oklch(0.9, 0.11, 85) },
+  "ansi-bright-blue": { light: oklch(0.515, 0.13, 255), dark: oklch(0.86, 0.1, 255) },
+  "ansi-bright-magenta": { light: oklch(0.53, 0.15, 330), dark: oklch(0.86, 0.12, 330) },
+  "ansi-bright-cyan": { light: oklch(0.505, 0.1, 205), dark: oklch(0.88, 0.08, 205) },
+};
+
+/**
+ * Tokens that are a family's own NAME for a console token, not a colour.
+ *
+ * A code block's plain text is the console's text; a terminal's black and white are
+ * the two ends of the reading scale, and reproducing a tool's literal black on a
+ * dark scheme would render its output invisible. Each is emitted as a `var()`
+ * reference to the token it defers to rather than a copy of its value, which is what
+ * keeps them out of the contrast census without escaping it: the target is measured,
+ * and an alias paints what its target paints. Scheme-independent for that same
+ * reason, so they are emitted once in the root block and in neither dark layer.
+ */
+export const TOKEN_ALIASES: Readonly<Record<string, string>> = {
+  "code-plain": "text",
+  "code-comment": "text-faint",
+  "code-operator": "text-muted",
+  "code-invalid": "red-text",
+  "ansi-default-foreground": "text",
+  "ansi-default-background": "surface-sunken",
+  "ansi-black": "text-faint",
+  "ansi-white": "text-muted",
+  "ansi-bright-black": "text-muted",
+  "ansi-bright-white": "text",
+};
+
 /** Steps on the participant wheel. Twelve, per `Spec-023 §Console Design (Meridian)` rule 2. */
 export const PARTICIPANT_HUE_STEPS = 12;
 

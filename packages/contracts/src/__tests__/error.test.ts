@@ -30,6 +30,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ERROR_MESSAGE_MAX_LEN,
+  EVENT_CURSOR_UNRESOLVABLE_CODE,
   PTY_BACKEND_UNAVAILABLE_CODE,
   PtyBackendUnavailableSchema,
   RESOURCE_LABEL_MAX_LEN,
@@ -528,6 +529,19 @@ describe("VersionCeilingExceededErrorSchema", () => {
 // namespace (`runtimenode.attach`) and AVOIDS the `runtime_node.*` durable
 // event-name namespace (separator differs) so an error code can never collide
 // with an event name (error.ts header; error-contracts.md §Runtime Node).
+// The event-read cursor refusal ships as a code-and-message-only registration —
+// no `*Schema`, the same registry-only shape as the runtime-node 409s below — so
+// the contract it ships IS the literal string. Both ends compare against it: the
+// daemon raises it from the read path, and the desktop console's resume classifier
+// branches on it to tell a lost position from every other read refusal. A typo in
+// the constant would silently make that arm unreachable rather than fail, which is
+// what this assertion exists to stop.
+describe("event-read cursor refusal code", () => {
+  it("exposes the cursor code as the literal `event.cursor_unresolvable`", () => {
+    expect(EVENT_CURSOR_UNRESOLVABLE_CODE).toBe("event.cursor_unresolvable");
+  });
+});
+
 describe("runtime-node attach-conflict codes (Plan-003 T3.2)", () => {
   it("exposes the conflict code as the literal `runtimenode.attach_conflict`", () => {
     expect(RUNTIME_NODE_ATTACH_CONFLICT_CODE).toBe("runtimenode.attach_conflict");

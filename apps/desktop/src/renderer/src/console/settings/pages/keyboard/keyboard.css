@@ -77,16 +77,29 @@
   font-size: var(--meridian-text-sm);
 }
 
+/* The meta line carries a command id — a wire figure, which `figure.css` renders
+   verbatim in mono and never truncates — beside the scope sentence. At the 320 px
+   reflow floor the row's column is narrower than that id, and a figure has no break
+   opportunity in it at all, so without a rule here the id sets the row's width and
+   the whole settings pane scrolls sideways (measured: the meta box wanted 190 px of
+   the 170 px the list had).
+
+   `anywhere` and not `break-word`, for `sessions.css`' reason on the identity column:
+   only `anywhere` lowers a box's min-content contribution, and the figure is a flex
+   item here, so only `anywhere` lets its automatic minimum stop being one unbreakable
+   run of the wire's own text. The rule sits on the line and is INHERITED by both
+   children rather than written once per figure — the scope sentence carried it alone
+   before, which moved the overflow one box inward instead of ending it. Wrapping and
+   not an ellipsis: a command id is what a person types into a search or a bug report,
+   and a truncated one is one they have to guess at. */
 .meridian-keymap__meta {
   display: flex;
   flex-wrap: wrap;
   gap: var(--meridian-space-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: var(--meridian-text-faint);
   font-size: var(--meridian-text-xs);
-}
-
-.meridian-keymap__scope {
-  overflow-wrap: anywhere;
 }
 
 .meridian-keymap__unavailable {

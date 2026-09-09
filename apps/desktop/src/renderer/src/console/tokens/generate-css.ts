@@ -44,6 +44,7 @@ import {
   RADIUS_SCALE_REM,
   REFLOW_MIN_WIDTH_PX,
   SPACE_SCALE_REM,
+  TOKEN_ALIASES,
   TYPE_SCALE_REM,
 } from "./palette.js";
 import type { ConsoleScheme } from "./tokens.js";
@@ -51,6 +52,7 @@ import {
   PARTICIPANT_HUES,
   SCHEME_COLOR_TOKENS,
   participantHueTokenName,
+  tokenReference,
   tokenVariableName,
 } from "./tokens.js";
 
@@ -77,6 +79,14 @@ function invariantBlock(): string {
   PARTICIPANT_HUES.forEach((color, step) => {
     lines.push(declaration(participantHueTokenName(step), formatOklch(color)));
   });
+
+  lines.push("");
+  lines.push("  /* Vocabulary aliases — a family's own name for a console token.");
+  lines.push("     Emitted here rather than in each scheme layer because the token");
+  lines.push("     each one defers to already swaps. */");
+  for (const [tokenName, targetTokenName] of Object.entries(TOKEN_ALIASES)) {
+    lines.push(declaration(tokenName, tokenReference(targetTokenName)));
+  }
 
   lines.push("");
   lines.push("  /* Type. */");

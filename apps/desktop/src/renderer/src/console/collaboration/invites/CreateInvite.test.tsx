@@ -14,7 +14,7 @@ import {
   growthRefusing,
   growthServing,
 } from "../../bridge/fixture/call-plane/bridge.test-support.js";
-import { quietShell } from "../shell-condition.test-support.js";
+import { quietShell } from "../../store/shell-condition.test-support.js";
 import { CreateInvite } from "./CreateInvite.js";
 import {
   CONTROL_PLANE_HOST,

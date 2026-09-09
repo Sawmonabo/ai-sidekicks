@@ -22,8 +22,8 @@ import {
   ATTACHED_WORKSPACE_ID,
   DRIFTED_WORKSPACE_ID,
   GIT_WORKSPACE_ID,
-} from "../../bridge/scenarios/repos-fixture-data.js";
-import { ATTACHED_CANONICAL_ROOT } from "../../bridge/scenarios/repos-mutation-replies.js";
+} from "../../bridge/scenarios/repos/repos-fixture-data.js";
+import { ATTACHED_CANONICAL_ROOT } from "../../bridge/scenarios/repos/repos-mutation-replies.js";
 import { SessionStore } from "../../store/index.js";
 import { advanceScenarioUntil } from "../../bridge/scenario-runtime/scenario-clock.test-support.js";
 import { ExecutionContextDisclosure } from "./ExecutionContextDisclosure.js";

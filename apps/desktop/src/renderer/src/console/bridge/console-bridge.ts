@@ -19,6 +19,7 @@
 
 import type { SidekicksBridge, Unsubscribe } from "@ai-sidekicks/contracts";
 import { RealClock, type ConsoleClock } from "../core/index.js";
+import type { AuxiliaryWindowPort } from "./auxiliary-window-port.js";
 import type { ScriptedPaneViewHost } from "./fixture/pane-view-host-script.js";
 import type { GrowthOperationId, GrowthPort } from "./growth-port/index.js";
 import type { RuntimeNodePresenceSubscribe, RuntimeNodeRosterRead } from "./runtime-nodes/index.js";
@@ -69,6 +70,20 @@ export interface ConsoleBridge {
    * for a contract that already exists.
    */
   readonly runtimeNodeRosterRead: RuntimeNodeRosterRead;
+  /**
+   * Moving a pane into a window of its own, and everything that follows from it.
+   *
+   * BESIDE THE GROWTH PORT ON THE ROSTER READ'S OWN RULE: the port refuses what the
+   * corpus has not registered, and `SidekicksBridge.window` IS registered — the
+   * preload exposes it and `src/main/auxiliary-window-ipc.ts` serves it — so filing
+   * it there would owe a slate row for a contract that already exists.
+   *
+   * NOT REACHED AS `sidekicks.window` DIRECTLY, because the two bridges answer it
+   * differently and neither answer may reject: every caller dispatches from an effect
+   * or an event handler, where a rejection reaches nobody and leaves the deck holding
+   * a placeholder for a window that was never opened. The port is where that settles.
+   */
+  readonly auxiliaryWindows: AuxiliaryWindowPort;
   /**
    * Runtime-node presence transitions for one session, as an opaque change signal.
    *

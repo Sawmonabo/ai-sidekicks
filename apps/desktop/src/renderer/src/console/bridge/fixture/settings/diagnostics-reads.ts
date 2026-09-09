@@ -9,7 +9,7 @@
 // of them. Holding them in the port also took that file past the package's split
 // threshold.
 //
-// WHY ALL FIVE DIAGNOSTICS READS ARE SERVED, AND WHY THREE OF THEM SCRIPT-ONLY
+// WHY ALL FIVE DIAGNOSTICS READS ARE SERVED, AND WHY FOUR OF THEM SCRIPT-ONLY
 //
 // The diagnostics page is five regions and every one of them was drawn against its
 // own absence, because no operation existed to answer any of them. Serving the plane
@@ -18,18 +18,22 @@
 // and none of those could be reached from a scenario, a screenshot, or a test while
 // the whole plane refused.
 //
-// The two that answer under ANY scenario are the two whose empty form is a real
-// daemon answer, and neither is a fabrication: a status read that found no components
-// is not a verdict about the machine — `healthy` over an empty set is what "nothing
-// reported a problem" looks like on this wire — and the default redaction posture is a
-// policy with no bucket overrides, outbound denied, and no retention override in force,
-// which is the shape a fresh node is in. The page draws both.
+// The ONE that answers under any scenario is the one whose empty form is a real daemon
+// answer rather than a fabrication: the default redaction posture is a policy with no
+// bucket overrides, outbound denied, and no retention override in force, which is the
+// shape a fresh node is in.
 //
-// The other three are `FIXTURE_SCRIPT_ONLY`: a failure detail and a stall reading are
-// READS ADDRESSED BY A SUBJECT — each answers with facts about one named run, so an
-// empty form would assert the run exists and has nothing wrong with it — and the
+// The other four are `FIXTURE_SCRIPT_ONLY`, and they fall on that side for the three
+// reasons `call-plane/served-operations.ts` enumerates. A failure detail and a stall
+// reading are READS ADDRESSED BY A SUBJECT — each answers with facts about one named
+// run, so an empty form would assert the run exists and has nothing wrong with it. The
 // recovery request is a WRITE, whose synthesized receipt would tell the page the daemon
-// moved a run no author ever declared.
+// moved a run no author ever declared. And the status read is a MEASUREMENT: its reply
+// has to name one of three categories, so there is no empty form of it — a synthesized
+// `healthy` reads as "nothing reported a problem" only if you do not look at what the
+// wire made it say, which is that somebody checked this machine and it is fine. The
+// cast bar's compact mark renders that verdict in every window, so the fabrication
+// would not stay inside this page.
 //
 // The live bridge keeps refusing all five, so nothing a release build renders moves.
 
@@ -69,11 +73,12 @@ export function fixtureDiagnosticsReads(
   engine: ScenarioEngine,
 ): Pick<GrowthPort, FixtureServedDiagnosticsOperationId> {
   return {
+    // The node's health, from a script and from nothing else. A health reading is a
+    // MEASUREMENT, and an empty form would not be an absence but a claim: a reply
+    // carrying `overall` has to say one of the three categories, and every one of
+    // them asserts something about a node nobody probed.
     healthStatusRead: async (request) =>
-      answerFromScriptedReply(engine, "health.statusRead", "healthStatusRead", request, () => ({
-        status: "served",
-        value: { overall: "healthy", components: [] },
-      })),
+      await answerScriptOnly(engine, "health.statusRead", "healthStatusRead", request),
     healthRedactionPolicyRead: async (request) =>
       answerFromScriptedReply(
         engine,

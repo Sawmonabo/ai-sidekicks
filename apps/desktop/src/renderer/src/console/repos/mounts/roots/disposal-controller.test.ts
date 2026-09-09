@@ -14,7 +14,7 @@ import {
   IMPLEMENTER_WORKTREE_ID,
   RECLAIMED_CLONE_ID,
   REVIEWER_WORKTREE_ID,
-} from "../../../bridge/scenarios/repos-fixture-data.js";
+} from "../../../bridge/scenarios/repos/repos-fixture-data.js";
 import {
   RootDisposalController,
   type DisposalReading,

@@ -5,15 +5,16 @@
 // answers under a scenario that scripts nothing. The sweep in
 // `growth/growth-port.test.ts` calls every served operation and holds each answer to
 // the served tuple, which is a different claim — that each one answers at all. What
-// separates "the two empty-form reads still serve their default and the three
-// subject-addressed ones still refuse" from "every read still resolves" is driving BOTH
-// scenarios and comparing, which is what the pairs below do.
+// separates "the one empty-form read still serves its default and the other four still
+// refuse by name" from "every read still resolves" is driving scenarios that script
+// different subsets and comparing, which is what the cases below do.
 //
-// Each pair is the other's negative control. A plane that had lost its script routing
-// would serve the default shape under the settings scenario too, and the flagship cases
-// would go on passing while the settings ones failed; a plane that had lost its
-// unscripted fallback would refuse under the flagship while the settings ones passed.
-// Neither case alone reports the split.
+// Each case is another's negative control. A plane that had lost its script routing
+// would answer the same way under every scenario, and the cases that expect a refusal
+// would go on passing while the scripted ones failed; a plane that had grown an
+// unscripted fallback where it has no honest empty form would serve under the
+// onboarding scenario, which scripts no reading at all. No case alone reports the
+// split.
 
 import { describe, expect, it } from "vitest";
 
@@ -21,6 +22,7 @@ import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-su
 import { createFixture } from "../call-plane/bridge.test-support.js";
 import { servedValueOf } from "../growth/growth-port.test-support.js";
 import { FLAGSHIP_SCENARIO } from "../../scenarios/flagship.js";
+import { ONBOARDING_SCENARIO } from "../../scenarios/onboarding.js";
 import { SCRIPT_ABSENT_REFUSAL_CODE } from "../../scenario-runtime/index.js";
 import { FAILED_RUN_ID, STALLED_RUN_ID } from "../../scenarios/settings/diagnostics-plane.js";
 import { SETTINGS_SCENARIO } from "../../scenarios/settings.js";
@@ -41,7 +43,7 @@ const STALL_SUBJECT = { runId: STALLED_RUN_ID } as const;
 const FAILURE_SUBJECT = { runId: FAILED_RUN_ID } as const;
 const RECOVERY_REQUEST = { runId: STALLED_RUN_ID, action: "interrupt" } as const;
 
-describe("the fixture's diagnostics plane — two reads that always answer", () => {
+describe("the fixture's diagnostics plane — the one read that always answers", () => {
   it("serves the scripted machine condition for a scenario that states one", async () => {
     const fixture = createFixture(SETTINGS_SCENARIO);
 
@@ -58,16 +60,39 @@ describe("the fixture's diagnostics plane — two reads that always answer", () 
     ]);
   });
 
-  it("serves the healthy empty reading for a scenario that states none", async () => {
-    // `healthy` over an empty component set is what "nothing reported a problem" looks
-    // like on this wire, so it is a real daemon answer rather than a fabrication — the
-    // reason this read is not in the script-only class.
+  it("serves the scripted machine condition for the flagship, which states its own", async () => {
+    // The other scenario that scripts this read, and the reason the negative control
+    // below needs a third: the flagship measures the node too, so a plane that had
+    // stopped routing scripts would fail the settings case above and pass this one.
     const fixture = createFixture(FLAGSHIP_SCENARIO);
 
     const reading = fixture.bridge.growth.healthStatusRead({});
     await crossMacrotaskBoundary();
 
-    expect(servedValueOf(await reading)).toStrictEqual({ overall: "healthy", components: [] });
+    const settled = servedValueOf(await reading);
+    expect(settled.overall).toBe("degraded");
+    expect(settled.components.map((component) => component.name)).toStrictEqual([
+      "session-store",
+      "relay",
+    ]);
+  });
+
+  it("names the scenario's own gap for a scenario that measured nothing", async () => {
+    // The status read is a MEASUREMENT and has no empty form: its reply must name one
+    // of three categories, so a synthesized `healthy` would be the fixture asserting
+    // somebody checked this machine. Under a scenario that scripts no reading it
+    // refuses, and with the code that says the SCENARIO is silent rather than the one
+    // that says the wire is unbuilt — the bridge does stand in for this wire.
+    const fixture = createFixture(ONBOARDING_SCENARIO);
+
+    const reading = fixture.bridge.growth.healthStatusRead({});
+    await crossMacrotaskBoundary();
+
+    const outcome = await reading;
+    expect(outcome.status).toBe("unavailable");
+    if (outcome.status === "unavailable") {
+      expect(outcome.code).toBe(SCRIPT_ABSENT_REFUSAL_CODE);
+    }
   });
 
   it("serves the scripted redaction posture for a scenario that states one", async () => {

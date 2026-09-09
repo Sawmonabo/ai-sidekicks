@@ -79,12 +79,13 @@ describe("browser-mode optimizer — the base-ui entries the console imports", (
 
   it("negative control: a subpath the list does not name is caught by the derivation", () => {
     // A real Base UI entry point this tree does not import, so the control stays a
-    // control: `menu` stood here until a family began importing it, at which point
-    // the assertion below became a claim about the list rather than about the
-    // derivation. Anything the tree starts importing must be swapped out here in
-    // the same change that adds it to the list.
-    const planted = `${BASE_UI_PACKAGE}/tooltip`;
-    const source = `import { Menu } from "${planted}";\n`;
+    // control: `menu` stood here until a family began importing it, and `tooltip`
+    // stood here until the cast bar's participant card did — at which point the
+    // assertion below became a claim about the list rather than about the derivation.
+    // Anything the tree starts importing must be swapped out here in the same change
+    // that adds it to the list.
+    const planted = `${BASE_UI_PACKAGE}/preview-card`;
+    const source = `import { PreviewCard } from "${planted}";\n`;
     const seen = [...source.matchAll(BASE_UI_IMPORT_PATTERN)].map((match) => match[1]);
     expect(seen).toEqual([planted]);
     expect(BASE_UI_ENTRY_POINTS).not.toContain(planted);

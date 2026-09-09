@@ -32,7 +32,18 @@ import { registerComposerSidebarSections } from "./section-registration.js";
  * `SIDEBAR_SECTION_IDS` so a sidebar's sections read the same however the families
  * that own them happened to register.
  */
-const SEATED_BY_THIS_FAMILY: readonly SidebarSectionId[] = ["goal", "runs"];
+const SEATED_BY_THIS_FAMILY: readonly SidebarSectionId[] = ["goal", "runs", "approvals"];
+
+/**
+ * Which of those carry a rollup, as data beside the set rather than folded into it.
+ *
+ * The third seat is the reason this is a second list rather than a quantifier over the
+ * first: `goal` is one line, so it has nothing to fold and reports no urgency of its
+ * own, and asserting a rollup over every seated section would have made the case below
+ * fail on a section that is correct. Naming the two that do carry one keeps the claim
+ * exact in both directions — the two have a fold, and the third deliberately does not.
+ */
+const ROLLUP_BEARING: readonly SidebarSectionId[] = ["runs", "approvals"];
 
 describe("the composer family's sidebar sections", () => {
   it("fills exactly the seats its header claims, and leaves the rest reserved", () => {
@@ -60,6 +71,29 @@ describe("the composer family's sidebar sections", () => {
 
     for (const id of SEATED_BY_THIS_FAMILY) {
       expect(board.descriptorFor(id)?.owner).toBe("composer-family");
+    }
+  });
+
+  it("seats each section's rollup, and never a second answer beside it", () => {
+    // The seat takes an explicit `attention` as the section's own claim and the fold
+    // over its `rollup` as the fallback, so a descriptor carrying both is answering one
+    // question twice — and the two go out of step the first time either is edited
+    // alone. The never-both half is asserted over the WHOLE set, so a section seated
+    // later by this family cannot quietly ship the pair; the rollup half is asserted
+    // against the two that declare one, with the third's absence its own claim rather
+    // than an unchecked gap.
+    const board = new SidebarSectionRegistry();
+
+    registerComposerSidebarSections(board);
+
+    for (const id of SEATED_BY_THIS_FAMILY) {
+      const descriptor = board.descriptorFor(id);
+      expect(descriptor?.attention).toBeUndefined();
+      if (ROLLUP_BEARING.includes(id)) {
+        expect(descriptor?.rollup).toBeTypeOf("function");
+      } else {
+        expect(descriptor?.rollup).toBeUndefined();
+      }
     }
   });
 

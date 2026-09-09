@@ -56,7 +56,6 @@ export type {
   GrowthBrowserPage,
   GrowthBrowserPageList,
   GrowthNavigationState,
-  GrowthPaneError,
   GrowthTerminalChunk,
 } from "./panes.js";
 

@@ -1,6 +1,10 @@
 // The pane plane's ledger rows: the browser namespace and its tool relay, the
-// terminal namespace and its write lease, the dev-server probe, and the window
-// operations that detach a pane and report the errors it raises.
+// terminal namespace and its write lease, and the dev-server probe.
+//
+// The auxiliary-window operations that used to sit here are gone from the ledger,
+// which is what a wire landing looks like: `SidekicksBridge.window` is registered
+// and `src/main/auxiliary-window-ipc.ts` serves it, so they are reached through
+// `bridge/auxiliary-window-port.ts` and no longer through anything that refuses.
 //
 // One plane of `GROWTH_OPERATIONS`, composed into it by `index.ts`.
 
@@ -17,7 +21,7 @@ import { op } from "./operation-entry.js";
  */
 type PaneOperationId = Extract<
   GrowthOperationId,
-  `browser${string}` | `terminal${string}` | `window${string}` | "devServerProbe"
+  `browser${string}` | `terminal${string}` | "devServerProbe"
 >;
 
 /** The pane rows, in the order the single table carried them. */
@@ -243,29 +247,5 @@ export const PANE_GROWTH_OPERATIONS: Readonly<Record<PaneOperationId, GrowthOper
     "dev-server-probe",
     "method",
     "probe whether a local dev server is listening, for the browser pane's chip",
-  ),
-  windowDetachPane: op(
-    "windowDetachPane",
-    "window-control-namespace",
-    "method",
-    "detach a pane into an auxiliary window",
-  ),
-  windowFocusAuxiliary: op(
-    "windowFocusAuxiliary",
-    "window-control-namespace",
-    "method",
-    "focus an auxiliary window",
-  ),
-  windowCloseAuxiliary: op(
-    "windowCloseAuxiliary",
-    "window-control-namespace",
-    "method",
-    "close an auxiliary window",
-  ),
-  windowSubscribePaneErrors: op(
-    "windowSubscribePaneErrors",
-    "window-control-namespace",
-    "subscription",
-    "the crashed-window pane-error signal",
   ),
 };

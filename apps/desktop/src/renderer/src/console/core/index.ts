@@ -43,6 +43,15 @@ export { ForwardingConsoleClock } from "./forwarding-clock.js";
 // this door re-exports from the module that DECLARES each bound, which is the rule a
 // family door follows everywhere else in the console.
 //
+// WITH ONE SHAPE THE GATE DECIDES, and it decides against a family keeping its own.
+// `test/console/architecture/cap-constant-home.test.ts` reads DECLARATIONS, names
+// `core/constants/` the one place a bound may be declared in, and fails a view family
+// that declares one of its own. So a family's bound TABLE — a record keyed by the
+// names it declares in one tuple, which is what `browser/bounds/browser-bounds.ts` is
+// — stays beside its readers, while a plain `export const SOMETHING_CAP = …` lands in
+// this home whichever family spends it. The rationale travels with the value: each
+// module below carries the paragraph its bound was written with.
+//
 // A MEASUREMENT IS NOT A BOUND, and that is the line the gates draw. A row height,
 // an overscan count, a rounding factor, and an encoding's byte width are sizes and
 // factors rather than ceilings — nothing is checked against them — so they stay with
@@ -54,11 +63,12 @@ export { ForwardingConsoleClock } from "./forwarding-clock.js";
 // A number that appears inline anywhere under `console/` and is not a layout
 // literal is a review rejection: the rationale is the point, not the constant.
 //
-// Five of the home's bounds are deliberately absent below, each with its readers
+// Four of the home's bounds are deliberately absent below, each with its readers
 // inside `core/` or in a suite that reaches the declaring module: the encoder stride,
-// the cast bar's chip cap, the restore list's visible-row cap, the terminal budget's
-// measurement width, and the tripwire report cap. A door line no production importer
-// reaches is a dead export the barrel census fails.
+// the restore list's visible-row cap, the terminal budget's measurement width, and the
+// tripwire report cap. A door line no production importer reaches is a dead export the
+// barrel census fails. The cast bar's chip cap has left that list — the bar is built
+// and reads it through this door.
 export { RESOLVED_PROSE_INLINE_CAP, TOOL_ALLOWLIST_NAMED_CAP } from "./constants/agents-caps.js";
 export { BROAD_ALLOW_LIST_THRESHOLD } from "./constants/approvals-caps.js";
 export { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "./constants/artifact-caps.js";
@@ -96,6 +106,31 @@ export {
   PENDING_INVITE_QUEUE_MAX,
   PENDING_INVITE_RETAINED_REFUSAL_MAX,
 } from "./constants/invite-caps.js";
+export {
+  ANSI_SPAN_RENDER_CAP,
+  CODE_HIGHLIGHT_SOURCE_BYTE_CAP,
+  CODE_TOKEN_CACHE_BYTE_CAP,
+  CODE_WORKER_THRESHOLD_BYTES,
+  FOOTNOTE_DEFINITION_CAP,
+  MARKDOWN_BLOCK_CACHE_BYTE_CAP,
+  TOOL_SUMMARY_MAX_CHARACTERS,
+} from "./constants/ledger-card-caps.js";
+export {
+  LEDGER_EARLIER_PAGE_ROWS,
+  LEDGER_MAX_ELEMENT_HEIGHT_PX,
+  LEDGER_PARKED_LEASE_CAP,
+  LEDGER_WINDOW_ROW_CAP,
+  REVEAL_CHECKPOINT_TAIL_CAP,
+  REVEAL_FRAME_CHARACTER_BUDGET,
+  REVEAL_LITERAL_BACKTRACK_CAP,
+} from "./constants/ledger-frame-caps.js";
+export {
+  CHAPTER_BODY_RETAINED_ROW_CAP,
+  CHAPTER_VISIBLE_ROW_CAP,
+  FIND_MATCH_CAP,
+  RAIL_FISHEYE_MAX_SCALE,
+  RAIL_MAX_TICKS_PER_PIXEL,
+} from "./constants/ledger-structure-caps.js";
 export {
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
@@ -161,11 +196,11 @@ export {
   WORKFLOW_CANCEL_REASON_BYTE_CAP,
 } from "./constants/workflows-caps.js";
 export {
+  CAST_BAR_CHIP_CAP,
+  DECK_RESTORED_PANE_CAP,
   LOAD_PROGRESS_MAX,
   LOAD_PROGRESS_MIN,
-  SIDEBAR_DEFAULT_WIDTH_PX,
-  SIDEBAR_MAX_WIDTH_PX,
-  SIDEBAR_MIN_WIDTH_PX,
+  SIDEBAR_MAXIMUM_WIDTH_PERCENT,
 } from "./constants/workspace-caps.js";
 export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
 // The two fixture-global names whose installers live ABOVE this family and so
@@ -209,6 +244,15 @@ export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   type MalformedInstant,
 } from "./instant.js";
+// What one session's ledger viewport is showing, and the registry that carries it.
+// Declared at the floor for `TransportReconnectObservable`'s reason with the two ends
+// swapped: the producer is a VIEW family (the top of the DAG) and the consumer is
+// `frame/session/session-event-binder.ts` (below every view family), so neither can
+// import the other and the floor is the only home both can reach. The registry CLASS
+// does not leave — the singleton beside it is what both sides take, exactly as
+// `reportTripwire` is what a family takes rather than `TripwireRegistry`.
+export { consoleLedgerWindows, type LedgerWindowReading } from "./ledger-window-diagnostics.js";
+
 // The one keyed-record rebuild. At the floor because its readers are `settings/` and
 // `collaboration/`, two VIEW families, and a view family never imports another — so the
 // floor is the only home either could have taken it from.
@@ -225,6 +269,10 @@ export {
   refuse,
   refusedMemberPaths,
   type ConsoleRefusal,
+  // The narrowing `refuse` returns. Through the door because a producer that owns a
+  // closed code union declares its own refusal type as an instantiation of this one
+  // rather than re-declaring the same interface: five of them in `workspace/`, and
+  // five copies of one shape is where the shape starts to differ.
   type NarrowedRefusal,
 } from "./refusal.js";
 // The registered widenings of that shape. Through the door because a family rendering
@@ -253,6 +301,11 @@ export { refusalRemedyFor } from "./refusal-remedies.js";
 // `settings/`'s scope-qualified MCP binding key — and neither family may reach the
 // other, so the floor is the only home both can take it from.
 export { structuralKey } from "./structural-key.js";
+// Which two members name one provider ask. At the floor because its readers are two
+// sibling VIEW families — the ledger's ask card and the workspace's cast bar — so
+// neither may reach the other, and an ask filed under two spellings of its identity is
+// an answer landing on the wrong run's card.
+export { driverAskIdentitySegments } from "./driver-ask-identity.js";
 // The subscribe view of the console's one transport-reconnect signal. Declared at
 // the floor because its producer is `bridge/` and its consumer is `store/`, and the
 // DAG puts the consumer below the producer — so the floor is the only home both can
@@ -285,12 +338,25 @@ export { payloadContradictsSession, payloadNamesSession } from "./wire-session-a
 // it, so two view families reached five directories up past `core/` to the declaration
 // and the layering hole was invisible to every rule.
 export { lossyStringify } from "../../../../shared/wire-errors.js";
+
+// The leaf's code-scoped envelope reader, re-published on exactly the reasoning above.
+//
+// `store/session/timeline-resume.ts` asks one question of a rejected read — is this the daemon
+// refusing a cursor this console submitted — and the honest instrument for it is the
+// guarded reader, not a `rejection.code === …` comparison: a rejection is whatever a
+// producer threw, its `code` may be an accessor, and an accessor that throws would
+// propagate out of the `catch` that exists to classify the failure. The store family
+// sits below `bridge/` and may not reach `src/shared/` itself, so it takes the reader
+// through the floor that already owns this leaf's vocabulary.
+export { readWireErrorEnvelopeWithCode } from "../../../../shared/wire-errors.js";
+
 // The shell's shutdown budget, on the same rule and for the same reason. It is
 // DECLARED in `src/shared/shutdown-budget.ts` because `src/main/sidecar-lifecycle.ts`
 // races the quit drain against it, and a value main reads cannot live in a console
 // file. The console's stake is one sentence, so it takes the figure through the floor
 // rather than reaching past the DAG to the cross-process leaf that holds it.
 export { DAEMON_SHUTDOWN_FLUSH_BUDGET_MS } from "../../../../shared/shutdown-budget.js";
+
 // The console's one airspace: which overlays are on screen in a window, so a native
 // view yields to them (`Spec-023 §Console Design (Meridian)` 12.3, §4.3). At the DAG
 // floor because its registrants are `primitives/` and its reader is a view family,

@@ -18,6 +18,14 @@
 // for what a row IS. What is left here is the ledger itself and the two views over
 // it, which is the half that changes every time a surface is built against a wire
 // the corpus has not registered.
+//
+// AND THE CONSUMING SURFACE IS `growth-slate-consumers.ts`'S, split off by CONSUMER.
+// What stays here is what a RUNNING console reads: `wire` composes the sentence a
+// person sees when an operation refuses, `owningDocument` travels on that refusal's
+// ledger, and `wireRegistered` is the gate two ledger cards read. Which surface waits
+// on a row is read by no shipped module at all, and this table is on the initial
+// import graph — so those sixty sentences are next door, where the bundler leaves them
+// off the document every session downloads.
 
 import type { GrowthSlateRow, GrowthSlateRowId } from "./growth-slate-row.js";
 
@@ -42,85 +50,73 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "browser pane kind, the browser bridge namespace, and the two node-wide browser settings",
     owningDocument:
       "Spec-023 §Preload Bridge Contract + §Console Design (Meridian); the embedded-browser Type-2 ADR",
-    consumingSurface: "browser pane",
     wireRegistered: false,
   },
   "browser-tool-relay": {
     id: "browser-tool-relay",
     wire: "browser tool set as Spec-005 callback-tool rows plus the daemon-to-desktop tool-call relay",
     owningDocument: "Spec-005; the embedded-browser Type-2 ADR",
-    consumingSurface: "browser pane",
     wireRegistered: false,
   },
   "terminal-pane": {
     id: "terminal-pane",
     wire: "terminal pane as a renderer surface with the shared-terminal write lease's renderer obligations",
     owningDocument: "Spec-003",
-    consumingSurface: "terminal pane",
     wireRegistered: false,
   },
   "dev-server-probe": {
     id: "dev-server-probe",
     wire: "live-listener probe for the dev-server chip",
     owningDocument: "Spec-007, or the embedded-browser ADR",
-    consumingSurface: "browser pane (the dev-server chip)",
     wireRegistered: false,
   },
   "session-lifecycle-verbs": {
     id: "session-lifecycle-verbs",
     wire: "session lifecycle verbs — rename, archive, close, reactivate",
     owningDocument: "Spec-001",
-    consumingSurface: "all-sessions list, workspace header",
     wireRegistered: false,
   },
   "session-directory-read": {
     id: "session-directory-read",
-    wire: "typed session snapshot read for a store's base state, and the participant's session directory read, over the daemon method union",
+    wire: "typed session snapshot read for a store's base state, and the participant's session directory read, over the daemon method union, plus the resume-position member on that read's request — `SessionReadRequest` is strict over `sessionId` alone and `SessionSubscribeRequest.afterCursor` is the only cursor a registered request carries",
     owningDocument:
       "Spec-007 (the daemon method union); Spec-001 (the session.read payloads; no directory read is registered)",
-    consumingSurface: "session-store initialisation, all-sessions list, auxiliary context picker",
     wireRegistered: false,
   },
   "daemon-control-methods": {
     id: "daemon-control-methods",
     wire: "daemon status-read, stop, and restart method strings",
     owningDocument: "Spec-007",
-    consumingSurface: "settings daemon page",
     wireRegistered: false,
   },
   "onboarding-methods": {
     id: "onboarding-methods",
     wire: "the five-method onboarding registration and its error codes",
     owningDocument: "Plan-026",
-    consumingSurface: "first-run frame",
     wireRegistered: false,
   },
   "shell-config-preferences": {
     id: "shell-config-preferences",
     wire: "shell-config preference carrier on the bridge (crash-report opt-out, the two browser switches, the auto-update toggle)",
     owningDocument: "Spec-023 §Preload Bridge Contract + §State And Data Implications",
-    consumingSurface: "settings pages",
     wireRegistered: false,
   },
   "invites-list": {
     id: "invites-list",
     wire: "the invites list read",
     owningDocument: "Spec-002",
-    consumingSurface: "invites surface",
     wireRegistered: false,
   },
   "health-subscribe": {
     id: "health-subscribe",
     wire: "the health subscription",
     owningDocument: "Spec-020",
-    consumingSurface: "health strip, park banner",
     wireRegistered: false,
   },
   "agent-snapshot-axes": {
     id: "agent-snapshot-axes",
     wire: "the four `agent.*` verbs (roster read, attach, configuration update, detach) and the agent-list projection of the four attach-time snapshot axes (optional members)",
     owningDocument: "Spec-030, Spec-016",
-    consumingSurface: "agent console, cast bar",
     wireRegistered: false,
   },
   // The linkage read is its own row rather than a member of the agent row above,
@@ -131,7 +127,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     id: "child-run-linkage",
     wire: "one parent run's child-run links and the fold of the creates that were refused",
     owningDocument: "Spec-016",
-    consumingSurface: "agent console run-linkage panel",
     wireRegistered: false,
   },
   // THE TWO SWITCH TERMINALS ARE TWO ROWS, NOT ONE, AND THAT IS THE CONSUMER TALKING.
@@ -147,21 +142,18 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     id: "agent-provider-switch-failure",
     wire: "the `agent.provider_switch_failed` event type, so a deferred switch that could not be applied reaches a client that did not issue the mutation",
     owningDocument: "Spec-006, Plan-016",
-    consumingSurface: "composer (the target chip)",
     wireRegistered: false,
   },
   "agent-provider-switch-terminal": {
     id: "agent-provider-switch-terminal",
     wire: "the `agent.provider_switched` event type, so a switch that applied at a deferred boundary reaches a client that did not issue the mutation — the settlement carrying its continuity arm and its declared losses",
     owningDocument: "Spec-006, Plan-016",
-    consumingSurface: "agent console (the switch settlement line), runs pane (the status row)",
     wireRegistered: false,
   },
   "gitflow-actions": {
     id: "gitflow-actions",
     wire: "the branch-context read, the diff-artifact create, the PR-preparation call, the git action-execute vocabulary, and the gitflow error namespace",
     owningDocument: "Spec-011",
-    consumingSurface: "repos, diffs, and pull-request surfaces",
     wireRegistered: false,
   },
   // WHERE THE PANE'S SAVE GOES, AND WHY IT IS NOT A ROW HERE. An artifact read hands
@@ -183,98 +175,78 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     id: "artifact-ingest-and-crud",
     wire: "attachment ingest method-name table and artifact CRUD method strings",
     owningDocument: "Plan-014",
-    consumingSurface: "artifact pane",
     wireRegistered: false,
   },
   "artifact-allowlist-and-abort": {
     id: "artifact-allowlist-and-abort",
     wire: "effective allow-list read; ingest abort",
     owningDocument: "Spec-014",
-    consumingSurface: "artifact pane",
     wireRegistered: false,
   },
   "worktree-setup-recipe": {
     id: "worktree-setup-recipe",
     wire: "the worktree setup-recipe carrier",
     owningDocument: "Spec-010",
-    consumingSurface: "repos surface",
     wireRegistered: false,
   },
   "workflow-event-registration": {
     id: "workflow-event-registration",
     wire: "registration of the twenty-four workflow event types",
     owningDocument: "Spec-006, Spec-017",
-    consumingSurface: "workflow-run pane",
     wireRegistered: false,
   },
   "workflow-definition-scope": {
     id: "workflow-definition-scope",
     wire: "the workflow-definition project-scope reference meaning",
     owningDocument: "Spec-017",
-    consumingSurface: "workflow-builder pane",
     wireRegistered: false,
   },
   "timeline-epoch-attestation": {
     id: "timeline-epoch-attestation",
     wire: "the timeline read's epoch and revision-attestation member",
     owningDocument: "Spec-013",
-    consumingSurface: "timeline pane",
     wireRegistered: false,
   },
   "timeline-path-reference": {
     id: "timeline-path-reference",
     wire: "validated path-reference member on timeline rows",
     owningDocument: "Spec-013",
-    consumingSurface: "timeline pane",
     wireRegistered: false,
   },
   "approval-method-payloads": {
     id: "approval-method-payloads",
     wire: "registered request and reply payload shapes for the four `approval.*` methods the pane calls",
     owningDocument: "Plan-012",
-    consumingSurface: "approvals pane",
     wireRegistered: false,
   },
   "approval-remembered-rule": {
     id: "approval-remembered-rule",
     wire: "per-row remembered-rule match on approval rows",
     owningDocument: "Spec-012",
-    consumingSurface: "approvals pane",
     wireRegistered: false,
   },
   "approval-amendment-arm": {
     id: "approval-amendment-arm",
     wire: "the approval amendment arm",
     owningDocument: "Spec-012",
-    consumingSurface: "approvals pane",
     wireRegistered: false,
   },
   "session-goal-methods": {
     id: "session-goal-methods",
     wire: "registered request and reply payload shapes for `session.goalUpdate` and `session.goalClear`",
     owningDocument: "Plan-016",
-    consumingSurface: "approvals pane (the session goal card)",
     wireRegistered: false,
   },
   "session-search": {
     id: "session-search",
     wire: "the session-search query surface",
     owningDocument: "Spec-001",
-    consumingSurface: "palette, all-sessions list",
-    wireRegistered: false,
-  },
-  "window-control-namespace": {
-    id: "window-control-namespace",
-    wire: "window-control bridge namespace — renderer-initiated pane detach into an auxiliary window, auxiliary-window focus and close, and the crashed-window pane-error signal",
-    owningDocument: "Spec-023 §Preload Bridge Contract + §Console Design (Meridian)",
-    consumingSurface: "session workspace deck, auxiliary windows",
     wireRegistered: false,
   },
   "provider-session-import": {
     id: "provider-session-import",
     wire: "provider-session import ingest",
     owningDocument: "a new spec",
-    consumingSurface: "import flow",
     wireRegistered: false,
   },
   "attention-plane": {
@@ -282,7 +254,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "the attention projection read and the notification preference pair, with the `AttentionItem` trigger and severity domains they carry",
     owningDocument:
       "Spec-019 §Interfaces And Contracts (the three operations); Plan-019 (the `packages/contracts/src/attention/` schemas, which no code package carries)",
-    consumingSurface: "notification centre, icon-rail attention marker",
     wireRegistered: false,
   },
   "workflow-run-control": {
@@ -290,7 +261,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "nine of the thirteen workflow method strings — the definition enumeration, the run start and read, the operator cancel and resume pair, the phase-output read, the gate resolve, the human-form submit, and the gate-chain verify — with the run, phase, definition, and output shapes they carry",
     owningDocument:
       "Spec-017 §Interfaces And Contracts (the definition, run, gate, phase-output, and human-form operations) + §Operator run control (SA-45) (the cancel and resume pair); Plan-017 (the shared-contracts and client-SDK registration, which no code package carries)",
-    consumingSurface: "workflow-run pane, workflow builder",
     wireRegistered: false,
   },
   "workflow-run-enumeration": {
@@ -298,8 +268,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "a read of the workflow runs a session holds, each entry carrying back the channel a chat-borne start named (`channelId`) — provenance `workflowRunStart` takes as an input and no registered read returns, so a channel-scoped surface has no way to ask which of a session's runs belongs to it. Registered nowhere, and not one of the thirteen rows the row above draws on: every registered run operation addresses ONE run by an id the caller must already hold, so a surface that lists runs has no wire to ask and no id to ask it with",
     owningDocument:
       "Spec-017 §Interfaces And Contracts (the run operations, none of which enumerates); Plan-017 (the shared-contracts and client-SDK registration an enumeration would join)",
-    consumingSurface:
-      "workflows destination (the runs it holds), channel timeline pane (the pinned progress card)",
     wireRegistered: false,
   },
   "caller-participant-identity": {
@@ -307,7 +275,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "the caller's own participant identity — which of a session's projected participants this window IS",
     owningDocument:
       "api-payload-contracts.md §Authenticated Principal And Authorization Model (the resolved principal's outbound disposition, which that section does not yet carry); Spec-018 §Interfaces And Contracts (the reply shape)",
-    consumingSurface: "members surface (invite create), approvals pane (the role-gated control)",
     wireRegistered: false,
   },
   "callback-tool-registry-read": {
@@ -315,7 +282,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "a read of a session's registered callback-tool set, which rides only the spawn and resume parameters and has no read seam",
     owningDocument:
       "Spec-005 §Required Behavior (the session callback-tool registry); api-payload-contracts.md §Plan-005 — Provider Driver Contract (Internal Interface) (the SessionCallbackTool shape and the client-facing driver namespace a read verb would join)",
-    consumingSurface: "approvals pane",
     wireRegistered: false,
   },
   "sidekick-definition-registry": {
@@ -323,7 +289,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "all five sidekick method strings — the definition list, create, update, and delete, plus the per-session peer-invocation grant — with the saved-definition shape and the five definition-plane refusal codes they carry",
     owningDocument:
       "Spec-030 §Interfaces And Contracts; Plan-030 §API And Transport Changes (the shapes are registered in api-payload-contracts.md and the codes in error-contracts.md, and no code package carries either)",
-    consumingSurface: "sidekick-definitions page, agent console peer-invocation control",
     wireRegistered: false,
   },
   "hydrated-event-read": {
@@ -331,7 +296,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "the hydrated event read that pairs a verified event row with its opened machine-authored body, and the participant-text body no arm of that read opens",
     owningDocument:
       "Spec-006 §Assistant Output (assistant_output); Plan-006 §Phase 3B — Machine-authored content column (explicit-label supplement) (the HydratedSessionEvent projection over session_events.content_payload, which the daemon builds and no bridge namespace serves; the participant half rides session_events.pii_payload under the same document and has no read projection at all)",
-    consumingSurface: "timeline pane, ledger rows",
     wireRegistered: false,
   },
   "cost-receipt-read": {
@@ -339,7 +303,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "the session cost receipt read and the orchestration budget read — the committed-spend fold and its per-run, per-caused-by, and per-paying-account decomposition",
     owningDocument:
       "Spec-016 §Session Cost Receipt (the decomposition and its two partition identities); api-payload-contracts.md §Plan-016 (the two method strings and their reply shapes, registered there and in no code package)",
-    consumingSurface: "cost-receipt settings page, cost meters",
     wireRegistered: false,
   },
   "workflow-version-chain": {
@@ -347,7 +310,27 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "a read of the version chain one run's pinned version belongs to, addressed by that opaque version id. Registered nowhere, and the mirror image of the row above it: workflow.versionRead addresses a version by (definitionId, versionNumber) and the definition enumeration carries only each definition's latest, so a surface holding a run's pin holds no way to name any other version of the same definition",
     owningDocument:
       "Spec-017 §Interfaces And Contracts (the definition and version operations, none of which resolves a version id); Plan-017 (the shared-contracts and client-SDK registration a chain read would join)",
-    consumingSurface: "workflow-run pane (the resume control's re-pin picker)",
+    wireRegistered: false,
+  },
+  "health-status-read": {
+    id: "health-status-read",
+    wire: "the one-shot node health read — the overall status category and the per-component readings, each with its own state and last-checked time, beside the subscription the strip follows",
+    owningDocument:
+      "Spec-020 (the health projection); api-payload-contracts.md §Health Method-Name Registry (the method string and its two schemas, registered there and in no code package)",
+    wireRegistered: false,
+  },
+  "daemon-version-negotiation": {
+    id: "daemon-version-negotiation",
+    wire: "a bridge read of the negotiated ack the shell holds — the agreed protocol version, the incompatible-handshake reason on a refusal, and the daemon's supported-protocol set on the two refusals that carry one, beside the version this console proposed. `daemon.hello` is registered, but a window may not re-issue it: the daemon latches the first handshake per connection and refuses every later one. What is missing is a READ of the reply the shell already holds, which no bridge or preload namespace carries",
+    owningDocument:
+      "Spec-023 §Daemon Supervision Lifecycle (step 3, which requires an incompatible handshake be surfaced to the renderer with reads permitted and names no seam that carries it); the envelopes themselves in packages/contracts/src/jsonrpc-negotiation.ts (DaemonHello / DaemonHelloAck and the three incompatible-handshake reasons)",
+    wireRegistered: false,
+  },
+  "timeline-live-resubscribe": {
+    id: "timeline-live-resubscribe",
+    wire: "a re-subscribe that opens a session's stream AFTER a position the caller states, so a window told about entries it never received replays from the last place it kept rather than re-reading the whole log. The method is registered and its request already carries that position; what is missing is a seam that can send one — the preload bridge's subscribe half names an EVENT and takes no request object, so there is nowhere on it for a position to travel, and the console's only reachable repair is the whole-window re-read",
+    owningDocument:
+      "Spec-013 §Timeline (the replay-from-a-kept-position reading a degraded ledger renders); Spec-023 §Preload Bridge Contract (the daemon namespace, whose subscribe half carries an event name and no request)",
     wireRegistered: false,
   },
   "workspace-execution-context": {
@@ -355,8 +338,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "a workspace's own execution context — the normalized checkout root a turn-boundary snapshot operates on, and the marker that says a run is executing under a FALLBACK execution mode rather than the mode that was selected. Neither reaches a client: the checkout root is a column on run_execution_contexts and is carried by no reply, and no registered field anywhere carries the fallback marker, so the three roots a branch-mode workspace can hold cannot be shown together and a substituted mode cannot be told apart from a chosen one",
     owningDocument:
       "Spec-010 §Fallback Behavior (the selected mode is marked distinctly from normal worktree mode) + Spec-010 §Turn-Boundary Snapshots (the normalized checkout root, and the run_execution_contexts.checkout_root column that holds it); Plan-010 (the shared-contracts and client-SDK registration a read would join)",
-    consumingSurface:
-      "repos surface (the workspace card's three-path disclosure and its fallback badge)",
     wireRegistered: false,
   },
   "mount-health-identity-verdict": {
@@ -364,8 +345,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "the identity-mismatch verdict a mount's health projection reports — the third member of the mount-health status union. The member is on the contract and no producer can emit it: the daemon-side projection that would derive it is unbuilt, and the repo namespace that would carry a mount read is registered by no handler, so the console's fail-closed three-verdict projection has a live source for none of the three",
     owningDocument:
       "Spec-009 §Repo Mount Health (V1 Definition) + I-009-17 (the three-member union, its precedence, and the read-time derivation); Plan-009 T-009-2B-5 in Phase 2B (the daemon-side projection, which consumes that phase's own common-directory re-derivation and persisted anchor write) and Plan-009 Phase 3 (the daemon handler namespace and client-SDK surface that would carry the read)",
-    consumingSurface:
-      "repos surface (the mount card's health chip and the re-attach control the permanent verdict carries); settings mounts page (the mount row's verdict)",
     wireRegistered: false,
   },
   "channel-lifecycle-verbs": {
@@ -373,7 +352,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "channel.create / channel.mute / channel.unmute / channel.archive — the four channel lifecycle verbs, with their request and reply shapes and the channel.* refusal codes they raise",
     owningDocument:
       "Spec-016 §Interfaces And Contracts (the create-time-immutable ChannelConfig and the two-value kind domain); api-payload-contracts.md §Plan-016 (the four method strings and their payload shapes, registered there and in no code package)",
-    consumingSurface: "channel list (mute / unmute / archive), create-a-channel form",
     wireRegistered: false,
   },
   "channel-roster-read": {
@@ -381,7 +359,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "channel.rosterRead — the daemon-native channel roster carrying each channel's kind, a direct channel's memberPair, and the ChannelConfig whose audience says whether this session's agents read it",
     owningDocument:
       "Spec-016 §Interfaces And Contracts (D-016-21: the kind discriminator, the immutable member pair, and the audience the daemon forces on a direct channel); api-payload-contracts.md §Plan-016 (ChannelRosterReadRequest / ChannelRosterReadResponse, registered there and in no code package)",
-    consumingSurface: "channel list (the audience badge and the direct-pair label)",
     wireRegistered: false,
   },
   "membership-roster-read": {
@@ -389,7 +366,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "a read returning a membershipId beside each of a session's participants — the identifier membership.update is keyed by, which every registered carrier answers only from a join or a write",
     owningDocument:
       "Spec-002 §Interfaces And Contracts (MembershipUpdate is keyed by membershipId and no read returns one); api-payload-contracts.md §Tier 2: Plan-002 (the five shapes that carry one, all of them a join or a write)",
-    consumingSurface: "membership ledger (the four membership.update controls)",
     wireRegistered: false,
   },
   "participant-presence-detail": {
@@ -397,7 +373,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "participant.presenceDetail — the owner/operator-only per-device presence fan-out behind the aggregated summary every role may read",
     owningDocument:
       "Spec-018 §Interfaces And Contracts (D-018-5 / I-018-6: the aggregated summary is the unauthorized-default projection); api-payload-contracts.md §Participant Method-Name Registry (Tier 5) (PresenceDetailReadRequest / PresenceDetailReadResponse, registered there and in no code package)",
-    consumingSurface: "roster (the per-device detail behind a row)",
     wireRegistered: false,
   },
   "terminal-control-holder": {
@@ -405,7 +380,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "the session's shared-terminal write-lease holder, registered as RuntimeNodeRosterResponse.controlHolder and carried by no shipped schema: RuntimeNodeRosterResponseSchema is strict and declares nodes alone, so the transport that reads the roster today refuses a reply that carries the member at all",
     owningDocument:
       "Spec-003 §Required Behavior (one shared terminal per session, one holder at a time); api-payload-contracts.md §Session Terminal-Control Method Registry (controlHolder, and the null it resolves to when the holding node reads offline)",
-    consumingSurface: "roster (the holder mark on the holding participant's row)",
     wireRegistered: false,
   },
   // The two Awareness activity fields, on ONE row rather than two. They are a single
@@ -418,7 +392,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "the two Awareness activity fields `activity.typing` and `activity.runs` — a read of the session's live activity state, and the composer's own set and clear emit for the human field",
     owningDocument:
       "Spec-002 §Default Behavior (both fields and the membership-restricted-channel suppression); Plan-002 T3.5 (the daemon presence handler surface the composer emits through); Spec-023 §Preload Bridge Contract (no presence namespace is on the shipped bridge)",
-    consumingSurface: "typing and agent-activity indicators (channel rows, roster rows)",
     wireRegistered: false,
   },
   "control-plane-host": {
@@ -426,7 +399,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "the node's control-plane host, which an invitation's shareable link is composed from",
     owningDocument:
       "Spec-002 §Invite Delivery (the link's form); Spec-023 §Preload Bridge Contract (no shell read carries the host)",
-    consumingSurface: "invites surface (the one-time link reveal)",
     wireRegistered: false,
   },
   "pending-invite-namespace": {
@@ -434,7 +406,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "the five-method pending-invite bridge namespace, through which the main-confined result of the registered `invite.preview` mutation reaches the renderer as an opaque, single-use, TTL-bounded reference",
     owningDocument:
       "Spec-023 §Preload Bridge Contract (the namespace is named there and is on no shipped bridge); Spec-002 §Interfaces And Contracts (the anonymous non-consuming invite preview main issues behind it)",
-    consumingSurface: "invite confirmation (the deep-link surface)",
     wireRegistered: false,
   },
   "notification-permission-read": {
@@ -442,8 +413,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "the shell's own reading of whether this machine will display an OS notification for this application. `native.showNotification` is on the preload contract and returns void, so the renderer cannot observe a denial through it, and no bridge member reports the permission",
     owningDocument:
       "Spec-023 §Preload Bridge Contract + §Main Process Responsibilities (which own OS notification emission and the do-not-disturb honouring, and register no permission read); Spec-019 §Fallback Behavior (the in-app-only fallback the reading selects), §Required Behavior (which requires in-app attention to survive a denied permission, and never says how a surface learns of one)",
-    consumingSurface:
-      "notification centre (the OS-notifications-denied arm); notifications settings page (the permission notice)",
     wireRegistered: false,
   },
   "shell-status-signals": {
@@ -451,8 +420,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "the shell's own status as one feed — the daemon supervisor's step and its attempt count out of five, the daemon.hello negotiation ack (compatible, protocolVersion, reason, daemonSupportedProtocols), the loopback-fallback signal, and the keystore-unavailable signal. Every one of them is a main-process fact and none of them is a daemon call: the renderer is not a direct daemon client, the ack belongs to the connection the main process holds, and a second handshake from here would be refused as one already completed",
     owningDocument:
       "Spec-023 §Preload Bridge Contract (no namespace carries any of it); Spec-023 §Daemon Supervision Lifecycle (the six steps and the five-attempt ladder), §Fallback Behavior (the loopback fallback and the offline read-only mode), §Native Keystore (the memory-only degradation); Spec-007 (the DaemonHelloAck shape, which packages/contracts publishes and no bridge namespace serves)",
-    consumingSurface:
-      "frame shell-state chrome — the daemon chip, the version banner, the reconnect and read-only banners, and the loopback/keystore notice strip",
     wireRegistered: false,
   },
   "onboarding-desktop-surface": {
@@ -460,7 +427,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "`onboarding.presentChoice` and `onboarding.telemetryPrompt`, the two preload-bridge methods `Spec-026 §Desktop Surface` names — the main-process hosts for the relay choice's secret entry and the telemetry answer",
     owningDocument:
       "Spec-023 §Preload Bridge Contract (which admits `onboarding` by name); Spec-026 §Desktop Surface",
-    consumingSurface: "first-run onboarding (group A)",
     wireRegistered: false,
   },
   "workflow-definition-authoring": {
@@ -468,16 +434,13 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "the three remaining registered workflow method strings — workflow.definitionRead, workflow.versionRead, and the single workflow.definitionCreate all five authoring acts ride — with the definition body they carry: the phase records, the four phase types and four gate types, the entry record, and the reference-only tool bindings. Three of the four rows the run-control row deliberately leaves out; the fourth is the draft save, which is declared with no V1 handler and so has nothing to reach. The write additionally carries a copy-on-write parent pointer no read reply returns, which is this row's own type-member prerequisite",
     owningDocument:
       "Spec-017 §Interfaces And Contracts (the definition read, the version read, and the create) + Spec-017 §Definition scope in the builder (SA-36) (the copy-on-write consequence and the operator-scope authorization a shared-target create clears) + Spec-017 §Definition file form — export and import (C-17) (the canonical file form export serializes into and import parses from); Plan-017 (the shared-contracts and client-SDK registration, which no code package carries)",
-    consumingSurface:
-      "workflow-builder pane (the definition detail and its authoring acts), definitions browser",
     wireRegistered: false,
   },
   "health-diagnostics-reads": {
     id: "health-diagnostics-reads",
-    wire: "the five `health.*` reads — the machine's status projection, one run's classified failure detail, one run's stall reading, the operator's recovery request, and the diagnostic redaction policy — with the request and reply shapes each carries. The health SUBSCRIPTION is a separate row and a separate wire: this page is forbidden to consume one",
+    wire: "the four `health.*` operations that have no row of their own — one run's classified failure detail, one run's stall reading, the operator's recovery request, and the diagnostic redaction policy — with the request and reply shapes each carries. The status projection is `health-status-read` above, which this page's banner consumes beside the cast bar; the health SUBSCRIPTION is a third row and a third wire, and this page is forbidden to consume one",
     owningDocument:
-      "Spec-020 §Required Behavior (the health, failure-classification, stuck-run, recovery, and redaction-policy surfaces); api-payload-contracts.md §Plan-020 — Observability And Failure Recovery and §Health Method-Name Registry (the five method strings and their request/reply shapes, registered there and in no code package — packages/contracts/src/health/health.ts is named as their eventual home and does not exist)",
-    consumingSurface: "diagnostics settings page",
+      "Spec-020 §Required Behavior (the failure-classification, stuck-run, recovery, and redaction-policy surfaces); api-payload-contracts.md §Plan-020 — Observability And Failure Recovery and §Health Method-Name Registry (the four method strings and their request/reply shapes, registered there and in no code package — packages/contracts/src/health/health.ts is named as their eventual home and does not exist)",
     wireRegistered: false,
   },
   "provider-account-signin-and-token": {
@@ -485,8 +448,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "the brokered sign-in, its cancel, and the registration that carries the one write-only non-interactive token member — the three account-plane verbs the registry read and its live tail do not cover",
     owningDocument:
       "Spec-029 §Node provider readiness and the sign-in handoff and §Non-interactive token registration; ADR-028 §Decision (D1 brokered sign-in, D2 bounded token custody); api-payload-contracts.md §Plan-029 (the three method strings, whose request and reply shapes `packages/contracts/src/provider-account.ts` already publishes and which no bridge namespace serves)",
-    consumingSurface:
-      "provider-accounts settings page (the sign-in card and the write-only token field)",
     wireRegistered: false,
   },
   "mcp-governance-plane": {
@@ -494,7 +455,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "the MCP governance namespace — the unified server inventory read and the enablement and trust mutations, with the binding identity, the redacted configuration read-back, the per-leg live status, the tool overrides, and the per-leg application outcomes they carry. Eight further operations are registered on the same namespace (upsert, remove, the two override verbs, OAuth login, reconnect, the per-binding get, and the live-status subscription) and are the owning plan's to call from the body it mounts",
     owningDocument:
       "Spec-028 §The operator surface and §Unified Inventory; api-payload-contracts.md §Plan-028 — MCP Governance Contract Surfaces (the eleven method strings and every shape above, registered there and in no code package)",
-    consumingSurface: "MCP servers settings page",
     wireRegistered: false,
   },
   "node-self-declaration": {
@@ -502,7 +462,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "a read delivering this node's own attach declaration — its identity, contract version, self-reported health, and capability set — to the renderer. Registered nowhere: the trust stance puts the declaration's composition in the main process and no bridge namespace carries it, so the attach control mounts against the fixture only",
     owningDocument:
       "Spec-023 §Preload Bridge Contract (the shell namespace a node self-declaration would join, on the shell-config carrier's precedent); Spec-023 §Trust Stance (which puts the composition in main)",
-    consumingSurface: "settings runtime-nodes page (the attach control)",
     wireRegistered: false,
   },
   "workflow-human-form-schema": {
@@ -510,7 +469,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "the prompt and the input schema of a phase parked on a person, as two live-scoped members of the run read's phase projection. Registered nowhere: that projection carries the four park members and no form content at all, so a phase waiting on somebody is legible and unanswerable — and the definition body that holds a human phase's prompt and schema is addressed by the definition and a version NUMBER, which a run holding one opaque version id has neither half of, so composing the form from the definition is not merely a second read but an unaddressable one",
     owningDocument:
       "Spec-017 §Park surfacing on the read model (SA-44) (the live-scoped phase-state members this pair joins, and the one-response rule a separately-fetched prompt would break) + §Human phase — HumanPhaseConfig (SA-10, SA-11, SA-12) (the prompt and the JSON Schema a human phase asks with); Plan-017 (the shared-contracts and client-SDK registration these members would join)",
-    consumingSurface: "workflow-run pane (the human form a parked phase opens)",
     wireRegistered: false,
   },
 };

@@ -29,6 +29,9 @@ import { COLLABORATION_SCENARIO } from "./collaboration.js";
 import { COMPOSER_SCENARIO } from "./composer.js";
 import { FIRST_RUN_SCENARIO } from "./first-run.js";
 import { FLAGSHIP_SCENARIO } from "./flagship.js";
+import { LEDGER_FIRST_SIXTY_SCENARIO } from "./ledger/ledger-first-sixty.js";
+import { LEDGER_QUIET_SCENARIO } from "./ledger/ledger-quiet.js";
+import { LEDGER_SCENARIO } from "./ledger/ledger.js";
 import { ONBOARDING_SCENARIO } from "./onboarding.js";
 import { REPOS_SCENARIO } from "./repos.js";
 import { RUNS_SCENARIO } from "./runs.js";
@@ -42,11 +45,14 @@ import type { ConsoleScenario } from "../scenario-runtime/index.js";
 export const CONSOLE_SCENARIOS: readonly ConsoleScenario[] = [
   FIRST_RUN_SCENARIO,
   FLAGSHIP_SCENARIO,
-  // T-023p-1C-2 ledger
-  // One family ships three scenarios where the others ship one: the composer, the
-  // runs pane, and the approvals pane are three surfaces with three different
-  // states worth pinning, and folding them into one session would make each of
-  // them reachable only through the others' noise.
+  // T-023p-1C-2 ledger. Two families ship three scenarios where the others ship one,
+  // and for the same reason: three surfaces with three different states worth pinning,
+  // which folding into one session would make reachable only through each other's noise
+  // — here the ledger at rest, its first sixty seconds, and a quiet session.
+  LEDGER_SCENARIO,
+  LEDGER_FIRST_SIXTY_SCENARIO,
+  LEDGER_QUIET_SCENARIO,
+  // T-023p-1C-3 composer — the composer, the runs pane, and the approvals pane.
   COMPOSER_SCENARIO,
   RUNS_SCENARIO,
   APPROVALS_SCENARIO,

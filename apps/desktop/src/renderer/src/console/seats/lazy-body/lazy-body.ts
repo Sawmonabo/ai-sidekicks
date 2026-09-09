@@ -49,7 +49,7 @@ export interface LazyBodyModule<TContext extends object> {
 /**
  * How a registration reaches its body.
  *
- * Written at the call site as `body: () => import("./diff-pane/diff-pane-body.js")`, which is
+ * Written at the call site as `body: () => import("../../repos/diff-pane/diff-pane-body.js")`, which is
  * what makes the boundary visible in the family's own registrar: the module specifier is
  * right there, and the bundler's chunk split follows it.
  */

@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { fixtureBridgeWithGrowth } from "../../bridge/fixture/call-plane/bridge.test-support.js";
-import { GIT_MOUNT_ID, GIT_WORKSPACE_ID } from "../../bridge/scenarios/repos-fixture-data.js";
+import { GIT_MOUNT_ID, GIT_WORKSPACE_ID } from "../../bridge/scenarios/repos/repos-fixture-data.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { eventOfKind } from "../../store/session-event.test-support.js";

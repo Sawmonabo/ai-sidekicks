@@ -54,6 +54,7 @@ import {
   UI_STATE_STORE_NAME,
 } from "../../../src/renderer/src/console/persistence/indexeddb-adapter.js";
 import { FIRST_RUN_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/first-run.js";
+import { PANE_HARNESS_LABEL } from "../../../src/renderer/src/console/frame/pane-harness/PaneHarnessFrame.js";
 import { withLaunchedConsole } from "../electron-harness.js";
 import { closePalette, openPalette } from "../palette-interaction.js";
 import { fixtureBundleExists } from "../fixture-bundle.js";
@@ -112,8 +113,15 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
     });
   });
 
-  it("boots the frame with its rail, a mounted surface, and a reserved one", async () => {
-    await withLaunchedConsole({}, async (consoleApplication) => {
+  it("boots the frame with its rail, a mounted surface, and a composed absence", async () => {
+    // The scenario is NAMED rather than defaulted, and that is this case's premise
+    // rather than a detail of it: every claim below is about the first-run
+    // composition — an empty directory, a readable session, an unowned pane kind —
+    // and a window that names no scenario now plays the demo and opens into it, which
+    // is the first-launch rule doing exactly what it was built to do. Naming the
+    // scenario is also what stands that rule down, on the same principle the rule
+    // applies to an explicit hash: a launch that said what it wanted is not overridden.
+    await withLaunchedConsole({ scenarioId: FIRST_RUN_SCENARIO.id }, async (consoleApplication) => {
       const consoleWindow = consoleApplication.window;
 
       // The rail exists and carries the destinations the frame declares. Read as
@@ -174,35 +182,54 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
           .count(),
       ).toBe(0);
 
-      // Reserved, not stubbed, on a destination that genuinely has no owner. This
-      // is the half of the pair that makes the other half mean something: without
-      // it, "no reserved-slot absence on sessions" would also pass over a frame
-      // that had stopped rendering that arm altogether. And the absence must be
-      // the COMPOSED one, not a bare line, because a bare line at the top-left of
-      // a real window is what a half-painted page looks like.
+      // The COMPOSED absence, in a real window, which is the half of the pair that
+      // makes the other half mean something: without it, "no absence wrapper on
+      // sessions" would also pass over a frame that had stopped rendering that arm
+      // altogether. And it must be the composed one, not a bare line, because a bare
+      // line at the top-left of a real window is what a half-painted page looks like.
       //
-      // Re-pointed rather than deleted, which is the instruction the previous probe
-      // left behind: it moved off `#/settings` when the collaboration family took
-      // that destination, and the workflows family has now taken `#/workflows`. Of
-      // the seven declared surface slots exactly one is still unclaimed — `timeline`
-      // — so it is the only address left that can ask this question at all.
+      // IT IS THE HARNESS'S ADMISSION REFUSAL, AND NO LONGER ITS RESERVED ARM. Every
+      // previous revision of this probe pointed at a destination nobody owned — off
+      // `#/settings` when the collaboration family took it, off `#/workflows` when the
+      // workflows family took that, off `#/window/timeline/…` once the ledger claimed
+      // the last unowned SURFACE slot, and then one layer down at a pane kind the deck
+      // declared and no family rendered. That last address is gone too: `registeredPaneKinds()`
+      // now answers with all eleven of `PANE_KINDS`, so no address anywhere in a built
+      // console reaches a reserved arm, and each earlier revision's own instruction —
+      // re-point it, do not delete it — ends here, at the point it named: there is no
+      // slot left to be told to reserve.
       //
-      // It is an AUXILIARY address, and that costs a session id: a bare
-      // `#/window/timeline` names a window without naming what to show in it, and
-      // the frame answers with the context picker rather than with an absence. So
-      // the probe names the scenario's own session, which this shell is playing —
-      // the first-run DIRECTORY is empty, which is what the assertion above is
-      // about, while the session it holds is readable, which is what gets the store
-      // open and the route as far as the slot. Re-point it again — do not delete it
-      // — the day a family claims `timeline`, and if that leaves no unclaimed slot
-      // at all, this probe has to be told which one to reserve rather than guess.
+      // What replaces it is an absence a family can never claim away, because it does
+      // not fire on a pane kind at all: `PaneHarnessSurface` holds the address segment
+      // to `parseConsolePaneAddress`, the console's one admission point for an address
+      // that arrived untyped, and a segment that names no kind is refused there. That
+      // is also the STRONGER end-to-end subject of the two — a reserved arm is a state
+      // a shipped build can only reach through its own composition mistake, while a
+      // mistyped hash is a thing a person actually does. The reserved arms themselves
+      // stay pinned where they can be driven directly, with a registry that holds no
+      // descriptor: `PaneHarnessSurface.test.tsx` for this one and `RouteSurface.test.tsx`
+      // for the slot layer above it. Point this back at a reserved arm the day a kind is
+      // declared in `PANE_KINDS` ahead of the family that renders it.
+      //
+      // BOTH address segments are required by that route's grammar, and the session
+      // is the scenario's own: the first-run DIRECTORY is empty, which is what the
+      // assertion above is about, while the session it holds is readable, which is
+      // what gets the store open and the route as far as the surface.
       await consoleWindow.evaluate((sessionId: string) => {
-        window.location.hash = `#/window/timeline/${sessionId}`;
+        window.location.hash = `#/pane-harness/not-a-pane-kind/${sessionId}`;
       }, FIRST_RUN_SCENARIO.sessionId);
-      await consoleWindow.locator(".meridian-surface-absence .meridian-nothing--empty").waitFor({
-        state: "visible",
-        timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
-      });
+      // `--block` is the composed placement, and asserting it is the other half of
+      // "not a bare line": the surface layer proved that with `SurfaceAbsence`, and
+      // this arm renders its `Nothing` inside the harness region instead, where the
+      // placement modifier is what carries the same claim.
+      await consoleWindow
+        .locator(
+          `section[aria-label="${PANE_HARNESS_LABEL}"] .meridian-nothing--block.meridian-nothing--error`,
+        )
+        .waitFor({
+          state: "visible",
+          timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+        });
     });
   });
 

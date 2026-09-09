@@ -42,6 +42,34 @@ import { SCENARIO_FIXTURE_GLOBAL, refuse, type ConsoleRefusal } from "../../core
 import { CONSOLE_SCENARIOS } from "./scenario-manifest.js";
 import type { ScenarioEngine } from "./scenario-engine.js";
 import { FIRST_RUN_SCENARIO_ID } from "../scenarios/first-run.js";
+import { LEDGER_FIRST_SIXTY_SCENARIO_ID } from "../scenarios/ledger/ledger-scenario-id.js";
+
+/**
+ * What a fixture window plays when its URL names no scenario.
+ *
+ * THE DEMO, and not the empty console it used to be. `Spec-023 §The four bars`,
+ * Richness, names the first sixty seconds a designed composition, and a build that
+ * only ever reached it by hand-typing a fixture id into a query string had a
+ * composition nobody would see. So the unnamed case is the one a person launching
+ * the product gets, and the empty first-run frame is named explicitly — by the
+ * scenario picker, by a launch argument, and by every suite that asks for it.
+ *
+ * DISTINCT FROM THE FALLBACK BELOW, and the two must not be folded together. This is
+ * "nobody said", which is a launch to be designed for; that one is "somebody said
+ * something this build does not have", which is a mistake to recover from, and
+ * recovering into a live scripted session would answer a typo with a room full of
+ * agents.
+ *
+ * THE BLAST RADIUS OF THIS CONSTANT IS EVERY UNNAMED FIXTURE WINDOW, which is why it
+ * moved with a sweep rather than on its own. Whatever it points at is what a fixture
+ * build plays when nothing names a scenario: the first-launch opening rule compares
+ * against it, and any suite, driver, or launch argument that does NOT pass a scenario
+ * id gets it. Every browser, endurance, accessibility, and screenshot case in this
+ * repository names its scenario explicitly and is therefore unaffected — that is the
+ * property that makes this constant safe to move, and it is a property to re-check
+ * rather than assume the next time it moves.
+ */
+export const DEFAULT_SCENARIO_ID: string = LEDGER_FIRST_SIXTY_SCENARIO_ID;
 
 /** The document-URL query parameter a fixture build carries its scenario id on. */
 export const SCENARIO_QUERY_PARAMETER = "scenario";
@@ -77,7 +105,7 @@ export class ScenarioSelection {
     const requested = new URLSearchParams(documentSearch).get(SCENARIO_QUERY_PARAMETER);
     if (requested === null || requested === "") {
       this.#requestedScenarioId = undefined;
-      this.#scenarioId = FIRST_RUN_SCENARIO_ID;
+      this.#scenarioId = DEFAULT_SCENARIO_ID;
       this.#refusal = undefined;
       return;
     }

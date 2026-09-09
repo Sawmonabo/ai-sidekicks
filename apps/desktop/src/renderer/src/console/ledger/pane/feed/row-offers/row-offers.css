@@ -1,0 +1,83 @@
+/* `ledger/pane/feed/row-offers/`'s styles — the one per-row control and its menu.
+ *
+ * ONE SHEET PER DIRECTORY, imported by this directory's own door, which is the shape
+ * `ledger/ledger.css` states for the family: a rule sits beside the code that renders
+ * it, and a door reaching into a directory that owns its own sheet is what
+ * `apps/desktop/AGENTS.md` §Module shape forbids.
+ *
+ * WHAT IS DELIBERATELY NOT HERE: the reveal. `primitives/figures/ledger-row.css` owns
+ * `meridian-ledger-row__revealed` — the row decides WHEN a secondary control appears
+ * and this family decides what the control is — so a `:hover` rule here would be a
+ * second family declaring the primitive's class and would make the reveal a question
+ * the cascade answers rather than a rule either sheet states.
+ */
+
+/* --- The trigger --------------------------------------------------------- */
+
+/*
+ * A glyph-sized control and nothing else: no border, no fill, no label. The row is
+ * one line until it is opened, and a bordered button on every row would be a second
+ * visible boundary in a list whose whole legibility rests on one — the attribution
+ * edge.
+ */
+.meridian-ledger-row-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--meridian-space-1);
+  border: none;
+  border-radius: var(--meridian-radius-sm);
+  background: none;
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-ledger-row-menu__trigger:hover {
+  color: var(--meridian-text);
+  background: var(--meridian-surface-sunken);
+}
+
+/*
+ * Focus is the one state that overrides the row's reveal. A keyboard reader tabbing
+ * into the row reaches this control, and `:focus-within` on the row already lifts the
+ * opacity — but a control focused while the pointer is elsewhere must be visible on
+ * its own terms, which is what the explicit opacity here is for.
+ */
+.meridian-ledger-row-menu__trigger:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* --- The menu ------------------------------------------------------------ */
+
+.meridian-ledger-row-menu__positioner {
+  z-index: 1;
+}
+
+.meridian-ledger-row-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 13rem;
+  padding: var(--meridian-space-1);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-ledger-row-menu__item {
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border-radius: var(--meridian-radius-sm);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  cursor: pointer;
+}
+
+.meridian-ledger-row-menu__item[data-highlighted] {
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-ledger-row-menu :focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}

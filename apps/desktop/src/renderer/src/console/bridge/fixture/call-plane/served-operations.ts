@@ -90,6 +90,36 @@
 // branch finder pins its own, and pins the identity premise from the other side: no
 // scenario states a viewer under any name but the one field the port reads.
 //
+// WHY THE NEGOTIATION READ IS SERVED FROM A SCRIPT AND FROM NOTHING ELSE
+//
+// The health read's rule, for the same reason and one more. A negotiation outcome is
+// an OBSERVATION of two builds meeting — which version was agreed, which set the
+// runtime supports — and a scenario carries no runtime, so there is nothing to derive
+// one from. Nor is there an empty form: the reply's `compatible` has to say yes or no,
+// and either answer is a claim about a handshake nobody performed. The one more is
+// that the false arm is the surface's whole subject — a fabricated `true` would make
+// the mismatch banner unreachable in every fixture window, and a fabricated `false`
+// would raise it in all of them. `scenarios/negotiation-replies.ts` scripts both arms
+// once and hands the agreeing one to the flagship and the refusing one to the ledger.
+//
+// WHY THE FOUR `approval.*` OPERATIONS ARE SERVED, AND THE TWO GOAL ONES ARE NOT
+//
+// The approvals scenario scripts all four calls — two reads with the rows a person
+// answers, and the two mutations with the replies the wire would send — so the rule
+// is met by the same evidence the gitflow read is measured against, and the pane can
+// be built against a projection it actually renders rather than against a refusal.
+// The narrowing is this port's, not the pane's: the scripted reply is `unknown` and
+// the corpus registers no shape for these methods, so `assertScriptedReplyOnContract`
+// on the call arm has nothing to check and would pass anything through. What binds
+// the script here is the console's OWN reading in `approvals/approval-records.ts` —
+// the one parser both this fixture and the eventual `callDaemon` seam narrow with, so
+// a scenario cannot teach the pane a row shape the surface will not accept later.
+//
+// A scenario that scripts none of them refuses rather than serving an empty
+// projection, which is the `callerParticipantRead` disposition and not the branch
+// read's: an empty approvals list is a claim that nothing is waiting on a decision,
+// and a scenario that models no approvals has not made it.
+//
 // WHY THE AGENT ROSTER READ IS SERVED
 //
 // Four shipped scenarios script `agent.list` and no caller could reach any of them
@@ -106,6 +136,55 @@
 // the agent console and this chip both have to draw rather than a claim no script
 // made. The chip reads that answer as knowing nothing about a binding, which is a
 // different rendering from its refused arm.
+//
+// WHY THE FIVE WINDOW OPERATIONS ARE SERVED WITHOUT A SCENARIO SCRIPTING ANYTHING
+//
+// They are the one plane here addressed to the SHELL rather than to the daemon — the
+// window bridge `Spec-023 §Windows` describes — and the rule above cannot be applied
+// to them as written, because a scenario carries no windows and never will. For a
+// shell-addressed operation the fixture IS the shell, so the answers come from a real
+// model of one that `../shell/auxiliary-windows.ts` holds per bridge, and every one of
+// them is a fact about that model: a detach mints a handle, a focus or a close is
+// served for a handle the model opened and refuses for any other, and both signals —
+// the crashed-window one and the orderly-return one — are opened, real, and quiet.
+//
+// AND THEY ARE NOT ON THE SCRIPT-ONLY LIST BELOW, which is the same judgement from the
+// other side. A script-only write has no honest empty state; these have an honest
+// answer under every scenario, because what they answer about is the shell's own
+// window set rather than anything a script states. What the model will not do is
+// manufacture a crash — that reasoning is in its own header.
+
+// WHY THE LIVE GAP FILL IS ON NEITHER LIST
+//
+// `timelineSubscribe` re-opens a session's stream after a position the caller states,
+// and its served answer would be the subscription id the daemon minted for that
+// replay. No scenario holds one, and none could: a scenario is a script of beats over
+// a frozen clock, so the subscription every window already tails is the engine's own
+// and was never acknowledged by anything that issues ids. Minting one here is the
+// `gitflowPrPrepare` invention exactly — a receipt for work no author said was done —
+// and it is worse in one respect, because a served id would tell the surface the
+// replay was ACCEPTED while the rows that replay would carry never arrive. Nor is
+// there an absence to serve: a subscription that opened and delivered nothing and one
+// nobody asked for are answers to different questions.
+//
+// So it refuses under both bridges, and the refusal is the true state of that wire.
+// What a fixture CAN reach is the console's own half — a window holding a position it
+// kept, over a projection it knows is missing rows — and that is reachable from the
+// store rather than from this port.
+//
+// WHY THE SHELL'S NOTIFICATION-PERMISSION READ IS SERVED FROM THE SCRIPT
+//
+// `native.showNotification` returns `void`, so the emission path reports nothing: a
+// machine that will not display a notification is indistinguishable, from inside the
+// renderer, from one that just did. The notification centre has an arm for exactly
+// that state — it is the only surface these items reach a person on, and it says so —
+// and no bridge member carries the fact, so the read is the growth port's.
+//
+// It is served here so a scenario can put the centre in that arm, and it REFUSES for
+// a scenario that scripts nothing, which is `callerParticipantRead`'s disposition
+// rather than the invite ledger's: a permission has no empty form. "Nobody asked"
+// is a true statement about a script that has not said, and answering `granted`
+// would be the fixture promising a notification nothing in the console can deliver.
 //
 // WHY THE TWO LEASE OPERATIONS ARE SERVED, AND WHY THAT IS ABOUT REFUSALS
 //
@@ -201,6 +280,9 @@ import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "../workflows/workflow-rea
  */
 export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   ...typeof FIXTURE_SERVED_SESSION_OPERATION_IDS,
+  "sessionIdentityRead",
+  "daemonNegotiationRead",
+  "orchestrationBudgetRead",
   "attentionProjectionRead",
   ...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS,
   "gitflowBranchContextRead",
@@ -233,6 +315,18 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // a role against them, taken from the module that implements them so the ids and the
   // handlers cannot disagree. `collaboration/session-answers.ts` carries the reasoning.
   ...FIXTURE_SERVED_SESSION_OPERATION_IDS,
+  // The header's own identity read, derived from the same scripted reply the base
+  // state is. The health read the same header renders is the diagnostics plane's
+  // and is served through that plane's own list.
+  "sessionIdentityRead",
+  // The negotiated ack the shell holds, read by the window rather than by the shell
+  // that performed the handshake — scripted for the reason above, since a fixture that
+  // answered it would be asserting which two builds met.
+  "daemonNegotiationRead",
+  // The accountant's committed figure, which the cast bar's all-clear line renders and
+  // is forbidden to compute. Scripted, never derived: an unscripted zero would be a
+  // claim about a session's spend rather than an absence.
+  "orchestrationBudgetRead",
   // The one projection the console must not compute for itself.
   "attentionProjectionRead",
   // workflow — the reads a workflows scenario scripts, taken from the module that

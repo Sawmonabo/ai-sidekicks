@@ -21,16 +21,16 @@
 // dedupes the fetch, and still two answers to whether the kit has arrived.
 //
 // WHAT THE RESERVED REGION IS. A form whose module is in flight draws the marker
-// `pending-pane-body.ts` owns and nothing else: no spinner, no skeleton, and none of
+// `pending-pane-body.ts` owns and nothing else, through that module's own
+// `reservedBodyRegion` — the construction was private here until a second and third
+// loader-backed body wanted it: no spinner, no skeleton, and none of
 // rule 8's five kinds of nothing — `PendingPaneBody.tsx` states that reasoning in full
 // and it holds unchanged here, because what is absent is a MODULE rather than anything
 // about the phase. The marker rides a `hidden` element, so what the wait costs the
 // layout is nothing, and the screenshot tier refuses to photograph a tree carrying one.
 
-import { createElement } from "react";
-
 import { LoadedLazyBody } from "../lazy-body/lazy-body.js";
-import { PENDING_PANE_BODY_ATTRIBUTE } from "../pane/pending-pane-body.js";
+import { reservedBodyRegion } from "../pane/pending-pane-body.js";
 import type { SchemaFormAnswerProps } from "./containers/SchemaFormAnswer.js";
 import type { SchemaFormPreviewProps } from "./containers/SchemaFormPreview.js";
 
@@ -87,14 +87,6 @@ export class SchemaFormChunk {
 /** The page's loader. A test builds its own; nothing else does. */
 export const schemaFormChunk: SchemaFormChunk = new SchemaFormChunk();
 
-/** The reserved region a form leaves while its module is still arriving. */
-function reservedFormRegion(): React.ReactNode {
-  return createElement("span", {
-    hidden: true,
-    [PENDING_PANE_BODY_ATTRIBUTE]: SCHEMA_FORM_PENDING_BODY,
-  });
-}
-
 /**
  * The waiting phase's form, mounted from the chunk.
  *
@@ -107,11 +99,11 @@ function reservedFormRegion(): React.ReactNode {
  */
 export const schemaFormAnswerMount: LoadedLazyBody<SchemaFormAnswerProps> = new LoadedLazyBody(
   async () => ({ Body: (await schemaFormChunk.load()).SchemaFormAnswer }),
-  reservedFormRegion,
+  () => reservedBodyRegion(SCHEMA_FORM_PENDING_BODY),
 );
 
 /** The form a phase WILL ask, mounted from the same chunk and the same memo. */
 export const schemaFormPreviewMount: LoadedLazyBody<SchemaFormPreviewProps> = new LoadedLazyBody(
   async () => ({ Body: (await schemaFormChunk.load()).SchemaFormPreview }),
-  reservedFormRegion,
+  () => reservedBodyRegion(SCHEMA_FORM_PENDING_BODY),
 );

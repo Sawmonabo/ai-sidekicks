@@ -17,7 +17,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { PARTICIPANT_YOU } from "../../bridge/scenarios/repos-fixture-data.js";
+import { PARTICIPANT_YOU } from "../../bridge/scenarios/repos/repos-fixture-data.js";
 import { ManualClock } from "../../core/index.js";
 import { offeredProposalActions, type ProposalAction } from "./proposal-actions.js";
 import type { ProposalGateReader } from "./proposal-gate-reader.js";

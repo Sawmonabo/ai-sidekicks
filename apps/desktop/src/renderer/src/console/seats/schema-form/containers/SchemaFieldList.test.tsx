@@ -41,8 +41,8 @@ const PRESENT_EMPTY_SCHEMA = {
 } as const;
 
 describe("the collection a schema-derived form draws", () => {
-  it("draws an answered list with the control that adds an entry and none that removes one yet", () => {
-    const container = renderForm({
+  it("draws an answered list with the control that adds an entry and none that removes one yet", async () => {
+    const container = await renderForm({
       type: "object",
       properties: { reviewers: { type: "array", title: "Reviewers", items: { type: "string" } } },
     });
@@ -55,7 +55,7 @@ describe("the collection a schema-derived form draws", () => {
     expect(container.querySelectorAll(".meridian-schema-list__item")).toHaveLength(0);
   });
 
-  it("draws a yes-or-no entry as the box a position always holds a value for", () => {
+  it("draws a yes-or-no entry as the box a position always holds a value for", async () => {
     // WHERE REQUIREDNESS AND "MAY BE LEFT OUT" PART COMPANY, which is the one thing the
     // entry descriptor exists to say. This collection is OPTIONAL, so the answer may leave
     // `flags` out entirely — but a POSITION inside it cannot be left out: the entry is on
@@ -64,7 +64,7 @@ describe("the collection a schema-derived form draws", () => {
     // optional boolean draws, and offered an unanswered option that writes nothing into a
     // slot that has to hold something.
     answerEveryCollection(
-      renderForm({
+      await renderForm({
         type: "object",
         properties: {
           flags: { type: "array", title: "Flags", items: { type: "boolean" } },
@@ -81,12 +81,12 @@ describe("the collection a schema-derived form draws", () => {
     expect(screen.getByLabelText("Notify").tagName).toBe("SELECT");
   });
 
-  it("names each collection's add control after the collection it adds to", () => {
+  it("names each collection's add control after the collection it adds to", async () => {
     // A fieldset legend is not part of a button's accessible name, so two lists drawn with
     // the same visible text are two controls a person navigating between buttons cannot
     // tell apart — and pressing one of them adds an entry somewhere they did not choose.
     answerEveryCollection(
-      renderForm({
+      await renderForm({
         type: "object",
         properties: {
           reviewers: { type: "array", title: "Reviewers", items: { type: "string" } },
@@ -102,11 +102,11 @@ describe("the collection a schema-derived form draws", () => {
     expect(screen.queryAllByRole("button", { name: "Add an entry" })).toHaveLength(0);
   });
 
-  it("names each entry's remove control after the entry it removes", () => {
+  it("names each entry's remove control after the entry it removes", async () => {
     // The same defect one control over, and it arrives the moment somebody adds anything:
     // the first entry of every collection on the form is "entry 1".
     answerEveryCollection(
-      renderForm({
+      await renderForm({
         type: "object",
         properties: {
           reviewers: { type: "array", title: "Reviewers", items: { type: "string" } },
@@ -122,8 +122,8 @@ describe("the collection a schema-derived form draws", () => {
     expect(screen.queryAllByRole("button", { name: "Remove entry 1" })).toHaveLength(0);
   });
 
-  it("names each repeated control by its collection and the position it sits at", () => {
-    const container = renderForm({
+  it("names each repeated control by its collection and the position it sits at", async () => {
+    const container = await renderForm({
       type: "object",
       properties: { reviewers: { type: "array", title: "Reviewers", items: { type: "string" } } },
     });
@@ -140,8 +140,8 @@ describe("the collection a schema-derived form draws", () => {
     );
   });
 
-  it("renders an indexed finding under the entry it is about rather than on the whole list", () => {
-    const container = renderForm({
+  it("renders an indexed finding under the entry it is about rather than on the whole list", async () => {
+    const container = await renderForm({
       type: "object",
       properties: {
         reviewers: { type: "array", title: "Reviewers", items: { type: "string", minLength: 3 } },
@@ -163,8 +163,8 @@ describe("the collection a schema-derived form draws", () => {
     ).toBeNull();
   });
 
-  it("opens an optional collection unanswered and makes it a present empty array once answered", () => {
-    const container = renderForm(PRESENT_EMPTY_SCHEMA);
+  it("opens an optional collection unanswered and makes it a present empty array once answered", async () => {
+    const container = await renderForm(PRESENT_EMPTY_SCHEMA);
     const list = listFieldset(container);
 
     // Unanswered: absent from the answer, offering the one control that answers it and
@@ -184,11 +184,11 @@ describe("the collection a schema-derived form draws", () => {
     expect(composedAnswer(container)).toEqual({});
   });
 
-  it("keeps an answered collection present after its last entry is removed", () => {
+  it("keeps an answered collection present after its last entry is removed", async () => {
     // Present-empty and absent are two states, and only the activation control moves
     // between them: a collection somebody answered and then emptied is an empty array,
     // not a member they never answered.
-    const container = renderForm({
+    const container = await renderForm({
       type: "object",
       properties: { reviewers: { type: "array", title: "Reviewers", items: { type: "string" } } },
     });
@@ -204,10 +204,10 @@ describe("the collection a schema-derived form draws", () => {
     expect(composedAnswer(container)).toEqual({});
   });
 
-  it("draws a required collection answered from the mount, with no control that takes it back", () => {
+  it("draws a required collection answered from the mount, with no control that takes it back", async () => {
     // The other half of the rule, unchanged: the schema demands the array, so there is no
     // state the control could reach and it is absent rather than drawn and inert.
-    const container = renderForm({
+    const container = await renderForm({
       type: "object",
       properties: { reviewers: { type: "array", title: "Reviewers", items: { type: "string" } } },
       required: ["reviewers"],
@@ -219,10 +219,10 @@ describe("the collection a schema-derived form draws", () => {
     expect(within(list).getByRole("button", { name: "Add an entry to Reviewers" })).toBeDefined();
   });
 
-  it("names the collection's description in the fieldset's description, ahead of any finding", () => {
+  it("names the collection's description in the fieldset's description, ahead of any finding", async () => {
     // A person moving between the entry, add, and remove controls hears the legend and
     // never the author's instructions, which the fieldset drew visibly and named nowhere.
-    const container = renderForm({
+    const container = await renderForm({
       type: "object",
       properties: {
         reviewers: {
@@ -242,8 +242,8 @@ describe("the collection a schema-derived form draws", () => {
     expect(document.getElementById(describedBy[1] ?? "")?.textContent ?? "").not.toBe("");
   });
 
-  it("names the description alone where nothing is wrong, and the finding alone where there is none", () => {
-    const described = renderForm({
+  it("names the description alone where nothing is wrong, and the finding alone where there is none", async () => {
+    const described = await renderForm({
       type: "object",
       properties: {
         reviewers: {
@@ -262,7 +262,7 @@ describe("the collection a schema-derived form draws", () => {
     expect(describedOnly).toHaveLength(1);
     expect(document.getElementById(describedOnly[0] ?? "")?.textContent).toBe("Two at least.");
 
-    const undescribed = renderForm({
+    const undescribed = await renderForm({
       type: "object",
       properties: {
         reviewers: { type: "array", title: "Reviewers", items: { type: "string" }, minItems: 2 },
@@ -277,12 +277,12 @@ describe("the collection a schema-derived form draws", () => {
     expect(document.getElementById(issuesOnly[0] ?? "")?.textContent ?? "").not.toBe("");
   });
 
-  it("keeps an entry's finding off a member whose own name reads like that entry's position", () => {
+  it("keeps an entry's finding off a member whose own name reads like that entry's position", async () => {
     // The negative control for the path representation. Joined with a dot, the property
     // literally named `items.0` and the first entry of the array named `items` are ONE
     // string, so the entry's finding was drawn under both controls — under a control whose
     // value the schema had said nothing about.
-    const container = renderForm({
+    const container = await renderForm({
       type: "object",
       properties: {
         "items.0": { type: "string", title: "A member named like a position" },

@@ -37,7 +37,7 @@ import {
   serveShell,
   stopShell,
   stoppedShell,
-} from "../shell-condition.test-support.js";
+} from "../../store/shell-condition.test-support.js";
 import {
   Memberships,
   OWNER_AND_COLLABORATOR,

@@ -33,6 +33,8 @@ import {
   NON_TEXT_FLOOR_TOKEN_NAMES,
   PARTICIPANT_HUES,
   SCHEME_COLOR_TOKENS,
+  SUNKEN_WELL_GROUND_TOKEN_NAME,
+  SUNKEN_WELL_TEXT_TOKEN_NAMES,
   TEXT_CONTRAST_FLOOR,
   TEXT_FLOOR_TOKEN_NAMES,
   TINTED_GROUND_PAIRS,
@@ -200,6 +202,65 @@ describe("Meridian palette — every participant hue is findable on every ground
       });
     }
   }
+});
+
+describe("Meridian palette — a code or command-output body clears the text floor on its own well", () => {
+  // The two family vocabularies. They are text — a highlighted token and a coloured
+  // run of command output are both read — so they carry 1.4.3's floor like any other
+  // text, and they are measured on `surface-sunken` alone because that is the only
+  // ground the console ever paints them on.
+  //
+  // This census is the reason the values moved out of `ledger/ledger.css`. As
+  // literals in a stylesheet they were fitted into no gamut and held to no floor, and
+  // the light scheme's six bright ANSI names sat between 3.8:1 and 4.5:1 — a WCAG
+  // 1.4.3 failure that no test could have caught while the colours lived somewhere
+  // nothing measured.
+  for (const scheme of CONSOLE_SCHEMES) {
+    for (const tokenName of SUNKEN_WELL_TEXT_TOKEN_NAMES) {
+      it(`${scheme}: ${tokenName} on ${SUNKEN_WELL_GROUND_TOKEN_NAME}`, () => {
+        const ratio = contrastRatio(
+          schemeColor(tokenName, scheme),
+          schemeColor(SUNKEN_WELL_GROUND_TOKEN_NAME, scheme),
+        );
+        expect(ratio).toBeGreaterThanOrEqual(TEXT_CONTRAST_FLOOR);
+      });
+    }
+  }
+
+  it("negative control: the census is populated, and the same measurement rejects a foreground the well cannot hold", () => {
+    // Without the first half a census derived from an emptied record would make every
+    // case above vacuous — and the derivation is exactly what makes emptying it
+    // possible without editing this file.
+    expect(SUNKEN_WELL_TEXT_TOKEN_NAMES.length).toBeGreaterThan(0);
+    // And the second half drives the same measurement over a token that genuinely
+    // fails on this ground: `edge` is the decorative hairline the palette states
+    // carries no floor at all, so a measurement reporting it as passing would be
+    // reporting a constant.
+    for (const scheme of CONSOLE_SCHEMES) {
+      const ratio = contrastRatio(
+        schemeColor("edge", scheme),
+        schemeColor(SUNKEN_WELL_GROUND_TOKEN_NAME, scheme),
+      );
+      expect(ratio).toBeLessThan(TEXT_CONTRAST_FLOOR);
+    }
+  });
+
+  it("keeps every bright ANSI name distinguishable from the normal one it pairs with", () => {
+    // The light scheme's bright values are the deepest the floor admits, which is the
+    // move that could have collapsed eight pairs into eight colours. Asserted over
+    // the resolved values rather than the requests, because chroma fitting is what
+    // would close the last of the gap if it did.
+    for (const scheme of CONSOLE_SCHEMES) {
+      const collapsed = SUNKEN_WELL_TEXT_TOKEN_NAMES.filter((tokenName) =>
+        tokenName.startsWith("ansi-bright-"),
+      ).filter((brightName) => {
+        const bright = schemeColor(brightName, scheme);
+        const normal = schemeColor(brightName.replace("ansi-bright-", "ansi-"), scheme);
+        return bright.lightness === normal.lightness && bright.chroma === normal.chroma;
+      });
+      expect(collapsed).toStrictEqual([]);
+    }
+  });
 });
 
 /**

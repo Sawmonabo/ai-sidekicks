@@ -51,6 +51,35 @@ export interface FrameChromeProps {
   readonly banners: readonly FrameBanner[];
   readonly onDismissBanner: (bannerId: string) => void;
   /**
+   * Extra content one banner draws beneath its row, or nothing for that banner.
+   *
+   * A SLOT BECAUSE `FrameBanner` IS STORE DATA. That shape is what the frame store
+   * holds — `store/shell/frame-store.ts` keeps its React import type-only — so a banner
+   * whose producer has more to say than a code and a sentence cannot say it on the
+   * banner itself. The version mismatch is the case: its protocol pair and the
+   * runtime's published set are facts a `FrameBanner` has no member for, and drawing
+   * them in the surface tree instead is how that refusal was reaching the frame
+   * without ever reaching the announcer.
+   *
+   * The caller matches on the banner's own id, so a supplement belongs to exactly one
+   * row rather than to whichever row happens to be raised.
+   */
+  readonly renderBannerSupplement?: (banner: FrameBanner) => React.ReactNode;
+  /**
+   * Controls that address THIS WINDOW rather than anything in it.
+   *
+   * Above the banners and OUTSIDE the surface's error boundary, which is the whole
+   * reason it is a slot on the chrome rather than something a surface draws: a window
+   * whose surface threw is the state in which being unable to give its pane back
+   * would matter most, and a control mounted inside that boundary would be the first
+   * thing to disappear.
+   *
+   * A prop for the reason `surfaces` is one — the frame renders what it is handed and
+   * owns no act — and the one filler today is the auxiliary window's return control,
+   * which draws nothing at all on a window that no deck is holding a slot for.
+   */
+  readonly windowControls?: React.ReactNode;
+  /**
    * Standing chrome about the shell itself, above the raised-banner stack.
    *
    * A slot rather than a render, for the same reason `surfaces` is: the frame owns
@@ -90,23 +119,34 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
           />
         )}
         <div className="meridian-frame__column">
+          {/* This window's own controls sit above the shell's standing chrome: one
+              addresses the window a person is looking at and the other reports on the
+              runtime behind every window, and the narrower subject reads first. Both
+              are above the raised-banner stack for the reasons their props give. */}
+          {props.windowControls}
           {props.shellChrome}
           {props.banners.length === 0 ? null : (
             <div className="meridian-frame__banners">
-              {props.banners.map((banner) =>
-                banner.dismissible ? (
-                  <RefusalBanner
-                    key={banner.id}
-                    code={banner.code}
-                    detail={banner.detail}
-                    onDismiss={() => {
-                      props.onDismissBanner(banner.id);
-                    }}
-                  />
-                ) : (
-                  <RefusalBanner key={banner.id} code={banner.code} detail={banner.detail} />
-                ),
-              )}
+              {props.banners.map((banner) => (
+                // Wrapped whether or not a supplement is drawn, so one banner is one
+                // element of the column either way: a row that grew a supplement would
+                // otherwise become two children of a gapped flex column and read as
+                // two separate notices about two separate things.
+                <div key={banner.id} className="meridian-frame__banner">
+                  {banner.dismissible ? (
+                    <RefusalBanner
+                      code={banner.code}
+                      detail={banner.detail}
+                      onDismiss={() => {
+                        props.onDismissBanner(banner.id);
+                      }}
+                    />
+                  ) : (
+                    <RefusalBanner code={banner.code} detail={banner.detail} />
+                  )}
+                  {props.renderBannerSupplement?.(banner)}
+                </div>
+              ))}
             </div>
           )}
           <main className="meridian-frame__surface">

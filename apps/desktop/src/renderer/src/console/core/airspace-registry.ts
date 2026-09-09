@@ -12,11 +12,11 @@
 // sits BELOW a view family, so no overlay primitive could import it and the registry
 // shipped with zero registrants — a set the visibility predicate consulted and that
 // nothing ever put anything into. The registrants are the primitive layer and the
-// reader is a view family, and `core/` is the only rung both of them can reach. The
-// workspace family's deck carries a second registry of the same name for the same
-// rule; the merge that lands it retires that one in favour of this, for the reason
-// this paragraph gives — one airspace per window, not one per family that draws into
-// it.
+// reader is a view family, and `core/` is the only rung both of them can reach — one
+// airspace per window, not one per family that draws into it. The architecture tier's
+// DECLARATION census is what keeps that true rather than merely stated: the workspace
+// deck once carried a second class of this name for the same rule, and because it
+// built none and reached no accessor it passed every other claim that gate made.
 //
 // WHAT IT HOLDS AND WHAT IT DOES NOT. It holds registrations, their rectangle
 // READERS, and the change stream a publisher re-samples on. It observes nothing by

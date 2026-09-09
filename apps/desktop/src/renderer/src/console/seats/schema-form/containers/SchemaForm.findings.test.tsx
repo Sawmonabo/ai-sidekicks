@@ -32,8 +32,8 @@ function describedByIds(described: Element | null): readonly string[] {
 }
 
 describe("what a member's description is attached to", () => {
-  it("attaches a member's description to its control rather than leaving it beside one", () => {
-    renderForm({
+  it("attaches a member's description to its control rather than leaving it beside one", async () => {
+    await renderForm({
       type: "object",
       properties: { title: { type: "string", title: "Title", description: "One line." } },
     });
@@ -44,11 +44,11 @@ describe("what a member's description is attached to", () => {
     expect(document.getElementById(descriptionId ?? "")?.textContent).toBe("One line.");
   });
 
-  it("names a group's description in the fieldset's description, ahead of any finding", () => {
+  it("names a group's description in the fieldset's description, ahead of any finding", async () => {
     // The same gap the collection's fieldset carried: the paragraph was drawn, carried no
     // id, and the fieldset named only findings — so a reader moving among the section's
     // own controls heard its name and never the author's instructions.
-    const group = renderForm({
+    const container = await renderForm({
       type: "object",
       properties: {
         release: {
@@ -58,14 +58,15 @@ describe("what a member's description is attached to", () => {
           properties: { tag: { type: "string", title: "Tag" } },
         },
       },
-    }).querySelector(".meridian-schema-group");
+    });
+    const group = container.querySelector(".meridian-schema-group");
     const describedBy = describedByIds(group);
 
     expect(describedBy).toHaveLength(1);
     expect(document.getElementById(describedBy[0] ?? "")?.textContent).toBe("What ships.");
   });
 
-  it("names a collection's description ahead of its finding when the fieldset carries both", () => {
+  it("names a collection's description ahead of its finding when the fieldset carries both", async () => {
     // THE ORDER, ON THE ONE SHAPE THAT CAN CARRY BOTH AT ONCE. The group case above
     // establishes that a description is named at all, over a fieldset with nothing wrong
     // with it; every other case here has a finding and no description. Neither pins the
@@ -77,7 +78,7 @@ describe("what a member's description is attached to", () => {
     // A required collection is answered from the mount, so `minItems` is unsatisfied the
     // moment the form opens and the fieldset carries a finding about its own path with no
     // interaction at all.
-    const container = renderForm({
+    const container = await renderForm({
       type: "object",
       properties: {
         reviewers: {
@@ -106,8 +107,8 @@ describe("what a member's description is attached to", () => {
 });
 
 describe("where a finding lands", () => {
-  it("renders the schema's own findings against the control they are about", () => {
-    const container = renderForm({
+  it("renders the schema's own findings against the control they are about", async () => {
+    const container = await renderForm({
       type: "object",
       properties: { count: { type: "number", title: "Count" } },
       required: ["count"],
@@ -118,14 +119,14 @@ describe("where a finding lands", () => {
     expect(issues?.textContent ?? "").not.toBe("");
   });
 
-  it("renders a finding addressed to a group on the group's own fieldset", () => {
+  it("renders a finding addressed to a group on the group's own fieldset", async () => {
     // A CONSTRAINT ON THE OBJECT ITSELF, which is what a group-addressed finding now is.
     // "This required group is missing" used to be the case here, and it is not reachable
     // any more: a required group opens at the `{}` its legend stands over, which is the
     // seed's whole point — that finding named a member the form offered no control to
     // create. What the schema says about the OBJECT still arrives at the group's own path
     // and has no child to be drawn against, so the fieldset is where it goes.
-    const container = renderForm({
+    const container = await renderForm({
       type: "object",
       properties: {
         release: {
@@ -148,8 +149,8 @@ describe("where a finding lands", () => {
     ).toBe(groupIssues?.id);
   });
 
-  it("renders a finding addressed to the whole answer, which no control could be about", () => {
-    const container = renderForm({
+  it("renders a finding addressed to the whole answer, which no control could be about", async () => {
+    const container = await renderForm({
       type: "object",
       properties: {
         approver: { type: "string", title: "Approver" },
@@ -169,12 +170,12 @@ describe("where a finding lands", () => {
     );
   });
 
-  it("draws every finding the report carries, at whatever depth the schema addressed it", () => {
+  it("draws every finding the report carries, at whatever depth the schema addressed it", async () => {
     // Three constraints failing at three depths at once: the root's `oneOf`, the group's
     // own requiredness, and one leaf's length. The property is that the report and the
     // drawn sentences are the SAME multiset — every finding reaches a person, and none is
     // drawn twice by two blocks both claiming it.
-    const container = renderForm({
+    const container = await renderForm({
       type: "object",
       properties: {
         approver: { type: "string", title: "Approver", minLength: 3, default: "ab" },

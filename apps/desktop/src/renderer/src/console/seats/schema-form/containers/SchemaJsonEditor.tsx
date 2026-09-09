@@ -10,6 +10,17 @@
 // schema, which is available only where that schema compiled — and where it did not, this
 // surface says so rather than showing a green tick that means less than it looks like.
 //
+// AND "IT DID NOT" IS NOT THE SAME AS "NOT YET", NOR THE SAME AS "IT NEVER GOT HERE". The
+// compiler arrives on its own chunk, so the validator has two further states this surface
+// must not mistake for a refusal. While it reads `compiling` there is no verdict and no
+// reason to give one, so the uncheckable sentence is withheld rather than shown and then
+// retracted. Where the chunk failed to fetch there IS a sentence and it is the arm's own,
+// never the reader's — the schema was never read, so nothing may be said about it. Both
+// sentences land in the same paragraph because a person asking "will what I type be
+// checked" gets one answer from either, and the difference between them is what the
+// sentence says rather than where it sits. The syntax check above is unaffected by any of
+// it — it needs nothing that has to be fetched.
+//
 // MONO, BECAUSE IT IS THE WIRE'S OWN SHAPE. What is typed here is the submitted value
 // itself rather than prose about it, so it wears rule 4's provenance signature like every
 // other wire figure on a console surface.
@@ -32,11 +43,8 @@ import { useId } from "react";
 import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
 import { describedByOf } from "./schema-field-control.js";
 import type { SchemaFallback } from "../plan/schema-fields.js";
-import {
-  encodeMemberPointer,
-  type SchemaValidationReport,
-  type SchemaValidator,
-} from "../../../bridge/index.js";
+import { encodeMemberPointer, type SchemaValidationReport } from "../../../bridge/index.js";
+import type { SchemaValidatorState } from "./schema-validator-arm.js";
 import type { RawAnswerReading } from "./use-schema-form.js";
 
 /** How tall the raw document opens. Layout only; the text is never bounded here. */
@@ -48,8 +56,11 @@ export interface SchemaJsonEditorProps {
   readonly rawText: string;
   readonly onChangeRawText: (text: string) => void;
   readonly rawReading: RawAnswerReading;
-  /** Whether the schema itself could be checked against, and the reason where not. */
-  readonly validator: SchemaValidator;
+  /**
+   * Whether the schema itself could be checked against, the reason where not — and
+   * whether that answer has arrived at all.
+   */
+  readonly validator: SchemaValidatorState;
   /** The schema's verdict, where there is a schema to have one and JSON to check. */
   readonly report: SchemaValidationReport | undefined;
 }
@@ -73,6 +84,24 @@ function rawIssueTexts(report: SchemaValidationReport | undefined): readonly str
   });
 }
 
+/**
+ * The sentence about what will not be checked here, where the validator has one.
+ *
+ * A switch total over the arms rather than a comparison per arm, so a state added to
+ * `SchemaValidatorState` decides here whether it has a sentence instead of silently
+ * inheriting "no" — which is how the failed-fetch arm stayed unsaid on this surface.
+ */
+function uncheckableDetailOf(validator: SchemaValidatorState): string | undefined {
+  switch (validator.status) {
+    case "uncompilable":
+    case "checker-unavailable":
+      return validator.detail;
+    case "compiling":
+    case "compiled":
+      return undefined;
+  }
+}
+
 /** The raw answer, its syntax, and — where the schema compiled — its validity. */
 export function SchemaJsonEditor(props: SchemaJsonEditorProps): React.JSX.Element {
   const editorId = useId();
@@ -81,6 +110,7 @@ export function SchemaJsonEditor(props: SchemaJsonEditorProps): React.JSX.Elemen
   const { rawReading, report, validator } = props;
   const issues = rawIssueTexts(report);
   const isUnparsable = rawReading.status === "unparsable";
+  const uncheckableDetail = uncheckableDetailOf(validator);
   return (
     <div className="meridian-schema-raw">
       <p className="meridian-schema-raw__reason">{props.fallback.detail}</p>
@@ -110,9 +140,9 @@ export function SchemaJsonEditor(props: SchemaJsonEditorProps): React.JSX.Elemen
           {rawReading.detail}
         </p>
       ) : null}
-      {validator.status === "uncompilable" ? (
-        <p className="meridian-schema-raw__uncheckable">{validator.detail}</p>
-      ) : null}
+      {uncheckableDetail === undefined ? null : (
+        <p className="meridian-schema-raw__uncheckable">{uncheckableDetail}</p>
+      )}
       <SchemaFieldIssues issues={issues} issuesId={issuesId} />
     </div>
   );

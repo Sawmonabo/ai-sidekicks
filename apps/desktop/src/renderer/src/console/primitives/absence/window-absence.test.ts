@@ -124,7 +124,7 @@ describe("window-absence — the two the window decided rather than lost", () =>
     // the other was never delivered at all. Saying either in the other's words tells
     // somebody to re-read a log that already holds what they are looking for.
     const duplicate = windowAbsenceNotice(ABSENCE_BY_KIND["duplicate-key"], SUBJECT);
-    expect(duplicate.detail).toContain("carries the same identifier");
+    expect(duplicate.detail).toContain("the same identifier");
     expect(duplicate.detail).not.toContain("read again");
   });
 

@@ -30,9 +30,10 @@ import {
   type BinderHarness,
 } from "./session-event-binder.test-support.js";
 
-/** Beats due at or before 130 ms: the ones at 0, 40 and 120. */
-const THROUGH_THIRD_BEAT_MS = 130;
-const BEATS_THROUGH_THIRD_BEAT = 3;
+const THROUGH_THIRD_BEAT_MS = FLAGSHIP_SCENARIO.beats[2]?.atMs ?? 0;
+const BEATS_THROUGH_THIRD_BEAT = FLAGSHIP_SCENARIO.beats.filter(
+  (beat) => beat.atMs <= THROUGH_THIRD_BEAT_MS,
+).length;
 
 /** The same three pieces, over a registry that has no read to perform at all. */
 function createUnreadableHarness(): BinderHarness {

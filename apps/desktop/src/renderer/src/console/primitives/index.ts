@@ -74,7 +74,11 @@ import "./confirmation-dialog.css";
 import "./refusal.css";
 import "./partial-read.css";
 import "./posture/posture.css";
-import "./restore/restore.css";
+// `restore/restore.css` is NOT here, and its absence is the stylesheet rule rather than
+// an omission: that directory carries a lazily-loaded chunk now, so it has an owner of
+// its own and its sheet enters through `restore/file-restore-disclosure-body.js`. A line
+// here would put a rewind's working-tree rules on every launch to dress a surface only a
+// settled rollback draws — and would defeat the loader two lines of this door below.
 
 // The sheet's one filled-accent face, named where TypeScript can see it. Two
 // surfaces outside this family wear it, so the name is declared once rather than
@@ -93,11 +97,21 @@ export { ChordHint } from "./chord/ChordHint.js";
 // site is the only other way either could have one.
 export { observeElementResize } from "./element-resize.js";
 
+// The console's ONE clipping-ancestor walk, for the reason above and against the same
+// two families: the deck intersects what it finds, the browser collects rects from it.
+export { clippingAncestorsOf } from "./clipping-ancestors.js";
+
 // One boundary per surface, so a pane's render throw does not blank the window. It
 // is in this family rather than in the frame's because its only input is `core`'s
 // tripwire report, and because a view family wrapping its own rows cannot import the
 // frame's door without closing a cycle.
 export { SurfaceErrorBoundary } from "./ErrorBoundary.js";
+
+// The "whose keystroke is it" pair, through the same door and for the same reason
+// `chord-format.js` is here: the keybinding table and the deck both ask it, both sit
+// above this family, and a second copy in either would be the drift this rule exists
+// to prevent.
+export { isEditableTarget, isTextEntryTarget } from "./editable-target.js";
 
 // The chord vocabulary, and not only the printer. A surface that decides something
 // ABOUT a chord — the browser family's page handback, which may claim a keystroke
@@ -133,6 +147,10 @@ export { SurfaceAbsence } from "./SurfaceAbsence.js";
 // regions per window: a family that reached past the barrel for its own would be
 // the second speaker this module exists to prevent.
 export { LiveAnnouncerProvider, useAnnounce } from "./announce/LiveAnnouncerProvider.js";
+// The sink's own type, for a surface that settles an outcome somewhere other than
+// where it read the context — the deck reads `useAnnounce` in its component and
+// hands the result to the drag monitor, which is a hook and cannot read it twice.
+export type { Announce, AnnouncementPoliteness } from "./announce/live-announcer.js";
 
 // The announcer itself, because `LiveAnnouncerProvider`'s `announcer` prop is part of
 // that component's public shape: a caller that supplies one — the frame does not, a
@@ -209,7 +227,11 @@ export { PartialRead } from "./reading/PartialRead.js";
 // caller-supplied dedup key and the family's own ref-and-effect copy is gone. Its scope
 // picker is still on no claim here and announces nothing at all by design, and its
 // browser's continuation refusal is spoken once, through that second name.
+// THE LATCH ITSELF LEAVES TOO, for the caller whose memory is neither arity's: the
+// sidebar's is once per SESSION, and only an ARRAY replaces this latch's memory where
+// the scalar arity's `undefined` leaves it standing — see `sidebar-column-reads.ts`.
 export {
+  useAnnounceOncePerSentence,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   useReadingAnnouncement,
   useReadSettlementAnnouncement,
@@ -238,10 +260,7 @@ export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WindowAbsencesProps,
 } from "./absence/WindowAbsences.js";
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
-  WindowAbsences,
-} from "./absence/WindowAbsences.js";
+export { WindowAbsences } from "./absence/WindowAbsences.js";
 
 // No marker: `InlineRefusal` has its consumers — `seats/pane/ConsolePaneChrome.tsx`, whose
 // kind-narrowing adapter renders it where a pane body was mounted at another kind's
@@ -287,7 +306,7 @@ export {
 // way, and a family that wrote its own row is a family whose reader is told the list
 // is as long as the window.
 //
-// THREE SYMBOLS, AND THAT IS THE WHOLE SEAM. `T-023p-1C-5` landed the two windowed
+// FOUR SYMBOLS, AND THAT IS THE WHOLE SEAM. `T-023p-1C-5` landed the two windowed
 // lists this primitive exists for — `repos/diff-pane/DiffFileList.tsx` and
 // `primitives/restore/WindowedRestorePathList.tsx` — and both compose the row, the hook,
 // and the one type a delegating row's renderer hands its child: the row's own props
@@ -295,8 +314,16 @@ export {
 // rather than by its caller, and the index arithmetic is what the hook returns. The
 // target-props type leaves through this door rather than being read back off the
 // component, because a family deriving it again would hold a second closed set that
-// agrees with this one only until the marker attribute is renamed on one side. The
-// nine door lines that had carried `@consumedBy T-023p-1C-5` alongside these three
+// agrees with this one only until the marker attribute is renamed on one side.
+//
+// THE FOURTH IS THE INDEX ATTRIBUTE, and it is here for a reader in another family
+// rather than for that one: `ledger/frame/viewport/surface/viewport-binding.ts` hands the
+// attribute name to the observer that measures a row, so the name the row WRITES and
+// the name the binding READS are one string. That is the same claim the target-props
+// type makes one step along, and a second spelling of it would be a measurement taken
+// against an attribute the row had stopped writing.
+//
+// The eight door lines that had carried `@consumedBy T-023p-1C-5` alongside these four
 // named a consumer that has now shipped without importing any of them, so they were
 // door lines with no production reader — the class
 // `test/console/architecture/barrel-census.test.ts` owns and the dead-code gate cannot
@@ -304,8 +331,8 @@ export {
 // re-tagged; the co-located tests that do exercise those symbols read the module that
 // declares them, which is what the census rule asks.
 //
-// AND THE SAME RULE WAS THEN APPLIED TO THE REST OF THAT TASK'S CLAIMS. The nine lines
-// above went first; every other claim naming that task — on this door, on `core/`, and
+// AND THE SAME RULE WAS THEN APPLIED TO THE REST OF THAT TASK'S CLAIMS. The eight
+// lines above went first; every other claim naming that task — on this door, on `core/`, and
 // on `seats/` — was then re-checked the same way, against what the family's shipped
 // modules actually import through the door rather than against who might want the
 // symbol.
@@ -323,6 +350,7 @@ export {
 export { WindowedListRow } from "./windowing/WindowedListRow.js";
 export type { WindowedRowTargetProps } from "./windowing/WindowedListRow.js";
 export { useWindowedRovingIndex } from "./windowing/windowed-row-index.js";
+export { WINDOWED_ROW_INDEX_ATTRIBUTE } from "./windowing/windowed-row-markers.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
@@ -368,7 +396,7 @@ export {
   formatDateTime,
   formatDayDuration,
   formatDuration,
-  formatMoney,
+  formatCentsAsCurrency,
   formatPercent,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   formatRate,
@@ -392,18 +420,38 @@ export { ExecutionPostureChip } from "./posture/ExecutionPostureChip.js";
 // mount the chip above, but a second sentence for one fact is the copy this
 // family owns being written twice.
 export { POSTURE_ABSENT_DETAIL } from "./posture/posture-copy.js";
-export { FileRestoreDisclosure } from "./restore/FileRestoreDisclosure.js";
+// THE RESTORE LEAVES AS A LOADER AND NOT AS A COMPONENT, and the two lines below are one
+// seam rather than two exports. A door line is a static edge, and this door is on the
+// renderer's own entry graph — so naming the component here put the disclosure, both
+// enumeration lists, the windowed path list, the cell and their sheet on the document of
+// every session, for a body only a rewind that touched the working tree ever draws. That
+// is the case `apps/desktop/AGENTS.md` §Module shape names: a symbol reachable both
+// statically and dynamically is assigned to the STATIC chunk.
+//
+// The cross-family rule is untouched by the fix — a reader still imports this door and
+// nothing under it — because the boundary moves INTO the door's own module rather than
+// out to the caller. `bridge/wire-shapes/json-schema-check-loader.ts` is the same move
+// for the schema compiler, and this follows it rather than inventing a second shape.
+//
+// The PROPS type stays an ordinary door line beside it: a type re-export is erased, so it
+// costs the graph nothing, and without it the mounting family could not spell what it
+// hands the body without reaching past this door.
+export { loadFileRestoreDisclosure } from "./restore/file-restore-disclosure-loader.js";
+export type { FileRestoreDisclosureProps } from "./restore/FileRestoreDisclosure.js";
 
 // The overlay shells, each registering what it mounts in the window's airspace
 // (`Spec-023 §Console Design (Meridian)` 12.3 — "at the primitive layer, never per
-// overlay instance"): the anchored three register their popup, and the two modal
-// wrappers register the backdrop that covers the window beside it, through the one
-// helper that owns that difference (`overlay/modal-airspace.ts`). Neither the
-// registration hook nor that helper is on this door: their only callers are these
-// five, a consumer that could reach one could register an overlay by hand at a call
-// site, and 12.3's Never bullet forbids exactly that.
+// overlay instance"): the anchored five register their popup, the two modal wrappers
+// register the backdrop beside it through the one helper that owns that difference
+// (`overlay/modal-airspace.ts`, off this door — its only callers are those two), and
+// the hook is published for the surface that IS airspace and mounts no popup. Reaching
+// it is registering AT the door; 12.3's Never bullet forbids registering AROUND one,
+// which is a hand `register` on the accessor and is what the architecture tier gates.
+export { useAirspaceRegistration } from "./airspace-registration.js";
 export { OverlayAlertDialogPopup } from "./overlay/OverlayAlertDialogPopup.js";
 export { OverlayComboboxPopup } from "./overlay/OverlayComboboxPopup.js";
 export { OverlayDialogPopup } from "./overlay/OverlayDialogPopup.js";
 export { OverlayMenuPopup } from "./overlay/OverlayMenuPopup.js";
+export { OverlayPopoverPopup } from "./overlay/OverlayPopoverPopup.js";
 export { OverlaySelectPopup } from "./overlay/OverlaySelectPopup.js";
+export { OverlayTooltipPopup } from "./overlay/OverlayTooltipPopup.js";

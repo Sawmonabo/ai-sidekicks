@@ -11,17 +11,19 @@
 // either said.
 
 import { act, render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { FrameStore, SessionStore, type ConsoleEntity } from "../../../store/index.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
 import { COMPOSER_SCENARIO } from "../../../bridge/scenarios/composer.js";
 import {
   type ConsolePaneAddress,
-  type SidebarSectionAttention,
+  type SidebarRowDragBinder,
+  type SidebarRowDragTarget,
   type SidebarSectionContext,
 } from "../../../seats/index.js";
-import { RunsSection } from "./RunsSection.js";
+import { foldSectionRollup } from "../model/section-rollup.js";
+import { RunsSection, runsSectionRollup } from "./RunsSection.js";
 
 const SESSION_ID = "session-runs-section";
 
@@ -33,7 +35,7 @@ interface RenderedSection {
   readonly section: HTMLElement;
   readonly store: SessionStore;
   readonly openedPanes: readonly ConsolePaneAddress[];
-  readonly reported: readonly SidebarSectionAttention[];
+  readonly context: SidebarSectionContext;
 }
 
 /**
@@ -47,6 +49,7 @@ function renderSection(options: {
   readonly runs?: readonly ConsoleEntity[];
   readonly degraded?: boolean;
   readonly filterQuery?: string;
+  readonly dragRow?: SidebarRowDragBinder;
 }): RenderedSection {
   const store = new SessionStore({ sessionId: SESSION_ID });
   if (options.runs !== undefined) {
@@ -57,7 +60,6 @@ function renderSection(options: {
   }
   const bridge: ConsoleBridge = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
   const openedPanes: ConsolePaneAddress[] = [];
-  const reported: SidebarSectionAttention[] = [];
   const context: SidebarSectionContext = {
     sessionStore: store,
     bridge,
@@ -65,21 +67,23 @@ function renderSection(options: {
     openPane: (address) => openedPanes.push(address),
     isOpen: true,
     filterQuery: options.filterQuery ?? "",
-    reportAttention: (attention) => reported.push(attention),
+    // Absent rather than present-and-undefined, which is the case the section's own
+    // no-binder branch is written for and the shape the sidebar's context declares.
+    ...(options.dragRow === undefined ? {} : { dragRow: options.dragRow }),
   };
   const { container } = render(<RunsSection {...context} />);
-  return { section: container, store, openedPanes, reported };
+  return { section: container, store, openedPanes, context };
 }
 
 function groupHeadings(section: HTMLElement): readonly string[] {
-  return [...section.querySelectorAll(".meridian-sidebar-runs__group")].map((group) =>
+  return [...section.querySelectorAll(".meridian-section-list__group")].map((group) =>
     String(group.getAttribute("aria-label")),
   );
 }
 
 function rowsUnder(section: HTMLElement, groupLabel: string): readonly string[] {
   const group = section.querySelector(`[aria-label="${groupLabel}"]`);
-  return [...(group?.querySelectorAll(".meridian-sidebar-runs__id") ?? [])].map((element) =>
+  return [...(group?.querySelectorAll(".meridian-section-list__id") ?? [])].map((element) =>
     String(element.textContent),
   );
 }
@@ -99,7 +103,7 @@ describe("RunsSection — the three absences are three sentences", () => {
     expect(section.textContent).toContain("read-failed");
     // A degraded store holding a run must not render the run: a partial list
     // shown as a whole one is the failure this branch exists to prevent.
-    expect(section.querySelector(".meridian-sidebar-runs__id")).toBeNull();
+    expect(section.querySelector(".meridian-section-list__id")).toBeNull();
   });
 
   it("says no run has started when the read answered and was whole", () => {
@@ -188,7 +192,7 @@ describe("RunsSection — the sidebar's filter narrows this section's rows", () 
 describe("RunsSection — opening a pane", () => {
   it("opens the inspector on the run the person activated", () => {
     const { section, openedPanes } = renderSection({ runs: [run("run-1", "running")] });
-    const open = section.querySelector(".meridian-sidebar-runs__open");
+    const open = section.querySelector(".meridian-section-list__open");
     act(() => {
       (open as HTMLButtonElement).click();
     });
@@ -198,33 +202,106 @@ describe("RunsSection — opening a pane", () => {
   });
 });
 
-describe("RunsSection — what it reports to the sidebar", () => {
-  it("reports amber exactly while an answered, whole read carries an attention run", async () => {
-    const { reported } = renderSection({ runs: [run("run-failed", "failed")] });
-    await vi.waitFor(() => {
-      expect(reported.at(-1)).toBe("amber");
+describe("RunsSection — the rollup the sidebar reads while this section is shut", () => {
+  // Driven through the exported reader rather than through a render, because that is
+  // how the sidebar calls it: a collapsed section is not mounted, and a rollup that
+  // could only be produced by a mounted body would be unreachable in exactly the state
+  // the rule that opens it is written for.
+  //
+  // The LEVEL is asserted through the column's own fold rather than by reading the
+  // nodes' members, because the fold is what the open-or-collapsed rule is decided
+  // from: a section that reported the right nodes and folded to the wrong level would
+  // still leave the rule wrong, and this is the reading that catches it.
+
+  function rollupOver(options: Parameters<typeof renderSection>[0]) {
+    return foldSectionRollup(runsSectionRollup(renderSection(options).context));
+  }
+
+  it("folds to `attention` while an answered, whole read carries a run needing one", () => {
+    expect(rollupOver({ runs: [run("run-failed", "failed")] }).attention).toBe("attention");
+  });
+
+  it("negative control: an answered read with no such run folds to nothing", () => {
+    expect(rollupOver({ runs: [run("run-running", "running")] }).attention).toBeUndefined();
+  });
+
+  it("reports nothing from an unanswered read rather than a mark it cannot justify", () => {
+    // A store that has not loaded knows nothing about whether a run needs attention,
+    // and a mark raised from that would be a badge the daemon never served.
+    const rollup = rollupOver({});
+    expect(rollup.attention).toBeUndefined();
+    // And no counts either: the header draws nothing rather than four zeroes, which is
+    // the difference between "unavailable" and "empty" this section spends a branch on.
+    expect(rollup.nodeCount).toBe(0);
+  });
+
+  it("reports nothing from a degraded read, even holding a failed run", () => {
+    // The strongest case: the datum that would raise the mark IS in the store, and the
+    // section still declines, because the list it came from is incomplete.
+    const rollup = rollupOver({ runs: [run("run-failed", "failed")], degraded: true });
+    expect(rollup.attention).toBeUndefined();
+    expect(rollup.nodeCount).toBe(0);
+  });
+
+  it("ignores the filter, because a failed run hidden by one is still a failed run", () => {
+    expect(
+      rollupOver({ runs: [run("run-failed", "failed")], filterQuery: "nothing-matches" }).attention,
+    ).toBe("attention");
+  });
+
+  it("counts its runs into the column's groups, which a single level could not carry", () => {
+    // What the tree buys over the level it replaced: the shut header's grouped counts.
+    const rollup = rollupOver({
+      runs: [
+        run("run-failed", "failed"),
+        run("run-running", "running"),
+        run("run-done", "completed"),
+        run("run-odd", "transcending"),
+      ],
+    });
+
+    expect(rollup.countsByGroup).toStrictEqual({
+      pinned: 0,
+      "needs-attention": 1,
+      running: 1,
+      // The settled run and the one whose state this build does not know. The column's
+      // four groups have no member for an unrecognized state, and the section draws it
+      // under its own heading instead of a fifth shared group being minted for it.
+      rest: 2,
     });
   });
+});
 
-  it("negative control: an answered read with no attention run reports calm", () => {
-    const { reported } = renderSection({ runs: [run("run-running", "running")] });
-    expect(reported.at(-1)).toBe("calm");
-  });
-
-  it("reports calm from an unanswered read rather than a mark it cannot justify", () => {
-    // A store that has not loaded knows nothing about whether a run needs
-    // attention, and a mark raised from that would be a badge the daemon never
-    // served.
-    expect(renderSection({}).reported.at(-1)).toBe("calm");
-  });
-
-  it("reports calm from a degraded read, even holding a failed run", () => {
-    // The strongest case: the datum that would raise amber IS in the store, and
-    // the section still declines, because the list it came from is incomplete.
-    const { reported } = renderSection({
-      runs: [run("run-failed", "failed")],
-      degraded: true,
+describe("RunsSection — a row is draggable through the column's own binder", () => {
+  it("binds each row's element under a section-scoped node id", () => {
+    const boundTargets: SidebarRowDragTarget[] = [];
+    const boundElements: HTMLElement[] = [];
+    const { section } = renderSection({
+      runs: [run("run-1", "running")],
+      dragRow: (target) => {
+        boundTargets.push(target);
+        return (element) => {
+          if (element !== null) {
+            boundElements.push(element);
+          }
+        };
+      },
     });
-    expect(reported.at(-1)).toBe("calm");
+
+    expect(boundTargets).toStrictEqual([
+      // Prefixed by the section, because the binder cache is the whole column's.
+      { nodeId: "runs:run-1", label: "run run-1", opens: { kind: "runs" } },
+    ]);
+    // And the binder actually reached an ELEMENT, which is the half a composed target
+    // does not prove: the same button the press uses, because the drag and the press
+    // are two ways to perform one act rather than two controls for one outcome.
+    expect(boundElements).toStrictEqual([section.querySelector(".meridian-section-list__open")]);
+  });
+
+  it("negative control: a column that hands down no binder binds nothing", () => {
+    // The section still renders its rows; what it does not do is invent a gesture.
+    const { section } = renderSection({ runs: [run("run-1", "running")] });
+
+    expect(section.querySelectorAll(".meridian-section-list__open")).toHaveLength(1);
   });
 });

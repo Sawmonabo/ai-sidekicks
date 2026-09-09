@@ -8,12 +8,14 @@
 // submit control and the preview deliberately does not.
 //
 // AND IT LIVES IN THE SEAT RATHER THAN BESIDE ITS MOUNT, which is this seat's own rule.
-// `useSchemaForm`, `planSchemaForm` and `compileSchemaValidator` do not leave the form
-// stack, because a caller assembling those three itself would be a second answer to
-// what a schema draws. A composer therefore lives WITH them and leaves through the
-// seats door, exactly as the preview does — and the sheet every control below draws
-// against enters through that same door, so a surface that deep-imported the parts
-// would have rendered the controls unstyled.
+// `useSchemaForm` and `planSchemaForm` do not leave the form stack, because a caller
+// assembling them itself would be a second answer to what a schema draws — and the
+// schema compiler they use does not leave the BRIDGE except through a loader, so a
+// caller assembling its own would also be fetching a chunk the form already has. A
+// composer therefore lives WITH them and leaves through the seats door, exactly as the
+// preview does — and the sheet every control below draws against enters through that
+// same door, so a surface that deep-imported the parts would have rendered the controls
+// unstyled.
 //
 // WHICH IS THE BOUNDARY BETWEEN THIS AND THE BODY THAT MOUNTS IT. The seat owns what a
 // schema draws and the one act that sends what the controls composed; the mounting body
@@ -27,6 +29,23 @@
 // revision. A submit disabled on a validation report would be this form refusing on
 // behalf of an authority it cannot see the inputs to, and an operator with no way to
 // find out what the daemon would actually have said.
+//
+// WHICH IS WHY THE ONE STATE THAT DOES CLOSE THE ACT IS NOT A VERDICT AT ALL. The schema
+// compiler arrives on its own chunk, and until it lands this form has no report — not a
+// clean one, not a refusing one, none. Offering the act there would send an answer nothing
+// has yet been able to look at, and rendering it as permitted would say a verdict had been
+// reached. So while the validator reads `compiling` the control is DISABLED rather than
+// absent — it is arriving, not missing, and the two read differently to somebody waiting —
+// and the form carries `aria-busy`, which is the same fact stated where a reader who is
+// not looking at the button can meet it, and what a tier waits on rather than racing.
+//
+// AND IT IS THE ONLY STATE THAT CLOSES IT, WHICH IS WHY A CHUNK THAT NEVER ARRIVES DOES
+// NOT. `checker-unavailable` is a settlement rather than a wait: this window will not check
+// the answer, and that is as final as a schema which would not compile. Read as "still
+// arriving" it would hold the act shut for ever over a fetch nobody is going to retry, on
+// a form whose whole purpose is that a parked run can be answered — so the act is offered
+// there exactly as it is on the uncompilable arm, and what will not be checked is stated
+// on the editor beside it.
 //
 // A SCHEMA THE WIRE DID NOT CARRY IS NOT A SCHEMA OUTSIDE THE RENDER SET. The raw
 // editor exists for the second — it opens with the mapper's own sentence about which
@@ -80,9 +99,14 @@ export function SchemaFormAnswer(props: SchemaFormAnswerProps): React.JSX.Elemen
   // the caller already holds, and a cache would be a second thing to keep in step with
   // the schema.
   const rootRefusal = schemaRootRefusal(props.inputSchema);
+  // The one act is closed while the compiler is still arriving — the header's reason. Read
+  // off the form's own validator rather than held beside it, so there is no second answer
+  // to whether this form has a verdict yet.
+  const isAwaitingVerdict = form.validator.status === "compiling";
   return (
     <form
       className="meridian-schema-answer"
+      aria-busy={isAwaitingVerdict ? true : undefined}
       onSubmit={(event) => {
         // The page must not navigate: this is a console surface and the act is a growth
         // call. A button outside a form would lose the Enter key that submitting a form
@@ -111,7 +135,11 @@ export function SchemaFormAnswer(props: SchemaFormAnswerProps): React.JSX.Elemen
         <>
           <SchemaForm form={form} />
           <div className="meridian-schema-answer__act">
-            <button type="submit" className="meridian-schema-answer__submit">
+            <button
+              type="submit"
+              className="meridian-schema-answer__submit"
+              disabled={isAwaitingVerdict}
+            >
               {SUBMIT_LABEL}
             </button>
           </div>

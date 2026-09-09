@@ -38,7 +38,7 @@ import {
   formatAuxiliaryFragment,
   parseAuxiliaryFragment,
   type AuxiliaryRouteTarget,
-} from "../../../../shared/auxiliary-routes.js";
+} from "../../../../shared/auxiliary-route-fragment.js";
 
 /** Where the console currently is. A closed union — every arm renders something. */
 export type ConsoleRoute =

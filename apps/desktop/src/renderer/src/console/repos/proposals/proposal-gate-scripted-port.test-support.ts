@@ -30,7 +30,7 @@ import {
   GIT_WORKSPACE_ID,
   IMPLEMENTER_WORKTREE_ID,
   PARTICIPANT_YOU,
-} from "../../bridge/scenarios/repos-fixture-data.js";
+} from "../../bridge/scenarios/repos/repos-fixture-data.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import type { ProposalContextKey } from "./prepared-proposal.js";

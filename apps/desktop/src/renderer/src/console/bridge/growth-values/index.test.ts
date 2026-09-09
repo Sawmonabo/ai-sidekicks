@@ -108,7 +108,6 @@ const PRE_SPLIT_EXPORTS: readonly string[] = [
   "GrowthInviteSummary",
   "GrowthNavigationState",
   "GrowthNotificationPermission",
-  "GrowthPaneError",
   "GrowthPrPreparationState",
   "GrowthSessionSummary",
   "GrowthTerminalChunk",

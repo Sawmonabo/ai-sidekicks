@@ -116,9 +116,23 @@ describe("the fixture growth port — what it serves, and what it still refuses"
     // script-only changes arms here rather than going unchecked.
     const scriptOnly = new Set<string>(FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS);
     const served = new Set<string>(FIXTURE_SERVED_GROWTH_OPERATION_IDS);
+    // A script-only operation this scenario DOES script answers, which is the whole
+    // point of the class — so the expectation is read off the scenario's own replies
+    // rather than assumed from the class. Assuming it made the flagship's own scripted
+    // readings unaddable: the day one landed, this case reported the operation as
+    // answering the wrong way while nothing about the fixture had broken.
+    const scriptedCalls = new Set<string>(FLAGSHIP_SCENARIO.replies.map((reply) => reply.call));
 
     for (const operationId of Object.keys(GROWTH_OPERATIONS) as GrowthOperationId[]) {
       if (served.has(operationId) && !scriptOnly.has(operationId)) {
+        continue;
+      }
+      const wireMethod = GROWTH_OPERATIONS[operationId].expectedWireMethod;
+      if (
+        scriptOnly.has(operationId) &&
+        wireMethod !== undefined &&
+        scriptedCalls.has(wireMethod)
+      ) {
         continue;
       }
       const outcome = await callOperation(bridge.growth, operationId);
@@ -134,12 +148,14 @@ describe("the fixture growth port — what it serves, and what it still refuses"
   it("answers, or names the scenario's own gap, for every operation it serves", async () => {
     // The other side of the same claim, and stated as a CLASS rather than as a count:
     // over the flagship some served operations answer and the rest — the approvals
-    // ones, the branch-context read, and every script-only entry — refuse, because
-    // that scenario scripts none of them. A tally of which is which would go stale the
-    // next time a lane serves an operation, and nothing would report it. What is
-    // asserted is the property that does not move: a served arm refuses with the
-    // fixture's `reply-unscripted` and never with `wire-unregistered`, which would
-    // send a reader to a document that owes a wire this bridge already stands in for.
+    // ones, the branch-context read, every script-only entry, and the two window
+    // operations addressed by a handle the sweep's one request shape does not name —
+    // refuse, because that scenario scripts or holds none of them. A tally of which is
+    // which would go stale the next time a lane serves an operation, and nothing would
+    // report it. What is asserted is the property that does not move: a served arm
+    // refuses with the fixture's `reply-unscripted` and never with `wire-unregistered`,
+    // which would send a reader to a document that owes a wire this bridge already
+    // stands in for.
     const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
 
     for (const operationId of FIXTURE_SERVED_GROWTH_OPERATION_IDS) {

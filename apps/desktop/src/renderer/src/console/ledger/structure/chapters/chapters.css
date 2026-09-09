@@ -1,0 +1,139 @@
+/* `ledger/structure/chapters/`'s styles — the chapter header: its disclosure, the actor
+ * it names, its terminal figure, and the counts it carries.
+ *
+ * ONE SHEET PER DIRECTORY, imported from `ledger/index.ts` and nowhere else. The body
+ * block below is the chapter's nested scroller: the rows the outer list's ceiling left
+ * out, bounded, faded at the top edge, and re-pinned by the engine's own anchoring.
+ */
+
+/* --- Structure: the chapter header --------------------------------------- */
+
+/*
+ * One finished run, on one line, with the disclosure that opens it.
+ *
+ * The 2 px inline-start edge is the same attribution edge a ledger row wears, set
+ * from the participant wheel by the component so a chapter and the rows inside it
+ * are coloured by one allocation. The fallback is the neutral border, which is what
+ * an unattributed chapter takes — never a participant hue nobody was allocated.
+ */
+
+.meridian-chapter-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-chapter-header__disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.meridian-chapter-header__actor {
+  color: var(--meridian-text);
+}
+
+.meridian-chapter-header__state,
+.meridian-chapter-header__figure {
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
+}
+
+.meridian-chapter-header__counts,
+.meridian-chapter-header__account {
+  font-size: var(--meridian-text-xs);
+}
+
+/* --- Structure: the chapter body ----------------------------------------- */
+
+/*
+ * The body is a full row of the wrapping header, so the scroller sits UNDER the line
+ * rather than beside the counts it belongs to.
+ */
+
+.meridian-chapter-body {
+  position: relative;
+  flex: 1 0 100%;
+  margin-block-start: var(--meridian-space-1);
+}
+
+/*
+ * The nested scroller. Its height is set by the component from a CSS length the
+ * engine was asked about first, so this rule carries no height of its own — a
+ * declaration here would be a second answer to that question and would win or lose by
+ * cascade order rather than by support.
+ *
+ * `overflow-anchor` is the re-pin, declared rather than left to the default: when a
+ * row above the reading position settles to a different height, the engine holds the
+ * reading position instead of letting the content slide under it. The ledger writes
+ * scroll offsets in one module, so this body's re-pin is the platform's and not a
+ * second writer's.
+ */
+
+.meridian-chapter-body__scroller {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  overflow-anchor: auto;
+  margin: 0;
+  padding: 0;
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-edge);
+  list-style: none;
+}
+
+/*
+ * The top-edge fade: the console's own, drawn over the scroller's first lines while
+ * anything is clipped above them. It is never the scroll anchor — an anchored overlay
+ * would hold the fade still and move the rows behind it.
+ */
+
+.meridian-chapter-body__fade {
+  position: absolute;
+  z-index: 1;
+  inset-block-start: 0;
+  inset-inline: 0;
+  height: var(--meridian-space-5);
+  overflow-anchor: none;
+  background: linear-gradient(to bottom, var(--meridian-surface-sunken), transparent);
+  pointer-events: none;
+}
+
+.meridian-chapter-body__row {
+  display: flex;
+  gap: var(--meridian-space-2);
+  padding: 0 var(--meridian-space-3);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-chapter-body__time,
+.meridian-chapter-body__type {
+  flex: 0 0 auto;
+  font-family: var(--meridian-font-mono);
+}
+
+.meridian-chapter-body__summary {
+  overflow: hidden;
+  color: var(--meridian-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-chapter-body__unheld {
+  margin: 0;
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}

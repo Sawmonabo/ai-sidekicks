@@ -33,7 +33,7 @@
 
 import type { GrowthOperationId } from "./growth-entry.js";
 import type { GrowthOutcome } from "./growth-outcome.js";
-import { growthUnavailable } from "./growth-refusals.js";
+import { growthUnavailable, growthUnavailableFromRejection } from "./growth-refusals.js";
 import type { GrowthOperationSignatures } from "../growth-signatures/index.js";
 
 /**
@@ -83,6 +83,40 @@ export type GrowthServedValue<TOperationId extends GrowthOperationId> = Extract<
   GrowthPortAnswer<TOperationId>,
   { readonly status: "served" }
 >["value"];
+
+/**
+ * Run one growth ACT whose promise must not reject.
+ *
+ * A `GrowthPort` method answers `served` or `unavailable`, and every caller in the
+ * console branches on that pair. A REJECTION is outside the pair: it leaves the
+ * caller's state where it was — no refusal rendered, no reading settled, a control
+ * that answers a press by doing nothing — and, because these calls are dispatched
+ * from effects and event handlers, it surfaces only as an unhandled rejection the
+ * runner reports and a shipped window does not.
+ *
+ * So the rejection is answered in the port's own vocabulary rather than in each
+ * caller's `catch`. The result is the same two-arm outcome, which means a caller has
+ * one path and not two, and the refusal is {@link growthUnavailableFromRejection}'s —
+ * `call-rejected`, carrying the operation ledger and the normalized `cause`.
+ *
+ * NOT `settleGrowthRead`: every growth READ in the tree settles through
+ * `bridge/readings/read-settlement.ts`, which is strictly better for a read because it
+ * keeps the daemon's own code as the refusal's, and answers a `SettledReadRefusal` — the
+ * console's refusal shape plus the arm to narrow on. An ACT's consumer needs more than
+ * that: it branches on which growth code was raised, so an unregistered wire and a wire
+ * that answered badly stay two facts. The two seams live in different families for the
+ * same reason they answer differently.
+ */
+export async function settledGrowthCall<TValue>(
+  operationId: GrowthOperationId,
+  call: () => Promise<GrowthOutcome<TValue>>,
+): Promise<GrowthOutcome<TValue>> {
+  try {
+    return await call();
+  } catch (rejection: unknown) {
+    return growthUnavailableFromRejection(operationId, rejection);
+  }
+}
 
 /**
  * The live bridge's growth port: every operation refuses.
@@ -152,9 +186,11 @@ export function createRefusingGrowthPort(): GrowthPort {
     sessionReactivate: async () => growthUnavailable("sessionReactivate"),
     sessionRead: async () => growthUnavailable("sessionRead"),
     sessionList: async () => growthUnavailable("sessionList"),
+    sessionIdentityRead: async () => growthUnavailable("sessionIdentityRead"),
     daemonStatusRead: async () => growthUnavailable("daemonStatusRead"),
     daemonStop: async () => growthUnavailable("daemonStop"),
     daemonRestart: async () => growthUnavailable("daemonRestart"),
+    daemonNegotiationRead: async () => growthUnavailable("daemonNegotiationRead"),
     daemonStart: async () => growthUnavailable("daemonStart"),
     approvalProjectionRead: async () => growthUnavailable("approvalProjectionRead"),
     approvalResolve: async () => growthUnavailable("approvalResolve"),
@@ -191,10 +227,6 @@ export function createRefusingGrowthPort(): GrowthPort {
     artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
     artifactIngestAbort: async () => growthUnavailable("artifactIngestAbort"),
     sessionSearch: async () => growthUnavailable("sessionSearch"),
-    windowDetachPane: async () => growthUnavailable("windowDetachPane"),
-    windowFocusAuxiliary: async () => growthUnavailable("windowFocusAuxiliary"),
-    windowCloseAuxiliary: async () => growthUnavailable("windowCloseAuxiliary"),
-    windowSubscribePaneErrors: async () => growthUnavailable("windowSubscribePaneErrors"),
     providerSessionImportBegin: async () => growthUnavailable("providerSessionImportBegin"),
     providerSessionImportSubscribe: async () => growthUnavailable("providerSessionImportSubscribe"),
     attentionProjectionRead: async () => growthUnavailable("attentionProjectionRead"),
@@ -238,6 +270,7 @@ export function createRefusingGrowthPort(): GrowthPort {
     hydratedEventRead: async () => growthUnavailable("hydratedEventRead"),
     orchestrationCostReceiptRead: async () => growthUnavailable("orchestrationCostReceiptRead"),
     orchestrationBudgetRead: async () => growthUnavailable("orchestrationBudgetRead"),
+    timelineSubscribe: async () => growthUnavailable("timelineSubscribe"),
     channelCreate: async () => growthUnavailable("channelCreate"),
     channelMute: async () => growthUnavailable("channelMute"),
     channelUnmute: async () => growthUnavailable("channelUnmute"),

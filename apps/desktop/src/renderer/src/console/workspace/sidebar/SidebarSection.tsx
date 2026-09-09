@@ -1,57 +1,49 @@
-// One sidebar section: the disclosure a person drives, and the owning family's
-// body behind it.
+// One sidebar section: the disclosure a person drives, and the owning family's body
+// behind it.
 //
-// A native `<button>` rather than a div with a role, so Enter and Space activate
-// it without this file re-implementing what the platform already does. The
-// sidebar's own chord table binds the same two keys for the DOM-free cursor and
-// is installed in capture phase, so it consumes the press before the button sees
-// it whenever a chord actually fires — one act either way, never two.
+// A native `<button>` rather than a div with a role, so Enter and Space activate it
+// without this file re-implementing what the platform already does. The sidebar's own
+// chord table binds the same two keys for the DOM-free cursor and is installed in
+// capture phase, so it consumes the press before the button sees it whenever a chord
+// actually fires — one act either way, never two.
 //
-// THE ATTENTION MARK IS THE SECTION'S CLAIM, NOT THIS FILE'S READING.
-// `Spec-023 §The surface set` holds the rail's attention count "never counted in
-// the renderer", and this file synthesises no badge either. So the mark renders only
-// where the section itself reported amber or red through the seat, and a section
-// that has reported nothing shows nothing — not a zero, not a grey dot.
+// A COLLAPSED SECTION IS NOT MOUNTED AT ALL, and this is the file that decides it. A
+// section body is what starts that section's read, so mounting eight of them to show
+// two would run eight reads and hold eight subscriptions for a column showing two.
+// That is the same sentence as the design rule about independently loaded sections and
+// as the frame-time budget, which is why there is no hidden-but-mounted arm below.
 //
-// THE CONTEXT IS BUILT WITH STABLE CALLBACKS. A section body will report its
-// attention from an effect, and an effect whose dependency is rebuilt every
-// render fires every render. `reportAttention` is memoised per section id here so
-// a well-written body reports once per change rather than once per pass.
+// THE ATTENTION MARK IS THE SECTION'S CLAIM, NOT THIS FILE'S READING. The rail's
+// attention count is "taken from the daemon's attention projection, never counted in
+// the renderer", and this file synthesises no badge either: the mark renders only where
+// the section's own descriptor answered, and a section that answered nothing shows
+// nothing — not a zero, not a grey dot.
 
-import { useCallback, useId, useMemo } from "react";
+import { useId } from "react";
 
-import { Glyph, Nothing, type GlyphName } from "../../primitives/index.js";
-import { GLYPH_SIZE_CHROME, GLYPH_SIZE_ROW } from "../../tokens/index.js";
 import { type ConsoleBridge } from "../../bridge/index.js";
+import { DerivedFigure, Glyph, Nothing, type GlyphName } from "../../primitives/index.js";
 import { type FrameStore, type SessionStore } from "../../store/index.js";
+import { GLYPH_SIZE_CHROME, GLYPH_SIZE_ROW } from "../../tokens/index.js";
 import {
+  SIDEBAR_ROLLUP_GROUPS,
   type ConsolePaneOpener,
-  type SidebarSectionAttention,
+  type SidebarBulkSelection,
+  type SidebarRollupGroup,
+  type SidebarRowDragBinder,
   type SidebarSectionContext,
   type SidebarSectionId,
 } from "../../seats/index.js";
-import { type SidebarModel } from "./sidebar-model.js";
+import { type SectionRollup } from "./model/section-rollup.js";
+import { SECTION_HEADER_ATTRIBUTE, SIDEBAR_SECTION_LABELS } from "./model/sidebar-labels.js";
+import { type SidebarSectionAttention } from "./model/sidebar-model.js";
 
 /**
- * What each section is called. Total over the closed set, so an id added to
- * `seats/slots/sidebar-sections.ts` fails to compile here until it is named — which is
- * how `goal` and `approvals` arrived rather than rendering as blank rows.
+ * The glyph each section wears.
  *
- * The order is the seat's order and not this table's: the sidebar iterates
- * `SIDEBAR_SECTION_IDS`, and a record is unordered.
+ * Total over the closed set for the labels table's reason: a section added to the seat
+ * fails to compile here rather than rendering a header with a hole where its mark is.
  */
-const LABEL_BY_SECTION_ID: Readonly<Record<SidebarSectionId, string>> = {
-  goal: "Goal",
-  channels: "Channels",
-  runs: "Runs",
-  agents: "Agents",
-  repos: "Repos and worktrees",
-  approvals: "Approvals",
-  artifacts: "Artifacts",
-  members: "Members",
-};
-
-/** The glyph each section wears. Total for `LABEL_BY_SECTION_ID`'s reason. */
 const GLYPH_BY_SECTION_ID: Readonly<Record<SidebarSectionId, GlyphName>> = {
   goal: "goal",
   channels: "channel",
@@ -66,83 +58,80 @@ const GLYPH_BY_SECTION_ID: Readonly<Record<SidebarSectionId, GlyphName>> = {
 /**
  * What the attention mark says out loud, per level.
  *
- * Total over the vocabulary, and `calm` maps to `undefined` rather than to a word
- * because the calm rendering is no mark at all — a phrase for it would be a badge
- * saying nothing is wrong, which is chrome rather than information.
+ * Total over the vocabulary the seat declares. The two values are the two hues rule 3
+ * spends on urgency, and the phrases name the SITUATION rather than the colour — a
+ * screen reader announcing "amber" would be reading the palette out.
  */
-const ATTENTION_LABEL: Readonly<Record<SidebarSectionAttention, string | undefined>> = {
-  red: "needs attention",
-  amber: "worth a look",
-  calm: undefined,
+const ATTENTION_PHRASE: Readonly<Record<SidebarSectionAttention, string>> = {
+  attention: "needs attention",
+  failure: "something failed",
 };
 
 /**
  * The section's own mark is the chrome scale, named rather than restated.
  *
- * The disclosure's is smaller and the token home publishes no size equal to it, so it
- * stays a literal here until one exists — a family may be the first to need a size,
- * and inventing a token for it beside the home would be the second declaration the
- * home exists to prevent.
+ * The disclosure's chevron is smaller and the token home publishes the row scale for
+ * it, so both sizes below are named tokens and neither is a literal.
  */
 const SECTION_GLYPH_SIZE = GLYPH_SIZE_CHROME;
+
+/**
+ * What each rollup group is called on the header.
+ *
+ * Total over the closed set, so a fifth group fails to compile here rather than
+ * rendering as its own identifier. The words are the design track's own.
+ */
+const ROLLUP_GROUP_LABELS: Readonly<Record<SidebarRollupGroup, string>> = {
+  pinned: "pinned",
+  "needs-attention": "needs attention",
+  running: "running",
+  rest: "other",
+};
+
 export interface SidebarSectionProps {
-  readonly id: SidebarSectionId;
-  readonly model: SidebarModel;
+  readonly sectionId: SidebarSectionId;
   /**
    * The owning family's body, or `undefined` while nobody has filled this seat.
    *
    * The renderer rather than the whole descriptor: a descriptor's `owner` is the
-   * registry's conflict vocabulary, and handing it to a component that renders
-   * none of it would invite one that did.
+   * registry's conflict vocabulary, and handing it to a component that renders none of
+   * it would invite one that did.
    */
   readonly render: ((context: SidebarSectionContext) => React.ReactNode) | undefined;
   readonly isOpen: boolean;
   readonly isCursored: boolean;
-  readonly attention: SidebarSectionAttention;
+  readonly attention: SidebarSectionAttention | undefined;
   readonly filterQuery: string;
   readonly sessionStore: SessionStore;
   readonly bridge: ConsoleBridge;
   /** This window's store, so a section can read whether a mutation may be sent. */
   readonly frameStore: FrameStore;
   readonly openPane: ConsolePaneOpener;
+  /** Press the header: put the cursor here, and open or shut this section. */
+  readonly onPress: (sectionId: SidebarSectionId) => void;
+  /**
+   * What this section's own tree folded to, or `undefined` while it supplied none.
+   *
+   * A FOLD of what the section served and never a badge this file counted: a section
+   * whose read has not answered supplies no tree, and no tree renders no numbers —
+   * which is the difference between "unavailable" and zero.
+   */
+  readonly rollup: SectionRollup | undefined;
+  /** The column's shared bulk selection, handed on to the section's own rows. */
+  readonly bulk: SidebarBulkSelection;
+  /** How a row of this section becomes draggable onto the deck. */
+  readonly dragRow: SidebarRowDragBinder;
   /** Handed the disclosure element so the cursor can move focus onto it. */
-  readonly registerDisclosure: (id: SidebarSectionId, element: HTMLButtonElement | null) => void;
+  readonly registerDisclosure: (
+    sectionId: SidebarSectionId,
+    element: HTMLButtonElement | null,
+  ) => void;
 }
 
 export function SidebarSection(props: SidebarSectionProps): React.JSX.Element {
   const headerId = useId();
   const bodyId = useId();
-  const label = LABEL_BY_SECTION_ID[props.id];
-  const attentionLabel = ATTENTION_LABEL[props.attention];
-
-  const { model, id } = props;
-  const reportAttention = useCallback(
-    (attention: SidebarSectionAttention) => {
-      model.reportAttention(id, attention);
-    },
-    [model, id],
-  );
-
-  const context: SidebarSectionContext = useMemo(
-    () => ({
-      sessionStore: props.sessionStore,
-      bridge: props.bridge,
-      frameStore: props.frameStore,
-      openPane: props.openPane,
-      isOpen: props.isOpen,
-      filterQuery: props.filterQuery,
-      reportAttention,
-    }),
-    [
-      props.sessionStore,
-      props.bridge,
-      props.frameStore,
-      props.openPane,
-      props.isOpen,
-      props.filterQuery,
-      reportAttention,
-    ],
-  );
+  const label = SIDEBAR_SECTION_LABELS[props.sectionId];
 
   return (
     <li className="meridian-sidebar__section" data-cursored={props.isCursored ? "true" : undefined}>
@@ -151,49 +140,76 @@ export function SidebarSection(props: SidebarSectionProps): React.JSX.Element {
           type="button"
           id={headerId}
           ref={(element) => {
-            props.registerDisclosure(props.id, element);
+            props.registerDisclosure(props.sectionId, element);
           }}
           className="meridian-sidebar__disclosure"
           aria-expanded={props.isOpen}
           aria-controls={bodyId}
-          // `aria-current` rather than a second selected state: the cursor is
-          // where the keyboard is, and "current" is what that means to a screen
-          // reader. Focus follows it, so the two never disagree.
+          // `aria-current` rather than a second selected state: the cursor is where the
+          // keyboard is, and "current" is what that means to a screen reader. Focus
+          // follows it, so the two never disagree.
           aria-current={props.isCursored ? "true" : undefined}
+          {...{ [SECTION_HEADER_ATTRIBUTE]: props.sectionId }}
+          {...(props.attention === undefined ? {} : { "data-attention": props.attention })}
           onClick={() => {
-            props.model.setCursor(props.id);
-            props.model.toggleSection(props.id);
+            props.onPress(props.sectionId);
           }}
         >
           <Glyph name={props.isOpen ? "chevron-down" : "chevron-right"} size={GLYPH_SIZE_ROW} />
-          <Glyph name={GLYPH_BY_SECTION_ID[props.id]} size={SECTION_GLYPH_SIZE} />
+          <Glyph name={GLYPH_BY_SECTION_ID[props.sectionId]} size={SECTION_GLYPH_SIZE} />
           <span className="meridian-sidebar__label">{label}</span>
-          {attentionLabel === undefined ? null : (
-            <span
-              className={`meridian-sidebar__attention meridian-sidebar__attention--${props.attention}`}
-            >
-              <span className="meridian-visually-hidden">{attentionLabel}</span>
+          {props.rollup === undefined || props.rollup.nodeCount === 0 ? null : (
+            // The grouped counts, in the group tuple's own order, and only for groups
+            // that hold something: a row of zeroes is four numbers a person has to
+            // read to learn nothing. The whole line is the console's own reading of
+            // what the section served, so it is proportional rather than mono.
+            <span className="meridian-sidebar__rollup">
+              {SIDEBAR_ROLLUP_GROUPS.filter(
+                (group) => (props.rollup?.countsByGroup[group] ?? 0) > 0,
+              ).map((group) => (
+                <DerivedFigure
+                  key={group}
+                  text={`${String(props.rollup?.countsByGroup[group] ?? 0)} ${ROLLUP_GROUP_LABELS[group]}`}
+                />
+              ))}
             </span>
+          )}
+          {props.attention === undefined ? null : (
+            // The mark itself is the header's leading edge, drawn by the stylesheet off
+            // `data-attention` — ONE visual owner for the datum. What lives here is the
+            // half a tint cannot carry: the words a screen reader reads.
+            <span className="meridian-visually-hidden">{ATTENTION_PHRASE[props.attention]}</span>
           )}
         </button>
       </h2>
-      <div
-        className="meridian-sidebar__body"
-        id={bodyId}
-        role="region"
-        aria-labelledby={headerId}
-        hidden={!props.isOpen}
-      >
-        {props.render === undefined ? (
-          <Nothing
-            kind="not-checked"
-            title={`The ${label.toLowerCase()} section has not been built yet.`}
-            detail="It is reserved here rather than stubbed, so nothing on screen stands in for a read the console has not made."
-          />
-        ) : (
-          props.render(context)
-        )}
-      </div>
+      {!props.isOpen ? null : (
+        <div
+          className="meridian-sidebar__body"
+          id={bodyId}
+          role="region"
+          aria-labelledby={headerId}
+        >
+          {props.render === undefined ? (
+            <Nothing
+              kind="not-checked"
+              placement="surface"
+              title={`The ${label.toLocaleLowerCase()} section has not been built yet.`}
+              detail="It is reserved here rather than stubbed, so nothing on screen stands in for a read the console has not made."
+            />
+          ) : (
+            props.render({
+              sessionStore: props.sessionStore,
+              bridge: props.bridge,
+              frameStore: props.frameStore,
+              openPane: props.openPane,
+              isOpen: true,
+              filterQuery: props.filterQuery,
+              bulk: props.bulk,
+              dragRow: props.dragRow,
+            })
+          )}
+        </div>
+      )}
     </li>
   );
 }

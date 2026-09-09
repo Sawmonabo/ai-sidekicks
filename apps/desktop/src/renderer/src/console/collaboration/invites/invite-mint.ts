@@ -54,36 +54,21 @@
 // plaintext leaves this module inside it and in no other form.
 
 import { type ConsoleBridge } from "../../bridge/index.js";
-import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import { type ConsoleRefusal } from "../../core/index.js";
 import { consoleRefusalFrom } from "../../seats/index.js";
-import { type ShellMutationBlock } from "../../store/index.js";
+import { shellBlockRefusal, type ShellMutationBlock } from "../../store/index.js";
 import { composeInviteLink } from "./invite-draft.js";
 import { type WireMutation } from "../mutation-coordinator.js";
 
 /** Names a refusal the host read itself did not name. */
 const INVITE_MINT_ORIGIN = "create-invite";
 
-/**
- * Names the shell's own refusal, when it is the shell that ends the act.
- *
- * The subsystem that refused, and it is not this form: a block is the supervisor's
- * condition read through `store/shell/shell-mutation-block.ts`, so a refusal wearing
- * `create-invite` would attribute the window's outage to the invitation surface.
- */
-const SHELL_ORIGIN = "shell";
-
-/**
- * Whether a refusal is the act's own shell-block abort — the one reason the window
- * already says, and the one the form therefore keeps no record of.
- *
- * Exported beside the arm that mints it rather than as the origin string, so the
- * producer and the one consumer that declines to retain it read one predicate: a
- * second spelling of the origin at the coordinator's option would be the seam split
- * across two modules that `AGENTS.md` names.
- */
-export function isShellBlockRefusal(refusal: ConsoleRefusal): boolean {
-  return refusal.origin === SHELL_ORIGIN;
-}
+// THE SHELL'S OWN REFUSAL IS NOT THIS MODULE'S TO NAME, and it used to be: the origin
+// string and the predicate that recognises one both lived here, which was right while
+// this was the only act that aborted on a block. It is not — the ledger's ask answer
+// aborts on the same condition — so both moved to `store/shell/shell-mutation-block.ts`,
+// which owns the condition, and this module composes the refusal through
+// `shellBlockRefusal` rather than spelling an origin of its own.
 
 /**
  * The three members the create reply carries, as this composition consumes them.
@@ -171,7 +156,7 @@ export function inviteMintWithLink<TRequest, TReply extends InviteMintReply>(
       // a send control drawn open again.
       return {
         status: "refused",
-        refusal: refuse(SHELL_ORIGIN, shellBlock.code, shellBlock.detail),
+        refusal: shellBlockRefusal(shellBlock),
       };
     }
     const reply = await mint(request);

@@ -1,0 +1,164 @@
+// The screenshot tier: the session workspace, with its sidebar open and collapsed.
+//
+// `Spec-023 §Console Test Tiers` names a screenshot tier "per component and per
+// scheme", and the workspace is the surface where the sidebar's own claim is
+// visible at all: the split between the deck and the column, the eight section
+// headers a person reads down, and the rail the collapsed sidebar leaves behind.
+// None of that is checkable from the DOM assertions in the unit tier — a sidebar
+// rendered at zero width, behind the deck, or with its rail clipped away passes
+// every one of them.
+//
+// TWO SUBJECTS RATHER THAN ONE, and the second is not decoration. Collapsed is the
+// state a person leaves the sidebar in for a whole session, and the failure it
+// guards against is the one that cannot be asserted: a rail with nothing on it is
+// a sidebar there is no way back from.
+//
+// AND THE TWO SUBJECTS SHARE A DATABASE, which is what the reset and the arm guards
+// are for. The collapse a person makes is DURABLE — it is written under this
+// session's partition and read back by the next mount — so the collapsed case here
+// used to arrive in the expanded case after it, and the tier minted a dark
+// "expanded" reference byte-identical to its own collapsed sibling. Each case now
+// starts from a deleted database and refuses to photograph a sidebar in the state
+// the other case's reference is named for. The reading and the refusal live in
+// `sidebar-arm.ts` rather than here, because `ledger.test.tsx`'s flagship pair pins
+// a whole frame too and is exposed to the same restored arrangement without being
+// about the sidebar at all.
+//
+// The tier's fail-closed guard and its missing-reference probe are asserted once
+// for the whole tier by `frame.test.tsx`; `baseline-platform.ts` says why they are
+// not repeated here, and holds the one decision about which hosts may compare — a
+// RUNNER rather than a platform. `baseline-host.ts` reads this run against that rule
+// once, and this file asks it rather than reading the environment for itself.
+
+import { afterEach, beforeEach, describe, it } from "vitest";
+import { act } from "@testing-library/react";
+
+import {
+  awaitSessionRouteMounted,
+  emulateSystemScheme,
+  renderSettled,
+  resetDurableConsoleState,
+} from "../console-harness.js";
+import { walkScenarioToFrozenTick } from "../scenario-clock.js";
+import {
+  requireCapturedElement,
+  skipOffBaselineHost,
+  warnOnceOffBaselineHost,
+} from "./baseline-host.js";
+import { requireSidebarColumn, requireSidebarExpanded, sidebarIsCollapsed } from "./sidebar-arm.js";
+
+import {
+  ConsoleRoot,
+  installMeridianTokens,
+} from "../../../src/renderer/src/console/frame/index.js";
+import { formatRoute } from "../../../src/renderer/src/console/routing/index.js";
+import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
+import {
+  LEDGER_QUIET_SCENARIO,
+  LEDGER_QUIET_SCENARIO_ID,
+} from "../../../src/renderer/src/console/bridge/scenarios/ledger/ledger-quiet.js";
+import { captureSettled } from "./settled-capture.js";
+
+/** What one opened workspace hands back: the mount, and what a capture is taken of. */
+interface WorkspaceMount {
+  readonly container: HTMLElement;
+  /** The whole console window — the composition this file pins. */
+  readonly frame: Element;
+}
+
+/**
+ * The workspace with its sidebar mounted and arrived, or a throw.
+ *
+ * A throw rather than the assert-then-return-early shape, which turns "the sidebar
+ * never mounted" into a test that passes having photographed a deck alone.
+ *
+ * THE ARRIVAL WAIT IS WHAT MAKES THE GUARDS BELOW MEAN ANYTHING, and it was measured
+ * rather than assumed. `renderSettled` returns while the sidebar's saved arrangement
+ * is still being read, so the arm it hands back is not always the arm the capture
+ * will see: with a record on disk, this file read an expanded sidebar two turns
+ * before a restored collapse landed, and photographed the collapse. The harness's
+ * wait puts every reading after the session route has finished arriving.
+ *
+ * AND THE MOUNT WAIT IS NOT THE WHOLE ARRIVAL. The route mounting is what the wait
+ * above observes, and the window's own first read is armed on the fixture's frozen
+ * clock — which nothing here would ever move, since this scenario plays no beats. So
+ * the walk runs too: without it the sidebar is photographed beside a session body
+ * still drawing its loading shells, and the sidebar is not the only thing in a frame
+ * capture.
+ */
+async function openWorkspace(): Promise<WorkspaceMount> {
+  document.location.hash = formatRoute({
+    kind: "workspace",
+    sessionId: LEDGER_QUIET_SCENARIO.sessionId,
+  });
+  const { container } = await renderSettled(<ConsoleRoot scenarioId={LEDGER_QUIET_SCENARIO_ID} />);
+  const frame = requireCapturedElement(container, ".meridian-frame");
+  await awaitSessionRouteMounted(container);
+  await walkScenarioToFrozenTick(LEDGER_QUIET_SCENARIO.beats.at(-1)?.atMs ?? 0);
+  // Asked for its own sake: the frame alone mounts on a route whose sidebar never
+  // arrived, and a capture of that is a picture of a deck this file is not pinning.
+  requireSidebarColumn(container);
+  return { container, frame };
+}
+
+/** Collapse the sidebar the way a person does: the control on the column itself. */
+function collapseSidebar({ container, frame }: WorkspaceMount): void {
+  const control = frame.querySelector<HTMLButtonElement>(".meridian-sidebar__collapse");
+  if (control === null) {
+    throw new Error(
+      "the sidebar rendered no collapse control, so the collapsed subject cannot be reached the way a person reaches it",
+    );
+  }
+  // Inside `act`, because the collapse is a store transition whose commit the capture
+  // below reads: outside it the frame is photographed one commit behind the state the
+  // reference is named for.
+  act(() => {
+    control.click();
+  });
+  if (!sidebarIsCollapsed(container)) {
+    throw new Error(
+      "the collapse control was pressed and the sidebar did not render its collapsed arm, so this " +
+        "capture would put an expanded sidebar under the collapsed reference",
+    );
+  }
+}
+
+beforeEach(async () => {
+  // Before the mount rather than after it: the database outlives this file, so what
+  // has to be true is that nothing is in it when a case starts.
+  await resetDurableConsoleState();
+  document.location.hash = "";
+  installMeridianTokens(document);
+});
+
+afterEach(async () => {
+  document.location.hash = "";
+  // Leave the emulation off, so a later file's baseline is not captured under
+  // whichever scheme this one finished in.
+  await emulateSystemScheme("light");
+});
+
+describe("screenshot — the session workspace and its sidebar", () => {
+  // Said once at collection, on the one channel the terminal reporter forwards.
+  warnOnceOffBaselineHost();
+
+  for (const scheme of CONSOLE_SCHEMES) {
+    it(`renders the sidebar expanded in the ${scheme} scheme`, async (context) => {
+      skipOffBaselineHost(context);
+      await emulateSystemScheme(scheme);
+      const mount = await openWorkspace();
+      requireSidebarExpanded(mount.container);
+
+      await captureSettled(mount.frame, `workspace-sidebar-expanded-${scheme}`);
+    });
+
+    it(`renders the sidebar collapsed in the ${scheme} scheme`, async (context) => {
+      skipOffBaselineHost(context);
+      await emulateSystemScheme(scheme);
+      const mount = await openWorkspace();
+      collapseSidebar(mount);
+
+      await captureSettled(mount.frame, `workspace-sidebar-collapsed-${scheme}`);
+    });
+  }
+});

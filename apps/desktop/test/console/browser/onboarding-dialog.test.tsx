@@ -21,7 +21,9 @@ import { createFixtureBridge } from "../../../src/renderer/src/console/bridge/in
 import { crossMacrotaskBoundary } from "../../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
 import { ONBOARDING_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/onboarding.js";
 import { onboardingActivation } from "../../../src/renderer/src/console/onboarding/index.js";
+import { onboardingWalkthroughMount } from "../../../src/renderer/src/console/onboarding/onboarding-walkthrough-mount.js";
 import { OnboardingOverlay } from "../../../src/renderer/src/console/onboarding/OnboardingOverlay.js";
+import { signInCardMount } from "../../../src/renderer/src/console/sign-in/sign-in-card-mount.js";
 import { SignInOverlay } from "../../../src/renderer/src/console/sign-in/SignInOverlay.js";
 import { FrameStore } from "../../../src/renderer/src/console/store/index.js";
 import type { ConsoleSurfaceContext } from "../../../src/renderer/src/console/seats/index.js";
@@ -51,13 +53,30 @@ function popupFor(className: string): HTMLElement {
   return popup;
 }
 
+/**
+ * Raise an activation and let the walkthrough's chunk land.
+ *
+ * Both cases below measure the walkthrough's own markup, and it arrives on its own
+ * chunk — so the render that follows an activation draws the reserved region and every
+ * rect would be the popup's chrome. Resolved through the MOUNT the overlay renders,
+ * which is the one home for that wait; two cases waiting differently is the race that
+ * mints a reading nobody can reproduce.
+ */
+async function activateWalkthroughAt(openAtStep: "providers" | "relay"): Promise<void> {
+  await act(async () => {
+    onboardingActivation.request({ openAtStep, accountScope: undefined });
+    await crossMacrotaskBoundary();
+  });
+  await act(async () => {
+    await onboardingWalkthroughMount.load();
+    await crossMacrotaskBoundary();
+  });
+}
+
 describe("browser — the walkthrough lays out inside the window", () => {
   it("fits the viewport and scrolls inside itself rather than past the bottom", async () => {
     await renderSettled(<OnboardingOverlay context={surfaceContext()} />);
-    await act(async () => {
-      onboardingActivation.request({ openAtStep: "providers", accountScope: undefined });
-      await crossMacrotaskBoundary();
-    });
+    await activateWalkthroughAt("providers");
 
     const popup = popupFor("meridian-onboarding__popup");
     const box = popup.getBoundingClientRect();
@@ -71,10 +90,7 @@ describe("browser — the walkthrough lays out inside the window", () => {
 
   it("puts the rail beside the pane rather than stacking them", async () => {
     await renderSettled(<OnboardingOverlay context={surfaceContext()} />);
-    await act(async () => {
-      onboardingActivation.request({ openAtStep: "relay", accountScope: undefined });
-      await crossMacrotaskBoundary();
-    });
+    await activateWalkthroughAt("relay");
 
     const rail = popupFor("meridian-onboarding__rail").getBoundingClientRect();
     const pane = popupFor("meridian-onboarding__pane").getBoundingClientRect();
@@ -89,6 +105,13 @@ describe("browser — the sign-in card holds the keyboard", () => {
     const { consoleCommands } = await import("../../../src/renderer/src/console/palette/index.js");
     await act(async () => {
       consoleCommands.invoke("signIn.open", {});
+      await crossMacrotaskBoundary();
+    });
+    // The card arrives on its own chunk; the controls this case walks the ring across
+    // are its own, so it is resolved through the overlay's own mount before they are
+    // looked for.
+    await act(async () => {
+      await signInCardMount.load();
       await crossMacrotaskBoundary();
     });
 

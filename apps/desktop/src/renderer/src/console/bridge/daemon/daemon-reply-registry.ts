@@ -54,6 +54,8 @@
 // that already has one.
 
 import {
+  ChildRunExpandRequestSchema,
+  ChildRunExpandResponseSchema,
   DriverAckResultSchema,
   DriverCompactionResultSchema,
   DriverReadParamsSchema,
@@ -87,6 +89,9 @@ import {
   ProviderAccountListResponseSchema,
   ProviderAccountProbeRequestSchema,
   ProviderAccountProbeResponseSchema,
+  ReasoningSurfaceReadRequestSchema,
+  ReasoningSurfaceReadResponseSchema,
+  RespondToRequestParamsSchema,
   QueueItemCancelRequestSchema,
   QueueItemCancelResponseSchema,
   QueueItemCreateRequestSchema,
@@ -104,6 +109,8 @@ import {
   SessionCreateResponseSchema,
   SessionJoinRequestSchema,
   SessionJoinResponseSchema,
+  TimelineReadRequestSchema,
+  TimelineReadResponseSchema,
   WorkspaceExecutionModeCapabilitiesReadRequestSchema,
   WorkspaceExecutionModeCapabilitiesReadResponseSchema,
   WorkspaceBindRequestSchema,
@@ -208,6 +215,11 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
   ),
   "driver.listCapabilities": bindDaemonMethod(DriverReadParamsSchema, ListCapabilitiesResultSchema),
   "driver.listModels": bindDaemonMethod(DriverReadParamsSchema, ListModelsResultSchema),
+  "driver.respondToRequest": bindDaemonMethod(RespondToRequestParamsSchema, DriverAckResultSchema),
+  "timeline.reasoningSurfaceRead": bindDaemonMethod(
+    ReasoningSurfaceReadRequestSchema,
+    ReasoningSurfaceReadResponseSchema,
+  ),
   "repo.attach": bindDaemonMethod(RepoAttachRequestSchema, RepoAttachResponseSchema),
   "repo.mountRead": bindDaemonMethod(RepoMountReadRequestSchema, RepoMountReadResponseSchema),
   "repo.workspaceBind": bindDaemonMethod(WorkspaceBindRequestSchema, WorkspaceBindResponseSchema),
@@ -251,6 +263,11 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
   "presence.read": bindDaemonMethod(PresenceReadRequestSchema, PresenceReadResponseSchema),
   "invite.create": bindDaemonMethod(InviteCreateSchema, InviteCreateResponseSchema),
   "invite.revoke": bindDaemonMethod(InviteRevokeSchema, InviteRevokeResponseSchema),
+  "timeline.childRunExpand": bindDaemonMethod(
+    ChildRunExpandRequestSchema,
+    ChildRunExpandResponseSchema,
+  ),
+  "timeline.read": bindDaemonMethod(TimelineReadRequestSchema, TimelineReadResponseSchema),
   "providerAccount.list": bindDaemonMethod(
     ProviderAccountListRequestSchema,
     ProviderAccountListResponseSchema,

@@ -8,7 +8,10 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../../../bridge/index.js";
 import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
-import { GIT_MOUNT_ID, GIT_WORKSPACE_ID } from "../../../bridge/scenarios/repos-fixture-data.js";
+import {
+  GIT_MOUNT_ID,
+  GIT_WORKSPACE_ID,
+} from "../../../bridge/scenarios/repos/repos-fixture-data.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../../core/index.js";
 import { SessionStore } from "../../../store/index.js";
 import { ExecutionRootPrepareController } from "./prepare-controller.js";

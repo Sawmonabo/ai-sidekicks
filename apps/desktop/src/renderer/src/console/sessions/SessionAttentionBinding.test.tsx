@@ -47,7 +47,7 @@ const WAITING_SESSION_IDS: readonly string[] = ["session-a"];
 /**
  * A growth port answering the two reads this binding puts, and nothing else.
  *
- * Cast rather than constructed, on `session-surface.test-support.tsx`' rule: the port
+ * Cast rather than constructed, on `session-surface.context.test-support.ts`' rule: the port
  * declares every operation the console has a slate row for, and building all of them
  * to answer two would make the setup the subject.
  */

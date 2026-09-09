@@ -89,6 +89,7 @@ import {
   RENDERER_DEV_CONTENT_SECURITY_POLICY,
   RENDERER_DEV_SERVER_PORT,
 } from "./src/main/renderer-scheme.js";
+import { chunkModulesManifestPlugin } from "./vitest/chunk-modules-manifest.js";
 import { iconCompilationPlugin } from "./vitest/icon-compilation.js";
 
 const ELECTRON_EXTERNAL: readonly (string | RegExp)[] = ["electron", /^electron\/.+/];
@@ -216,7 +217,7 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       // than fetched or inlined as markup. The options live in one module the
       // Vitest tiers call too — see `vitest/icon-compilation.ts` for why the
       // three consumers cannot be allowed to drift.
-      plugins: [iconCompilationPlugin()],
+      plugins: [iconCompilationPlugin(), chunkModulesManifestPlugin()],
       server: {
         port: RENDERER_DEV_SERVER_PORT,
         // See the header note: the policy names this port, so a silent

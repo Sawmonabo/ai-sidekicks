@@ -120,8 +120,9 @@ export const ROOT_MEMBER_PATH: SchemaMemberPath = [];
  * SEGMENT BY SEGMENT, AND NEVER ON A JOINED STRING. `["items", 0]` and `["items.0"]` are
  * one string under a dotted join and two different members in the schema, so a match on
  * the join draws an array entry's finding under a property that merely reads like one.
- * The comparison itself is the validator's own — `isSameMemberPath`, beside the producer
- * of the paths it compares — so there is no second reading of what "the same member" is.
+ * The comparison itself is the bridge's own — `isSameMemberPath`, declared in the module
+ * that declares the path type both sides carry — so there is no second reading of what
+ * "the same member" is.
  *
  * EXACTLY THAT MEMBER, AND NEVER THE SUBTREE UNDER IT. `isSameMemberPath` compares the
  * lengths before the segments, so `["scope"]` matches a finding about the group and not

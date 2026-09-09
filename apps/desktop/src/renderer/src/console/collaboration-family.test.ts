@@ -16,6 +16,7 @@ import {
   FrameBindingRegistry,
   SidebarSectionRegistry,
 } from "./seats/index.js";
+import type { SessionsSurfaceComposition } from "./sessions/index.js";
 import { ConsoleEntityProjectorRegistry } from "./store/index.js";
 
 /** The four boards this family writes into, all owned by the case that built them. */
@@ -33,10 +34,20 @@ function ownedBoards(): {
   };
 }
 
+/**
+ * The composed-session control, as a stand-in.
+ *
+ * The real one is the workspace family's, which this family may not import and this
+ * test has no need of: every claim below is about which slots are claimed, under
+ * which owners, on whose board. What the sessions destination does with the control
+ * is asserted where that surface is rendered.
+ */
+const standInComposition: SessionsSurfaceComposition = { newSessionControl: () => null };
+
 describe("collaboration family — composition", () => {
   it("claims the three slots this family owns", () => {
     const { surfaces, sections, projectors, bindings } = ownedBoards();
-    registerCollaborationFamily(surfaces, sections, projectors, bindings);
+    registerCollaborationFamily(surfaces, sections, projectors, bindings, standInComposition);
     expect(surfaces.registeredSlots()).toStrictEqual(["sessions", "settings", "agent-console"]);
   });
 
@@ -45,8 +56,12 @@ describe("collaboration family — composition", () => {
     // that silently DISCARDED its board would also satisfy. This is the other half:
     // the board handed in comes back filled.
     const { surfaces, sections, projectors, bindings } = ownedBoards();
-    registerCollaborationFamily(surfaces, sections, projectors, bindings);
-    expect(sections.registeredSectionIds()).toStrictEqual(["channels", "members"]);
+    registerCollaborationFamily(surfaces, sections, projectors, bindings, standInComposition);
+    // Three, not two: the `agents` section is this family's as well, and its body
+    // lives in the agents subtree rather than in `collaboration/` because a body
+    // belongs to the family whose vocabulary it renders. The ids come back in the
+    // seat's own declared order rather than in registration order.
+    expect(sections.registeredSectionIds()).toStrictEqual(["channels", "agents", "members"]);
   });
 
   it("claims each one under an owner of its own", () => {
@@ -54,7 +69,7 @@ describe("collaboration family — composition", () => {
     // than a swap. Two subtrees sharing one owner string would silently replace
     // each other instead.
     const { surfaces, sections, projectors, bindings } = ownedBoards();
-    registerCollaborationFamily(surfaces, sections, projectors, bindings);
+    registerCollaborationFamily(surfaces, sections, projectors, bindings, standInComposition);
     const owners = surfaces
       .registeredSlots()
       .map((slot) => surfaces.descriptorFor(slot)?.owner ?? "");
@@ -64,22 +79,29 @@ describe("collaboration family — composition", () => {
   it("composes into the registry it is handed, not a singleton", () => {
     const first = ownedBoards();
     const second = ownedBoards();
-    registerCollaborationFamily(first.surfaces, first.sections, first.projectors, first.bindings);
+    registerCollaborationFamily(
+      first.surfaces,
+      first.sections,
+      first.projectors,
+      first.bindings,
+      standInComposition,
+    );
     expect(second.surfaces.registeredSlots()).toStrictEqual([]);
     registerCollaborationFamily(
       second.surfaces,
       second.sections,
       second.projectors,
       second.bindings,
+      standInComposition,
     );
     expect(second.surfaces.registeredSlots()).toStrictEqual(first.surfaces.registeredSlots());
   });
 
   it("survives being composed twice, as a hot reload does it", () => {
     const { surfaces, sections, projectors, bindings } = ownedBoards();
-    registerCollaborationFamily(surfaces, sections, projectors, bindings);
+    registerCollaborationFamily(surfaces, sections, projectors, bindings, standInComposition);
     const afterFirst = surfaces.registeredSlots();
-    registerCollaborationFamily(surfaces, sections, projectors, bindings);
+    registerCollaborationFamily(surfaces, sections, projectors, bindings, standInComposition);
     expect(surfaces.registeredSlots()).toStrictEqual(afterFirst);
   });
 
@@ -91,7 +113,7 @@ describe("collaboration family — composition", () => {
     // revoked member stays a direct-channel candidate and a roster row forever,
     // because nothing else in the window ever hears that the membership ended.
     const { surfaces, sections, projectors, bindings } = ownedBoards();
-    registerCollaborationFamily(surfaces, sections, projectors, bindings);
+    registerCollaborationFamily(surfaces, sections, projectors, bindings, standInComposition);
     expect(Object.keys(projectors.snapshot())).toStrictEqual([
       "membership.created",
       "membership.role_changed",
@@ -107,7 +129,7 @@ describe("collaboration family — composition", () => {
     // and never wrote to it would leave the rail with no producer at all — which looks
     // exactly like a machine with nothing waiting on anyone.
     const { surfaces, sections, projectors, bindings } = ownedBoards();
-    registerCollaborationFamily(surfaces, sections, projectors, bindings);
+    registerCollaborationFamily(surfaces, sections, projectors, bindings, standInComposition);
     expect(bindings.registeredSlots()).toStrictEqual(["session-attention"]);
   });
 

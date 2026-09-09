@@ -98,6 +98,9 @@ import {
 } from "../../../src/renderer/src/console/seats/index.js";
 import { resolvedPaneBody, resolvedSurfaceBody } from "./pane-body-resolution.js";
 import { COMPOSED_CONSOLE_PROJECTORS } from "./projector-composition.js";
+// The seat's own readings, from the module that also mounts it for the accessibility
+// tier: one answer to "is this form ready", per `AGENTS.md` §Shared code.
+import { holdsSchemaForm, schemaFormIsAwaitingCompiler } from "./schema-form.js";
 
 /**
  * A registry carrying exactly this family's two claims.
@@ -312,12 +315,20 @@ export async function mountWorkflowsDestination(): Promise<MountedFamilySurface>
  * has instead of its busiest, and the park banner is the thing an operator opens
  * this pane for.
  *
- * WAITED ON TWICE, because the pane arrives in two steps. The run read landing puts the
- * park banners on the page; the waiting-human park then mounts the schema form, whose
- * kit is its own chunk and rides the pending-body marker until it lands. A mount that
- * returned on the first step handed the screenshot tier a tree still carrying that
- * marker, and the tier refused the capture — correctly, and non-deterministically,
- * since the chunk sometimes beat the capture and sometimes did not.
+ * WAITED ON THREE TIMES, because the pane arrives in three steps. The run read landing
+ * puts the park banners on the page; the waiting-human park then mounts the schema form,
+ * whose kit is its own chunk and rides the pending-body marker until it lands; and the
+ * form itself then fetches the schema compiler, which is a second chunk and the one thing
+ * that decides whether its submit control is armed. A mount that returned on the first
+ * step handed the screenshot tier a tree still carrying the pending marker, and the tier
+ * refused the capture — correctly, and non-deterministically, since the chunk sometimes
+ * beat the capture and sometimes did not. The third wait is that same hazard one layer
+ * in, and it photographs rather than refuses: the form announces the window with
+ * `aria-busy`, so a capture taken inside it pins a quieted, un-pressable submit against a
+ * baseline of an armed one. What that third wait reads is `holdsSchemaForm` and then
+ * `schemaFormIsAwaitingCompiler`, in that order and for the reason stated at the wait —
+ * both live in `./schema-form.tsx`, which mounts the same seat for the accessibility
+ * tier, because their subject is the seat rather than this family.
  */
 export async function mountWorkflowParkedRunPane(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
@@ -344,6 +355,13 @@ export async function mountWorkflowParkedRunPane(): Promise<MountedFamilySurface
     const pendingKinds = pendingPaneKindsIn(region);
     if (pendingKinds.length > 0) {
       throw new Error(`a pane body is still arriving (${pendingKinds.join(", ")})`);
+    }
+    // The form FIRST and its state second, for the reason stated where they are declared.
+    if (!holdsSchemaForm(region)) {
+      throw new Error("the waiting-human park has not mounted its schema form yet");
+    }
+    if (schemaFormIsAwaitingCompiler(region)) {
+      throw new Error("the schema form's compiler has not arrived yet");
     }
   });
   return { element: region, bridge };
