@@ -792,7 +792,7 @@ At Tier 8, when the Playwright `_electron` E2E suite ships per Implementation St
 
 ```yaml
 manifest_schema_version: 1
-non_shipment_prs: [420, 429]
+non_shipment_prs: [420, 429, 478]
 shipped:
   - phase: 1
     task:
