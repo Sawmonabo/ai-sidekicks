@@ -121,9 +121,8 @@ interface DetachedBindingProps {
  * A viewport, and beside it a binding nobody handed to it.
  *
  * This is the shape the ledger used to have: one binding held by the surrounding
- * surface for the rail and the find walk, and a second one — the viewport's own —
- * holding the element. The case below acts on the held one and watches the element
- * not move.
+ * surface for the find walk, and a second one — the viewport's own — holding the
+ * element. The case below acts on the held one and watches the element not move.
  */
 function DetachedBindingBeside(props: DetachedBindingProps): React.JSX.Element {
   const detachedBinding = useLedgerViewport({

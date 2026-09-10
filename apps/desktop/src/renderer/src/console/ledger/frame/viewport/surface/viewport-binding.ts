@@ -26,35 +26,10 @@ import { LedgerViewportController } from "../cycle/viewport-controller.js";
 import { type LedgerRowLease } from "../../row-lease-table.js";
 import { type LedgerViewportConditions, type LedgerViewportSnapshot } from "./viewport-snapshot.js";
 
-/**
- * The half-open row range the viewport box actually intersects, inclusive at both
- * ends, or `undefined` before anything has been measured.
- *
- * NOT the mounted range: `virtualItems` is this range widened by
- * `LEDGER_OVERSCAN_ROWS` at both edges, which is what makes a scroll meet measured
- * rows instead of a blank band. Anything reporting where the reader IS — the rail's
- * thumb is the one caller today — needs the un-widened one, because an overscanned
- * thumb is several times too tall and starts a screenful early.
- */
-export interface LedgerVisibleRowRange {
-  readonly startIndex: number;
-  readonly endIndex: number;
-}
-
 /** What the view gets back: a snapshot, the refs, and the acts it offers. */
 export interface LedgerViewportBinding {
   readonly snapshot: LedgerViewportSnapshot;
   readonly virtualItems: readonly VirtualItem[];
-  /**
-   * The range the box intersects, straight off the virtualizer's own computation
-   * over the measurements, the outer size, and the scroll offset.
-   *
-   * Read from the library rather than re-derived by subtracting the overscan, which
-   * is exact nowhere near either end of the list, and taken here rather than
-   * published on the viewport snapshot, which deliberately carries no scroll
-   * geometry — putting it there would notify React on every scrolled pixel.
-   */
-  readonly visibleRange: LedgerVisibleRowRange | undefined;
   /** Rows this window holds and cannot draw, because it ran out of height. */
   readonly rowsPastElementCeiling: number;
   readonly attachSurface: (element: HTMLElement | null) => void;
@@ -66,8 +41,8 @@ export interface LedgerViewportBinding {
   /**
    * Bring one row into view by its key, if this window still holds it.
    *
-   * Keyed rather than indexed because every caller — the rail's tick, find's walk,
-   * a chapter's header — names a ROW, and an index is a fact about the current
+   * Keyed rather than indexed because every caller — find's walk, a chapter's
+   * header, a jump by event id — names a ROW, and an index is a fact about the current
    * window that a prune invalidates between the caller reading it and acting on it.
    * The lookup is over the reconciled snapshot, so a key the cap has already
    * dropped scrolls nothing rather than landing on whichever row now holds that
@@ -281,11 +256,6 @@ export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerView
   return {
     snapshot,
     virtualItems,
-    // Read AFTER `getVirtualItems()`, which is what drives the range computation:
-    // the field is `null` until that pass has run over a box with a non-zero outer
-    // size, and `null` is the honest "nothing measured yet" answer rather than a
-    // range starting at zero.
-    visibleRange: virtualizer.range ?? undefined,
     rowsPastElementCeiling,
     attachSurface: useCallback(
       (element: HTMLElement | null) => {

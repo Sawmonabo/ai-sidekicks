@@ -7,9 +7,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  SESSION_EVENT_CATEGORY_BY_TYPE,
   type ChildRunSummary,
   type NodeId,
   type RunId,
+  type SessionEventType,
   type TimelineRow,
 } from "@ai-sidekicks/contracts";
 
@@ -20,7 +22,6 @@ import {
   deriveChildRunEntries,
   deriveHandoffEntries,
 } from "./child-run-entries.js";
-import { RAIL_TICK_BINDINGS } from "../rail/rail-ticks.js";
 
 /** When a later observation saw the child's transcript lose entries. */
 const OBSERVED_AT = "2026-09-02T10:04:00.000Z";
@@ -43,9 +44,33 @@ function rowCarryingChildRun(id: string, sequence: number, summary: ChildRunSumm
   } as TimelineRow;
 }
 
-describe("the handoff wire vocabulary — one table, two renderers", () => {
-  it("reads the rail's own handoff tick binding rather than restating it", () => {
-    expect(HANDOFF_WIRE_TYPES).toBe(RAIL_TICK_BINDINGS.handoff.wireTypes);
+describe("the handoff wire vocabulary — every member is a type the daemon can emit", () => {
+  it("names four registered wire types, each in the category the contract files it under", () => {
+    // The whole set against the whole expectation, rather than a `has` per member: the
+    // member type is `SessionEventType`, so a per-member truth check passes for every
+    // value that compiles and passes VACUOUSLY over a vocabulary a member was dropped
+    // from. Reading the category back names what each member is and fails on a
+    // dropped one, an added one, and one the contract stopped registering alike.
+    const categoryByWireType = Object.fromEntries(
+      HANDOFF_WIRE_TYPES.map((wireType) => [
+        wireType,
+        SESSION_EVENT_CATEGORY_BY_TYPE.get(wireType),
+      ]),
+    );
+    expect(categoryByWireType).toStrictEqual({
+      "agent.attached": "session_lifecycle",
+      "agent.detached": "session_lifecycle",
+      "subagent.started": "tool_activity",
+      "subagent.completed": "tool_activity",
+    });
+  });
+
+  it("negative control: a type the contract does not register is absent from the census", () => {
+    // Cast because the census is keyed by the wire union and this value is deliberately
+    // outside it — which is the whole point: without this the case above would pass over
+    // a census that answered `true` for everything.
+    const unregistered = "agent.definitely_not_a_wire_type" as SessionEventType;
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.has(unregistered)).toBe(false);
   });
 });
 

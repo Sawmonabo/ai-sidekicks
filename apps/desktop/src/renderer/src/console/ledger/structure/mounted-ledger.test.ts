@@ -25,9 +25,6 @@ function namedActs(name: string, fired: string[]): LedgerStructureActs {
     clearFilters: () => fired.push(`${name}:clearFilters`),
     scrollToTail: () => fired.push(`${name}:scrollToTail`),
     collapseAllTerminalChapters: () => fired.push(`${name}:collapseAllTerminalChapters`),
-    toggleReplay: () => fired.push(`${name}:toggleReplay`),
-    jumpToNextSeam: () => fired.push(`${name}:jumpToNextSeam`),
-    replayFromRowInView: () => fired.push(`${name}:replayFromRowInView`),
   };
 }
 
@@ -58,8 +55,8 @@ describe("mounted ledger — which feed an act reaches", () => {
     seat.adopt(namedActs("second", fired));
     releaseFirst();
     expect(seat.mountedCount).toBe(1);
-    seat.perform("toggleReplay");
-    expect(fired).toStrictEqual(["second:toggleReplay"]);
+    seat.perform("collapseAllTerminalChapters");
+    expect(fired).toStrictEqual(["second:collapseAllTerminalChapters"]);
   });
 
   it("refuses rather than silently doing nothing when nothing is mounted", () => {
@@ -116,8 +113,8 @@ describe("mounted ledger — a component holds the seat for its lifetime", () =>
       createElement(LedgerMountProbe, { name: "feed", fired: firstPass, seat }),
     );
     mounted.rerender(createElement(LedgerMountProbe, { name: "feed", fired: laterPass, seat }));
-    seat.perform("jumpToNextSeam");
-    expect(laterPass).toStrictEqual(["feed:jumpToNextSeam"]);
+    seat.perform("stepFindNext");
+    expect(laterPass).toStrictEqual(["feed:stepFindNext"]);
     expect(firstPass).toStrictEqual([]);
   });
 

@@ -28,7 +28,6 @@
 // family door publishes the two hooks and the component from their own declaring modules,
 // which is what keeps a symbol's home one hop away rather than two.
 
-export { type LedgerVisibleRowRange } from "./surface/viewport-binding.js";
 export {
   type LedgerViewportRow,
   type LedgerViewportSnapshot,

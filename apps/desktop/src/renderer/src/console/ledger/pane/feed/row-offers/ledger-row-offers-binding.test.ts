@@ -2,7 +2,7 @@
 //
 // The builder next door decides WHICH offers a row has; this decides what each one
 // reaches, so every case below presses an offer and reads what moved — a lease, the
-// scroll writer, the replay engine, or the host's clipboard.
+// scroll writer or the host's clipboard.
 //
 // THE HOOK IS NOT HERE. `ledger-row-offers-binding.hook.test.tsx` drives it, because
 // the wiring needs a React tree and the behaviour does not — and because one file
@@ -93,9 +93,6 @@ function offerSurface(
     jumpToRow: (rowKey) => {
       trace.push(`jumpToRow:${rowKey}`);
     },
-    replayFromRow: (rowId) => {
-      trace.push(`replayFromRow:${rowId}`);
-    },
     bridge,
   };
 }
@@ -172,16 +169,6 @@ describe("a row's offer binding — the surfaces it writes to", () => {
       "jump-to-chapter",
     );
     expect(trace).toStrictEqual([`jumpToRow:${SAMPLE_RUN_ID}`]);
-  });
-
-  it("hands the replay scrub to the surface that owns its own refusal", () => {
-    const trace: SurfaceTrace = [];
-    press(
-      offerSurface(trace, instrumentedBridge(trace, "none")),
-      offerRequest(),
-      "replay-from-here",
-    );
-    expect(trace).toStrictEqual([`replayFromRow:${SAMPLE_ROW_ID}`]);
   });
 
   it("reads the surface at PRESS time, never at build time", () => {

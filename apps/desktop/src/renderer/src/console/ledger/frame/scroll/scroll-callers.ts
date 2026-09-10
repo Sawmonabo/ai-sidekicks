@@ -25,7 +25,6 @@ export const LEDGER_SCROLL_CALLERS = [
   "hold-reading-position",
   "deep-link",
   "find-match",
-  "replay-seek",
   "prune-compensation",
   "measurement-compensation",
 ] as const;

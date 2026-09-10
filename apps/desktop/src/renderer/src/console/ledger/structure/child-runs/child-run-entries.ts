@@ -3,9 +3,8 @@
 // WHAT WAS MISSING. A row carries `childRunSummary` and nothing rendered it: the
 // chapter header raised an incompleteness marker over a whole chapter and the child
 // run itself — its state, how much it holds, and which node produced it — reached no
-// row at all. A handoff was worse off still: the rail registers a `handoff` tick
-// kind, and the feed had no row treatment for one, so work changing hands marked the
-// minimap and read as an ordinary receipt in the log beside it.
+// row at all. A handoff was worse off still: work changing hands read as an ordinary
+// receipt in the log beside every other row.
 //
 // TWO ENTRY KINDS, ONE INDEX, because they are asked the same way at the same moment:
 // the feed's row renderer holds one window and asks, per row, "is this row one of the
@@ -15,10 +14,9 @@
 // A HANDOFF IS A PROJECTION ENTRY AND NEVER AN EVENT TYPE. `Spec-013 §Timeline Entry
 // Types` names `handoff` as an entry the projection produces; no `handoff` event type
 // is registered anywhere and nothing here looks for one. What the console has is the
-// set of wire types that mean work changed hands, and that set already has a home —
-// the rail's own tick table — so it is READ from there rather than restated. A second
-// copy would drift the moment either surface learned a new one, and the gate would
-// stay green.
+// set of wire types that mean work changed hands, and this directory is that set's
+// one home: it is the only surface that draws a handoff, so the vocabulary sits
+// beside the renderer that spends it rather than in a second table somewhere else.
 //
 // EVERY MEMBER IS READ AS ITSELF. `fromActor`, `toActor`, `reason` and `channelId` are
 // the four members `Spec-013` names on the entry; each is read off the projected
@@ -27,23 +25,34 @@
 // onto a phrase, or infers a `toActor` from a row's own actor — an inferred handoff
 // target is a claim about who has the work, made by the renderer.
 
-import { type ChildRunSummary, type TimelineRow } from "@ai-sidekicks/contracts";
+import {
+  type ChildRunSummary,
+  type SessionEventType,
+  type TimelineRow,
+} from "@ai-sidekicks/contracts";
 
 import { readWireString } from "../../../core/index.js";
 // The ledger's one open-payload reader, which answers the `rollback_boundary` arm's
 // TYPED payload with an empty record rather than widening it into a bag.
 import { projectedPayload } from "../../cards/wire-payload.js";
-import { RAIL_TICK_BINDINGS } from "../rail/rail-ticks.js";
 import { SubagentAnchorIndex } from "./subagent-anchoring.js";
 
 /**
  * The wire types that mean work changed hands.
  *
- * Read off the rail's `handoff` tick binding rather than restated: the rail marks a
- * handoff and this draws one, and one vocabulary with two renderers is the shape
+ * An agent joining or leaving the session, and a child run taking a piece of it.
+ * Typed as the wire union rather than as bare strings, so a member the contract does
+ * not register fails to compile here instead of silently matching no row. Declared
+ * here because this directory holds the console's one handoff renderer, so the
+ * vocabulary and the treatment that spends it are one module — the shape
  * `apps/desktop/AGENTS.md` asks for ("two sides of one seam share a module").
  */
-export const HANDOFF_WIRE_TYPES: readonly string[] = RAIL_TICK_BINDINGS.handoff.wireTypes;
+export const HANDOFF_WIRE_TYPES: readonly SessionEventType[] = [
+  "agent.attached",
+  "agent.detached",
+  "subagent.started",
+  "subagent.completed",
+];
 
 /** One row that carries a summarized child run. */
 export interface ChildRunEntry {
@@ -198,7 +207,9 @@ export function deriveHandoffEntries(rows: readonly TimelineRow[]): readonly Han
   const anchors = new SubagentAnchorIndex(rows);
   const entries: HandoffEntry[] = [];
   for (const row of rows) {
-    if (!HANDOFF_WIRE_TYPES.includes(row.type)) {
+    // `some` rather than `includes`: a row's `type` is the free-form string the
+    // timeline contract carries, and the vocabulary above is the narrowed wire union.
+    if (!HANDOFF_WIRE_TYPES.some((wireType) => wireType === row.type)) {
       continue;
     }
     // ANCHORED, WHERE THE ROW NAMES A SUBAGENT. A `subagent.started` and the

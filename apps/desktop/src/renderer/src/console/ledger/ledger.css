@@ -4,15 +4,15 @@
  * ONE SHEET PER DIRECTORY, so a rule sits beside the code that renders it, and a rule
  * reachable from TWO directories goes in their nearest shared parent's sheet — which is
  * `ledger.css` for the family, and a parent sheet in `structure/` for that subtree's
- * five if one of its rules is ever shared — none is today.
- * `structure/` is the only subtree split further, and the reason is the module ceiling
- * rather than symmetry: it was one 503-line sheet over five subjects that change for
- * five different reasons. `frame/` and `cards/` keep one sheet each, well inside the
+ * four if one of its rules is ever shared — none is today. `structure/` is the only
+ * subtree split further, and the reason is the module ceiling rather than symmetry: it
+ * was one 503-line sheet over five subjects that change for five different reasons.
+ * `frame/` and `cards/` keep one sheet each, well inside the
  * ceiling, because their sub-modules draw INSIDE the boxes the parent sheet already
  * sizes — a body inside a card, a row inside the frame — and splitting a box from its
  * contents buys no reading. EACH SHEET IS IMPORTED BY THE DOOR OF THE DIRECTORY THAT
  * OWNS IT — this one by `ledger/index.ts`, `frame/frame.css` by `frame/index.ts`, and
- * so on down, with `structure/index.ts` carrying the four its doorless children's
+ * so on down, with `structure/index.ts` carrying the two its doorless children's
  * sheets are — because a door reaching into a directory that has one of its own is
  * the shape `apps/desktop/AGENTS.md` §Module shape forbids. Every one of those doors
  * is reachable from the family door, so they still land once per bundle, parent
@@ -21,7 +21,7 @@
  * WHAT IS CROSS-DIRECTORY HERE, and why each one is:
  *
  *   • The deck's shell and the loaded ledger. `.meridian-ledger*` is `ledger/pane/`'s
- *     markup, not this family's: the deck composes the frame and the rail into one
+ *     markup, not this family's: the deck composes the frame's window into the pane's
  *     surface, so the rules that place them belong to neither.
  *   • `.meridian-pane__feed`, the one rule the pane's own body draws: the scroll
  *     container `ledger/frame/`'s viewport mounts inside the box `seats/` sizes.
@@ -70,7 +70,7 @@
 
 /*
  * The whole feed for one session: an optional find strip above, and below it the
- * scrolling window with its rail.
+ * scrolling window.
  *
  * A column grid whose second track is `minmax(0, 1fr)` rather than a flex column,
  * because the find strip appears and disappears and a flex child that could grow
@@ -87,27 +87,16 @@
 }
 
 /*
- * The window and the rail, side by side.
+ * The window's own track.
  *
- * The rail's track is sized from its own content rather than given a number here:
- * the rail draws marks at a width the family's own tokens decide, and a literal
- * would be a second place that decision lived. `minmax(0, 1fr)` on the window is
- * what lets the viewport — and not this row — be the element that scrolls.
+ * `minmax(0, 1fr)` rather than `1fr`, which is what lets the viewport — and not this
+ * row — be the element that scrolls: a `1fr` track floors at its content's min-content
+ * height, so the log would grow the row instead of overflowing inside it.
  */
 .meridian-ledger__body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
-  min-height: 0;
-}
-
-/*
- * The rail is revealed by pointer and by focus, so it must be able to take focus
- * without the layout moving underneath it — hence a track that is already there
- * rather than one that appears on hover.
- */
-.meridian-ledger__rail {
-  display: flex;
   min-height: 0;
 }
 

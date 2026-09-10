@@ -304,7 +304,7 @@ const NO_ROW_PATH_REFERENCE: FilePathRef | undefined = undefined;
  * affordance that corrects what a participant SENT, and it is offered on participant
  * message rows alone; the menu is this family's own, offered on every row, and it
  * carries the offers the row vocabulary states — open, close, copy the id, copy the
- * body, replay from here, jump to the run chapter, reveal the file. Folding either
+ * body, jump to the run chapter, reveal the file. Folding either
  * into the other would give one plan's seat a say over every row, or put this
  * family's control inside a body it does not own.
  *

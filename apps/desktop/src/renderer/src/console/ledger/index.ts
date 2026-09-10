@@ -37,8 +37,8 @@
 // hardened `BrowserWindow`", loading "the same renderer bundle at a window route" — so
 // it mounts the pane alone: no deck around it, because an auxiliary window holds one
 // pane, and no composer, because the composer is the session workspace's chrome and this
-// window is not that workspace. The rail, the replay control and the find bar are the
-// pane's own chrome and travel with it into that window.
+// window is not that workspace. The find bar is the pane's own chrome and travels
+// with it into that window.
 
 import { createElement, type ComponentType, type ReactNode } from "react";
 
@@ -53,7 +53,7 @@ import {
   type ConsoleSurfaceRegistry,
 } from "../seats/index.js";
 import { SessionResumeDegraded } from "./SessionResumeDegraded.js";
-import { LedgerGapFill } from "./pane/replay/LedgerGapFill.js";
+import { LedgerGapFill } from "./pane/window/LedgerGapFill.js";
 import { registerLedgerCommands } from "./structure/structure-commands.js";
 
 // THIS DOOR IMPORTS ITS OWN SHEET AND NO OTHER. `apps/desktop/AGENTS.md` §Module
@@ -310,7 +310,7 @@ function mountLedgerPane(context: ConsoleSurfaceContext): ReactNode {
     "div",
     // Keyed on the route's session, exactly as the workspace slot beside it is and
     // for the same reason: this position holds strictly more per-session state —
-    // chapter disclosure, row retention, the replay walk, the reveal engine's lanes,
+    // chapter disclosure, row retention, the reveal engine's lanes,
     // the viewport's reading anchor and row leases, the find query, the pending jump
     // — and moving between two already-open sessions re-renders it rather than
     // unmounting it. The key is what makes the subtree's lifetime match the thing it

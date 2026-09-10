@@ -129,30 +129,6 @@ export function ledgerStructureCommands(acts: LedgerStructureActs): readonly Con
       keywords: ["fold", "chapters", "runs"],
       run: acts.collapseAllTerminalChapters,
     },
-    {
-      id: "ledger.toggleReplay",
-      title: "Play or pause session replay",
-      group: LEDGER_COMMAND_GROUP,
-      when: WHEN_SESSION_ACTIVE,
-      keywords: ["replay", "scrub", "rewatch"],
-      run: acts.toggleReplay,
-    },
-    {
-      id: "ledger.jumpToNextSeam",
-      title: "Jump to the next seam",
-      group: LEDGER_COMMAND_GROUP,
-      when: WHEN_SESSION_ACTIVE,
-      keywords: ["compaction", "rollback", "switch"],
-      run: acts.jumpToNextSeam,
-    },
-    {
-      id: "ledger.replayFromRowInView",
-      title: "Replay from the row in view",
-      group: LEDGER_COMMAND_GROUP,
-      when: WHEN_SESSION_ACTIVE,
-      keywords: ["replay", "here", "rewatch"],
-      run: acts.replayFromRowInView,
-    },
   ];
 }
 
@@ -186,12 +162,11 @@ export function registerLedgerCommands(
 /**
  * The act set every contributed command runs through.
  *
- * Written out rather than derived from a name list, so a TENTH act added to
+ * Written out rather than derived from a name list, so a SEVENTH act added to
  * `LedgerStructureActs` fails to compile here instead of being contributed as a
- * command that reaches the mounted ledger through nothing. That fence is what the
- * ninth act just walked through: adding "replay from the row in view" failed to
- * compile at this site, at the seat's forwarder and at the feed's builder together,
- * which is the registered path rather than a prohibition.
+ * command that reaches the mounted ledger through nothing. An act added to the seat
+ * has to fail at this site, at the seat's forwarder and at the feed's builder
+ * together, which is the registered path rather than a prohibition.
  */
 function actsOnTheMountedLedger(seat: MountedLedgerSeat): LedgerStructureActs {
   const perform = (act: LedgerActName): void => {
@@ -215,15 +190,6 @@ function actsOnTheMountedLedger(seat: MountedLedgerSeat): LedgerStructureActs {
     },
     collapseAllTerminalChapters: () => {
       perform("collapseAllTerminalChapters");
-    },
-    toggleReplay: () => {
-      perform("toggleReplay");
-    },
-    jumpToNextSeam: () => {
-      perform("jumpToNextSeam");
-    },
-    replayFromRowInView: () => {
-      perform("replayFromRowInView");
     },
   };
 }

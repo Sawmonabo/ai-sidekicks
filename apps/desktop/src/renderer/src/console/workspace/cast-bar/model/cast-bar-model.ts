@@ -112,8 +112,8 @@ const CAST_STALE_CLAUSE = "the connection dropped, so this may be out of date";
  * ground as well, and the ground is gone: `Spec-023 §The four bars` makes the hue
  * ring identity — which participant this is — and a chip tinted for state is a second
  * meaning on the one surface whose entire job is telling people apart. Amber stays
- * where a person acts on it, on the approval card, the sidebar row, and the rail
- * tick. So the state is text, which every reader gets: the sighted one reads it in
+ * where a person acts on it, on the approval card and the sidebar row. So the state
+ * is text, which every reader gets: the sighted one reads it in
  * the chip, the screen-reader one hears it in the name, and neither is reading a
  * colour.
  */

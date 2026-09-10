@@ -152,7 +152,7 @@ describe("the scroll chokepoint — writes", () => {
     controller.glideTo("deep-link", 300);
     expect(controller.writeCount("find-match")).toBe(2);
     expect(controller.writeCount("deep-link")).toBe(1);
-    expect(controller.writeCount("replay-seek")).toBe(0);
+    expect(controller.writeCount("follow-tail")).toBe(0);
   });
 
   it("declares its caller union closed and complete", () => {
@@ -164,7 +164,6 @@ describe("the scroll chokepoint — writes", () => {
       "hold-reading-position",
       "deep-link",
       "find-match",
-      "replay-seek",
       "prune-compensation",
       "measurement-compensation",
     ]);

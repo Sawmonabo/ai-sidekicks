@@ -184,8 +184,8 @@ describe("find — stepping the walk", () => {
   );
 
   it("walks forward and wraps at the end", () => {
-    // Unlike the rail, find wraps — the counter shows "3 of 3" turning into
-    // "1 of 3", so the wrap is visible rather than a jump with no explanation.
+    // Find wraps — the counter shows "3 of 3" turning into "1 of 3", so the wrap is
+    // visible rather than a jump with no explanation.
     expect(stepFindMatch(result, 0, "next")?.index).toBe(1);
     expect(stepFindMatch(result, 2, "next")?.index).toBe(0);
   });

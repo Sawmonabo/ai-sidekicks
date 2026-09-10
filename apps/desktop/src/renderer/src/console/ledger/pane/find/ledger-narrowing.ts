@@ -1,7 +1,7 @@
 // Stage one of the feed's pipeline: what a person has narrowed this ledger to.
 //
 // THE ORDER IS THE WHOLE DESIGN, and this module is its head: narrow, then fold the
-// chapters, then replay's reveal, then the viewport, then the visible window. Each
+// chapters, then the viewport, then the visible window. Each
 // stage is a module of its own so the ordering is a composition in `LedgerFeed.tsx`
 // rather than a convention a reader has to hold — and so a stage cannot quietly
 // swap with its neighbour, which is what put the fold ahead of the narrowing and
@@ -63,20 +63,20 @@ export function useLedgerFilter(ledgerWindow: LedgerWindowModel): LedgerFilterSt
 /**
  * Narrow the UNFURLED projection, before anything downstream of it has seen it.
  *
- * THE ORDER IS THE WHOLE DESIGN: narrow, then fold the chapters, then replay's
- * reveal, then the viewport, then the visible window. The narrowing runs on the
+ * THE ORDER IS THE WHOLE DESIGN: narrow, then fold the chapters, then the viewport,
+ * then the visible window. The narrowing runs on the
  * unfurled projection because that is what `Spec-023 §Console Design (Meridian)`
  * narrows — the loaded log, every row of it — and everything after it then holds
- * without restatement. The fold runs on what the narrowing admitted, replay plays
- * over rows the fold left, the cap prunes what replay revealed, and find and the
- * rail keep reading only rows the one scroll writer can reach.
+ * without restatement. The fold runs on what the narrowing admitted, the cap prunes
+ * what the fold left, and find keeps reading only rows the one scroll writer can
+ * reach.
  *
  * NARROWING AFTER THE FOLD WAS THE DEFECT. A closed terminal chapter is a header
  * and one receipt, so a filter handed that window saw neither the chapter's messages
  * nor its tool calls nor the people in it: a completed run full of message rows
  * offered no message-family chip, and narrowing to one could not reveal them
  * without somebody first opening the chapter by hand. Applying it before the
- * viewport is a separate necessity — after it, the rail would mark rows the feed no
+ * viewport is a separate necessity — after it, find would count rows the feed no
  * longer draws.
  *
  * A NARROWED CHAPTER KEEPS ITS HEADER AND RE-COUNTS IT, and a chapter the narrowing
@@ -124,10 +124,8 @@ export function useFilteredLedgerWindow(
       // fold this window is handed to.
       viewportRows: ledgerWindow.viewportRows.filter((row) => admittedRowIds.has(row.key)),
       chapterByHeaderKey,
-      // The dock's next-seam jump walks these, so a seam the filter took out must
-      // leave with it: scrubbing to a row the feed is not drawing would move the
-      // position and reveal nothing.
-      seams: ledgerWindow.seams.filter((seam) => admittedRowIds.has(seam.rowId)),
+      // A seam whose row the filter took out leaves with it: a seam that named a
+      // row the feed is not drawing would be a marker over nothing.
       seamByRowId: new Map(
         [...ledgerWindow.seamByRowId].filter(([rowId]) => admittedRowIds.has(rowId)),
       ),

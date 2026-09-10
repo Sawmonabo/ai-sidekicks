@@ -10,10 +10,11 @@
 //
 // FOUR DECISIONS THIS MODULE MAKES, each of which that rule forces:
 //
-//   • **The caller is named in the write.** Not for a log — for arbitration. Four
-//     subsystems want the offset (following, the reading anchor, find, replay), and
-//     when two want it in one frame the loser has to be identifiable. A write from
-//     an anonymous caller cannot be arbitrated, only overwritten.
+//   • **The caller is named in the write.** Not for a log — for arbitration. Several
+//     subsystems want the offset (following, the reading anchor, find, the window's
+//     own prune compensation), and when two want it in one frame the loser has to be
+//     identifiable. A write from an anonymous caller cannot be arbitrated, only
+//     overwritten.
 //   • **Quantization is LEARNED, never assumed.** Skipping a "no-op" write is safe on a
 //     display that rounds a written offset and wrong on one that does not, and nothing in
 //     the platform reports which. `scroll-quantization.ts` answers it by writing and
@@ -242,7 +243,7 @@ export class LedgerScrollController {
 
   /**
    * Join the frame's phase one, so this controller's reactive writes precede the
-   * reveal and rail work that would move the ground under them. A SETTER because the
+   * reveal work that would move the ground under them. A SETTER because the
    * coordinator is the FEED's, one per frame, and this controller is constructed by
    * the viewport underneath it.
    */

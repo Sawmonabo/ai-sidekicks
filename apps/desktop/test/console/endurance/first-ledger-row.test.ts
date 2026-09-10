@@ -97,7 +97,7 @@ const PLANTED_PAINT_STALL_MS = 900;
 type UnmeasuredLaunchCause =
   | "no-paint-entry"
   | "no-scenario-handle"
-  | "body-never-painted"
+  | "pane-never-painted"
   | "row-never-painted";
 
 /** A launch that produced no reading, and which of the four reasons it was. */
@@ -137,7 +137,7 @@ async function measureFirstLedgerRow(
   return consoleApplication.window.evaluate(
     async ([
       sessionRouteHash,
-      bodySelector,
+      paneSelector,
       rowSelector,
       scenarioGlobalName,
       advanceMilliseconds,
@@ -243,13 +243,13 @@ async function measureFirstLedgerRow(
         });
 
       // Armed before the navigation, so a row that arrives in the same commit as
-      // the body is still seen: an observer installed afterwards would miss it and
+      // the pane is still seen: an observer installed afterwards would miss it and
       // then wait out the whole budget for a row already on the page.
       const firstRowPainted = paintedAt(rowSelector);
       globalThis.location.hash = sessionRouteHash;
-      const bodyPainted = await paintedAt(bodySelector);
-      if (bodyPainted === null) {
-        return { unmeasured: "body-never-painted" };
+      const panePainted = await paintedAt(paneSelector);
+      if (panePainted === null) {
+        return { unmeasured: "pane-never-painted" };
       }
 
       // The planted slow paint. A synchronous busy-wait on the main thread between
@@ -313,12 +313,12 @@ const UNMEASURED_LAUNCH_SENTENCES: Readonly<Record<UnmeasuredLaunchCause, string
   "no-scenario-handle":
     "the launched console exposed no scenario handle, so the flagship script was never delivered: " +
     "nothing was timed, and reporting a figure would be reporting the harness",
-  "body-never-painted":
-    `the console never painted the workspace body inside ${String(SURFACE_WAIT_BUDGET_MS)} ms. ` +
+  "pane-never-painted":
+    `the console never painted the workspace pane inside ${String(SURFACE_WAIT_BUDGET_MS)} ms. ` +
     "The instrument was ready and the console did not mount — this is a console failure, not a " +
     "harness that was not there yet, and re-running it will not change the answer",
   "row-never-painted":
-    `the console painted its workspace body but no ledger row inside ${String(SURFACE_WAIT_BUDGET_MS)} ms. ` +
+    `the console painted its workspace pane but no ledger row inside ${String(SURFACE_WAIT_BUDGET_MS)} ms. ` +
     "A console that mounts no ledger row at all is the regression this budget row exists to catch — " +
     "this is a console failure, not a harness that was not there yet",
 };

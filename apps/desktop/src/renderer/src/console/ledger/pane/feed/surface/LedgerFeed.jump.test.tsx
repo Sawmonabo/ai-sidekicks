@@ -1,24 +1,22 @@
 // Jump by event id: which narrowing is hiding the row, and the act that reaches it.
 //
-// FOUR NARROWINGS SIT BETWEEN THE LOG AND THE SCREEN — the filter, the chapter
-// fold, the replay position, and the window cap — and until each got its own arm
-// the last one that had a name spoke for all of them. Typing the id of a row folded
-// into a chapter, or one a replay was holding back, or one the cap had taken, read
-// "That entry is hidden by the filter" over a ledger with no filter on it, and
-// offered an act that would have changed nothing.
+// THREE NARROWINGS SIT BETWEEN THE LOG AND THE SCREEN — the filter, the chapter
+// fold, and the window cap — and until each got its own arm the last one that had a
+// name spoke for all of them. Typing the id of a row folded into a chapter, or one
+// the cap had taken, read "That entry is hidden by the filter" over a ledger with no
+// filter on it, and offered an act that would have changed nothing.
 //
 // So every case here drives the COMPOSED feed rather than the classifier — the
 // classifier's own cases are `ledger/structure/narrowing/filters.test.ts`'. What only this
 // file can say is that the arm the feed reaches is the arm the ledger's real state
 // calls for, and that the act it then offers actually reveals the row: each of the
-// three actionable arms presses its own button and reads the ledger afterwards.
+// two actionable arms presses its own button and reads the ledger afterwards.
 
 import { fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   OVER_CAP_EVENT_COUNT,
-  REPLAY_LOG_EVENT_COUNT,
   facetChip,
   renderFeed,
   typeIntoFind,
@@ -30,7 +28,6 @@ import {
   filterableRowId,
   openSessionStoreWithFilterableLog,
   openSessionStoreWithGeneralLog,
-  openSessionStoreWithFeedLog,
   projectedRowId,
 } from "../ledger-feed-logs.test-support.js";
 import {
@@ -46,8 +43,8 @@ afterEach(() => {
 const JUMP_ACTION = ".meridian-ledger__jump-action";
 /** The words the found arm offers. Reaching them is what "revealed" means here. */
 const REACHED = "Go to that entry";
-/** Four seconds into a one-row-per-second log: the first five rows and no more. */
-const SCRUB_TO_FIFTH_ROW_MS = 4000;
+/** The words the folded arm offers, which is the act the held jump is driven through. */
+const OPEN_THE_CHAPTER = "Open that chapter and go to it";
 
 /** The jump offer's words, or `undefined` where the arm offers no act. */
 function jumpActionLabel(feed: HTMLElement): string | undefined {
@@ -106,25 +103,6 @@ describe("the ledger's jump by event id — which narrowing is hiding the row", 
     expect(jumpActionLabel(feed)).toBe(REACHED);
   });
 
-  it("names the replay position, and leaving the replay reaches the row", () => {
-    withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithFeedLog(REPLAY_LOG_EVENT_COUNT));
-    const scrub = feed.querySelector<HTMLInputElement>(".meridian-replay__scrub");
-    fireEvent.change(scrub as HTMLInputElement, {
-      target: { value: String(SCRUB_TO_FIFTH_ROW_MS) },
-    });
-
-    // The last row of the log, which the position has not reached.
-    typeIntoFind(feed, projectedRowId(REPLAY_LOG_EVENT_COUNT - 1));
-    expect(feed.textContent).toContain("behind the replay position");
-    expect(feed.textContent).not.toContain("hidden by the filter");
-
-    pressJumpAction(feed);
-
-    expect(feed.textContent).not.toContain("behind the replay position");
-    expect(jumpActionLabel(feed)).toBe(REACHED);
-  });
-
   it("names the cap, and offers no act for it", () => {
     // The one absence with nothing to press: this console subscribes to the log and
     // holds no read that fetches a range of it, so a button here would report a
@@ -144,15 +122,12 @@ describe("the ledger's jump by event id — which narrowing is hiding the row", 
     // and `jumpToRow` reads the snapshot of the render it was built in — so the
     // request is held and spent when the row is one the viewport holds. Nothing
     // asserted that the held request is ever spent through the real binding: the
-    // three cases above pass with the deferred jump a no-op.
+    // two cases above pass with the deferred jump a no-op.
     withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithFeedLog(REPLAY_LOG_EVENT_COUNT));
-    const scrub = feed.querySelector<HTMLInputElement>(".meridian-replay__scrub");
-    fireEvent.change(scrub as HTMLInputElement, {
-      target: { value: String(SCRUB_TO_FIFTH_ROW_MS) },
-    });
+    const feed = renderFeed(openSessionStoreWithFoldedMessageChapter());
     const surface = feed.querySelector<HTMLElement>(".meridian-ledger-viewport__surface");
-    typeIntoFind(feed, projectedRowId(REPLAY_LOG_EVENT_COUNT - 1));
+    typeIntoFind(feed, projectedRowId(FOLDED_CHAPTER_MESSAGE_ROW_COUNT));
+    expect(jumpActionLabel(feed)).toBe(OPEN_THE_CHAPTER);
     // The widening alone moves nothing, which is what makes the reading below the
     // held request being spent rather than a side effect of the act.
     expect(surface?.scrollTop).toBe(0);
@@ -190,7 +165,7 @@ describe("the ledger's jump by event id — which narrowing is hiding the row", 
     for (let sequence = 0; sequence <= liveRunSequence; sequence += 1) {
       typeIntoFind(feed, projectedRowId(sequence));
       expect(jumpActionLabel(feed)).toBe(
-        sequence <= lastFoldedSequence ? "Open that chapter and go to it" : REACHED,
+        sequence <= lastFoldedSequence ? OPEN_THE_CHAPTER : REACHED,
       );
     }
   });

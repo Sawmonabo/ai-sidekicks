@@ -65,8 +65,8 @@ export function LedgerRow(props: LedgerRowProps): React.JSX.Element {
   //
   // `formatClockTime` builds a fresh `Intl.DateTimeFormat` on every call, and this is
   // the row every ledger surface in the console is made of — a streaming window
-  // re-renders its mounted rows on a lease write, a hover, a reveal tick and a replay
-  // scrub, and none of those move the instant a row is stamped with.
+  // re-renders its mounted rows on a lease write, a hover and a reveal tick, and none
+  // of those move the instant a row is stamped with.
   //
   // A MEMO RATHER THAN A FORMATTED STRING ON THE ROW MODEL, which is the other way to
   // pay once, because this component is a PRIMITIVE and the instant reaches it as a

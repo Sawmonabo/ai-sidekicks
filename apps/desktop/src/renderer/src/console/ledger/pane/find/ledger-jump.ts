@@ -4,10 +4,9 @@
 // THE CLASSIFICATION AND THE ACT ARE TWO HALVES OF ONE THING, and they are here
 // together because separating them is what made the surface dishonest. The
 // classifier used to be asked one question — is this id in the rows the viewport
-// holds — over a set four narrowings deep, so a row folded into a chapter, a row a
-// replay was holding back, and a row the cap had taken all came back as the one
-// arm that had a name: hidden by the filter. The ledger then offered to clear a
-// filter that was not on.
+// holds — over a set several narrowings deep, so a row folded into a chapter and a
+// row the cap had taken both came back as the one arm that had a name: hidden by the
+// filter. The ledger then offered to clear a filter that was not on.
 //
 // So the stages are named to the classifier in the order the feed applies them,
 // and the act each answer deserves is resolved here from the same stage set. An
@@ -15,8 +14,8 @@
 // read this console holds fetches them back — rather than a button that reports
 // success and scrolls nothing.
 //
-// AND THE ACT CANNOT JUMP, WHICH IS WHY THE JUMP IS DEFERRED. Clearing a filter,
-// opening a chapter and ending a replay all widen the window on the NEXT render;
+// AND THE ACT CANNOT JUMP, WHICH IS WHY THE JUMP IS DEFERRED. Clearing a filter and
+// opening a chapter both widen the window on the NEXT render;
 // the viewport's `jumpToRow` reads the snapshot of the render it was built in, so
 // performing the act and jumping in one handler jumps against the window that was
 // still hiding the row. The request is held instead, and spent the moment the row
@@ -69,13 +68,12 @@ export function useEventIdJumpOutcome(inputs: {
       return undefined;
     }
     // Each stage names what IT kept, in the feed's own order. The two windows
-    // answer through their own row tables and the two later stages through the
-    // sets the visible-window partition was decided by, so no membership here is
-    // a second copy of one held elsewhere.
+    // answer through their own row tables and the last stage through the set the
+    // visible-window partition was decided by, so no membership here is a second copy
+    // of one held elsewhere.
     const stages: LedgerJumpStages = {
       "hidden-by-filter": narrowedWindow.rowsByKey,
       "folded-into-chapter": foldedWindow.rowsByKey,
-      "withheld-by-replay": visible.revealedRowKeys,
       "outside-window": visible.heldRowKeys,
     };
     return jumpToEventId(unfurledWindow.rows, stages, query);
@@ -108,7 +106,7 @@ export function jumpOutcomeRowId(outcome: LedgerJumpOutcome | undefined): string
  * AND IT DIES WITH THE QUESTION THAT ASKED IT. A held request used to clear only on
  * a successful jump or on a replacement, while closing the find field resets the
  * query and nothing else — so a request whose act never widened the window
- * outlived the field, and playback reaching that row minutes later scrolled the
+ * outlived the field, and the window widening minutes later scrolled the
  * ledger away from what somebody was reading with nothing on screen explaining
  * why. `questionRowId` is the row the ledger is currently being asked about, and a
  * held request that is no longer about that row is abandoned during render rather
@@ -147,9 +145,9 @@ export function useDeferredRowJump(inputs: {
 /**
  * What one absence has to be told before it can decide on an act.
  *
- * The four acts AND the two readings the folded arm consults, in one value: the
+ * The three acts AND the two readings the folded arm consults, in one value: the
  * table below is keyed by absence and therefore cannot take an argument list per
- * arm, and passing the six separately would have made every entry declare five
+ * arm, and passing the five separately would have made every entry declare four
  * parameters it does not read.
  */
 interface LedgerJumpActContext {
@@ -177,7 +175,6 @@ interface LedgerJumpActContext {
    * implementation says the same thing beside its two arms.
    */
   readonly openFoldsHoldingRow: (row: TimelineRow) => void;
-  readonly endReplay: () => void;
   readonly requestJump: (rowId: string) => void;
 }
 
@@ -193,7 +190,7 @@ type LedgerJumpAct = (
  * A TABLE KEYED BY ABSENCE, `LedgerEventIdJump.tsx`' `JUMP_ABSENCE_WORDS` shape and
  * for its reason: the two are the same set said twice — what the absence IS, and
  * what reaches it — and both are total over `LEDGER_JUMP_ABSENCES` by `satisfies`.
- * This used to be an `if`-chain whose last arm was the chapter fold, so a fifth
+ * This used to be an `if`-chain whose last arm was the chapter fold, so a fourth
  * narrowing added to the pipeline compiled and fell through to "Open that chapter
  * and go to it", offering an act that could not reach the row — which is the exact
  * defect this module exists to remove, reintroduced by the shape of its own
@@ -239,13 +236,6 @@ const LEDGER_JUMP_ACTS = {
     }
     return undefined;
   },
-  "withheld-by-replay": (row, context) => ({
-    label: "Leave the replay and go to it",
-    perform: () => {
-      context.endReplay();
-      context.requestJump(row.id);
-    },
-  }),
   "outside-window": () => undefined,
 } satisfies Readonly<Record<LedgerJumpAbsence, LedgerJumpAct>>;
 
@@ -264,7 +254,6 @@ export function useLedgerJumpReach(inputs: {
   readonly bandFoldedRowIds: ReadonlySet<string>;
   readonly clearFilter: () => void;
   readonly openFoldsHoldingRow: (row: TimelineRow) => void;
-  readonly endReplay: () => void;
   readonly requestJump: (rowId: string) => void;
 }): LedgerJumpReach | undefined {
   const {
@@ -274,7 +263,6 @@ export function useLedgerJumpReach(inputs: {
     bandFoldedRowIds,
     clearFilter,
     openFoldsHoldingRow,
-    endReplay,
     requestJump,
   } = inputs;
   return useMemo(() => {
@@ -291,7 +279,6 @@ export function useLedgerJumpReach(inputs: {
       bandFoldedRowIds,
       clearFilter,
       openFoldsHoldingRow,
-      endReplay,
       requestJump,
     });
   }, [
@@ -301,7 +288,6 @@ export function useLedgerJumpReach(inputs: {
     bandFoldedRowIds,
     clearFilter,
     openFoldsHoldingRow,
-    endReplay,
     requestJump,
   ]);
 }

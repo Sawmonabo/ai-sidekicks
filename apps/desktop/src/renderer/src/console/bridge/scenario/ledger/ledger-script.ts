@@ -37,8 +37,8 @@
 //     twice: one in scenario time, one on the frozen clock the fixture reports. A
 //     script that let them disagree would put a row on screen whose timestamp
 //     contradicted the tick it arrived at, and every reading taken from that frame
-//     — the rail's density, a chapter's duration, the replay scrub — would be
-//     measuring two different sessions.
+//     — a chapter's duration, a seam's position in the log — would be measuring two
+//     different sessions.
 //   • **Entries are held to non-decreasing `atMs`.** The engine delivers beats by
 //     slicing from the delivered count and filtering by due time, so a beat whose
 //     `atMs` is earlier than a predecessor's is delivered late or not at all. That

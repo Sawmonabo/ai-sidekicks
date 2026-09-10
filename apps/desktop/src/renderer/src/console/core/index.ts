@@ -125,8 +125,6 @@ export {
   CHAPTER_BODY_RETAINED_ROW_CAP,
   CHAPTER_VISIBLE_ROW_CAP,
   FIND_MATCH_CAP,
-  RAIL_FISHEYE_MAX_SCALE,
-  RAIL_MAX_TICKS_PER_PIXEL,
 } from "./constants/ledger-structure-caps.js";
 export {
   LIVE_ANNOUNCEMENT_HOLD_MS,

@@ -61,9 +61,9 @@ export interface LedgerWindowReading {
   /**
    * How many rows the box itself intersects, WITHOUT the overscan.
    *
-   * Zero where nothing has been measured yet, which is the same honest answer the
-   * binding's `visibleRange` gives as `undefined` — a box with no measurement
-   * intersects no row, and reporting one would invent a window.
+   * Zero where nothing has been measured yet, because the virtualizer's own range
+   * is `null` until a pass has run over a box with a non-zero outer size — a box
+   * with no measurement intersects no row, and reporting one would invent a window.
    */
   readonly visibleRowCount: number;
   /**

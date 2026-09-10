@@ -7,7 +7,7 @@
 // that snapshot into elements and does nothing else. No measurement, no
 // subscription, no offset arithmetic lives here — and no BINDING is minted here
 // either: the caller owns the one binding this ledger has and hands it down, so the
-// rail, the find walk, and the rows on screen are all reading the same virtualizer.
+// find walk and the rows on screen are both reading the same virtualizer.
 //
 // THREE THINGS THE MARKUP HAS TO GET RIGHT:
 //
@@ -53,8 +53,8 @@ export interface LedgerViewportProps {
    *
    * TAKEN rather than minted. `useLedgerViewport` builds a controller, a scroll
    * chokepoint, a reading anchor, and a virtualizer, and a viewport that minted its
-   * own would give the surrounding surface a SECOND set: the rail would report a
-   * following state nobody is scrolling, and `jumpToRow` would scroll a virtualizer
+   * own would give the surrounding surface a SECOND set: the cast bar's follow seat
+   * would report a state nobody is scrolling, and `jumpToRow` would scroll a virtualizer
    * with no element under it. One binding per ledger is the whole invariant, and
    * requiring it as a prop is what makes a second one unrepresentable rather than
    * merely discouraged.

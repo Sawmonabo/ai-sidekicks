@@ -81,7 +81,7 @@ export const GROWTH_SLATE_CONSUMING_SURFACES: Readonly<Record<GrowthSlateRowId, 
   "health-status-read":
     "cast bar health form, health strip, diagnostics settings page (its banner)",
   "daemon-version-negotiation": "frame version banner",
-  "timeline-live-resubscribe": "ledger replay gap fill",
+  "timeline-live-resubscribe": "ledger gap fill",
   "workspace-execution-context":
     "repos surface (the workspace card's three-path disclosure and its fallback badge)",
   "mount-health-identity-verdict":

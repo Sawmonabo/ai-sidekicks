@@ -38,12 +38,11 @@ function rowOf(rowId: string): TimelineRow {
   return row;
 }
 
-/** The four acts, each recording that it was performed and nothing else. */
+/** The three acts, each recording that it was performed and nothing else. */
 function recordingActs(): {
   readonly performed: string[];
   readonly clearFilter: () => void;
   readonly openFoldsHoldingRow: (row: TimelineRow) => void;
-  readonly endReplay: () => void;
   readonly requestJump: (rowId: string) => void;
 } {
   const performed: string[] = [];
@@ -51,7 +50,6 @@ function recordingActs(): {
     performed,
     clearFilter: () => performed.push("clear-filter"),
     openFoldsHoldingRow: () => performed.push("open-folds"),
-    endReplay: () => performed.push("end-replay"),
     requestJump: (rowId: string) => performed.push(`request-jump:${rowId}`),
   };
 }
@@ -78,7 +76,6 @@ function reachFor(
       bandFoldedRowIds,
       clearFilter: acts.clearFilter,
       openFoldsHoldingRow: acts.openFoldsHoldingRow,
-      endReplay: acts.endReplay,
       requestJump: acts.requestJump,
     }),
   );
@@ -88,13 +85,13 @@ function reachFor(
 describe("the act an absence offers", () => {
   it("decides every absence the pipeline names", () => {
     // TOTALITY, DRIVEN FROM THE TUPLE THE CLASSIFIER WALKS. The resolution used to
-    // be an `if`-chain whose last arm was the chapter fold, so a fifth narrowing
+    // be an `if`-chain whose last arm was the chapter fold, so a fourth narrowing
     // compiled and fell through to "Open that chapter and go to it" — an act that
     // cannot reach the row, which is the exact defect the module exists to remove.
     for (const absence of LEDGER_JUMP_ABSENCES) {
       const acts = recordingActs();
       const reach = reachFor({ status: absence, row: FOLDED_ROW }, acts);
-      // Decided means answered, not answered YES: two arms are honestly actless.
+      // Decided means answered, not answered YES: one arm is honestly actless.
       expect(reach === undefined || typeof reach.label === "string").toBe(true);
     }
   });
@@ -106,15 +103,6 @@ describe("the act an absence offers", () => {
     expect(reach?.label).toBe("Clear the filter and go to it");
     reach?.perform();
     expect(acts.performed).toStrictEqual(["clear-filter", `request-jump:${FOLDED_ROW.id}`]);
-  });
-
-  it("leaves the replay and holds the jump for a row the position has not reached", () => {
-    const acts = recordingActs();
-    const reach = reachFor({ status: "withheld-by-replay", row: FOLDED_ROW }, acts);
-
-    expect(reach?.label).toBe("Leave the replay and go to it");
-    reach?.perform();
-    expect(acts.performed).toStrictEqual(["end-replay", `request-jump:${FOLDED_ROW.id}`]);
   });
 
   it("opens the chapter and holds the jump for a row the fold dropped", () => {
@@ -196,7 +184,7 @@ describe("the act an absence offers", () => {
     // The compile-time half of the same claim: the act table is keyed by the tuple,
     // so a caller cannot invent a status and reach an arm nothing decided.
     // @ts-expect-error — not a member of `LEDGER_JUMP_ABSENCES`.
-    const inventedAbsence: LedgerJumpAbsence = "withheld-by-a-fifth-narrowing";
+    const inventedAbsence: LedgerJumpAbsence = "withheld-by-a-fourth-narrowing";
 
     expect(LEDGER_JUMP_ABSENCES).not.toContain(inventedAbsence);
   });

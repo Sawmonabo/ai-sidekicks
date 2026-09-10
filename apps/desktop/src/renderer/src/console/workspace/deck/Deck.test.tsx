@@ -373,8 +373,8 @@ describe("Deck — the clock its rect flush runs on", () => {
   it("arms its flush on the window's own clock, so a frozen fixture decides when it lands", () => {
     // The deck used to mint a `RealClock` of its own, which in fixture mode is a
     // second time base beside the frozen one every other surface in the window reads:
-    // the rect flush then ran on wall time while the ledger, the replay dock and the
-    // reveal engine were frozen, and whether it had fired when a screenshot was taken
+    // the rect flush then ran on wall time while the ledger and the reveal engine
+    // were frozen, and whether it had fired when a screenshot was taken
     // depended on how long the runner took.
     const bridge = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
     const clock = frozenClockOf(bridge);

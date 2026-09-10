@@ -2,9 +2,8 @@
 //
 // `Spec-013 §Timeline Entry Types` makes `handoff` a projection entry with four
 // members and the blueprint requires it to be "visually distinct from a message".
-// Before this row the rail could MARK a handoff — its tick table has bound the four
-// wire types since it was written — while the feed had no treatment for one, so the
-// minimap said work had changed hands and the log beside it showed a receipt.
+// Before this row the feed had no treatment for one, so work changing hands showed as
+// an ordinary receipt in the log beside every other row.
 //
 // FROM AND TO ARE AN ARROW, NOT A SENTENCE. The two actors are rendered as themselves
 // with a direction between them; neither is inferred from the row's own actor, and a

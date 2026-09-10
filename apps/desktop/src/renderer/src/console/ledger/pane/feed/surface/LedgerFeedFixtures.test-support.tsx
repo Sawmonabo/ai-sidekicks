@@ -1,9 +1,9 @@
 // The shared scaffolding every ledger-feed case is driven through.
 //
-// The feed's cases split by SUBJECT across several files — the rows, the rail, the
-// absences, the narrowing, the replay dock, and the two seats — and every one of
-// them needs the same three things: a laid-out box, a mount under a bridge, and a
-// way to press a contributed palette row. Written once here, on
+// The feed's cases split by SUBJECT across several files — the rows, the absences,
+// the narrowing, and the two seats — and every one of them needs the same three
+// things: a laid-out box, a mount under a bridge, and a way to press a contributed
+// palette row. Written once here, on
 // `ledger/structure/timeline-rows.test-support.ts`' terms: a module beside the code it serves,
 // consumed by tests and by nothing else.
 //
@@ -36,12 +36,8 @@ export const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
 /** The deck pane every fixture feed is the body of, so its seat is read under one key. */
 export const LEDGER_FIXTURE_PANE_ID = "pane-ledger-fixture";
 const LAID_OUT_CONTENT_HEIGHT_PX = 10_000;
-export const LONG_LOG_EVENT_COUNT = 300;
-export const REPLAY_LOG_EVENT_COUNT = 10;
+export const SHORT_LOG_EVENT_COUNT = 10;
 export const OVER_CAP_EVENT_COUNT: number = LEDGER_WINDOW_ROW_CAP + 50;
-
-/** A laid-out rail box. Any non-zero extent will do; the painter needs one to size its store. */
-export const LAID_OUT_RAIL_BOX = { width: 20, height: 800 };
 
 /**
  * Give the ledger a laid-out, scrollable box for the length of one case.
@@ -150,47 +146,6 @@ export function dispatchConsoleCommand(commandId: string): void {
   act(() => {
     void command.run();
   });
-}
-
-/** The rail wrapper, the control it reveals, and the two focusable ends of a tab. */
-export function replayDockHarness(feed: HTMLElement): {
-  readonly dock: HTMLElement;
-  readonly railSlider: HTMLElement;
-  readonly dockButton: HTMLElement;
-} {
-  const dock = feed.querySelector<HTMLElement>(".meridian-replay");
-  const railSlider = feed.querySelector<HTMLElement>('[role="slider"]');
-  const dockButton = feed.querySelector<HTMLElement>(".meridian-replay__primary");
-  if (dock === null || railSlider === null || dockButton === null) {
-    throw new Error("the feed rendered no rail wrapper, slider, or replay dock");
-  }
-  return { dock, railSlider, dockButton };
-}
-
-/**
- * Record the ink every rail mark is painted with, for the length of one case.
- *
- * `happy-dom` answers `null` from `getContext` and zeroes from every rect, and the
- * painter treats both as "this host cannot paint" — correctly, which is why a case
- * about WHICH colour a mark takes has to supply both.
- */
-export function recordRailInk(): string[] {
-  const inkPerMark: string[] = [];
-  const recordingContext = {
-    fillStyle: "",
-    clearRect: () => undefined,
-    fillRect: () => {
-      inkPerMark.push(String(recordingContext.fillStyle));
-    },
-    setTransform: () => undefined,
-  };
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
-    recordingContext as unknown as CanvasRenderingContext2D,
-  );
-  vi.spyOn(HTMLCanvasElement.prototype, "getBoundingClientRect").mockReturnValue(
-    LAID_OUT_RAIL_BOX as DOMRect,
-  );
-  return inkPerMark;
 }
 
 /** The facet bar's chip selector — shared, so two files never name it twice. */

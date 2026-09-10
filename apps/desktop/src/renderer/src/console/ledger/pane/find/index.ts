@@ -6,8 +6,8 @@
 // person is asking for, and each has to answer honestly when the row they asked for
 // exists and is not reachable. That honesty is why the classifier and the act sit
 // together here — a jump that steps to a row the viewport does not hold reports a
-// success nobody can see — and why the readings that count what the cap and the replay
-// position hid are beside the walk that could not reach them.
+// success nobody can see — and why the readings that count what the cap and the two
+// folds hid are beside the walk that could not reach them.
 //
 // WHAT LEAVES. Everything these five modules export that has a reader outside them,
 // which is nearly all of it and is the honest reading here: the feed composes the find

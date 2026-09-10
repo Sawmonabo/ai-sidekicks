@@ -15,20 +15,14 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { type ConsoleRefusal } from "../../../../core/index.js";
 import { publishConsoleActRefusalSink } from "../../../../palette/index.js";
-import { UNFILTERED_LEDGER, emptyFindResult, type ReplayState } from "../../../structure/index.js";
-// Deeply, and only here: the tuple's one consumer outside its own directory is this
-// suite's totality case, so a door line for it would be a door widened for testing.
-import { REPLAY_STATES } from "../../../structure/replay/replay-model.js";
+import { UNFILTERED_LEDGER, emptyFindResult } from "../../../structure/index.js";
 import {
   LEDGER_NOTHING_FILTERED_REFUSAL,
-  LEDGER_NO_REPLAY_ANCHOR_REFUSAL,
   buildLedgerStructureActs,
-  buildReplayFromRowAct,
   type LedgerFeedActInputs,
 } from "./ledger-feed-acts.js";
 import { type LedgerFindState } from "../../find/ledger-find.js";
 import { type LedgerFilterState } from "../../find/ledger-narrowing.js";
-import { type LedgerReplayState } from "../../replay/ledger-replay-window.js";
 
 /** What one case watched happen, in the order it happened. */
 type ActTrace = string[];
@@ -51,7 +45,6 @@ function recordingFindState(trace: ActTrace, walkedRowId?: string): LedgerFindSt
     beyondWindowMatchCount: 0,
     filteredAwayMatchCount: 0,
     foldedAwayMatchCount: 0,
-    notYetReplayedMatchCount: 0,
     currentMatchIndex: -1,
     setQuery: () => {
       trace.push("setQuery");
@@ -72,73 +65,16 @@ function recordingFindState(trace: ActTrace, walkedRowId?: string): LedgerFindSt
   };
 }
 
-/** A replay state parked in one of the four arms, recording what it was asked to do. */
-function recordingReplayState(
-  state: ReplayState,
-  trace: ActTrace,
-  placeableRowIds?: readonly string[],
-): LedgerReplayState {
-  return {
-    position: {
-      state,
-      speed: 1,
-      granularity: "turn",
-      elapsedMs: 0,
-      spanMs: 0,
-      positionIso: undefined,
-      revealedRowIds: [],
-    },
-    isRevealed: false,
-    // A walk over the window as it stands admitted nothing after it began, and no
-    // act in this file leaves one, so both counts are zero and `end` is recorded like
-    // every other control rather than left unrepresentable.
-    rowsAdmittedSinceReplayBegan: 0,
-    rowsAdmittedIntoThisWindowSinceReplayBegan: 0,
-    end: () => {
-      trace.push("end");
-    },
-    reveal: () => {
-      trace.push("reveal");
-    },
-    conceal: () => {
-      trace.push("conceal");
-    },
-    play: () => {
-      trace.push("play");
-    },
-    pause: () => {
-      trace.push("pause");
-    },
-    setSpeed: () => {
-      trace.push("setSpeed");
-    },
-    scrub: () => {
-      trace.push("scrub");
-    },
-    jumpToNextSeam: () => {
-      trace.push("jumpToNextSeam");
-    },
-    replayFromRow: (rowId) => {
-      trace.push(`replayFromRow:${rowId}`);
-      return placeableRowIds === undefined || placeableRowIds.includes(rowId);
-    },
-  };
-}
-
 /** One window's act inputs, with every seam recording into `trace`. */
 function actInputs(
   trace: ActTrace,
   options: {
-    readonly replayState?: ReplayState;
     readonly walkedRowId?: string;
     readonly isFiltered?: boolean;
-    readonly replayAnchorRowId?: string;
-    readonly placeableRowIds?: readonly string[];
   } = {},
 ): LedgerFeedActInputs {
   return {
     find: recordingFindState(trace, options.walkedRowId),
-    replay: recordingReplayState(options.replayState ?? "idle", trace, options.placeableRowIds),
     jumpToRow: (rowId) => {
       trace.push(`jumpToRow:${rowId}`);
     },
@@ -149,7 +85,6 @@ function actInputs(
       trace.push("collapseAllTerminalChapters");
     },
     ledgerFilter: recordingFilterState(options.isFiltered ?? false, trace),
-    replayAnchorRowId: options.replayAnchorRowId,
   };
 }
 
@@ -220,35 +155,10 @@ describe("the ledger's acts — what each one reaches", () => {
     expect(trace).toStrictEqual(["jumpToTail"]);
   });
 
-  it("replays from the row in view, revealing the dock first", () => {
-    // The engine has implemented this since it was written and no caller reached
-    // it: three hits repo-wide, one declaration and two assertions in its own test.
+  it("folds every terminal chapter this feed has open", () => {
     const trace: ActTrace = [];
-    buildLedgerStructureActs(
-      actInputs(trace, { replayAnchorRowId: "row-in-view" }),
-    ).replayFromRowInView();
-    expect(trace).toStrictEqual(["reveal", "replayFromRow:row-in-view"]);
-  });
-
-  it("reveals the dock before jumping to the next seam", () => {
-    // The jump scrubs, and a scrub promotes an idle engine to `paused`, which
-    // withholds rows. Without the reveal that happened behind a hidden dock.
-    const trace: ActTrace = [];
-    buildLedgerStructureActs(actInputs(trace)).jumpToNextSeam();
-    expect(trace).toStrictEqual(["reveal", "jumpToNextSeam"]);
-  });
-
-  it("reveals the dock on every arm that starts or resumes, and on none that pauses", () => {
-    // The four-state union read through one discriminator: `paused` and `at-tail`
-    // both resume and `idle` starts, so a second boolean would have been a second
-    // record of the same fact. The reveal rides the resuming arms only — the pause
-    // arm is its own negative control, since a pause is reachable only from a
-    // playing engine whose dock is already up.
-    for (const state of REPLAY_STATES) {
-      const trace: ActTrace = [];
-      buildLedgerStructureActs(actInputs(trace, { replayState: state })).toggleReplay();
-      expect(trace).toStrictEqual(state === "playing" ? ["pause"] : ["reveal", "play"]);
-    }
+    buildLedgerStructureActs(actInputs(trace)).collapseAllTerminalChapters();
+    expect(trace).toStrictEqual(["collapseAllTerminalChapters"]);
   });
 
   it("fires nothing merely by being built", () => {
@@ -273,31 +183,6 @@ describe("the ledger's acts — the one that refuses", () => {
     expect(raised).toStrictEqual([LEDGER_NOTHING_FILTERED_REFUSAL]);
     expect(raised[0]?.code).toBe("ledger.nothing_filtered");
     expect(raised[0]?.origin).toBe("ledger");
-  });
-
-  it("says there is no row in view rather than replaying from the beginning", () => {
-    // Substituting the window's head would be a different act — the dock's own
-    // primary control already offers it — reported as the one that was asked for.
-    const trace: ActTrace = [];
-    const { raised, withdraw } = collectRaisedRefusals();
-    withdrawSink = withdraw;
-    buildLedgerStructureActs(actInputs(trace)).replayFromRowInView();
-    expect(raised).toStrictEqual([LEDGER_NO_REPLAY_ANCHOR_REFUSAL]);
-    expect(raised[0]?.code).toBe("ledger.no_replay_anchor");
-    expect(trace).toStrictEqual([]);
-  });
-
-  it("negative control: a row the engine cannot place refuses rather than scrubbing", () => {
-    // The window can move under a reader between the anchor being read and the
-    // press. Without this the act would have taken the engine's `false` for a move.
-    const trace: ActTrace = [];
-    const { raised, withdraw } = collectRaisedRefusals();
-    withdrawSink = withdraw;
-    buildLedgerStructureActs(
-      actInputs(trace, { replayAnchorRowId: "row-the-cap-took", placeableRowIds: [] }),
-    ).replayFromRowInView();
-    expect(trace).toStrictEqual(["reveal", "replayFromRow:row-the-cap-took"]);
-    expect(raised).toStrictEqual([LEDGER_NO_REPLAY_ANCHOR_REFUSAL]);
   });
 
   it("clears a narrowed ledger rather than refusing over a surface that now exists", () => {
@@ -333,54 +218,7 @@ describe("the ledger's acts — the one that refuses", () => {
     acts.openFind();
     acts.stepFindNext();
     acts.scrollToTail();
-    acts.toggleReplay();
-    acts.jumpToNextSeam();
+    acts.collapseAllTerminalChapters();
     expect(raised).toStrictEqual([]);
-  });
-});
-
-describe("the one act two surfaces share — replay from a named row", () => {
-  let withdrawSink: (() => void) | undefined;
-
-  afterEach(() => {
-    withdrawSink?.();
-    withdrawSink = undefined;
-  });
-
-  it("reveals the dock BEFORE it scrubs, so the control is on screen", () => {
-    // Engaging replay starts withholding rows, and doing that behind a hidden dock
-    // leaves a reader holding a control they cannot see to undo.
-    const trace: ActTrace = [];
-    const replay = recordingReplayState("idle", trace, [WALKED_ROW_ID]);
-    buildReplayFromRowAct(replay)(WALKED_ROW_ID);
-    expect(trace).toStrictEqual(["reveal", `replayFromRow:${WALKED_ROW_ID}`]);
-  });
-
-  it("says so out loud when the engine cannot place the row", () => {
-    const { raised, withdraw } = collectRaisedRefusals();
-    withdrawSink = withdraw;
-    const trace: ActTrace = [];
-    buildReplayFromRowAct(recordingReplayState("idle", trace, []))("row-the-window-lost");
-    expect(raised).toStrictEqual([LEDGER_NO_REPLAY_ANCHOR_REFUSAL]);
-    expect(trace).toStrictEqual(["reveal", "replayFromRow:row-the-window-lost"]);
-  });
-
-  it("negative control: a placement that lands raises nothing", () => {
-    const { raised, withdraw } = collectRaisedRefusals();
-    withdrawSink = withdraw;
-    buildReplayFromRowAct(recordingReplayState("idle", [], [WALKED_ROW_ID]))(WALKED_ROW_ID);
-    expect(raised).toStrictEqual([]);
-  });
-
-  it("is the same body the chord runs, refusal and reveal included", () => {
-    // Two copies would be two places this console decides what a failed scrub says.
-    // Driving the chord and the shared body over one engine proves they agree.
-    const chordTrace: ActTrace = [];
-    buildLedgerStructureActs(
-      actInputs(chordTrace, { replayAnchorRowId: WALKED_ROW_ID, placeableRowIds: [] }),
-    ).replayFromRowInView();
-    const rowTrace: ActTrace = [];
-    buildReplayFromRowAct(recordingReplayState("idle", rowTrace, []))(WALKED_ROW_ID);
-    expect(chordTrace).toStrictEqual(rowTrace);
   });
 });

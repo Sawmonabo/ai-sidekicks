@@ -95,9 +95,9 @@
       "scope": "product"
     },
     {
-      "id": "steady-heap-flagship-replay",
-      "label": "Steady heap, flagship replay",
-      "subject": "Renderer heap over a thirty-minute flagship replay — both its ceiling and its slope, since a heap that stays under the ceiling while climbing monotonically is still a leak.",
+      "id": "steady-heap-flagship-stream",
+      "label": "Steady heap, flagship live stream",
+      "subject": "Renderer heap over thirty minutes of the flagship scenario streaming live on the scenario clock — both its ceiling and its slope, since a heap that stays under the ceiling while climbing monotonically is still a leak.",
       "specTarget": "flat over thirty minutes; ≤ 250 MB renderer heap",
       "limit": {
         "comparison": "<=",
@@ -107,13 +107,13 @@
         "canonicalUnit": "bytes"
       },
       "additionalCriteria": [
-        "The heap is flat over the thirty-minute replay: no monotonic growth across the run's snapshot series."
+        "The heap is flat over the thirty-minute stream: no monotonic growth across the run's snapshot series."
       ],
       "status": "n/a",
       "producedBy": "T-023p-1C-8",
       "measuredBy": null,
       "subjectSymbol": null,
-      "notMeasurableReason": "The endurance tier and its heap instrument now exist — `test/console/endurance/heap-instrument.ts` forces a collection over a CDP `HeapProfiler` session, `steady-state.test.ts` bounds heap GROWTH across 200 churn cycles that walk the in-tree flagship script once, and `heap-at-rest.test.ts` gates the at-rest ceiling — and none of the three conditions THIS row states is met by that. No run holds the console for thirty minutes: the `console-endurance-body` allowance is nine. No snapshot SERIES is analysed for slope: `memlab` is a manifest dependency now and `heap-snapshot-analysis.ts` reads a single snapshot by constructor, which answers what one heap is holding rather than whether a run's heap climbed, so the flat-over-thirty-minutes criterion still has no verdict behind it. And there is no dated endurance ledger to record a refutation in.",
+      "notMeasurableReason": "The endurance tier and its heap instrument now exist — `test/console/endurance/heap-instrument.ts` forces a collection over a CDP `HeapProfiler` session, `steady-state.test.ts` bounds heap GROWTH across 200 churn cycles that stream the in-tree flagship script through the fixture bridge once, and `heap-at-rest.test.ts` gates the at-rest ceiling — and none of the three conditions THIS row states is met by that. No run holds the console for thirty minutes: the `console-endurance-body` allowance is nine. No snapshot SERIES is analysed for slope: `memlab` is a manifest dependency now and `heap-snapshot-analysis.ts` reads a single snapshot by constructor, which answers what one heap is holding rather than whether a run's heap climbed, so the flat-over-thirty-minutes criterion still has no verdict behind it. And there is no dated endurance ledger to record a refutation in.",
       "notes": "`Spec-023 §Console Test Tiers` places this on the endurance tier — heap snapshots captured by an own CDP helper, analyzed with memlab, results in a dated ledger.",
       "scope": "product"
     },

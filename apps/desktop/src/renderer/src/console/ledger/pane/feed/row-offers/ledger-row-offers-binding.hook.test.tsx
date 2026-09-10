@@ -58,7 +58,6 @@ describe("the hook that holds a window's row offers", () => {
           rowLease: () => undefined,
           setRowLease: () => undefined,
           jumpToRow: () => undefined,
-          replayFromRow: () => undefined,
         }),
       );
       return <output>{String(props.generation)}</output>;
@@ -94,7 +93,6 @@ describe("the hook that holds a window's row offers", () => {
           reached.push(`gen${props.generation}:setRowLease:${rowKey}:${lease.density}`);
         },
         jumpToRow: () => undefined,
-        replayFromRow: () => undefined,
       });
       return <output>{String(props.generation)}</output>;
     }
@@ -139,7 +137,6 @@ describe("the hook that holds a window's row offers", () => {
         rowLease: () => undefined,
         setRowLease: () => undefined,
         jumpToRow: () => undefined,
-        replayFromRow: () => undefined,
       });
       return <output />;
     }

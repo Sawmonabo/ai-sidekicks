@@ -14,8 +14,8 @@ import { type LedgerJumpReach } from "./ledger-jump.js";
 /**
  * What each absence is, in this ledger's own words.
  *
- * TOTAL OVER THE ABSENCE TUPLE, so a fifth narrowing added to the pipeline is a
- * compile error here rather than a row that silently renders the fourth one's
+ * TOTAL OVER THE ABSENCE TUPLE, so a fourth narrowing added to the pipeline is a
+ * compile error here rather than a row that silently renders the third one's
  * sentence. Each entry names what is true of the row and nothing about what to do
  * about it: the act is the caller's, because whether one exists depends on this
  * ledger's state and not on the absence.
@@ -39,10 +39,6 @@ const JUMP_ABSENCE_WORDS = {
     detail:
       "belongs to a run whose chapter is folded shut, sits past what an open chapter draws at once, or is inside a rewound band that has been folded.",
   },
-  "withheld-by-replay": {
-    title: "That entry is behind the replay position.",
-    detail: "is in this window, and the replay running over it has not reached it.",
-  },
   "outside-window": {
     title: "That entry is no longer in this window.",
     detail:
@@ -58,13 +54,12 @@ const JUMP_ABSENCE_WORDS = {
  * design's jump-by-id, reached through the field somebody already has open rather
  * than through a second entry surface.
  *
- * FIVE ANSWERS AND NOT TWO, WHICH IS WHY THE OUTCOME IS A UNION. Between the
- * loaded log and this viewport a row passes four narrowings, and until each got
+ * FOUR ANSWERS AND NOT TWO, WHICH IS WHY THE OUTCOME IS A UNION. Between the
+ * loaded log and this viewport a row passes three narrowings, and until each got
  * its own arm the LAST one that had a name spoke for all of them: a row folded
- * into a chapter, a row a replay was holding back and a row the cap had taken were
- * all reported as hidden by the filter, so a ledger with no filter on it offered
- * to clear one. Now each absence says what is true and, where an act reaches the
- * row, offers that act by name.
+ * into a chapter and a row the cap had taken were both reported as hidden by the
+ * filter, so a ledger with no filter on it offered to clear one. Now each absence
+ * says what is true and, where an act reaches the row, offers that act by name.
  *
  * `undefined` is a field nobody has typed in. It renders nothing, and so does an
  * id this window does not carry — see the arm itself for why that one is silent.

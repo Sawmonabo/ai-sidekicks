@@ -196,7 +196,7 @@ export class RevealEngine {
       return;
     }
     this.#frameSubmitted = true;
-    this.#frameCoordinator.scheduleRevealAndRailWork(this.#frameTaskKey, () => {
+    this.#frameCoordinator.scheduleRevealWork(this.#frameTaskKey, () => {
       this.#frameSubmitted = false;
       this.#drainFrame();
     });
@@ -206,7 +206,7 @@ export class RevealEngine {
     if (!this.#frameSubmitted) {
       return;
     }
-    this.#frameCoordinator.cancel("reveal-and-rail", this.#frameTaskKey);
+    this.#frameCoordinator.cancel("reveal-work", this.#frameTaskKey);
     this.#frameSubmitted = false;
   }
 

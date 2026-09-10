@@ -51,6 +51,7 @@ import {
   type ConsoleSessionDiagnostics,
   type ScenarioFixtureHandle,
 } from "../fixture-handles.js";
+import { LEDGER_ROW_BOX_SELECTOR } from "./ledger-window-read.js";
 import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenario/flagship/flagship.js";
 
 /**
@@ -105,16 +106,25 @@ export const SETTINGS_SURFACE_SELECTOR: string =
 /**
  * What the session workspace renders and the settings route does not.
  *
- * The ledger's scroll container, which the workspace mounts on every session route
- * whether or not that session has rows yet — so the wait observes the MOUNT rather
- * than the arrival of content, which is what a churn cycle needs it to observe.
+ * The timeline PANE, which the workspace mounts on every session route whether or not
+ * that session has rows yet — so the wait observes the MOUNT rather than the arrival of
+ * content, which is what a churn cycle needs it to observe.
+ *
+ * NOT the ledger's body, which was this selector until the provenance rail was removed:
+ * that box is a container whose children are all conditional, so before the session's
+ * first read settles it holds a virtualized list with nothing in it and has no box at
+ * all. It satisfied a visibility wait only because the rail beside the window drew an
+ * unconditional strip — a wait that passed on the presence of a surface it was not
+ * asking about. The pane is the element the ROUTE mounts, which is the claim this
+ * constant is making.
  */
-export const WORKSPACE_SURFACE_SELECTOR: string = ".meridian-frame__surface .meridian-ledger__body";
+export const WORKSPACE_SURFACE_SELECTOR: string =
+  ".meridian-frame__surface .meridian-pane--timeline";
 
 /**
  * One ledger row, anchored under the frame's surface.
  *
- * The BODY says the workspace mounted; a ROW says the projection, the window
+ * The PANE says the workspace mounted; a ROW says the projection, the window
  * fold and the viewport's reconcile have all run and something is on screen. The
  * two budget readings in this tier need the second claim and the churn loop needs
  * the first, so both selectors live here and neither tier spells one itself.
@@ -231,6 +241,23 @@ export async function readBoundSessionIds(
 }
 
 /**
+ * What one churn cycle saw, in the two registers a caller can be fooled in.
+ *
+ * THE ROW COUNT IS HERE BECAUSE THE ROUTE WAIT STOPPED CARRYING IT. The workspace
+ * wait names the timeline PANE, which mounts its chrome whether or not the ledger
+ * inside it ever draws a row — so a run whose ledger never mounted churns the whole
+ * loop, waits successfully every time, and reports clean heap growth over a surface
+ * that is not there. The pane says the route arrived; this says the surface under it
+ * came up.
+ */
+export interface ChurnCycleReading {
+  /** Beats the engine has delivered, or `null` where the handle is not on the page. */
+  readonly deliveredBeatCount: number | null;
+  /** Row boxes the virtualizer had placed when the cycle closed. */
+  readonly ledgerRowCount: number;
+}
+
+/**
  * One cycle of the work a console does while a person watches it.
  *
  * Navigation and palette use rather than synthetic allocation, because the leaks
@@ -244,13 +271,13 @@ export async function readBoundSessionIds(
  * unmount are the subject of the measurement, so a cycle that assigned two hashes
  * back to back would be a cycle that measured neither.
  *
- * Returns the delivered-beat count the advance reported, so a caller can assert
- * the workload progressed without paying for a second round trip.
+ * Returns what the cycle saw, so a caller can assert the workload progressed and
+ * that it progressed over a ledger, without paying for a second round trip.
  */
 export async function churnOnce(
   consoleApplication: ConsoleApplication,
   advanceMilliseconds: number,
-): Promise<number | null> {
+): Promise<ChurnCycleReading> {
   const consoleWindow = consoleApplication.window;
   // Through the shared door, which waits for the input to hold focus before this
   // returns. Typing into an unfocused palette is silent here rather than red — the
@@ -268,7 +295,14 @@ export async function churnOnce(
   await openSettingsRoute(consoleApplication);
   await openFlagshipSessionRoute(consoleApplication);
 
-  return advanceScenario(consoleApplication, advanceMilliseconds);
+  const deliveredBeatCount = await advanceScenario(consoleApplication, advanceMilliseconds);
+  // Counted AFTER the advance, so the cycle reports the ledger the beats it just
+  // delivered landed in. A count and not a wait: the early cycles legitimately have
+  // no row — the flagship script is walked over the whole run — so a wait here would
+  // spend the body's allowance on a state the run is expecting. What the caller does
+  // with the sequence of counts is the claim; this only reports them.
+  const ledgerRowCount = await consoleWindow.locator(LEDGER_ROW_BOX_SELECTOR).count();
+  return { deliveredBeatCount, ledgerRowCount };
 }
 
 /**

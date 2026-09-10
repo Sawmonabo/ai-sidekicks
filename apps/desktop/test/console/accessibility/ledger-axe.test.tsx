@@ -2,7 +2,7 @@
 //
 // `Spec-023 §Console Design (Meridian)` 14.11 puts WCAG 2.2 AA over every console
 // surface, and the ledger is the one a person spends the day inside: a virtualized
-// feed of cards, a provenance rail, a replay dock, and a find field, all of them
+// feed of cards, a facet bar, and a find field, all of them
 // hue-tinted per participant. Almost every rule this tier owns has a way to fail
 // here that it has nowhere else — a card whose muted label sits on a tinted ground,
 // a feed whose rows are mounted and unmounted under the reader, a control that is
@@ -63,8 +63,8 @@ import { unregisterTimelineRowRenderer } from "../../../src/renderer/src/console
  *
  * Zero rather than `-1`, because `scriptLedgerBeats` numbers a scenario's beats from
  * one: a store rebased at `-1` would see its first beat as sequence one arriving
- * after sequence zero never did, record the gap, and render the rail's dotted head
- * and a degraded banner — a surface neither case here is about, and a difference
+ * after sequence zero never did, record the gap, and render the never-received
+ * absence and a degraded banner — a surface neither case here is about, and a difference
  * between the two scenarios only one of them would show.
  */
 const SCENARIO_BASE_CURSOR = 0;
@@ -92,8 +92,8 @@ function ledgerPaneContext(sessionId: string, sessionStore: SessionStore): Timel
 /**
  * A real store holding the whole of one scenario's log.
  *
- * Real rather than a stand-in, because the projection, the chapter fold, the
- * superseded index, and the rail model all run over what this returns — and a fake
+ * Real rather than a stand-in, because the projection, the chapter fold and the
+ * superseded index all run over what this returns — and a fake
  * store would let every one of them be wrong together while axe reported a clean
  * document. The quiet scenario scripts no beats at all, which is exactly how the
  * empty case reaches a state a scripted stream can never produce.

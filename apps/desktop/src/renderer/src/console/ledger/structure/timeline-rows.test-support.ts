@@ -55,7 +55,7 @@ export interface FixtureRowInput {
  *
  * One second per sequence step from a fixed epoch, so a fixture's rows are ordered
  * the same way by sequence and by `occurredAt` unless a case deliberately says
- * otherwise — which is what lets a replay test assert ordering without every case
+ * otherwise — which is what lets an ordering test assert ordering without every case
  * hand-writing timestamps.
  */
 export function fixtureTimestamp(sequence: number): string {

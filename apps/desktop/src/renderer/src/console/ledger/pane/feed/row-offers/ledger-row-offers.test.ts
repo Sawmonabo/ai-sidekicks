@@ -58,9 +58,6 @@ function offerInputs(
     copyBody: (bodyText) => {
       trace.push(`copyBody:${bodyText}`);
     },
-    replayFromRow: (rowId) => {
-      trace.push(`replayFromRow:${rowId}`);
-    },
     chapterRunId: undefined,
     jumpToChapter: (runId) => {
       trace.push(`jumpToChapter:${runId}`);
@@ -88,12 +85,8 @@ function press(inputs: LedgerRowOfferInputs, kind: LedgerRowOfferKind): void {
 }
 
 describe("a row's offers — which ones it carries", () => {
-  it("offers the disclosure, the id, and the replay to a row with nothing optional", () => {
-    expect(offerKinds(offerInputs([]))).toStrictEqual([
-      "open-row",
-      "copy-row-id",
-      "replay-from-here",
-    ]);
+  it("offers the disclosure and the id to a row with nothing optional", () => {
+    expect(offerKinds(offerInputs([]))).toStrictEqual(["open-row", "copy-row-id"]);
   });
 
   it("names the disclosure for the state a press would move the row TO", () => {
@@ -126,7 +119,6 @@ describe("a row's offers — which ones it carries", () => {
       "open-row",
       "copy-row-id",
       "copy-body",
-      "replay-from-here",
       "jump-to-chapter",
       "reveal-file-at-path",
     ]);
@@ -194,12 +186,6 @@ describe("a row's offers — what pressing one reaches", () => {
     press(inputs, "copy-row-id");
     press(inputs, "copy-body");
     expect(trace).toStrictEqual([`copyRowId:${SAMPLE_ROW_ID}`, `copyBody:${SAMPLE_BODY}`]);
-  });
-
-  it("scrubs the replay engine to this row", () => {
-    const trace: OfferTrace = [];
-    press(offerInputs(trace), "replay-from-here");
-    expect(trace).toStrictEqual([`replayFromRow:${SAMPLE_ROW_ID}`]);
   });
 
   it("jumps by the RUN the chapter is keyed by, never by the row's own id", () => {

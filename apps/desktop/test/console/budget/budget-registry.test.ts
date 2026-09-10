@@ -37,7 +37,7 @@ const EXPECTED_PRODUCT_BUDGET_IDS: readonly string[] = [
   "renderer-initial-bundle",
   "frame-time-p95-four-lanes",
   "renderer-heap-at-rest",
-  "steady-heap-flagship-replay",
+  "steady-heap-flagship-stream",
   "idle-cpu",
   "streaming-cpu-one-lane",
   "terminal-instance-memory",

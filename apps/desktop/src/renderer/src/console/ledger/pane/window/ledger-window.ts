@@ -134,14 +134,15 @@ export interface LedgerWindowModel {
    * fold below never touches it.
    */
   readonly chapterByHeaderKey: ReadonlyMap<string, LedgerChapter>;
-  /** Every seam in log order — what the replay dock's next-seam jump walks. */
-  readonly seams: readonly LedgerSeam[];
   /**
    * The seam behind each row that is one — the lookup the feed's row renderer
    * consults BEFORE it delegates to the timeline row seat.
    *
-   * Built from the same index that produced `seams`, so the row a jump lands on and
-   * the row a person reads are one classification rather than two.
+   * The ONE form a seam is published in. The classifier's log-order pass is kept as a
+   * local that feeds this map and is not carried on the model beside it: a second
+   * member holding the same classification is a second thing every narrowing and every
+   * fold has to remember to re-filter, and the one that gets forgotten is the one a
+   * reader never sees go stale.
    */
   readonly seamByRowId: ReadonlyMap<string, LedgerSeam>;
   /**
@@ -156,7 +157,7 @@ export interface LedgerWindowModel {
   readonly childRunEntryByRowId: ReadonlyMap<string, ChildRunEntry>;
   /** The handoff behind each row that is one, on the same dispatch. */
   readonly handoffEntryByRowId: ReadonlyMap<string, HandoffEntry>;
-  /** The rows in log order, for find, the chapter fold, and the replay scrub. */
+  /** The rows in log order, for find and the chapter fold. */
   readonly rows: readonly TimelineRow[];
   /** Events the registered census carries no category for. Rendered, never hidden. */
   readonly unprojectableEventCount: number;
@@ -199,9 +200,9 @@ export function deriveLedgerWindow(
   const projection = projectFixtureShellRows(timeline);
   // THE PANE'S SCOPE, APPLIED BEFORE ANY INDEX READS A ROW — before the chapters
   // are folded, before the seams are classified, before the superseded bands are
-  // ranked, and so before the facet bar, the viewport cap, replay, find and the
-  // rail. Every figure this window publishes is therefore a figure about the
-  // channel, and no piece below has to remember that a scope exists.
+  // ranked, and so before the facet bar, the viewport cap and find. Every figure
+  // this window publishes is therefore a figure about the channel, and no piece
+  // below has to remember that a scope exists.
   //
   // The LOG is projected whole and the ROWS are narrowed, rather than the events
   // being filtered on the way in: a run's ordinal and epoch are counted across its
@@ -218,10 +219,10 @@ export function deriveLedgerWindow(
   const rows = scopedRows.map((row) => retention.retainRow(row));
   const chapterIndex = new LedgerChapterIndex(rows);
   const supersededIndex = new SupersededIndex(rows);
-  // The seam vocabulary has one classifier; this is the instance that reads the
-  // whole log, which is what replay's next-seam jump walks. The rail's own instance
-  // reads the pruned window in `ledger-visible-window.ts`, because the rail marks what
-  // is on screen.
+  // The seam vocabulary has one classifier; this is the instance that reads the whole
+  // log. Its log-order pass is a LOCAL and reaches the model only as the map keyed
+  // from it below, so the row a narrowing carries forward and the row the feed draws
+  // are one classification rather than two.
   const seamIndex = new LedgerSeamIndex();
   const seams = seamIndex.seams(rows);
   // Child runs and handoffs, over the same scoped window every other index reads.
@@ -246,7 +247,6 @@ export function deriveLedgerWindow(
     chapterByHeaderKey: new Map(
       chapterIndex.terminalChapters().map((chapter) => [chapter.runId, chapter]),
     ),
-    seams,
     seamByRowId: new Map(seams.map((seam) => [seam.rowId, seam])),
     childRunEntryByRowId: childRunIndex.childRunEntryByRowId(),
     handoffEntryByRowId: childRunIndex.handoffEntryByRowId(),

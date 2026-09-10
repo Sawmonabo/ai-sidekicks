@@ -39,7 +39,6 @@ export {
   SYSTEM_SCHEME_PREFERENCE,
   isSchemePreference,
   participantHueTokenName,
-  schemeColor,
   tokenReference,
   tokenVariableName,
 } from "./tokens.js";

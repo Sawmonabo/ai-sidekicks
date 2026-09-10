@@ -5,8 +5,8 @@
 // this is, and the chip carries no colour at all for state. A chip tinted for
 // attention was a second meaning on the one surface whose whole job is telling people
 // apart, and it put the amber vocabulary somewhere nobody can act on it. Amber lives
-// where the act is — the approval card, the sidebar row, the rail tick — and what
-// this chip carries instead is a WORD.
+// where the act is — the approval card and the sidebar row — and what this chip
+// carries instead is a WORD.
 
 import { Tooltip } from "@base-ui/react/tooltip";
 

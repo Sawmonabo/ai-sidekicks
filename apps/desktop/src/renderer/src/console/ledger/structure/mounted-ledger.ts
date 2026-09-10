@@ -46,9 +46,6 @@ export interface LedgerStructureActs {
   readonly clearFilters: () => void;
   readonly scrollToTail: () => void;
   readonly collapseAllTerminalChapters: () => void;
-  readonly toggleReplay: () => void;
-  readonly jumpToNextSeam: () => void;
-  readonly replayFromRowInView: () => void;
 }
 
 /** One act, by name. Every member is a niladic call, so the name is the whole request. */
@@ -63,7 +60,7 @@ export type LedgerActOutcome =
  * What an act says when no ledger is mounted.
  *
  * One value rather than one per act: a person pressing a ledger chord from the
- * settings page needs to know the ledger is not here, and naming which of the nine
+ * settings page needs to know the ledger is not here, and naming which of the six
  * acts they reached for would answer a question they did not ask.
  */
 export const LEDGER_NOT_MOUNTED_REFUSAL: ConsoleRefusal = refuse(
@@ -156,15 +153,6 @@ function forwardingActs(read: () => LedgerStructureActs): LedgerStructureActs {
     },
     collapseAllTerminalChapters: () => {
       read().collapseAllTerminalChapters();
-    },
-    toggleReplay: () => {
-      read().toggleReplay();
-    },
-    jumpToNextSeam: () => {
-      read().jumpToNextSeam();
-    },
-    replayFromRowInView: () => {
-      read().replayFromRowInView();
     },
   };
 }

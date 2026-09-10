@@ -86,11 +86,7 @@ function askAbout(
 ): LedgerFindAndJump {
   const { chapterFold, bandFold } = foldLedger(openedTerminalRunIds, foldedBandKeys);
   const { result } = renderHook(() => {
-    const visible = useVisibleLedgerWindow(
-      bandFold.window,
-      bandFold.window.viewportRows,
-      bandFold.window.viewportRows,
-    );
+    const visible = useVisibleLedgerWindow(bandFold.window, bandFold.window.viewportRows);
     return useLedgerFindAndJump({
       unfurledWindow: UNFURLED_WINDOW,
       narrowedWindow: UNFURLED_WINDOW,
@@ -103,7 +99,6 @@ function askAbout(
       toggleChapter: acts.toggleChapter,
       openSupersededBandOfRow: acts.openSupersededBandOfRow,
       setFilter: () => undefined,
-      endReplay: () => undefined,
       jumpToRow: acts.jumpToRow,
       focusLedgerSurface: () => undefined,
     });

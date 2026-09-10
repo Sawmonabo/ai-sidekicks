@@ -1,17 +1,16 @@
 // The ways this window is not the whole session, each said out loud.
 //
-// Four absences with four different next moves — an unrecognised type, a row the
-// cap took, a row the replay position has not reached, and a sequence that never
-// arrived — and the failure this file guards is one being reported as another. The
-// seam is `LedgerFeed.test.tsx`'; the scaffolding is `LedgerFeedFixtures.test-support.tsx`'.
+// Three absences with three different next moves — an unrecognised type, a row the
+// cap took, and a sequence that never arrived — and the failure this file guards is
+// one being reported as another. The seam is `LedgerFeed.test.tsx`'; the scaffolding
+// is `LedgerFeedFixtures.test-support.tsx`'.
 //
-// AND THE WINDOW THAT HOLDS NOTHING AT ALL, which is a fifth thing and reads as an
+// AND THE WINDOW THAT HOLDS NOTHING AT ALL, which is a fourth thing and reads as an
 // absence of activity unless the session says otherwise. The rule that picks its
 // sentence has its own cases beside the module; what the last describe here asserts
 // is the WIRING — that the feed subscribes to the projected grant and hands it down,
 // which no assertion over a pure function can reach.
 
-import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -25,7 +24,6 @@ import {
   openSessionStoreWithGeneralLog,
 } from "../ledger-feed-logs.test-support.js";
 import { SessionStore } from "../../../../store/index.js";
-import { LedgerRowsAdmittedDuringReplayNotice } from "./LedgerRowsAdmittedDuringReplayNotice.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -74,47 +72,6 @@ describe("the ledger feed — what it does not hold", () => {
     const feed = renderFeed(openSessionStoreWithGeneralLog(5));
     expect(feed.textContent).not.toContain("Older entries are no longer in this window.");
     expect(feed.textContent).not.toContain("Some entries never arrived.");
-  });
-});
-
-describe("the ledger feed — a session that moved on during a replay", () => {
-  const ADMITTED_DURING_REPLAY_COUNT = 3;
-
-  it("names the rows the walk began after, and offers the act that reaches them", () => {
-    const { container } = render(
-      <LedgerRowsAdmittedDuringReplayNotice
-        count={ADMITTED_DURING_REPLAY_COUNT}
-        onEndReplay={() => undefined}
-      />,
-    );
-    expect(container.textContent).toContain("moved on while this replay was running");
-    // The count, and the reason scrubbing is not the answer — the two halves that
-    // keep this apart from the withheld-ahead sentence beside it.
-    expect(container.textContent).toContain("3 entries arrived after this replay started");
-    expect(container.textContent).toContain("scrubbing forward does not reach them");
-  });
-
-  it("ends the walk when the offered action is pressed", () => {
-    let endedCount = 0;
-    render(
-      <LedgerRowsAdmittedDuringReplayNotice
-        count={ADMITTED_DURING_REPLAY_COUNT}
-        onEndReplay={() => {
-          endedCount += 1;
-        }}
-      />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Leave the replay and catch up" }));
-    expect(endedCount).toBe(1);
-  });
-
-  it("negative control: a walk nothing arrived during says nothing", () => {
-    // Without this the notice could be unconditional, which would put a permanent
-    // absence on a ledger with no absence in it.
-    const { container } = render(
-      <LedgerRowsAdmittedDuringReplayNotice count={0} onEndReplay={() => undefined} />,
-    );
-    expect(container.textContent).toBe("");
   });
 });
 

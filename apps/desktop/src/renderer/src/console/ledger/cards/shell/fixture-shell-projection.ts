@@ -42,7 +42,7 @@
 //   • `position`. The arm's `position` is the daemon's projection-resolved run
 //     position. What the log supports is the row's ORDINAL WITHIN ITS RUN in this
 //     window, which is the property every consumer here actually spends —
-//     chapters fold on it, bands rank on it, the rail lays marks out along it —
+//     chapters fold on it and bands rank on it —
 //     and which agrees with the daemon's ordering even though it is not the
 //     daemon's number.
 //   • `epoch`. Re-execution reuses ordinals, and the wire says nothing about which

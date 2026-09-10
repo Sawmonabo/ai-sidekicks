@@ -1,10 +1,10 @@
-// Six absences, six sentences, and the one that has no figure to give.
+// Five absences, five sentences, and the one that has no figure to give.
 //
-// Driven from `WINDOW_ABSENCE_KINDS` rather than from hand-listed arms, so a seventh
+// Driven from `WINDOW_ABSENCE_KINDS` rather than from hand-listed arms, so a sixth
 // narrowing added to a caller's pipeline fails here rather than silently rendering one
-// of the six existing sets of words — the defect this vocabulary was lifted out of a
-// ledger to prevent, where a row folded into a chapter, a row a replay was holding
-// back, and a row the cap had taken were all reported as hidden by a filter.
+// of the five existing sets of words — the defect this vocabulary was lifted out of a
+// ledger to prevent, where a row folded into a chapter and a row the cap had taken
+// were both reported as hidden by a filter.
 
 import { describe, expect, it } from "vitest";
 
@@ -21,7 +21,6 @@ const SUBJECT = "entries";
 const ABSENCE_BY_KIND: Readonly<Record<WindowAbsenceKind, WindowAbsence>> = {
   unprojectable: { kind: "unprojectable", count: 4 },
   dropped: { kind: "dropped", count: 1200 },
-  "withheld-by-replay": { kind: "withheld-by-replay", count: 7 },
   "never-received": { kind: "never-received" },
   "duplicate-key": { kind: "duplicate-key", count: 3 },
   "past-element-ceiling": { kind: "past-element-ceiling", count: 40000 },
@@ -32,16 +31,16 @@ const COUNTED_KINDS: readonly WindowAbsenceKind[] = WINDOW_ABSENCE_KINDS.filter(
   (kind) => kind !== "never-received",
 );
 
-describe("window-absence — six ways a window is less than the whole", () => {
+describe("window-absence — five ways a window is less than the whole", () => {
   it("finds every kind to drive", () => {
-    expect(WINDOW_ABSENCE_KINDS.length).toBe(6);
+    expect(WINDOW_ABSENCE_KINDS.length).toBe(5);
     expect(Object.keys(ABSENCE_BY_KIND).sort()).toStrictEqual([...WINDOW_ABSENCE_KINDS].sort());
   });
 
   it("gives each kind its own title and its own second line", () => {
     // The collapse rule 8 forbids, applied to a window's cap: two absences sharing a
-    // sentence would tell somebody rows they can scrub back to in one keystroke are
-    // gone for good.
+    // sentence would tell somebody entries the daemon never sent are entries this
+    // window merely stopped holding.
     const titles = WINDOW_ABSENCE_KINDS.map(
       (kind) => windowAbsenceNotice(ABSENCE_BY_KIND[kind], SUBJECT).title,
     );
@@ -131,12 +130,12 @@ describe("window-absence — the two the window decided rather than lost", () =>
   it("keeps a row past the ceiling reachable, unlike one the cap took", () => {
     // The distinction that decides what a person does next: the cap's rows are gone
     // and its second line says there is nothing to press, while these are still held
-    // and two surfaces reach them. Collapsing them would tell somebody rows they can
+    // and find reaches them. Collapsing them would tell somebody rows they can
     // find in one keystroke are gone for good.
     const pastCeiling = windowAbsenceNotice(ABSENCE_BY_KIND["past-element-ceiling"], SUBJECT);
     const dropped = windowAbsenceNotice(ABSENCE_BY_KIND.dropped, SUBJECT);
     expect(pastCeiling.detail).toContain("still held");
-    expect(pastCeiling.detail).toContain("Find and the rail reach them.");
+    expect(pastCeiling.detail).toContain("Find reaches them.");
     expect(dropped.detail).toContain("nothing to press");
     expect(pastCeiling.title).not.toBe(dropped.title);
   });
@@ -217,7 +216,7 @@ describe("window-absence — what there is to say", () => {
       windowAbsenceNotices(
         [
           { kind: "dropped", count: 0 },
-          { kind: "withheld-by-replay", count: 0 },
+          { kind: "duplicate-key", count: 0 },
           { kind: "unprojectable", count: 0 },
         ],
         SUBJECT,
@@ -227,15 +226,11 @@ describe("window-absence — what there is to say", () => {
 
   it("says every absence a window really has, in the caller's order", () => {
     const notices = windowAbsenceNotices(
-      [
-        { kind: "dropped", count: 0 },
-        ABSENCE_BY_KIND["withheld-by-replay"],
-        { kind: "never-received" },
-      ],
+      [{ kind: "dropped", count: 0 }, ABSENCE_BY_KIND["duplicate-key"], { kind: "never-received" }],
       SUBJECT,
     );
     expect(notices.map((notice) => notice.title)).toStrictEqual([
-      windowAbsenceNotice(ABSENCE_BY_KIND["withheld-by-replay"], SUBJECT).title,
+      windowAbsenceNotice(ABSENCE_BY_KIND["duplicate-key"], SUBJECT).title,
       windowAbsenceNotice(ABSENCE_BY_KIND["never-received"], SUBJECT).title,
     ]);
   });

@@ -1,33 +1,31 @@
 // The ways a WINDOW is not the whole of what it is a window onto.
 //
-// Beside `primitives/reading/partial-read.ts` and deliberately not inside it. That module is about a
-// READ: how completely the answer a surface asked for came back. This one is about a
-// window's own cap — rows the log still holds and this viewport does not, because
-// the cap took them, because a replay position is parked in front of them, or
-// because this build recognised no category for them. Folding these into
-// `ReadingState` would have made "the read was short" and "you are looking through a
-// smaller opening than the thing behind it" one word, and they are not: the first is
-// about trusting what is on screen, the second about where the rest of it is and
-// whether anything brings it back.
+// Beside `primitives/reading/partial-read.ts` and deliberately not inside it. That
+// module is about a READ: how completely the answer a surface asked for came back.
+// This one is about a window's own cap — rows the log still holds and this viewport
+// does not, because the cap took them or because this build recognised no category
+// for them. Folding these into `ReadingState` would have made "the read was short"
+// and "you are looking through a smaller opening than the thing behind it" one word,
+// and they are not: the first is about trusting what is on screen, the second about
+// where the rest of it is and whether anything brings it back.
 //
-// SIX SENTENCES AND NOT ONE, because a person's next move differs for each. An
+// FIVE SENTENCES AND NOT ONE, because a person's next move differs for each. An
 // unrecognised type is this build's limit. A dropped row is the window's cap, and
-// nothing here fetches a range of the log, so there is nothing to press. A row ahead
-// of a replay position is a control they are holding, and scrubbing forward is the
-// act. A sequence that never arrived is the stream's, and it comes back only when the
-// whole is read again. A row sharing an identifier with one already drawn is the
-// producer's, and nothing on this side can tell the two apart. A row past the height
-// this window can draw is still HELD — find and the rail reach it, which is the one
-// second line here that names a way back. Collapsing any two tells somebody the
-// console failed where it merely stopped holding, or the reverse — and collapsing the
-// last one into the cap's would say rows they can still reach are gone for good.
+// nothing here fetches a range of the log, so there is nothing to press. A sequence
+// that never arrived is the stream's, and it comes back only when the whole is read
+// again. A row sharing an identifier with one already drawn is the producer's, and
+// nothing on this side can tell the two apart. A row past the height this window can
+// draw is still HELD — find reaches it, which is the one second line here that names a
+// way back. Collapsing any two tells somebody the console failed where it merely
+// stopped holding, or the reverse — and collapsing the last one into the cap's would
+// say rows they can still reach are gone for good.
 //
-// FIVE COUNT AND ONE DOES NOT, and that asymmetry is the wire's rather than a
-// shortcut. A window can count the rows it dropped, the rows it is withholding, the
+// FOUR COUNT AND ONE DOES NOT, and that asymmetry is the wire's rather than a
+// shortcut. A window can count the rows it could not place, the rows it dropped, the
 // rows that arrived under an identifier it already held, and the rows past its
-// ceiling; what it knows about
-// sequences it never received is that it was told of some, which is a fact with no
-// figure in it. The arm carries no count rather than carrying a zero or inventing one.
+// ceiling; what it knows about sequences it never received is that it was told of
+// some, which is a fact with no figure in it. The arm carries no count rather than
+// carrying a zero or inventing one.
 //
 // AND THE COUNTLESS ONE NAMES WHOSE NUMBERING IT IS. A window scoped to PART of a
 // stream — one channel of a session's entries — has a subject that is the part and a
@@ -42,8 +40,8 @@
 // matters because `not-loaded` is a skeleton: it announces its title rather than
 // setting it and drops the second line entirely, which is right for a read that will
 // be replaced a beat later and wrong for a settled fact about a window nothing is
-// going to change. Every sentence here has a second line that carries the act — scrub
-// forward, or nothing to press — so the three that are answers take `empty` and the
+// going to change. Every sentence here has a second line that carries the act — or
+// says there is nothing to press — so the four that are answers take `empty` and the
 // one that is not takes `not-checked`: an entry this build has no category for is not
 // a read that came back short, it is a question nobody could put. This module chooses
 // the kind and writes the words; `Nothing` owns how an absence looks. The figure goes
@@ -56,14 +54,13 @@ import { type NothingKind } from "./Nothing.js";
 
 /**
  * Closed. The tuple is the declaration and the union follows from it, so a claim
- * about the SET is countable at runtime and a seventh narrowing added to a caller's
+ * about the SET is countable at runtime and a sixth narrowing added to a caller's
  * pipeline is a compile error here rather than a row that silently renders one of the
- * six existing sentences.
+ * five existing sentences.
  */
 export const WINDOW_ABSENCE_KINDS = [
   "unprojectable",
   "dropped",
-  "withheld-by-replay",
   "never-received",
   "duplicate-key",
   "past-element-ceiling",
@@ -77,8 +74,6 @@ export type WindowAbsence =
   | { readonly kind: "unprojectable"; readonly count: number }
   /** Entries the window's cap pushed out as the session grew. */
   | { readonly kind: "dropped"; readonly count: number }
-  /** Entries this window holds and is not showing, because a replay is parked. */
-  | { readonly kind: "withheld-by-replay"; readonly count: number }
   /**
    * The producer numbered entries this window never received.
    *
@@ -145,12 +140,6 @@ export function windowAbsenceNotice(absence: WindowAbsence, subject: string): Wi
         title: `Older ${subject} are no longer in this window.`,
         detail: `${formatCount(absence.count)} left the window as the session grew. Nothing here fetches a range of the log, so there is nothing to press.`,
       };
-    case "withheld-by-replay":
-      return {
-        kind: "empty",
-        title: `Later ${subject} are behind the replay position.`,
-        detail: `${formatCount(absence.count)} in this window come after where the replay is parked. Scrub forward, or play on, and they come back.`,
-      };
     case "never-received":
       return {
         kind: "empty",
@@ -170,7 +159,7 @@ export function windowAbsenceNotice(absence: WindowAbsence, subject: string): Wi
         // here whose second line names a way to the rows rather than the absence of one.
         kind: "empty",
         title: `Older ${subject} are past what this window can draw.`,
-        detail: `${formatCount(absence.count)} are still held and sit below the height this window can draw down to. Find and the rail reach them.`,
+        detail: `${formatCount(absence.count)} are still held and sit below the height this window can draw down to. Find reaches them.`,
       };
   }
 }

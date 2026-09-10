@@ -36,9 +36,6 @@ function recordingActs(fired: string[]): LedgerStructureActs {
     clearFilters: () => fired.push("clearFilters"),
     scrollToTail: () => fired.push("scrollToTail"),
     collapseAllTerminalChapters: () => fired.push("collapseAllTerminalChapters"),
-    toggleReplay: () => fired.push("toggleReplay"),
-    jumpToNextSeam: () => fired.push("jumpToNextSeam"),
-    replayFromRowInView: () => fired.push("replayFromRowInView"),
   };
 }
 
@@ -69,7 +66,7 @@ describe("ledger commands — the contribution is a value, and building it regis
     // were built for something else, `registerAll` is where that would show.
     const registry = new CommandRegistry();
     registry.registerAll(ledgerStructureCommands(recordingActs([])));
-    expect(registry.size).toBe(9);
+    expect(registry.size).toBe(6);
     expect(registry.all().map((command) => command.id)).toStrictEqual(
       ledgerStructureCommands(recordingActs([])).map((command) => command.id),
     );
@@ -78,7 +75,7 @@ describe("ledger commands — the contribution is a value, and building it regis
   it("offers every act in a window with a session, through the palette's own evaluator", () => {
     const registry = new CommandRegistry();
     registry.registerAll(ledgerStructureCommands(recordingActs([])));
-    expect(registry.commandsFor({ sessionActive: true })).toHaveLength(9);
+    expect(registry.commandsFor({ sessionActive: true })).toHaveLength(6);
   });
 
   it("negative control: a window with no session is offered none of them", () => {
@@ -95,9 +92,9 @@ describe("ledger commands — the contribution is a value, and building it regis
 describe("ledger commands — the rows themselves", () => {
   const commands = ledgerStructureCommands(recordingActs([]));
 
-  it("offers nine acts under one group, each id unique and namespaced", () => {
-    expect(commands).toHaveLength(9);
-    expect(new Set(commands.map((command) => command.id)).size).toBe(9);
+  it("offers six acts under one group, each id unique and namespaced", () => {
+    expect(commands).toHaveLength(6);
+    expect(new Set(commands.map((command) => command.id)).size).toBe(6);
     for (const command of commands) {
       expect(command.group).toBe(LEDGER_COMMAND_GROUP);
       expect(command.id.startsWith("ledger.")).toBe(true);
@@ -128,9 +125,6 @@ describe("ledger commands — the rows themselves", () => {
       ["ledger.clearFilters", "clearFilters"],
       ["ledger.scrollToTail", "scrollToTail"],
       ["ledger.collapseTerminalChapters", "collapseAllTerminalChapters"],
-      ["ledger.toggleReplay", "toggleReplay"],
-      ["ledger.jumpToNextSeam", "jumpToNextSeam"],
-      ["ledger.replayFromRowInView", "replayFromRowInView"],
     ];
     for (const [commandId, actName] of expectations) {
       const fired: string[] = [];

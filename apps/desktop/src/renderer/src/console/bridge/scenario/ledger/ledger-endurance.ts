@@ -68,7 +68,7 @@ const startedAtMs = Date.UTC(2026, 0, 1, 8, 0);
 
 const STARTED_AT_ISO = new Date(startedAtMs).toISOString();
 
-/** Scenario time between two consecutive beats. Even spacing, so a scrub is linear. */
+/** Scenario time between two consecutive beats. Even spacing, so the stream is steady. */
 const ENDURANCE_BEAT_INTERVAL_MS = 20;
 
 /** The cast. Three lanes' worth of agents, cycled across every generated run. */
@@ -104,8 +104,8 @@ const RUN_LIFECYCLE_BEAT_COUNT = 4;
  *
  * Eight entries rather than four, so the generated log is not two alternating rows
  * repeated forever: a chapter carries thinking, prose, three tool calls of which
- * one fails, and one compaction seam. That mix is what the rail folds, what the
- * find field searches, and what the row-height ledger has to measure — a uniform
+ * one fails, and one compaction seam. That mix is what the chapter fold folds, what
+ * the find field searches, and what the row-height ledger has to measure — a uniform
  * body would have every one of them measuring its easiest case.
  */
 const ENDURANCE_BODY_CYCLE_LENGTH = 8;
