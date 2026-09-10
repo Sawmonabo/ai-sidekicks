@@ -6,9 +6,11 @@
 // correct one. So the cases below drive the composed feed with a REAL store, a real
 // projection and a real viewport binding, and assert the seam rather than the pieces.
 //
-// The feed's other three subjects are their own files, on this package's ~400-line
-// rule: `LedgerFeed.absences.test.tsx`, `LedgerFeed.jump.test.tsx`, and
-// `LedgerFeed.seats.test.tsx`. The scaffolding they share is `LedgerFeedFixtures.test-support.tsx`.
+// The feed's other subjects are each their own file, on this package's ~400-line rule
+// — the `LedgerFeed.<subject>.test.tsx` siblings beside this one, read off the
+// directory rather than listed here, so a subject that arrives or leaves does not
+// leave a stale roster in a header. The scaffolding they share is
+// `LedgerFeedFixtures.test-support.tsx`.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 

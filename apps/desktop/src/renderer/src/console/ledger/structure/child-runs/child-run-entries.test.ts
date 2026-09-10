@@ -45,10 +45,24 @@ function rowCarryingChildRun(id: string, sequence: number, summary: ChildRunSumm
 }
 
 describe("the handoff wire vocabulary — every member is a type the daemon can emit", () => {
-  it("names only wire types the contract registers", () => {
-    for (const wireType of HANDOFF_WIRE_TYPES) {
-      expect(SESSION_EVENT_CATEGORY_BY_TYPE.has(wireType)).toBe(true);
-    }
+  it("names four registered wire types, each in the category the contract files it under", () => {
+    // The whole set against the whole expectation, rather than a `has` per member: the
+    // member type is `SessionEventType`, so a per-member truth check passes for every
+    // value that compiles and passes VACUOUSLY over a vocabulary a member was dropped
+    // from. Reading the category back names what each member is and fails on a
+    // dropped one, an added one, and one the contract stopped registering alike.
+    const categoryByWireType = Object.fromEntries(
+      HANDOFF_WIRE_TYPES.map((wireType) => [
+        wireType,
+        SESSION_EVENT_CATEGORY_BY_TYPE.get(wireType),
+      ]),
+    );
+    expect(categoryByWireType).toStrictEqual({
+      "agent.attached": "session_lifecycle",
+      "agent.detached": "session_lifecycle",
+      "subagent.started": "tool_activity",
+      "subagent.completed": "tool_activity",
+    });
   });
 
   it("negative control: a type the contract does not register is absent from the census", () => {

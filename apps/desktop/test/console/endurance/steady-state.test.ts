@@ -65,6 +65,15 @@
 // fall across the cycles rather than at the front of them, and the mid-run reading
 // is what proves it.
 //
+// AND THE LOOP OBSERVES THE LEDGER ITSELF, once per cycle. The route wait names the
+// timeline PANE, whose chrome mounts on the route whether or not the ledger inside it
+// ever draws a row, so nothing in the loop would otherwise notice a console that came
+// up with no surface under it — the run would churn, wait successfully two hundred
+// times, and report clean growth over an empty box. Rows appear part-way through
+// because the script is walked across the whole run, so the per-cycle claim is the one
+// that holds from then on: once a cycle has found a mounted row, no later cycle finds
+// the ledger emptied. The count of cycles that did is asserted non-zero after the loop.
+//
 // Absence is still a failure and never a skip: the diagnostics handle is installed
 // on both arms, and a build without it would make every reading below vacuous.
 //
@@ -265,7 +274,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         // before the palette, its portal, and the settings route have ever been
         // constructed, and their one-time allocation would be reported as growth —
         // a tier that failed on first use of a feature rather than on a leak.
-        const beatsAfterWarmUp = await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
+        const warmUpCycle = await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
+        const beatsAfterWarmUp = warmUpCycle.deliveredBeatCount;
         const appliedEventsAfterWarmUp = await readAppliedEventCount(
           consoleApplication,
           FLAGSHIP_SESSION_ID,
@@ -279,8 +289,29 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
 
         let beatsDelivered = beatsAfterWarmUp;
         let appliedEventsAtMidRun: number | null = null;
+        // THE LOOP'S OWN PROOF THAT IT CHURNED A LEDGER. The workspace wait names the
+        // timeline pane, whose chrome mounts on the route whether or not the ledger
+        // inside it ever draws — so nothing else in this body observes the surface the
+        // heap reading is about until the very end of the run. These two are counted
+        // per cycle: rows appear part-way through, because the script is walked across
+        // the whole run, so the per-cycle claim is the one that holds from then on —
+        // once mounted, a cycle never finds the ledger emptied again — and the count
+        // says the loop reached that state at all.
+        let cyclesWithLedgerRows = 0;
+        let ledgerRowsHaveMounted = false;
         for (let cycle = 0; cycle < CHURN_CYCLE_COUNT; cycle += 1) {
-          beatsDelivered = await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
+          const cycleReading = await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
+          beatsDelivered = cycleReading.deliveredBeatCount;
+          if (ledgerRowsHaveMounted) {
+            expect(
+              cycleReading.ledgerRowCount,
+              `cycle ${String(cycle)} left the ledger holding no row after an earlier cycle had mounted one, so every cycle after it churned a route whose surface is gone`,
+            ).toBeGreaterThan(0);
+          }
+          if (cycleReading.ledgerRowCount > 0) {
+            ledgerRowsHaveMounted = true;
+            cyclesWithLedgerRows += 1;
+          }
           if (cycle === Math.floor(CHURN_CYCLE_COUNT / 2)) {
             appliedEventsAtMidRun = await readAppliedEventCount(
               consoleApplication,
@@ -309,8 +340,17 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
             `${String(beatsDelivered)} of ${String(FLAGSHIP_SCENARIO.beats.length)} at ` +
             `${String(SCENARIO_ADVANCE_MS_PER_CYCLE)} ms/cycle; events applied ` +
             `${String(appliedEventsAfterWarmUp)} → ${String(appliedEventsAtMidRun)} → ` +
-            `${String(appliedEventCount)}\n`,
+            `${String(appliedEventCount)}; ledger rows mounted on ` +
+            `${String(cyclesWithLedgerRows)} of ${String(CHURN_CYCLE_COUNT)} cycles\n`,
         );
+
+        // AND THE LOOP WAS NOT A LOOP OVER AN EMPTY PANE. Zero here is the vacuous
+        // run: every route wait satisfied by pane chrome, every heap reading taken
+        // over a console whose ledger never came up.
+        expect(
+          cyclesWithLedgerRows,
+          "no churn cycle found a mounted ledger row, so the whole loop churned a route whose ledger never drew — the pane's chrome is what satisfied every wait",
+        ).toBeGreaterThan(0);
 
         // The workload moved. Both halves are load-bearing: the first says the
         // handle was reachable and the script was running, the second says it kept

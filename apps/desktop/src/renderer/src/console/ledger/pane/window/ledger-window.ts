@@ -134,14 +134,15 @@ export interface LedgerWindowModel {
    * fold below never touches it.
    */
   readonly chapterByHeaderKey: ReadonlyMap<string, LedgerChapter>;
-  /** Every seam in log order, as the narrowing carries them forward. */
-  readonly seams: readonly LedgerSeam[];
   /**
    * The seam behind each row that is one — the lookup the feed's row renderer
    * consults BEFORE it delegates to the timeline row seat.
    *
-   * Built from the same index that produced `seams`, so the row a jump lands on and
-   * the row a person reads are one classification rather than two.
+   * The ONE form a seam is published in. The classifier's log-order pass is kept as a
+   * local that feeds this map and is not carried on the model beside it: a second
+   * member holding the same classification is a second thing every narrowing and every
+   * fold has to remember to re-filter, and the one that gets forgotten is the one a
+   * reader never sees go stale.
    */
   readonly seamByRowId: ReadonlyMap<string, LedgerSeam>;
   /**
@@ -218,9 +219,10 @@ export function deriveLedgerWindow(
   const rows = scopedRows.map((row) => retention.retainRow(row));
   const chapterIndex = new LedgerChapterIndex(rows);
   const supersededIndex = new SupersededIndex(rows);
-  // The seam vocabulary has one classifier; this is the instance that reads the
-  // whole log, so the row a narrowing carries forward and the row the feed draws are
-  // one classification rather than two.
+  // The seam vocabulary has one classifier; this is the instance that reads the whole
+  // log. Its log-order pass is a LOCAL and reaches the model only as the map keyed
+  // from it below, so the row a narrowing carries forward and the row the feed draws
+  // are one classification rather than two.
   const seamIndex = new LedgerSeamIndex();
   const seams = seamIndex.seams(rows);
   // Child runs and handoffs, over the same scoped window every other index reads.
@@ -245,7 +247,6 @@ export function deriveLedgerWindow(
     chapterByHeaderKey: new Map(
       chapterIndex.terminalChapters().map((chapter) => [chapter.runId, chapter]),
     ),
-    seams,
     seamByRowId: new Map(seams.map((seam) => [seam.rowId, seam])),
     childRunEntryByRowId: childRunIndex.childRunEntryByRowId(),
     handoffEntryByRowId: childRunIndex.handoffEntryByRowId(),

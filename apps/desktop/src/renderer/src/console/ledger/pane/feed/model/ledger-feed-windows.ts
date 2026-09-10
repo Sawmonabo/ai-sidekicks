@@ -176,9 +176,10 @@ export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFee
   const unfurledWindow = useLedgerProjection(inputs.sessionStore, inputs.channelId);
   // THE NARROWING RUNS ON THAT PROJECTION, BEFORE ANYTHING ELSE SEES IT. Everything
   // below — the chapter fold, the viewport, the visible window and find — is built
-  // over the narrowed model, so no piece has to remember that a filter exists. The facets the bar offers are the exception, and
-  // deliberately so: they are derived from the WHOLE unfurled projection, or
-  // admitting one participant would take away the chip that widens back.
+  // over the narrowed model, so no piece has to remember that a filter exists. The
+  // facets the bar offers are the exception, and deliberately so: they are derived
+  // from the WHOLE unfurled projection, or admitting one participant would take away
+  // the chip that widens back.
   //
   // AND THE FOLD RUNS AFTER IT, which is the ordering the filter needs to be
   // truthful at all: folded first, a closed terminal chapter reaches the filter as

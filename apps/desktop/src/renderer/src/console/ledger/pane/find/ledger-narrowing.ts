@@ -126,7 +126,6 @@ export function useFilteredLedgerWindow(
       chapterByHeaderKey,
       // A seam whose row the filter took out leaves with it: a seam that named a
       // row the feed is not drawing would be a marker over nothing.
-      seams: ledgerWindow.seams.filter((seam) => admittedRowIds.has(seam.rowId)),
       seamByRowId: new Map(
         [...ledgerWindow.seamByRowId].filter(([rowId]) => admittedRowIds.has(rowId)),
       ),

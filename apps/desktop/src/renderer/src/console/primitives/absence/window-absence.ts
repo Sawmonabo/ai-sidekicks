@@ -1,14 +1,13 @@
 // The ways a WINDOW is not the whole of what it is a window onto.
 //
-// Beside `primitives/reading/partial-read.ts` and deliberately not inside it. That module is about a
-// READ: how completely the answer a surface asked for came back. This one is about a
-// window's own cap — rows the log still holds and this viewport does not, because
-// the cap took them or because this build recognised no category for them. Folding
-// these into
-// `ReadingState` would have made "the read was short" and "you are looking through a
-// smaller opening than the thing behind it" one word, and they are not: the first is
-// about trusting what is on screen, the second about where the rest of it is and
-// whether anything brings it back.
+// Beside `primitives/reading/partial-read.ts` and deliberately not inside it. That
+// module is about a READ: how completely the answer a surface asked for came back.
+// This one is about a window's own cap — rows the log still holds and this viewport
+// does not, because the cap took them or because this build recognised no category
+// for them. Folding these into `ReadingState` would have made "the read was short"
+// and "you are looking through a smaller opening than the thing behind it" one word,
+// and they are not: the first is about trusting what is on screen, the second about
+// where the rest of it is and whether anything brings it back.
 //
 // FIVE SENTENCES AND NOT ONE, because a person's next move differs for each. An
 // unrecognised type is this build's limit. A dropped row is the window's cap, and
@@ -22,10 +21,11 @@
 // say rows they can still reach are gone for good.
 //
 // FOUR COUNT AND ONE DOES NOT, and that asymmetry is the wire's rather than a
-// shortcut. A window can count the rows it dropped, the rows that arrived under an
-// identifier it already held, and the rows past its ceiling; what it knows about
-// sequences it never received is that it was told of some, which is a fact with no
-// figure in it. The arm carries no count rather than carrying a zero or inventing one.
+// shortcut. A window can count the rows it could not place, the rows it dropped, the
+// rows that arrived under an identifier it already held, and the rows past its
+// ceiling; what it knows about sequences it never received is that it was told of
+// some, which is a fact with no figure in it. The arm carries no count rather than
+// carrying a zero or inventing one.
 //
 // AND THE COUNTLESS ONE NAMES WHOSE NUMBERING IT IS. A window scoped to PART of a
 // stream — one channel of a session's entries — has a subject that is the part and a
@@ -41,7 +41,7 @@
 // setting it and drops the second line entirely, which is right for a read that will
 // be replaced a beat later and wrong for a settled fact about a window nothing is
 // going to change. Every sentence here has a second line that carries the act — or
-// says there is nothing to press — so the three that are answers take `empty` and the
+// says there is nothing to press — so the four that are answers take `empty` and the
 // one that is not takes `not-checked`: an entry this build has no category for is not
 // a read that came back short, it is a question nobody could put. This module chooses
 // the kind and writes the words; `Nothing` owns how an absence looks. The figure goes

@@ -17,10 +17,10 @@
 // A number that appears inline in this subtree and is not a layout literal is a
 // review rejection: the rationale is the point, not the constant.
 //
-// `../structure/structure-bounds.ts` and `../cards/card-bounds.ts` are this family's
-// other two, on the same split: every value here has a spender inside
-// `ledger/frame/`, and every value in each of those has one inside the subtree it
-// sits in.
+// `../cards/card-bounds.ts` is the ledger's only other file of this kind — the two of
+// them are the whole family — and it sits on the same split: every value here has a
+// spender inside `ledger/frame/`, and every value there has one inside
+// `ledger/cards/`.
 
 /**
  * Rows rendered beyond each edge of the viewport.
