@@ -182,15 +182,15 @@ Peer invocation and definition management are authorized as the named operation 
 
 **Resolution.** Plan-016 registers the reciprocal CP-016-19, carries the column on its own `run_links` `CREATE` (Phase 2 merges before this plan's Phase 4, so no separate migration ordinal is consumed), and stamps the value its admission caller supplies. Plan-030 T4.4 resolves the invoking turn's effective principal and supplies it; a call whose principal cannot be resolved refuses before admission, so Plan-016 never has to represent an unattributed peer-invoked link. The column is NULL for every link created by any other path.
 
-**Why surfaced here.** The write is one-writer Plan-016 by the ownership map, but the obligation originates entirely in this plan's feature: no other caller of that admission path has an invoking turn distinct from the run's initiator.
+**Why surfaced here.** The write is one-writer Plan-016, but the obligation originates entirely in this plan's feature: no other caller of that admission path has an invoking turn distinct from the run's initiator.
 
 ### CP-030-5 — Event-type registration in the Plan-006 union-registration seam
 
 `packages/contracts/src/event.ts` is Plan-006-owned. This plan mints one event type, `session.peer_invocation_set`, so its type literal, its `SESSION_EVENT_CATEGORY_BY_TYPE` row under `session_lifecycle`, and its `SessionEventSchema` payload arm must be registered in that file.
 
-**Resolution.** Registered through the additive union-registration seam the cross-plan-dependencies.md records, under which each event-emitting plan appends its own variants while its payload schema stays in its own domain — the Plan-016 CP-016-3 precedent, whose T1.13 layers that plan's own delta into the same union. Plan-030 T4.2 lands the literal, the registry row, and the payload arm, gated on Plan-006 Phase 1 by an `external_plan_phase_merged` precondition so the union exists before it is widened. No Plan-006 task and no Plan-006 reciprocal is owed; the seam is one-sided by construction, as it is for every other registrant.
+**Resolution.** Registered through the additive union-registration seam under which each event-emitting plan appends its own variants while its payload schema stays in its own domain — the Plan-016 CP-016-3 precedent, whose T1.13 layers that plan's own delta into the same union. Plan-030 T4.2 lands the literal, the registry row, and the payload arm, gated on Plan-006 Phase 1 by an `external_plan_phase_merged` precondition so the union exists before it is widened. No Plan-006 task and no Plan-006 reciprocal is owed; the seam is one-sided by construction, as it is for every other registrant.
 
-**Why surfaced here.** Without it the taxonomy census would move to 159 with no task declaring the 159th literal, and this plan's Phase 4 would gate on a registration no plan owned.
+**Why surfaced here.** Without it this plan would add an event type to the taxonomy with no task declaring its literal, and this plan's Phase 4 would gate on a registration no plan owned.
 
 ### CP-030-6 — Named-action dispatch route in the Plan-005 callback-tool host
 
@@ -212,7 +212,7 @@ Peer invocation and definition management are authorized as the named operation 
 
 `packages/runtime-daemon/src/ipc/handlers/session-read.ts` is Plan-007-partial-owned. The enablement flag's durable home is the event log, and the five-pair `sidekick.*` surface exposes only the **mutating** verb, so a renderer reopening a session has no read path to the current value short of replaying and folding raw events client-side — which is the live-fold this plan's own read model exists to avoid.
 
-**Resolution.** `SessionReadResponse` carries the projected flag as an additive-optional member — declared in the shipped, Plan-001-owned `packages/contracts/src/session.ts`, where the member MUST be added to **both** the interface and `SessionReadResponseSchema`: that schema is `.strict()`, so an interface-only edit would typecheck and then reject the very field at parse — populated by a **sanctioned field-population edit** inside the Plan-007-partial-owned handler — not ownership — exactly the class the cross-plan-dependencies.md map already records for Plan-006 T4.3's `timelineCursors.earliest` line in that same file. No sixth `sidekick.*` verb is minted, so the five-pair census does not move.
+**Resolution.** `SessionReadResponse` carries the projected flag as an additive-optional member — declared in the shipped, Plan-001-owned `packages/contracts/src/session.ts`, where the member MUST be added to **both** the interface and `SessionReadResponseSchema`: that schema is `.strict()`, so an interface-only edit would typecheck and then reject the very field at parse — populated by a **sanctioned field-population edit** inside the Plan-007-partial-owned handler — not ownership — exactly the class of Plan-006 T4.3's `timelineCursors.earliest` line in that same file. No sixth `sidekick.*` verb is minted, so the five-pair census does not move.
 
 **Why surfaced here.** T5.2's mount test reads the current flag; without this it would have no contract to read it from.
 
@@ -230,7 +230,7 @@ Peer invocation and definition management are authorized as the named operation 
 ## Target Areas
 
 - `packages/contracts/src/sidekick-definition.ts` (NEW) — the definition record, the `sidekick.*` request/response pairs, and the two peer-invocation tool argument schemas.
-- `packages/runtime-daemon/src/sidekicks/` (NEW directory per cross-plan-dependencies.md): `invoking-principal.ts`, `definition-store.ts`, `definition-resolver.ts`, `attach-resolution.ts`, `handlers.ts`, `peer-invocation-tools.ts`, `peer-invocation-handler.ts`, `errors.ts`.
+- `packages/runtime-daemon/src/sidekicks/` (NEW directory, Plan-030-owned): `invoking-principal.ts`, `definition-store.ts`, `definition-resolver.ts`, `attach-resolution.ts`, `handlers.ts`, `peer-invocation-tools.ts`, `peer-invocation-handler.ts`, `errors.ts`.
 - `packages/runtime-daemon/src/migrations/` (EXTEND) — the `sidekick_definitions` migration and its runner registration.
 - `apps/cli/src/commands/sidekick-definition-*.ts` (NEW) — the CLI definition commands, each extending the shared base command class per CP-007-15.
 - `packages/client-sdk/src/` (EXTEND) — `sidekickClient.ts` (NEW), the typed client for the five `sidekick.*` pairs, plus one barrel export line in the Plan-001-owned `index.ts`.
@@ -255,7 +255,7 @@ Peer invocation and definition management are authorized as the named operation 
 - One additive-optional member and one response echo on Plan-016's existing `agent.attach` pair (CP-030-1). No new `agent.*` verb.
 - Two `SessionCallbackTool` registrations served through Plan-005's existing callback-tool dispatch seam. These are tool registrations, not wire methods: the `sidekick` namespace stays at five pairs.
 - One additive-optional member, `peerInvocationEnabled`, on the existing Plan-007-partial-owned `SessionReadResponse` (CP-030-8) — the read path for the projected opt-in, so no sixth `sidekick.*` verb is minted and the namespace stays at five pairs. Populated by a sanctioned field-population edit, never ownership.
-- **One new event type**, `session.peer_invocation_set` in the existing `session_lifecycle` category ([Spec-006 §Session Lifecycle](../specs/006-session-event-taxonomy-and-audit-log.md#session-lifecycle-session_lifecycle); taxonomy census 158 → 159), the durable home of the per-session peer-invocation opt-in — see D-030-10. Five registered `sidekick.*` refusal codes on the definition and attach paths, and none on the peer-invocation path, which rides the callback-tool result arms.
+- **One new event type**, `session.peer_invocation_set` in the existing `session_lifecycle` category ([Spec-006 §Session Lifecycle](../specs/006-session-event-taxonomy-and-audit-log.md#session-lifecycle-session_lifecycle); registered into the taxonomy by T4.2, which lands the literal, the category row, and the payload arm), the durable home of the per-session peer-invocation opt-in — see D-030-10. Five registered `sidekick.*` refusal codes on the definition and attach paths, and none on the peer-invocation path, which rides the callback-tool result arms.
 
 ## Implementation Steps
 

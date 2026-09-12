@@ -10,7 +10,7 @@ Every V1 feature has a governing spec, with campaign caveats on #18–#23; featu
 
 | # | Feature | Governing Spec(s) |
 | --- | --- | --- |
-| 1 | Session creation, and opening a session from any linked device | [Spec-001](../specs/001-shared-session-core.md), [Spec-031](../specs/031-remote-control.md) |
+| 1 | Session creation | [Spec-001](../specs/001-shared-session-core.md) |
 | 4 | Runtime node attach/detach | [Spec-003](../specs/003-runtime-node-attach.md) |
 | 5 | Single-agent runs (Codex, Claude) | [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) |
 | 6 | Queue, steer, pause, resume, interrupt | [Spec-004](../specs/004-queue-steer-pause-resume.md) |
@@ -91,7 +91,7 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 
 ## Backlog Coverage Assessment
 
-All V1 features and supporting V1 specs have corresponding implementation plans: feature #18's Plan-028 landed 2026-07-22 via the campaign's B18 bundle at `draft` (Tier 7 in `cross-plan-dependencies.md`; its targeted readiness audit cleared 2026-08-12 — — promoting it `review`, and its `review → approved` promotion landed 2026-08-14, closing its doc gates), and features #19–#23 land inside existing plans via the campaign bundles named in their rows (Plans 001–020 for existing V1 features, including Plan-016 for Multi-Agent Channels and Plan-017 for Workflow authoring and execution promoted to V1 per BL-097; Plan-021 per BL-044, Plan-022 per BL-045, Plan-023 per BL-043, Plan-024 per BL-078, Plan-026 per BL-082, Plan-027 for Spec-024 cross-node dispatch and approval, Plan-028 for Spec-028 MCP governance, and [Plan-031](../plans/031-remote-control.md) for Spec-031 Remote Control). Tier assignments in `cross-plan-dependencies.md` align against ADR-015 per BL-054.
+All V1 features and supporting V1 specs have corresponding implementation plans: feature #18's Plan-028 landed 2026-07-22 via the campaign's B18 bundle at `draft` (its targeted readiness audit cleared 2026-08-12 — — promoting it `review`, and its `review → approved` promotion landed 2026-08-14, closing its doc gates), and features #19–#23 land inside existing plans via the campaign bundles named in their rows (Plans 001–020 for existing V1 features, including Plan-016 for Multi-Agent Channels and Plan-017 for Workflow authoring and execution promoted to V1 per BL-097; Plan-021 per BL-044, Plan-022 per BL-045, Plan-023 per BL-043, Plan-024 per BL-078, Plan-026 per BL-082, Plan-027 for Spec-024 cross-node dispatch and approval, Plan-028 for Spec-028 MCP governance, and [Plan-031](../plans/031-remote-control.md) for Spec-031 Remote Control).
 
 ## References
 

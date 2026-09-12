@@ -171,7 +171,7 @@ A short alias `sk` installs alongside it; if an unrelated `sk` is already on you
 | Desktop Shell | Electron |
 | Desktop UI | React + Vite |
 | Local Database | SQLite (WAL mode, 59 tables) |
-| Shared Database | Postgres (25 tables) |
+| Shared Database | Postgres (26 tables) |
 | Auth | PASETO v4 (access + refresh), WebAuthn, DPoP |
 | Relay Encryption | X25519 + XChaCha20-Poly1305 (V1), MLS RFC 9420 (V2) |
 | State Machines | XState v5 |
@@ -190,7 +190,7 @@ V1 ships 21 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 
 | # | Feature | Description |
 | --- | --- | --- |
-| 1 | Session creation and join | Foundational session primitive; a linked device joins a session you already own |
+| 1 | Session creation | Foundational session primitive; any of your linked devices can drive a session you own |
 | 4 | Runtime node attach | Your own machines contribute local compute |
 | 5 | Single-agent runs | Claude and Codex via provider drivers |
 | 6 | Queue, steer, pause, resume | Real runtime control and interventions |
@@ -246,11 +246,12 @@ Tier 8  ► Plan-013  Live Timeline and Visibility
          Plan-020  Observability and Failure Recovery
          Plan-023  Desktop Shell and Renderer
 Tier 9  ► Plan-026  First-Run Three-Way-Choice Onboarding
+         Plan-030  Sidekick Definitions and Peer Invocation
 Tier 10 ► Plan-031  Remote Control
 Tier 11 ► Plan-027  Cross-Node Dispatch and Approval
 ```
 
-Each tier's prerequisites are the prior tier's completion. See `docs/architecture/cross-plan-dependencies.md` for the forward phase DAG.
+A tier's prerequisites are every tier above it — the numbers are stable labels, not a dense sequence, so the gap at 2 carries no meaning. See [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md) for the forward phase DAG, which is where the phases still to ship and their real dependencies live.
 
 ---
 

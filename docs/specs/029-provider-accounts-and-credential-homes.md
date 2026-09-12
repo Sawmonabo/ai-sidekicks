@@ -67,7 +67,7 @@ This spec defines the **provider account** as a first-class node-local entity: h
 ### The account registry
 
 - A runtime node holds zero or more **provider accounts** per provider. Each is registered by the node operator with a provider, an operator-chosen display label, and a credential home; the daemon mints the account's identity and records the registration durably.
-- Registration is **node-local operator authority** — the caller-owns-the-node model, the same authority class [Spec-028 §Non-Goals](028-mcp-server-configuration-and-governance.md#non-goals) uses for MCP governance. A control-plane-relayed registration, removal, or default change is **denied, never queued**.
+- Registration is **node-owner authority** — the caller-owns-the-node model, the same authority class [Spec-028 §Non-Goals](028-mcp-server-configuration-and-governance.md#non-goals) uses for MCP governance. The predicate is ownership, never transport origin: the owning user reaches it identically from the machine itself and from any linked device, and a caller who does not own the node is **denied, never queued**.
 - Exactly one account per provider MAY be marked the **default**. Where a provider has accounts registered but none marked default, run admission for that provider refuses rather than guessing (§Fallback Behavior).
 - Removing an account MUST NOT delete its credential home, and MUST NOT be permitted while a run bound to that account is live. The home is operator-owned material; deregistration forgets the registry row, not the operator's credentials.
 

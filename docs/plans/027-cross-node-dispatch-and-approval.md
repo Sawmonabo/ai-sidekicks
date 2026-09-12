@@ -9,7 +9,7 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-024: Cross-Node Dispatch And Approval](../specs/024-cross-node-dispatch-and-approval.md) |
 | **Required ADRs** | [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-007](../decisions/007-collaboration-trust-and-permission-model.md), [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md), [ADR-012](../decisions/012-cedar-approval-policy-engine.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md), [ADR-017](../decisions/017-shared-event-sourcing-scope.md) |
-| **Dependencies** | [Plan-003](./003-runtime-node-attach.md) (runtime-node roster and capability declarations), [Plan-006](./006-session-event-taxonomy-and-audit-log.md) (`dispatch.*` event taxonomy and JCS/BLAKE3 integrity primitives), [Plan-031](./031-remote-control.md) (pairwise encrypted relay channel, `packages/crypto-paseto/`, and the self-host relay deploy surface), [Plan-012](./012-approvals-permissions-and-trust-boundaries.md) (Cedar policy and approval categories), [Plan-015](./015-persistence-recovery-and-replay.md) (local replay/recovery substrate), [Plan-016](./016-multi-agent-channels-and-orchestration.md) (Tier-6 T2.7 idle-reaper seam — Plan-027 registers `runHasPendingCrossNodeDispatch` into it at Tier 9; the seam-fill edge, satisfied at Tier 6), [Plan-018](./018-identity-and-user-state.md) (user identity keys), [Plan-023](./023-desktop-shell-and-renderer.md) (target-owner approval UI) |
+| **Dependencies** | [Plan-003](./003-runtime-node-attach.md) (runtime-node roster and capability declarations), [Plan-006](./006-session-event-taxonomy-and-audit-log.md) (`dispatch.*` event taxonomy and JCS/BLAKE3 integrity primitives), [Plan-031](./031-remote-control.md) (pairwise encrypted relay channel and the self-host relay deploy surface), [Plan-012](./012-approvals-permissions-and-trust-boundaries.md) (Cedar policy and approval categories), [Plan-015](./015-persistence-recovery-and-replay.md) (local replay/recovery substrate), [Plan-016](./016-multi-agent-channels-and-orchestration.md) (Tier-6 T2.7 idle-reaper seam — Plan-027 registers `runHasPendingCrossNodeDispatch` into it at Tier 9; the seam-fill edge, satisfied at Tier 6), [Plan-018](./018-identity-and-user-state.md) (user identity keys), [Plan-023](./023-desktop-shell-and-renderer.md) (target-owner approval UI) |
 | **Cross-Plan Deps** | Cross-Plan Dependency Graph |
 
 ## Goal
@@ -43,10 +43,10 @@ This plan covers the caller-side dispatch client, target-side dispatch intake an
 - [ ] Plan-031 Phase 3 has landed the pairwise encrypted relay payload channel.
 - [ ] Plan-012 has landed Cedar policy evaluation and approval category enforcement.
 - [ ] Plan-015 has landed the local replay/recovery substrate and its single writer worker, on which this plan's restart-rebuild of open `cross_node_pending_dispatch` windows depends.
-- [ ] Plan-016 has landed the T2.7 idle-reaper **consult-point scaffolding** — the injectable seam in its pre-gate constant-false posture, not yet consulting `runHasPendingCrossNodeDispatch(runId)` (Tier 6, campaign B15). The exemption leg that actually consults the predicate arms only after this plan's accessor lands (T2.7's own doc-gate), so the Tier-6 dependency is on the seam scaffolding, not on the consulting behavior — required by this plan's Tier-9 registration step (Step 8) only. That step ships live code; it is the cross-node consumer path it feeds that is V1-dormant behind `orchestration.node_not_local`. **Scoped to what Plan-016 declares:** its T2.7 (`packages/runtime-daemon/src/orchestration/idle-sweep.ts`) names `runHasPendingCrossNodeDispatch(runId)`, the constant-false pre-gate, and — as of this same Tier-9 audit PR's housekeeping one-liner on T2.7's `Provides:` line — the campaign-B15 registration seam plus the exemption-end re-arm contract the cross-plan dependency map's §3 seam-contract row records; the mechanisms themselves land with campaign B15. This box depends on the scaffolding, not on the seam's consulting behavior.
+- [ ] Plan-016 has landed the T2.7 idle-reaper **consult-point scaffolding** — the injectable seam in its pre-gate constant-false posture, not yet consulting `runHasPendingCrossNodeDispatch(runId)` (Tier 6, campaign B15). The exemption leg that actually consults the predicate arms only after this plan's accessor lands (T2.7's own doc-gate), so the Tier-6 dependency is on the seam scaffolding, not on the consulting behavior — required by this plan's Tier-9 registration step (Step 8) only. That step ships live code; it is the cross-node consumer path it feeds that is V1-dormant behind `orchestration.node_not_local`. **Scoped to what Plan-016 declares:** its T2.7 (`packages/runtime-daemon/src/orchestration/idle-sweep.ts`) names `runHasPendingCrossNodeDispatch(runId)`, the constant-false pre-gate, and — as of this same Tier-9 audit PR's housekeeping one-liner on T2.7's `Provides:` line — the campaign-B15 registration seam plus the exemption-end re-arm contract; the mechanisms themselves land with campaign B15. This box depends on the scaffolding, not on the seam's consulting behavior.
 - [ ] Plan-018 has landed the user roster read path this plan uses to retrieve a caller's long-term public key ([Spec-024 §Target-Side Authentication And Cedar Evaluation](../specs/024-cross-node-dispatch-and-approval.md#target-side-authentication-and-cedar-evaluation) step 1). Plan-018 names no Plan-027-facing verification symbol — signature verification is performed by **this** plan over the key that read path returns; the roster-read registration landed as [Plan-018 CP-018-13](./018-identity-and-user-state.md#cross-plan-obligations) in this same Tier-9 audit PR, and the key-material read affordance is authored at Plan-018 T5.1/T5.3/T5.8 (the `user_identity_keys` store + `UserIdentityKeyRoster` read + daemon gateway responder — the promotion-pass decomposition, 2026-08-15; this box still gates on that code LANDING, and rows populate only after Plan-018's client-side presenter carrier box clears). The target-local freshness cache and the `user_roster_stale` refusal (`Spec-024 §Fallback Behavior`) stay this plan's to author at its Tier-9 fold — including that refusal code's `error-contracts.md` registration, which no corpus surface carries today.
-- [ ] Plan-023 has landed the desktop preload bridge. The target-owner approval modal is authored by **this** plan under `apps/desktop/src/renderer/src/cross-node-dispatch/` — Plan-027 is a registered renderer extender on the cross-plan dependency map — and is routed only through that bridge; Plan-023 declares no approval-modal component, so no modal pattern is owed by it.
-- [ ] Plan-031 Phase 3 has landed `packages/crypto-paseto/` and the relay deploy surface needed for self-host tests.
+- [ ] Plan-023 has landed the desktop preload bridge. The target-owner approval modal is authored by **this** plan under `apps/desktop/src/renderer/src/cross-node-dispatch/` — a Plan-027-owned renderer subtree per §Target Areas — and is routed only through that bridge; Plan-023 declares no approval-modal component, so no modal pattern is owed by it.
+- [ ] Plan-031 Phase 8 has landed the relay deploy surface needed for self-host tests.
 
 ## Target Areas
 
@@ -187,7 +187,7 @@ preconditions:
   - { type: precondition_box_checked, box: "Plan-003 has landed" }
   - { type: precondition_box_checked, box: "Plan-016 has landed" }
   - { type: precondition_box_checked, box: "Plan-018 has landed" }
-  - { type: precondition_box_checked, box: "Plan-031 Phase 3 has landed `packages/crypto-paseto/`" }
+  - { type: precondition_box_checked, box: "Plan-031 Phase 8 has landed the relay deploy surface" }
 ```
 
 **Goal:** a dispatch envelope arriving at a target daemon is validated in the specified order and either receipted or rejected with a named reason; no accepted dispatch can carry an unverified principal into Cedar.
@@ -199,7 +199,7 @@ preconditions:
   - The five ordered steps: token verification against the caller's long-term public key from the user roster read path; body binding (JCS canonicalization, BLAKE3, three-way comparison against `request_body_hash` and `caller_token.req_hash`); the `(session_id, dispatch_id)` replay guard with ≥ 10-minute retention; the declared-capability check including session-owner gating for dangerous classes; and Cedar request construction with `principal` bound to the **verified** `caller_token.sub` alone. Steps 1-4 reject synchronously in the `DispatchReceive` ack and emit no `dispatch.received`; a step-5 Cedar failure is relayed as a `DispatchTerminalNotice`. The two canonicalizer refusals are caught here and mapped to `dispatch.payload_too_deep` / `dispatch.payload_ill_formed` — depth checked first — so no raw throw reaches a remote caller. Policy-engine failure rejects with `policy_engine_error` and raises an ops alert. Clock-skew bounds (±120 s on `created_at`, `expires_at` already past) reject at receipt.
   - **Spec coverage:** Spec-024 §Target-Side Authentication And Cedar Evaluation, Spec-024 §Capability Declaration And Session-Owner Gating, Spec-024 §Fallback Behavior
   - **Verifies invariant:** I-027-1, I-027-2, I-027-9, I-027-10, I-027-13
-  - **Consumes:** the identity key read path ← Plan-018; Cedar evaluation ← Plan-012; capability declarations ← Plan-003; `v4.public` verification ← `packages/crypto-paseto/` (Plan-031).
+  - **Consumes:** the identity key read path ← Plan-018; Cedar evaluation ← Plan-012; capability declarations ← Plan-003; `v4.public` verification ← the shipped `packages/crypto-paseto/` workspace package.
 
 ### Phase 3 — Caller-side dispatch construction and outbox
 
@@ -222,7 +222,7 @@ preconditions:
   - Own-node-first scheduler hook and capability target selection — a named cross-node target never silently falls back to a third user, and a failure surfaces to the caller. `caller_token` issuance through `packages/crypto-paseto/`, JCS canonicalization of the in-process-constructed body, and the BLAKE3 `request_body_hash`. `assertNoToJsonOverride` runs on the **validated** T1.1 object immediately before `canonicalizeJson`, keeping the Plan-006 determinism guard live and load-bearing rather than laundered. The `cross_node_pending_dispatch` intent row is INSERTed **before** the relay send, carrying `expires_at` and the originating `runId`. On a synchronous send failure the row closes in place immediately with `close_reason = 'send_failed'` and appends no event. On send success, one local SQLite transaction stamps `sent_at` and appends `dispatch.sent` together — all-or-nothing.
   - **Spec coverage:** Spec-024 §Scheduler Dispatch Rules, Spec-024 §Cross-Node Dispatch Request
   - **Verifies invariant:** I-027-8, I-027-11
-  - **Consumes:** the pairwise encrypted relay payload channel and `packages/crypto-paseto/` ← Plan-031; the local replay/recovery substrate and single writer worker ← Plan-015.
+  - **Consumes:** the pairwise encrypted relay payload channel ← Plan-031; the `v4.public` primitives ← the shipped `packages/crypto-paseto/` workspace package; the local replay/recovery substrate and single writer worker ← Plan-015.
 
 ### Phase 4 — Approval integration and dual-signed record
 
@@ -244,7 +244,7 @@ preconditions:
   - Owner approval produces an `approver_token` with a `jti` **distinct** from `caller_token.jti`, `bound_jti` set to the caller's `jti`, `req_hash` equal to the caller's, and `exp ≥ caller_token.exp`. The composite envelope persists to `cross_node_dispatch_approvals` on both daemons and emits `dispatch.approved` / `dispatch.denied`. A `decision = "deny"` record persists with the **same** guarantees as an allow — never dropped, never inferred from absence, never reinterpreted later. Cedar denials that are not requests-for-owner-approval emit `dispatch.rejected` instead and produce no signed envelope, no approver token existing on those paths.
   - **Spec coverage:** Spec-024 §Dual-Signed ApprovalRecord
   - **Verifies invariant:** I-027-3, I-027-4, I-027-6
-  - **Consumes:** approval request/resolution surfaces + the `ApprovalRequestId` branded id ← Plan-012 (CP-027-2); `v4.public` signing ← `packages/crypto-paseto/` (Plan-031).
+  - **Consumes:** approval request/resolution surfaces + the `ApprovalRequestId` branded id ← Plan-012 (CP-027-2); `v4.public` signing ← the shipped `packages/crypto-paseto/` workspace package.
 
 - **T4.2 — Target-side execution adapter and result signing.**
   - Files: `packages/runtime-daemon/src/cross-node-dispatch/execution-adapter.ts` (CREATE)
@@ -318,7 +318,7 @@ preconditions:
   - `ApprovalRecordVerify` recomputes the request hash from the canonical bytes and independently verifies both the caller's and the approver's `v4.public` signatures, that both tokens commit to the same `request_body_hash`, and that `approver_token.bound_jti` matches `caller_token.jti`. Deny envelopes verify by the same path as allows — a refusal is evidence, not an absence.
   - **Spec coverage:** Spec-024 §Dual-Signed ApprovalRecord
   - **Verifies invariant:** I-027-4, I-027-6
-  - **Consumes:** `v4.public` verification ← `packages/crypto-paseto/` (Plan-031).
+  - **Consumes:** `v4.public` verification ← the shipped `packages/crypto-paseto/` workspace package.
 
 - **T6.4 — Contract-doc reconciliation against the shipped shapes.**
   - Files: `docs/architecture/contracts/api-payload-contracts.md` (EXTEND) + `docs/architecture/contracts/error-contracts.md` (EXTEND)

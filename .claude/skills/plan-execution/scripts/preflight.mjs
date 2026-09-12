@@ -837,18 +837,14 @@ export function regexParsePreconditionsLine(line, localPlanNumber) {
   // phases (no `### Phase` sections, no shipment manifest) is the prose form
   // `Plan-NNN Tier M (merged|complete|ships) …` — distinct from the
   // `Plan-NNN Phase N merged` form above (resolved against the upstream's
-  // per-phase manifest by the plan_phase case). Corpus examples: Plan-002
-  // Phase 4 (`[Plan-021](…) Tier 6 ships the rateLimitProcedure …`), Plan-002
-  // Phase 2 (`[Plan-025 Tier 1 Partial](…) merged`), Plan-002 Phase 6
-  // (`Plan-023 Tier 1 Partial complete`). Without this branch the line falls
-  // through to gatePreconditions' "unparseable prose → legacy free-form →
+  // per-phase manifest by the plan_phase case). Without this branch the line
+  // falls through to gatePreconditions' "unparseable prose → legacy free-form →
   // silent pass", which lets a phase whose ONLY other precondition token is
   // already satisfied (e.g. a local `Phase 2 merged`) resolve eligible while
-  // its cross-tier substrate is still absent — the Plan-002 Phase 4
-  // false-eligible the auto-walk hit before this fix. The optional `](url)`
-  // groups absorb the markdown link whether the plan number sits in the link
-  // TARGET (`[Plan-021](url) Tier 6 ships`) or inside the link TEXT
-  // (`[Plan-025 Tier 1 Partial](url) merged`).
+  // its cross-tier substrate is still absent. The optional `](url)` groups
+  // absorb the markdown link whether the plan number sits in the link TARGET
+  // (`[Plan-021](url) Tier 6 ships`) or inside the link TEXT
+  // (`[Plan-023 Tier 1 Partial](url) merged`).
   for (const m of line.matchAll(
     /Plan-(\d{3})(?:\]\([^)]*\))?\s+Tier\s+\d+(?:\s+Partial)?(?:\]\([^)]*\))?\s+(?:merged|complete|ships)\b/gi,
   )) {
@@ -6917,10 +6913,10 @@ async function main() {
     //
     // ARMED (2026-07-17): the docs-corpus CI step runs `--survey --enforce-cites`,
     // so citeAnomalies fold into the exit. The live corpus reaches 0 GATED cite
-    // anomalies because the two compact-inline plans (Plan-008/023) divert
+    // anomalies because the one compact-inline plan (Plan-023) diverts
     // to the printed exemptCiteAnomalies channel via LEGACY_INLINE_CITE_EXEMPT —
-    // their legacy-unbold / partial-marker debt stays visible but non-blocking, and
-    // the stale-exemption ratchet fails the moment one is re-authored clean. To
+    // its legacy-unbold / partial-marker debt stays visible but non-blocking, and
+    // the stale-exemption ratchet fails the moment it is re-authored clean. To
     // retire an exemption: re-author the plan into expanded one-marker-per-line
     // cites, then delete its LEGACY_INLINE_CITE_EXEMPT entry (the ratchet enforces
     // the pairing). Real-corpus guards live in preflight-survey.test.mjs.

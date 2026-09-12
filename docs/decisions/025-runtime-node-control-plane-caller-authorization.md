@@ -126,7 +126,7 @@ The `readOnly` per-row derivation keeps reading `sessions.min_client_version` in
 
 ### D8 — Locking discipline: one canonical order, weakest sufficient mode, two-phase resolve for `nodeId`-keyed procedures
 
-The lock order is the canonical one registered at cross-plan-dependencies.md:
+The lock order is the canonical one registered at [shared-postgres-schema.md §Lock Ordering Across Shared Tables](../architecture/schemas/shared-postgres-schema.md#lock-ordering-across-shared-tables):
 
 ```
 sessions → runtime_node_attachments → daemon_signing_public_keys
@@ -275,7 +275,7 @@ The antithesis is right about the danger and wrong about the remedy.
 | A future `runtimenode.*` procedure ships without calling `classifyRuntimeNodeCaller` | Med | High | The two-account IDOR suite has no case for it — a gap the reviewer must notice, not a failing test | Single shared helper; T3.12 suite as merge gate; the plan task text names the helper as mandatory for any new procedure |
 | Two-phase resolve omits the step-3 re-verify | Med | High | Requires a concurrency test; invisible under serial testing | T3.12 carries an explicit interleaving case; the re-verify is a named acceptance step in T3.10 |
 | Lock order violated by a new call site → ABBA deadlock under load | Low | Med | Postgres deadlock errors in production; the lock-ordering regression test in CI | I-003-6 plus the logging-proxy `Querier` test pattern from `runtime-nodes/__tests__/lock-ordering.test.ts` |
-| `runtime_node_attachments` locked `FOR KEY SHARE` instead of its recorded mode | Low | High | **None at runtime** — it is a silent no-op guard that admits a concurrent detach | Mode recorded normatively in D8 and in `cross-plan-dependencies.md`; asserted by the lock-ordering test, which must assert the mode, not just the order |
+| `runtime_node_attachments` locked `FOR KEY SHARE` instead of its recorded mode | Low | High | **None at runtime** — it is a silent no-op guard that admits a concurrent detach | Mode recorded normatively in D8 and at [shared-postgres-schema.md §Lock Ordering Across Shared Tables](../architecture/schemas/shared-postgres-schema.md#lock-ordering-across-shared-tables); asserted by the lock-ordering test, which must assert the mode, not just the order |
 | Refusal arms diverge and reopen an oracle (e.g. a distinct message for "no such session") | Med | Med | Manual review; message-equality assertions | T3.12 asserts byte-identical refusals across each procedure's applicable negative causes (per-procedure pairs — a blanket four-cause matrix is unsatisfiable) |
 | A legitimate daemon is locked out mid-session by an over-strict ownership check | Low | High | Attach/heartbeat failures for honest clients | Ownership never lapses, so the predicate cannot turn false under a running daemon; admit-not-eject (I-003-1) is untouched — a below-floor daemon is still admitted read-only |
 | Heartbeat's added transaction raises write load at 15s per node | Low | Low | Control-plane latency metrics | The transaction is three short indexed reads plus one upsert; Plan-021 rate limits bound the worst case |
@@ -284,7 +284,7 @@ The antithesis is right about the danger and wrong about the remedy.
 ## Reversibility Assessment
 
 - **Reversal cost:** Medium. The guard itself is deletable, but four behavior changes become observable contracts the moment a client depends on them (attach refusing unowned sessions, heartbeat refusing unowned nodes, roster refusing unowned sessions, capabilityupdate's split negative). The lock order is the expensive part: once three plans' transactions instantiate it, changing it is a coordinated multi-plan edit.
-- **Blast radius:** `packages/control-plane/src/runtime-nodes/` (all four files), `packages/contracts/src/error.ts`, four control-plane test suites, `packages/client-sdk/test/runtimeNodeClient.integration.test.ts`, `Spec-003`, `Plan-003` (§Invariants + Phase 3), `Plan-031` Plan-031, `error-contracts.md`, `cross-plan-dependencies.md`.
+- **Blast radius:** `packages/control-plane/src/runtime-nodes/` (all four files), `packages/contracts/src/error.ts`, four control-plane test suites, `packages/client-sdk/test/runtimeNodeClient.integration.test.ts`, `Spec-003`, `Plan-003` (§Invariants + Phase 3), `Plan-031`, `error-contracts.md`, `shared-postgres-schema.md §Lock Ordering Across Shared Tables`.
 - **Migration path:** Forward-only. The guard is additive to the wire shape — no request or response type changes; only refusal arms and previously-succeeding calls change. A rollback restores the vulnerability, so the practical path is forward fixes, not revert.
 - **Point of no return:** When a shipped client (SDK or daemon) branches on the `runtimenode.permission_denied` refusal, or when a fourth plan joins the canonical lock order. Before then this is a two-way door in practice despite its Type 2 classification.
 
@@ -351,9 +351,9 @@ Records the authorization precondition for all four mutating procedures **and** 
 
 Extend the `runtimenode.permission_denied` row's description to name the four mutating procedures and the node-roster read as additional call sites (it currently names only the two signing-key call sites). Per D4, narrow `runtimenode.capabilityupdate_conflict` to its surviving state-guard arm in the same pass — its no-active-row arm moves to the uniform negative.
 
-### `cross-plan-dependencies.md`
+### `shared-postgres-schema.md §Lock Ordering Across Shared Tables`
 
-Convert the level-2 reservation note ("whose level-2 slot the BL-141 campaign design reserved") into a shipped second registrant row for the runtime-node mutators, recording the per-level modes of D8 including the `sessions` `FOR KEY SHARE` / `FOR SHARE` divergence and why it is safe. In the same pass, scope the existing registrant's unqualified "`FOR KEY SHARE` would be a silent no-op guard" claim to the floor-serialization purpose it was written about, so the two rows do not contradict each other.
+Register the runtime-node mutators as a registrant row on the canonical chain, recording the per-level modes of D8 including the `sessions` `FOR KEY SHARE` / `FOR SHARE` divergence and why it is safe. In the same pass, scope the signing-key registrant's unqualified "`FOR KEY SHARE` would be a silent no-op guard" claim to the floor-serialization purpose it was written about, so the two rows do not contradict each other.
 
 ### Plan-003 — three Phase-3 tasks (existing tasks run T3.0–T3.9)
 
@@ -391,7 +391,7 @@ Amend `Plan-031` to name the five `runtimenode.*` procedures in its gated-endpoi
 | Cedar Policy Language Reference — Authorization | Primary (vendor doc) | A Cedar authorization request is principal / action / resource / context, evaluated against policies **and entity data that the calling application supplies at evaluation time** — the authorizer "look[s] up … in the provided entities data". Establishes both that Cedar _can_ express this predicate and that the facts it decides on are a caller-supplied snapshot, with nothing binding the resulting `permit` to the write that follows | https://docs.cedarpolicy.com/auth/authorization.html |
 | `docs/superpowers/specs/2026-07-09-bl-resolution-campaign-design.md` §3.1, §4.A | Repo (approved design) | The ratified content contract for this ADR: decisions 1–9, the three Plan-003 tasks, the invariant changes, and the suite-migration list. This ADR adopts 1–3 and 5–9 unchanged and **supersedes decision 4's negative shape**, ratified 2026-08-10 (§Adjudication Record); the campaign plan's Task 2 is corrected in the same PR | [2026-07-09-bl-resolution-campaign-design.md §4.A Unit A — BL-141 caller-ownership authorization (P1)](../superpowers/specs/2026-07-09-bl-resolution-campaign-design.md#4a-unit-a--bl-141-caller-ownership-authorization-p1) |
 | `error-contracts.md §Runtime Node` | Repo (canonical contract) | Ships `runtimenode.permission_denied` (403) with a no-oracle rationale and reserves tRPC `NOT_FOUND` namespace-wide as the pre-upgrade procedure-absence signal; records the single-statement ownership-predicate pattern D7 generalizes | [error-contracts.md §Runtime Node](../architecture/contracts/error-contracts.md#runtime-node) |
-| `cross-plan-dependencies.md` | Repo (canonical map) | Registers the canonical `sessions` → `runtime_node_attachments` → `daemon_signing_public_keys` order — the union across registrants, each of which may skip a level it does not need — with weakest-sufficient modes, and reserves the level-2 slot for this work | cross-plan-dependencies.md |
+| `shared-postgres-schema.md §Lock Ordering Across Shared Tables` | Repo (canonical schema) | Registers the canonical `sessions` → `runtime_node_attachments` → `daemon_signing_public_keys` order — the union across registrants, each of which may skip a level it does not need — with weakest-sufficient modes, and carries the runtime-node mutators' own registrant row | [shared-postgres-schema.md §Lock Ordering Across Shared Tables](../architecture/schemas/shared-postgres-schema.md#lock-ordering-across-shared-tables) |
 
 ### Related ADRs
 

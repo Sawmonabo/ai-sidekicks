@@ -120,3 +120,19 @@ It builds three things: the in-session connected-devices banner, the Settings �
 - The Linked Devices screen lists, renames, and revokes, and walks a new device through linking.
 - The CLI has list, link, rename, and revoke.
 - Each surface is exercised against a device driving a session over the relay, not a fixture.
+
+### Phase 8 — Self-host deployment
+
+Gated on Phase 3: there is nothing to deploy until the relay exists. This phase makes the relay a thing an operator can stand up, and it is the owner of the relay-side half of [Spec-027: Self-Host Secure Defaults](../specs/027-self-host-secure-defaults.md) — rows 1, 2, 3, 4, 5, 8, 9b, and 10, and no other row.
+
+The relay runs behind a TLS front rather than terminating TLS itself: Caddy v2 on `:443`, with `:80` open only for the ACME HTTP-01 challenge. `DEPLOY_MODE` is declared at config time and decides the issuance path, and renewals run on ACME Renewal Information windows rather than a fixed fraction of the certificate's life. `RELAY_BIND` stays container-internal and is never port-forwarded by the shipped Compose file, and a non-loopback bind with no TLS in front of it exits non-zero at config-parse time instead of starting. The relay's admin token is generated on first run and persisted `0600`. The `/metrics` endpoint consumes Plan-020's bind and auth contract rather than inventing one, and refuses a non-loopback scrape that carries no credential. The startup banner prints the relay's effective binds, TLS mode and fingerprint, admin-token path, and any active override. The daemon's Postgres client defaults to `sslmode=verify-full`, ships the cert-generation helper that makes that reachable on a self-hosted Compose stack, and probes the server's auth configuration and version at startup.
+
+**Done when**
+
+- A `git clone` plus one command brings up relay, Caddy, and Postgres with a valid certificate and no hardening steps read first.
+- A non-loopback bind without TLS refuses to start, naming the option that is wrong.
+- A certificate renews on an ARI window in a test that advances the clock, without a rate-limit retry storm.
+- The admin token is generated once, is `0600`, and is never printed to a log.
+- `/metrics` answers on loopback and refuses an unauthenticated non-loopback scrape.
+- The banner prints on every start and names every active override.
+- A Postgres server offering weak auth, or an unverifiable certificate, is refused at startup rather than connected to.

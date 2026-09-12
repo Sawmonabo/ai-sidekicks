@@ -107,7 +107,7 @@ The Ed25519 identity key MUST NOT be silently regenerated. Specifically:
 
 - Key generation happens exactly once per workstation, on first CLI identity setup.
 - Any subsequent call path that would return "no identity key found" MUST refuse rather than generate a replacement, unless the operator explicitly passed `cli identity rotate` (V1.x: stolen-key reuse detection; see [§Success Criteria](#success-criteria)).
-- This is load-bearing because a silently rotated Ed25519 key invalidates every `SessionKeyBundle` signature the user previously published, and the control plane's rejection path (Spec-031) would drop the user from all active shared sessions without a recoverable path.
+- This is load-bearing because a silently rotated Ed25519 key invalidates every `SessionKeyBundle` signature this host previously published, and the control plane's rejection path (Spec-031) would drop the host out of the user's linked-device set without a recoverable path — it could reach no session again until it re-links as a device.
 
 #### Plaintext-In-Daemon-Memory Only
 
@@ -150,7 +150,7 @@ The Ed25519 identity key MUST NOT be silently regenerated. Specifically:
 
 ### Option B: OS keystore only, refuse when unavailable (Rejected)
 
-- **What:** Tier 1 is the only custody; operators without Secret Service / Keychain / Wincred cannot participate in shared sessions.
+- **What:** Tier 1 is the only custody; a host without Secret Service / Keychain / Wincred cannot link as a device.
 - **Why rejected:** Tier-1 availability is realistically patchy on Linux (headless, Docker, WSL, CI all commonly fail tier-1 preconditions) and on macOS (unsigned / Homebrew-from-source builds fail Developer-ID-signing preconditions). A rejection rate at first-run that approached the fraction of Linux operators on SSH / WSL / Docker would render the CLI effectively unusable in V1. Tier 2 is the bridge that keeps those operators in the product at an explicitly-disclosed weaker-tier custody.
 
 ### Option C: Plaintext on disk (Rejected)

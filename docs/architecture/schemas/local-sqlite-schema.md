@@ -45,8 +45,6 @@ CREATE TABLE session_events (
   -- Compaction (Plan-006 Tier 4 Phase 3): typed retention discriminator + post-compaction stub commitment
   retention_class        TEXT CHECK (retention_class IS NULL OR retention_class = 'audit_stub'), -- NULL = live row (per-row chain-verified); 'audit_stub' = compacted (anchor + stub_signature verified). Column-level CHECK closes the discriminator domain; it is ALTER-ADD-COLUMN-addable (references only this column; NULL-permitting so pre-migration rows pass). Co-presence (audit_stub ⟺ non-NULL stub_signature) is a two-column invariant that cannot be an ALTER-added table-level CHECK without a 12-step table rebuild; it is instead enforced at the verification layer per Spec-006 §Post-Compaction Integrity (NULL stub_signature on an audit_stub row → stub_signature_invalid; surviving scalar columns category/type/actor/occurred_at bound to the signed payload projection → stub_scalar_mismatch on divergence).
   stub_signature         BLOB,                       -- 64 bytes; Ed25519 over canonical_bytes(audit-stub projection); NULL for live rows. Authenticates the post-compaction stub representation per Spec-006 §Post-Compaction Integrity (frozen row_hash/daemon_signature commit only to the now-discarded pre-compaction bytes)
-  -- Received-row provenance (the Plan-031 backfill leg; Spec-006 §Canonical Serialization Rules, 2026-08-11 amendment)
-  received_from_node_id  TEXT,                       -- Origin NodeId whose roster key verified this row's origin-signed bytes before the local re-sequenced, re-signed append (the live relay or device history backfill). NULL on every origin-authored row. Mirrored into the receiver-signed canonical bytes as the conditional receivedFromNodeId member, so clearing it (to fake origin authorship) or planting it (to dodge the PII binding checks) fails the ordinary signature_mismatch mode while the row is live, and preserved in the signed audit-stub projection after compaction, where rule 4's scalar binding catches a flip as stub_scalar_mismatch — no new verification mode in either retention class. Doubles as the backfill serving selector (a daemon serves only its received_from_node_id IS NULL rows — possession-scoped serving) and as the dispatch key for the fourteenth + fifteenth PII binding checks: the four-state compare on origin rows, a require-absent arm on received rows (both PII columns MUST be NULL — a received row never held the partition, so a planted value is reported unbound, never compared).
   UNIQUE(session_id, sequence)
 );
 
@@ -95,9 +93,9 @@ END;
 
 **Compaction.** Compaction CLEARS `content_payload` alongside `pii_payload`, for the same reason: the audit-stub projection is a non-PII, non-content commitment and a surviving ciphertext would outlive the payload that describes it. The `contentCiphertextDigest` member does **not** survive, and does not need a stub field of its own: it is a commitment to bytes this same act destroys, and a commitment to nothing verifies nothing. Its two **descriptive** siblings do survive — the stub preserves `contentLength` and `contentTruncated` verbatim whenever the source payload carries them (2026-08-30, Codex PR #383 round 1). The distinction is the principle, not a compromise: an audit stub exists to record _what_ was destroyed, so how much the machine said and whether the log ever held all of it are exactly its business, while a digest of the destroyed bytes is not. Without them the pre-truncation-length guarantee two paragraphs above would silently expire at compaction. They ride the conditional-stub-member shape `channelId` already uses — payload-derived, not durable columns — so the [§Post-Compaction Integrity](../../specs/006-session-event-taxonomy-and-audit-log.md#post-compaction-integrity) scalar binding is untouched. That disposition is stated rather than left implicit — the corpus paid a dated amendment (2026-07-27) for leaving the `pii_user_id` compaction case implicit, and this column does not repeat it. Post-compaction integrity is unaffected: `row_hash` / `daemon_signature` were already frozen commitments to the discarded pre-compaction bytes, and `stub_signature` authenticates the surviving projection.
 
-**Relay disposition — the column is node-local.** `content_payload` is **never relayed and never backfilled**, exactly as `pii_payload` is never relayed (2026-08-30, Codex PR #383 round 1). It follows by construction rather than by a new filter: Spec-031's history backfill carries only the origin daemon's **canonical bytes**, and this column is excluded from those bytes. A receiving daemon therefore holds the row's signed `contentCiphertextDigest`, `contentLength`, and `contentTruncated` — which ride the canonical payload — with the ciphertext itself absent, and its `content_payload` MUST be NULL. That is the same digest-present-ciphertext-gone shape the received-row provenance amendment already settled for `pii_payload`, so it takes the same two-arm resolution rather than a new one: the sixteenth verification mode dispatches on `received_from_node_id`, comparing on origin rows and **requiring absence** on received rows ([Spec-006 §Canonical Serialization Rules](../../specs/006-session-event-taxonomy-and-audit-log.md#canonical-serialization-rules)).
+**Relay disposition — the column is node-local.** `content_payload` is **never relayed**, exactly as `pii_payload` is never relayed (2026-08-30, Codex PR #383 round 1). It follows by construction rather than by a new filter: the column is excluded from the canonical bytes, so no path that carries a row's signed bytes carries its machine-authored body ([Spec-006 §Canonical Serialization Rules](../../specs/006-session-event-taxonomy-and-audit-log.md#canonical-serialization-rules)).
 
-**What a peer's projection shows, stated rather than implied.** On a node that received a row rather than authoring it, the body is not available, and the canonical-transcript fold reports `'turn_content_unavailable'` for that turn. This is a **named residual, not a solved problem**: it is bounded to multi-node sessions, it is honest at the wire (the peer knows a body existed, how long it was, and that it cannot read it, rather than seeing a turn that looks empty), and the amendment that closes it is the one that distributes the session content key. That amendment is now _possible_ — and this is the second reason the key is stored rather than derived: a stored key is a distributable object that the established pairwise ciphertext envelope can carry as an application payload, exactly as [Spec-014](../../specs/014-artifacts-files-and-attachments.md)'s artifact-key attestations already travel, whereas a key derived from a node's own master key is by construction underivable anywhere else. Registering that distribution leg — its ordering against row append, its behaviour for a row whose key has not yet arrived, and its mid-session-join semantics — is owed by the swap that ships it, and is deliberately not sketched here: a mechanism named without a producer is the defect this PR's own follow-up commit was paid to fix.
+**A second node holding a body is unreachable in V1.** A session executes on exactly one bound runtime node ([Spec-031 §Required Behavior](../../specs/031-remote-control.md#required-behavior)), and every row in that session's log is authored and sealed by that node. No other daemon holds a row of this session, so there is no projection anywhere that would show a body it cannot read, and the sealing key never needs to leave the node that minted it. The stored-rather-than-derived key remains a distributable object should a later design ever need it to be one, but nothing in V1 distributes it and no distribution leg is sketched here.
 
 ### Session Content Keys (Plan-006)
 
@@ -479,29 +477,12 @@ The build-metadata rejection above is grounded in the SemVer specification itsel
 -- ceremony is specified anywhere (a different-key registration is refused per
 -- security-architecture.md §Per-Event Daemon Signature); only a future
 -- rotation extension writes it.
--- Store lineage (Plan-031 EXTEND — 2026-08-12, Codex PR #323 round 3):
--- one row per NodeId this store has ever been registered under, so the
--- the history-backfill serving selector can durably label
--- origin-authored (received_from_node_id NULL) rows in a carried-forward
--- store. At succession the registering daemon stamps the predecessor row's
--- superseded_at_sequence with the store's highest session_events.sequence
--- and inserts its own active (NULL-watermark) row: a NULL-marker row's
--- origin is the lineage row whose watermark window covers its sequence,
--- the open tail belonging to the active NodeId. The predecessor's
--- sealed_private_key is dead weight after carry (OS-keystore sealing is
--- per-machine, deliberately unrecoverable elsewhere); its public_key and
--- watermark are the durable lineage record. Additive migration: node_id
--- backfills to the daemon's current NodeId, PK widens (session_id) ->
--- (session_id, node_id) via SQLite table rebuild.
 CREATE TABLE daemon_signing_keys (
-  session_id          TEXT NOT NULL,
-  node_id             TEXT NOT NULL,         -- NodeId this row's keypair was registered under (security-architecture.md §Per-Event Daemon Signature)
+  session_id          TEXT PRIMARY KEY,
   public_key          BLOB NOT NULL,         -- Ed25519 32-byte public key
   sealed_private_key  BLOB NOT NULL,         -- Ed25519 private key sealed via OS keystore master key
   created_at          TEXT NOT NULL,
-  rotated_at          TEXT,                  -- reserved; see rotation note above
-  superseded_at_sequence INTEGER,            -- NULL = active row; else the succession watermark (security-architecture.md §Per-Event Daemon Signature)
-  PRIMARY KEY (session_id, node_id)
+  rotated_at          TEXT                   -- reserved; see rotation note above
 );
 
 -- Owner: Plan-006 | Migration: 0008-pending-anchor-uploads.ts (Tier 4 Phase 3)

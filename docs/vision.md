@@ -425,7 +425,7 @@ Diff attribution must be per run, with an explicit fallback path only when provi
 5. Add repo mounts, worktrees, and diff attribution.
 6. Build the Electron shell and desktop UI as the second client over the same typed client SDK and daemon contract.
 7. Add the control plane for auth, the device directory, device presence, and relay.
-8. Add workflows and multi-user discussion orchestration on top of the same session model.
+8. Add workflows and multi-agent channel orchestration on top of the same session model.
 9. Add a first-party native runtime later for deeper control than provider wrappers allow.
 
 ## CLI Delivery Path

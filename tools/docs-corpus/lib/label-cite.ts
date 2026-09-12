@@ -198,7 +198,7 @@ const LABEL_SPACED_COLON_CITE_RE =
 // rot in another spelling — the anchor half is durable, the appended pin is
 // not. Matching the WHOLE anchor keeps tick parity correct (see the
 // lookbehind rationale above). Flush digits after the colon preserve the
-// value-vs-locator boundary (`` `Spec-025 §Limits`: 25 participants ``
+// value-vs-locator boundary (`` `Spec-021 §Limits`: 25 devices ``
 // quotes a value and never fires). Label form carries the same
 // (m[1], m[2]) group shape as the other label regexes so every scan site
 // resolves the target identically; the path form mirrors

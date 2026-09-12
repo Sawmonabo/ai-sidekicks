@@ -42,6 +42,7 @@ This spec covers in-app attention state, desktop notifications, cross-device not
   - pending approval or required input
   - run completion
   - run failure
+  - a sidekick naming the user in a channel (a mention is agent-authored; there is no other person to raise one)
 - Notification emission must be derived from canonical session or run state, not from client heuristics alone.
 - Users must be able to distinguish passive informational notifications from actionable blocking attention.
 - The attention model must support both run-scoped attention and session-scoped aggregate attention derived from canonical state.
