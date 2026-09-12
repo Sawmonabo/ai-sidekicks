@@ -15,7 +15,7 @@ PRAGMA busy_timeout = 5000;
 
 ---
 
-## Session Events (Plan-001, extended by Plans 005, 008, 015)
+## Session Events (Plan-001, extended by Plans 005, 013)
 
 ```sql
 -- Owner: Plan-001 | Extended by: Plan-005 (event taxonomy + integrity protocol), Plan-028 (received-row provenance marker), Plan-013 (replay cursors)
@@ -118,7 +118,7 @@ The wrapped home of the key that seals every `content_payload` in one session �
 
 **Erasure disposition.** This key is **not** a per-user erasure path and destroying it is not a shred: it seals the session's own machine-authored work product. It dies with its session — at session purge, when the last of the session's rows is compacted away, or with daemon master-key destruction — and the row carries `key_version` / `rotated_at` so a future rotation is representable. Revoking one of the user's devices does **not** re-key the session: the revoked device is cut off because its identity key stops authenticating and the relay stops carrying its frames, not because anything it already holds becomes unreadable. Cryptographic revocation of already-delivered content is a forward-secrecy guarantee this corpus defers to its MLS era ([ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md)) and does not claim here.
 
-## Session Snapshots (Plan-001, extended by Plans 005, 015)
+## Session Snapshots (Plan-001, extended by Plans 005, 013)
 
 ```sql
 -- Owner: Plan-001 | Extended by: Plan-005, Plan-013

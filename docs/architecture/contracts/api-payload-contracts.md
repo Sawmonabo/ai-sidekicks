@@ -564,7 +564,7 @@ interface RuntimeNodeSigningKeyRosterResponse {
 
 ---
 
-## Tier 3: Plans 004, 006, 007 (Task 4.5)
+## Tier 3: Plans 004, 005, 006 (Task 4.5)
 
 ### Plan-004 — Provider Driver Contract (Internal Interface)
 
@@ -2032,7 +2032,7 @@ interface LocalSubscriptionParams {
 
 ---
 
-## Tier 4: Plans 003, 008, 018 (Task 4.6)
+## Tier 4: Plans 003, 016 (Task 4.6)
 
 ### Plan-003 — Queue Steer Pause Resume
 
@@ -2777,7 +2777,7 @@ Both issue legs are `mutation` rather than `query` because each one **writes** �
 
 ---
 
-## Tier 5: Plans 007, 010, 012 (Task 4.7)
+## Tier 5: Plans 007, 008, 010 (Task 4.7)
 
 ### Plan-007 — Repo Attachment And Workspace Binding
 
@@ -3258,7 +3258,7 @@ Canonical Zod schemas live in `packages/contracts/src/approval.ts` per the §Sou
 
 ---
 
-## Tier 6: Plans 009, 014, 015 (Task 4.8)
+## Tier 6: Plans 009, 012, 013 (Task 4.8)
 
 ### Plan-009 — Gitflow PR And Diff Attribution
 
@@ -3768,7 +3768,7 @@ interface RuntimeBindingReadResponse {
 
 ---
 
-## Tier 7: Plans 011, 019, 020 (Task 4.9)
+## Tier 7: Plans 011, 017, 018 (Task 4.9)
 
 ### Plan-011 — Live Timeline Visibility And Reasoning Surfaces
 
@@ -4177,7 +4177,7 @@ The namespace root is `shell` rather than `shellKey` or `daemonKey`. That choice
 
 ---
 
-## Tier 5 / Tier 7: Plans 014, 017 (Task 4.10)
+## Tier 5 / Tier 7: Plans 014, 015 (Task 4.10)
 
 Heading retitled by the Tier-5 audit: Plan-014 executes at Tier 5, Plan-015 at Tier 7. The original "Tier 8" label predated the tier graph.
 

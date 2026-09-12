@@ -3,7 +3,7 @@
 | Field       | Value                                                                                                                                                         |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Date**    | 2026-04-14                                                                                                                                                    |
-| **Scope**   | Specs 001, 002, 008, 016, 018; Plans 001, 002, 008, 016, 018; Domain models session, participant-membership, agent-channel-run; ADRs 001, 007, 008; vision.md |
+| **Scope**   | Specs 001, 014, 016; Plans 001, 014, 016; Domain models session, participant-membership, agent-channel-run; ADRs 001, 007, 008; vision.md |
 | **Purpose** | Cross-reference gap analysis for implementation readiness                                                                                                     |
 
 ---
@@ -14,15 +14,15 @@
 
 **Session as primary domain object.** ADR-001 establishes `Session` as the root aggregate containing participants, runtime nodes, channels, agents, runs, repo mounts, approvals, artifacts, invites, and presence. The session-model domain doc defines four session states (`provisioning`, `active`, `archived`, `closed`) with explicit allowed transitions. Spec-001 requires session identity to remain stable across reconnect, client restart, and transport changes.
 
-**Invite lifecycle.** Spec-002 defines invite states: `issued`, `accepted`, `declined`, `revoked`, `expired`. Default join mode is `collaborator`. Default expiry is 7 days. Invitees must authenticate before acceptance (v1 decision). Guest/anonymous invites are explicitly out of scope for v1.
+**Invite lifecycle.** The retired invite-membership-and-presence spec defines invite states: `issued`, `accepted`, `declined`, `revoked`, `expired`. Default join mode is `collaborator`. Default expiry is 7 days. Invitees must authenticate before acceptance (v1 decision). Guest/anonymous invites are explicitly out of scope for v1.
 
 **Membership and roles.** The participant and membership model defines four roles: `owner`, `viewer`, `collaborator`, `runtime contributor`. Membership states are `pending`, `active`, `suspended`, `revoked`. The model explicitly states that `owner` is a bootstrap/elevation role, not a normal invite join mode, and that `contributor` alone is never a valid role label.
 
 **Trust layering.** ADR-007 decides on layered trust: membership roles, runtime-node trust, run-level approval policy, and tool/resource permission grants are separate concerns. Membership alone never authorizes cross-node execution.
 
-**Session join and relay.** Spec-008 separates join (membership action) from relay (connectivity action). Control plane provides session directory, invite resolution, presence registration, and relay coordination but never gains execution authority. ADR-008 establishes OS-local IPC as default local transport, control-plane APIs for shared coordination, and relay as secondary fallback.
+**Session join and relay.** The retired control-plane-relay-and-session-join spec separates join (membership action) from relay (connectivity action). Control plane provides session directory, invite resolution, presence registration, and relay coordination but never gains execution authority. ADR-008 establishes OS-local IPC as default local transport, control-plane APIs for shared coordination, and relay as secondary fallback.
 
-**Presence.** Spec-002 defines presence states: `online`, `idle`, `reconnecting`, `offline`. Default heartbeat interval is 15s with a 45s reconnect grace window. Spec-016 adds multi-device presence aggregation: one authenticated identity maps to one participant per session, with aggregated status preferring the highest-activity state across devices. Historical event authorship references stable participant ids, not mutable display names.
+**Presence.** The retired invite-membership-and-presence spec defines presence states: `online`, `idle`, `reconnecting`, `offline`. Default heartbeat interval is 15s with a 45s reconnect grace window. Spec-016 adds multi-device presence aggregation: one authenticated identity maps to one participant per session, with aggregated status preferring the highest-activity state across devices. Historical event authorship references stable participant ids, not mutable display names.
 
 ### Signature Feature 2: Multi-User and Multi-Agent Chat
 
@@ -50,7 +50,7 @@ The vision doc specifies that queue must be daemon-backed, steer must be an inte
 
 **Assessment:** Sufficient for alignment on behavior contracts. Insufficient for direct implementation without a contracts design pass.
 
-### Spec-002: Invite Membership and Presence
+### the retired invite-membership-and-presence spec: Invite Membership and Presence
 
 **What's specified:** Full invite lifecycle states, join modes, role model, presence states and timing defaults, interface names (`InviteCreate`, `InviteAccept`, `MembershipUpdate`, `PresenceHeartbeat`), durability requirements for invites vs. ephemeral presence.
 
@@ -58,7 +58,7 @@ The vision doc specifies that queue must be daemon-backed, steer must be an inte
 
 **Assessment:** Strong behavioral contract. Invite delivery is a real implementation gap that will need resolution before the desktop invite acceptance flow can be built.
 
-### Spec-008: Control-Plane Relay and Session Join
+### the retired control-plane-relay-and-session-join spec: Control-Plane Relay and Session Join
 
 **What's specified:** Authentication requirement for join, separation of join from relay, relay as secondary connectivity, presence registration independent of node attach, reconnect grace window behavior, interface names (`SessionJoin`, `RelayNegotiation`, `PresenceRegister`, `SessionResumeAfterReconnect`).
 
@@ -97,19 +97,19 @@ The vision doc specifies that queue must be daemon-backed, steer must be an inte
 
 **Concrete target paths:** 6 specific files/directories across contracts, client-sdk, runtime-daemon, control-plane, and desktop. **Data changes:** sessions and session_memberships tables (control plane), session_events and session_snapshots (local SQLite). **Parallelization:** Contracts + control plane can parallel with daemon projection. Desktop waits for SDK stability. **Acceptance:** Contract tests, integration tests, manual multi-client verification.
 
-**Gaps:** Claims ownership of `session_memberships` table, which conflicts with Plan-002 (see Internal Consistency below). No migration script details. No definition of what "stable" SDK contracts means as a gate.
+**Gaps:** Claims ownership of `session_memberships` table, which conflicts with the retired invite-membership-and-presence plan (see Internal Consistency below). No migration script details. No definition of what "stable" SDK contracts means as a gate.
 
-### Plan-002: Invite Membership and Presence
+### the retired invite-membership-and-presence plan: Invite Membership and Presence
 
 **Concrete target paths:** 6 specific files/directories. **Data changes:** session_invites, session_memberships, participant_presences tables. **Parallelization:** Invite and presence services can parallel after identity assumptions are fixed. **Acceptance:** Invite acceptance/revocation integration tests, presence timeout tests, manual live join.
 
 **Gaps:** Implicitly requires Plan-001's session tables but does not declare this dependency. Also claims `session_memberships` (see conflict with Plan-001). Lists "Guest identity policy remains unresolved" as a risk but the spec already punts this to post-v1.
 
-### Plan-008: Control Plane Relay and Session Join
+### the retired control-plane-relay-and-session-join plan: Control Plane Relay and Session Join
 
 **Concrete target paths:** 7 specific files/directories (including CLI session-join). **Data changes:** Join, reconnect, and relay-negotiation records; presence history extension. **Parallelization:** Join service and relay broker can parallel once presence contracts are stable.
 
-**Gaps:** Implicitly requires Plan-002's invite acceptance but does not declare this. "Session-join traffic requirements for admin or recovery flows remain unresolved" is listed as a risk -- this is an operational capacity question that affects relay sizing.
+**Gaps:** Implicitly requires the retired invite-membership-and-presence plan's invite acceptance but does not declare this. "Session-join traffic requirements for admin or recovery flows remain unresolved" is listed as a risk -- this is an operational capacity question that affects relay sizing.
 
 ### Plan-014: Multi-Agent Channels and Orchestration
 
@@ -121,7 +121,7 @@ The vision doc specifies that queue must be daemon-backed, steer must be an inte
 
 **Concrete target paths:** 7 specific files/directories. **Data changes:** Participants, participant-profile projections, device-presence/presence-lease storage. **Parallelization:** Participant mapping and presence aggregation can parallel once id/authorship contracts are fixed.
 
-**Gaps:** Implicitly requires Plan-002's presence infrastructure. "Guest or anonymous identity support remains unresolved" restated as a risk despite being explicitly deferred in the spec.
+**Gaps:** Implicitly requires the retired invite-membership-and-presence plan's presence infrastructure. "Guest or anonymous identity support remains unresolved" restated as a risk despite being explicitly deferred in the spec.
 
 ---
 
@@ -137,9 +137,9 @@ The vision doc specifies that queue must be daemon-backed, steer must be an inte
 
 ### Inconsistent or Ambiguous
 
-1. **`session_memberships` table ownership conflict.** Plan-001 "Data And Storage Changes" says: "Add shared `sessions` and `session_memberships` tables to Collaboration Control Plane storage." Plan-002 "Data And Storage Changes" says: "Add shared `session_invites`, `session_memberships`, and `participant_presences` tables." Both plans claim ownership of the `session_memberships` migration. This will cause a concrete implementation conflict.
+1. **`session_memberships` table ownership conflict.** Plan-001 "Data And Storage Changes" says: "Add shared `sessions` and `session_memberships` tables to Collaboration Control Plane storage." the retired invite-membership-and-presence plan "Data And Storage Changes" says: "Add shared `session_invites`, `session_memberships`, and `participant_presences` tables." Both plans claim ownership of the `session_memberships` migration. This will cause a concrete implementation conflict.
 
-2. **Presence package claimed by three plans.** Plan-002 targets `packages/control-plane/src/presence/`. Plan-008 targets `packages/control-plane/src/presence/presence-register-service.ts`. Plan-016 targets `packages/control-plane/src/presence/presence-aggregation-service.ts`. No plan declares ownership of the presence package or specifies coordination order among these services.
+2. **Presence package claimed by three plans.** The retired invite-membership-and-presence plan targets `packages/control-plane/src/presence/`. The retired control-plane-relay-and-session-join plan targets `packages/control-plane/src/presence/presence-register-service.ts`. Plan-016 targets `packages/control-plane/src/presence/presence-aggregation-service.ts`. No plan declares ownership of the presence package or specifies coordination order among these services.
 
 3. **Owner elevation has no mechanism.** The participant and membership model states: "`owner` is not a normal invite join mode; it is a bootstrap or explicit elevation role." No spec defines how a second owner is created, how elevation from collaborator to owner works, or what authorization is required. The only specified path to `owner` is session creation bootstrap.
 
@@ -155,7 +155,7 @@ The vision doc specifies that queue must be daemon-backed, steer must be an inte
 
 ### Explicitly Deferred by the Docs
 
-- Guest/anonymous participant identity (Spec-002, Spec-016): out of scope for v1.
+- Guest/anonymous participant identity (the retired invite-membership-and-presence spec, Spec-016): out of scope for v1.
 - Channel-level permission restrictions (Spec-014): deferred; new channels inherit session membership.
 - Direct run-to-run messaging (Spec-014): out of scope for v1; channels are the only cross-agent boundary.
 - Nested delegation beyond one parent-child layer (Spec-014): deferred to future spec revision.
@@ -166,12 +166,12 @@ The vision doc specifies that queue must be daemon-backed, steer must be an inte
 
 ### Not Addressed
 
-- **Invite delivery mechanism.** How does an invite reach the invitee? Email, shareable link, in-app notification, deep link? Spec-002 covers lifecycle but not delivery.
+- **Invite delivery mechanism.** How does an invite reach the invitee? Email, shareable link, in-app notification, deep link? The retired invite-membership-and-presence spec covers lifecycle but not delivery.
 - **Session deletion or data retention.** Sessions can be `closed` or `archived`, but no spec addresses data retention, purging, or GDPR-style deletion.
 - **Session limits.** No maximum on participants per session, channels per session, concurrent runs per session, or agents per session is defined anywhere.
 - **Channel naming, discovery, and listing.** Channels are created and used but no spec defines how participants discover or list available channels.
 - **Conflict resolution for concurrent membership changes.** If two owners simultaneously revoke each other, what happens?
-- **Presence heartbeat transport.** Is it WebSocket, polling, SSE? Spec-002 specifies timing but not transport.
+- **Presence heartbeat transport.** Is it WebSocket, polling, SSE? The retired invite-membership-and-presence spec specifies timing but not transport.
 - **Invite token security.** No specification of token format, entropy, single-use vs. multi-use, or revocation propagation timing.
 - **Session snapshot compaction.** The vision doc mentions projection tuning and ADR-001 lists "projection lag" as a failure mode, but no spec defines compaction or snapshot truncation strategy.
 - **Rate limiting.** No rate limits specified for any API (invite creation, session creation, presence heartbeats, channel creation).
@@ -204,13 +204,13 @@ Every spec names interfaces (e.g., `SessionCreate`, `InviteAccept`, `Orchestrati
 
 ### 3. Cross-Plan Dependency Ordering Is Undefined
 
-Plan-002 requires Plan-001's session tables. Plan-008 requires Plan-002's invite acceptance. Plan-016 requires Plan-002's presence infrastructure. Plan-014 requires run state machines from outside this set. None of these dependencies are declared in the plans, and no global implementation sequencing exists.
+The retired invite-membership-and-presence plan requires Plan-001's session tables. The retired control-plane-relay-and-session-join plan requires the retired invite-membership-and-presence plan's invite acceptance. Plan-016 requires the retired invite-membership-and-presence plan's presence infrastructure. Plan-014 requires run state machines from outside this set. None of these dependencies are declared in the plans, and no global implementation sequencing exists.
 
-**Resolution needed:** Produce a cross-plan dependency graph and implementation order. At minimum: Plan-001 ships first, then Plan-002, then Plans 008/018 can parallel, then Plan-014.
+**Resolution needed:** Produce a cross-plan dependency graph and implementation order. At minimum: Plan-001 ships first, then the retired invite-membership-and-presence plan, then the retired control-plane-relay-and-session-join plan and Plan-016 can parallel, then Plan-014.
 
 ### 4. Shared Table and Package Ownership Conflicts
 
-`session_memberships` is claimed by both Plan-001 and Plan-002. The `packages/control-plane/src/presence/` package is targeted by Plans 002, 008, and 018 with no coordination. These will cause concrete merge conflicts.
+`session_memberships` is claimed by both Plan-001 and the retired invite-membership-and-presence plan. The `packages/control-plane/src/presence/` package is targeted by the retired invite-membership-and-presence plan, 008, and 018 with no coordination. These will cause concrete merge conflicts.
 
 **Resolution needed:** Assign ownership of each shared table migration and shared package to exactly one plan. Other plans depend on that plan's output.
 
@@ -222,6 +222,6 @@ Every spec assumes a canonical session event stream. Spec-014's orchestration de
 
 ### 6. Invite Delivery Mechanism Is Unspecified
 
-Spec-002 defines invite lifecycle but not delivery. Plan-002 step 4 says "Integrate desktop invite acceptance and participant roster surfaces" but there is no specification for how the invite reaches the invitee. This blocks the end-to-end invite flow.
+The retired invite-membership-and-presence spec defines invite lifecycle but not delivery. The retired invite-membership-and-presence plan step 4 says "Integrate desktop invite acceptance and participant roster surfaces" but there is no specification for how the invite reaches the invitee. This blocks the end-to-end invite flow.
 
 **Resolution needed:** Specify at least one invite delivery mechanism for v1 (e.g., shareable link with token).

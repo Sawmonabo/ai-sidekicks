@@ -185,7 +185,7 @@ Plan-NNN implementation lands as a sequence of small PRs. Each PR exercises one 
     - `Plan-NNN Phase K merged` → {type: plan_phase, plan: NNN, phase: K, ...}
     - `Phase K merged` (bare)   → {type: plan_phase, plan: <local plan>, phase: K, ...}
       The bare form resolves to the plan the precondition lives in
-      (convention across Plan-001/003/007/024). A negative lookbehind in
+      (convention across Plan-001/002/006/022). A negative lookbehind in
       the regex prevents double-counting the bare-form segment inside an
       already-matched `Plan-NNN Phase K merged`.
 

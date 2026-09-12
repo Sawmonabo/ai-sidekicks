@@ -399,7 +399,7 @@ The composer's command-and-skill autocomplete calls the client-facing `driver.li
 
 ## Tier 1 Partial PR Sequence
 
-The Tier 1 partial slice lands as **1 small PR** following the control-plane bootstrap precedent (one cohesive substrate slice). The carve-out exists to unblock Plan-001 Phase 5 (`apps/desktop/src/main/sidecar-lifecycle.ts` + `apps/desktop/src/renderer/src/session-bootstrap/`) and Plan-022 Phase 3 (I-022-4 will-quit drain integration test) — both depend on the `apps/desktop/` directory tree existing, per the substrate-vs-namespace carve-out in [§Tier Placement](#tier-placement). Resolves [BL-101](../archive/backlog-archive.md#bl-101-c-3--plan-021-tier-1-partial-substrate-carve-out-mirrors-plan-006-partial--plan-008-bootstrap) (option (a)). Tier 7 remainder retains the full Implementation Steps 1–20 surface that depends on Plan-006 / Plan-016 / Plan-028 / Plan-022.
+The Tier 1 partial slice lands as **1 small PR** following the control-plane bootstrap precedent (one cohesive substrate slice). The carve-out exists to unblock Plan-001 Phase 5 (`apps/desktop/src/main/sidecar-lifecycle.ts` + `apps/desktop/src/renderer/src/session-bootstrap/`) and Plan-022 Phase 3 (I-022-4 will-quit drain integration test) — both depend on the `apps/desktop/` directory tree existing, per the substrate-vs-namespace carve-out in [§Tier Placement](#tier-placement). Resolves [BL-101](../archive/backlog-archive.md#bl-101-c-3--plan-021-tier-1-partial-substrate-carve-out-mirrors-plan-006-partial--the-retired-relay-plan-bootstrap) (option (a)). Tier 7 remainder retains the full Implementation Steps 1–20 surface that depends on Plan-006 / Plan-016 / Plan-028 / Plan-022.
 
 ### Phase 1: Workspace Package Substrate (apps/desktop/ tree + minimal entrypoints)
 

@@ -50,7 +50,7 @@ export function parseFrontmatter(source) {
   return result;
 }
 
-// Accept "—" (em-dash, plan-template canonical), ":" (Plan-006/008/023 style),
+// Accept "—" (em-dash, plan-template canonical), ":" (Plan-006/021 style),
 // or "-" (hyphen-minus) as the Phase-heading separator. Plan-006's mid-execution
 // status makes a corpus-wide rename out of scope; tolerating both forms in the
 // parser keeps the tool usable across the existing corpus without authorising
@@ -851,7 +851,7 @@ export function regexParsePreconditionsLine(line, localPlanNumber) {
     entries.push({ type: "plan_unshipped", plan: Number(m[1]) });
   }
   // Bare-form `Phase N merged` resolves to the local plan. The corpus convention
-  // for same-plan precondition prose is the bare form (Plan-001/003/007/024
+  // for same-plan precondition prose is the bare form (Plan-001/002/006/022
   // all use it); without this branch the Gate 5 regex drops the dependency
   // and `gatePreconditions` falls to "unparseable prose; treat as legacy
   // free-form" → silent pass. Negative lookbehind prevents double-counting
@@ -1030,7 +1030,7 @@ export const TASK_ID_SHAPE = String.raw`T(?=[-\d])[-a-zA-Z0-9.]+`;
 // The indented alternative admits nested rows whose bold closes immediately
 // after the id (`  - **T9.9** is a prerequisite`), which is a REFERENCE, not a
 // declaration. That shape is not separable here: 175 live column-0
-// declarations across Plan-004/007/008/023/024/025 use exactly it
+// declarations across Plan-004/006/021/022 use exactly it
 // (`- **T1.1** — Author the interface`), so rejecting on bold-close position
 // would drop real declarations — a missed declaration reads as a phase shipped
 // prematurely, which fails OPEN. Closing it needs a POSITIVE discriminator
@@ -1552,7 +1552,7 @@ export const MATERIAL_PATH_PREFIXES = ["packages/", "apps/", ".github/", "deploy
 // `\b…\b` boundaries, same case-insensitivity, same 3-digit width.
 //
 // The predicate is deliberately NOT loosened: `Plan-006` IS a real token in a
-// compound like `Plan-006/025` (`/` is a word boundary) even when that PR
+// compound like `Plan-006` (`/` is a word boundary) even when that PR
 // shipped no Plan-006 task. Widening the matcher to chase that residual would
 // silently widen it for every plan.
 export function hasPlanTitleToken(title, paddedPlan) {

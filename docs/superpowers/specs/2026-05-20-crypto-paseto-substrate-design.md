@@ -12,7 +12,7 @@
 
 ### 1.1 Purpose
 
-This document defines the design contract for the `@ai-sidekicks/crypto-paseto` workspace package: its public interfaces, cryptographic invariants, threat model, and the seams it preserves for downstream consumers ([Plan-016](../../plans/016-identity-and-user-state.md) Tier 4 refresh-token persistence; Plan-025 Tier 6 relay-server token verification).
+This document defines the design contract for the `@ai-sidekicks/crypto-paseto` workspace package: its public interfaces, cryptographic invariants, threat model, and the seams it preserves for downstream consumers ([Plan-016](../../plans/016-identity-and-user-state.md) Tier 4 refresh-token persistence; the retired self-hostable-node-relay plan Tier 6 relay-server token verification).
 
 The package ships PASETO v4.public and v4.local primitives plus a PAE helper and an in-memory KeyRing — together they form the cryptographic substrate that V1 authentication tracks depend on.
 
@@ -20,14 +20,14 @@ The package ships PASETO v4.public and v4.local primitives plus a PAE helper and
 
 This design spec deliberately does **not** cover:
 
-- **Relay-server wire protocol** — owned by Spec-008 (v2 wire protocol) + Spec-025 (Node.js deployment), implemented in Plan-025 Tier 6.
+- **Relay-server wire protocol** — owned by the retired control-plane-relay-and-session-join spec (v2 wire protocol) + the retired self-hostable-node-relay spec (Node.js deployment), implemented in the retired self-hostable-node-relay plan Tier 6.
 - **Persistence backend for KeyRing** — owned by [Plan-016](../../plans/016-identity-and-user-state.md) Tier 4. The constructor seam (§8) is the integration surface; substance lives downstream.
-- **Operator-facing config and deployment posture** — owned by Spec-025 (Docker / Caddy / reverse-proxy topology).
-- **End-user-facing token issuance flows** — owned by Plan-002 (invite tokens) and [Plan-016](../../plans/016-identity-and-user-state.md) (refresh tokens).
+- **Operator-facing config and deployment posture** — owned by the retired self-hostable-node-relay spec (Docker / Caddy / reverse-proxy topology).
+- **End-user-facing token issuance flows** — owned by the retired invite-membership-and-presence plan (invite tokens) and [Plan-016](../../plans/016-identity-and-user-state.md) (refresh tokens).
 
 ### 1.3 Why `substrate_exempt`
 
-Plan-025 Tier 1 Partial Phase 1 (the implementation phase this design governs) is admitted under the readiness-audit runbook's [§Per-Phase Audit Semantics](../../operations/plan-implementation-readiness-audit-runbook.md) `substrate_exempt` predicate: `spec_coverage: []` because Spec-025 governs network behavior (the relay surface) — not package-level primitives. The plan-readiness audit gates G1–G7 do not apply to the implementation PR; [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md) acceptance criteria apply at code-review time.
+The retired self-hostable-node-relay plan Tier 1 Partial Phase 1 (the implementation phase this design governs) is admitted under the readiness-audit runbook's [§Per-Phase Audit Semantics](../../operations/plan-implementation-readiness-audit-runbook.md) `substrate_exempt` predicate: `spec_coverage: []` because the retired self-hostable-node-relay spec governs network behavior (the relay surface) — not package-level primitives. The plan-readiness audit gates G1–G7 do not apply to the implementation PR; [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md) acceptance criteria apply at code-review time.
 
 ## 2. Governing contracts
 
@@ -38,8 +38,8 @@ Plan-025 Tier 1 Partial Phase 1 (the implementation phase this design governs) i
 | PASETO Spec — Version 4 | Primary source for both primitives — https://github.com/paseto-standard/paseto-spec/blob/master/docs/01-Protocol-Versions/Version4.md |
 | PASETO Spec — Common (PAE) | Primary source for Pre-Authentication Encoding — https://github.com/paseto-standard/paseto-spec/blob/master/docs/01-Protocol-Versions/Common.md |
 | PASETO Test Vectors v4 | Release-gate vector source — https://github.com/paseto-standard/test-vectors/blob/master/v4.json |
-| Spec-025 | Context only; `spec_coverage: []` — Spec-025 governs the relay-server surface, not the package primitives |
-| Plan-025 §Target Areas, §Tier 1 Partial PR Sequence | Owning plan; carves Phase 1 substrate out from Tier 6 relay implementation |
+| the retired self-hostable-node-relay spec | Context only; `spec_coverage: []` — the retired self-hostable-node-relay spec governs the relay-server surface, not the package primitives |
+| the retired self-hostable-node-relay plan §Target Areas, §Tier 1 Partial PR Sequence | Owning plan; carves Phase 1 substrate out from Tier 6 relay implementation |
 
 ## 3. Public surface
 
@@ -194,7 +194,7 @@ Omitting `{ zip215: false }` is a silent **security** bug. Noble defaults its `e
 
 ### 4.3 v4.local
 
-**Algorithm**: XChaCha20 stream cipher + BLAKE2b-MAC over PAE. **Not AEAD.** This is the doc-drift item: Plan-025 §Implementation Steps 2 says "XChaCha20-Poly1305 AEAD"; the PASETO v4 spec §v4.local actually uses XChaCha20 + BLAKE2b-MAC. Implementation follows the primary spec.
+**Algorithm**: XChaCha20 stream cipher + BLAKE2b-MAC over PAE. **Not AEAD.** This is the doc-drift item: the retired self-hostable-node-relay plan §Implementation Steps 2 says "XChaCha20-Poly1305 AEAD"; the PASETO v4 spec §v4.local actually uses XChaCha20 + BLAKE2b-MAC. Implementation follows the primary spec.
 
 **Encrypt flow** (per `paseto-spec/docs/01-Protocol-Versions/Version4.md` §v4.local Encrypt):
 
@@ -252,7 +252,7 @@ The MAC-before-decrypt ordering (step 4 before step 5) is the load-bearing invar
 **Out of scope** (these are other layers' jobs):
 
 - **Local-process attacker with arbitrary memory read** — OS process boundaries and the future sidecar separation own this. Cryptographic primitives operating in the same address space as their callers cannot defend against this.
-- **Replay attack** (same token submitted twice within validity window) — PASETO itself does not claim replay defense; the token carries no unique-ID required for "have I seen this before" stateful checks. The relay (Spec-025 / Plan-025 Tier 6) is the correct layer.
+- **Replay attack** (same token submitted twice within validity window) — PASETO itself does not claim replay defense; the token carries no unique-ID required for "have I seen this before" stateful checks. The relay (the retired self-hostable-node-relay spec / the retired self-hostable-node-relay plan Tier 6) is the correct layer.
 - **Compromised dependency** — supply-chain posture (§9) covers this with pinning, `minimumReleaseAge`, and `blockExoticSubdeps`; it is not a primitive-design concern.
 
 ### 5.2 Invariants the package guarantees
@@ -378,7 +378,7 @@ The following imports are **load-bearing** — using the wrong symbol breaks the
 | Symbol | Source | Why it matters |
 | --- | --- | --- |
 | `xchacha20` | `@noble/ciphers/chacha.js` | **Stream cipher**; correct for PASETO v4.local |
-| ❌ `xchacha20poly1305` | `@noble/ciphers/chacha.js` | **AEAD**; wrong for v4.local; this is the Plan-025 doc-drift item |
+| ❌ `xchacha20poly1305` | `@noble/ciphers/chacha.js` | **AEAD**; wrong for v4.local; this is the the retired self-hostable-node-relay plan doc-drift item |
 | `blake2b` | `@noble/hashes/blake2.js` | Accepts `{ key, dkLen }` options object; used for key derivation and MAC |
 | `equalBytes` | `@noble/hashes/utils.js` | Constant-time byte comparison; load-bearing for I1 |
 | `randomBytes` | `@noble/hashes/utils.js` | Source of v4.local nonce entropy; load-bearing for I3 |
@@ -445,7 +445,7 @@ The following six decisions were settled during planning and are recorded here f
 | Risk | Mitigation |
 | --- | --- |
 | Noble 2.x self-audit only (vs. externally Cure53/Kudelski-audited 1.x line) | User-confirmed override. Implementation PR description must call this out so reviewer acks. Re-evaluate at V1.1 if/when 2.x gets external audit. |
-| Plan-025 narrative says XChaCha20-Poly1305 AEAD; actual spec is XChaCha20 + BLAKE2b-MAC | Implementation follows primary spec (paseto-standard/paseto-spec §v4.local). File `BL-NNN` post-merge to amend Plan-025 doc. |
+| the retired self-hostable-node-relay plan narrative says XChaCha20-Poly1305 AEAD; actual spec is XChaCha20 + BLAKE2b-MAC | Implementation follows primary spec (paseto-standard/paseto-spec §v4.local). File `BL-NNN` post-merge to amend the retired self-hostable-node-relay plan doc. |
 | Vendored vector file lifecycle (upstream `paseto-standard/test-vectors` updates) | Pinned to specific commit SHA in `PROVENANCE.md`. Updates handled by follow-up PRs; diff is auditable. |
 | Constant-time discipline in TypeScript (compiler doesn't enforce) | Use `@noble/hashes/utils.js` `equalBytes` for MAC/signature compares; never `===` or `Buffer.compare` on secret material. ESLint custom rule could enforce in future (out of scope for this substrate). |
 | Supply-chain on `@noble/*` | Pinned to `^2`; `pnpm-workspace.yaml` has `minimumReleaseAge: 1440` (24h) + `blockExoticSubdeps: true`. SBOM coverage already in repo CI. |
@@ -467,9 +467,9 @@ The following six decisions were settled during planning and are recorded here f
 ### Governing repo docs
 
 - [ADR-010: PASETO + WebAuthn + MLS Auth](../../decisions/010-paseto-webauthn-mls-auth.md) — lines 29, 129–136
-- Plan-025: Self-Hostable Node Relay — §Scope, §Target Areas, §Tier 1 Partial PR Sequence
-- Spec-025: Self-Hostable Node Relay — context only (no Phase 1 ACs; `spec_coverage: []`)
-- Cross-plan dependencies — §5 Tier 1 row + Plan-025 Substrate-vs-Namespace Carve-Out
+- the retired self-hostable-node-relay plan: Self-Hostable Node Relay — §Scope, §Target Areas, §Tier 1 Partial PR Sequence
+- the retired self-hostable-node-relay spec: Self-Hostable Node Relay — context only (no Phase 1 ACs; `spec_coverage: []`)
+- Cross-plan dependencies — §5 Tier 1 row + the retired self-hostable-node-relay plan Substrate-vs-Namespace Carve-Out
 - [Plan-implementation readiness-audit runbook](../../operations/plan-implementation-readiness-audit-runbook.md) — §Per-Phase Audit Semantics
 - [CONTRIBUTING.md](../../../CONTRIBUTING.md) — GitFlow-lite, Conventional Branch, Conventional Commits
 - [AGENTS.md](../../../AGENTS.md) — primary-source citation discipline

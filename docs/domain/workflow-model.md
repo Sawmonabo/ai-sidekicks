@@ -40,7 +40,7 @@ The workflow model is the source of truth for how reusable, multi-phase executio
 - `Session` is the containing boundary for workflow definitions and runs.
 - `Project` and the daemon-wide `shared` tier are the two broader scope tiers above `session`; a channel is never a workflow scope (the pre-amendment `channel` value is struck per `Spec-015 §Resolved Questions and V1 Scope Decisions`).
 - `WorkflowPhaseState` tracks per-phase execution progress within a workflow run. See [Workflow Phase Model](./workflow-phase-model.md).
-- `Run` (from the run state machine) is the execution primitive used by individual phases. Each phase execution routes through `OrchestrationRunCreate` per Spec-014/017 constraints.
+- `Run` (from the run state machine) is the execution primitive used by individual phases. Each phase execution routes through `OrchestrationRunCreate` per Spec-014/015 constraints.
 - `Agent` and `Channel` (from agent-channel-and-run model) provide the execution persona and communication surface for phase work.
 - `Artifact` stores phase outputs with `artifactType: 'workflow_output'`. Artifacts are outputs of runs created during phase execution, not of the workflow run itself.
 - `Approval` primitives from Plan-010 are used by `human-approval` gates within phases.

@@ -94,7 +94,7 @@ Backfilled 2026-08-10 by the Tier-7 plan-readiness audit (A-015-12) — the spec
 - `PhaseResourceNeed` model on phase definition: `{pool: string, amount: number}[]`. Multiple pool reservations must all be available at admit time.
 - Parallel execution must specify `ParallelJoinPolicy` (SA-4): `'fail-fast' | 'all-settled' | 'any-success'`. Default `fail-fast`. Sibling cancellation on `fail-fast` must be recorded at a deterministic synchronous tick checkpoint — never in async callbacks (prevents the non-determinism class documented in Temporal Java SDK #902).
 - `priority?: number` on phase definition drives ready-set ordering; FIFO tiebreaker (SA-5). Airflow-style priority weight deferred to V1.1 if tripwire warrants.
-- All phase execution routes through existing `OrchestrationRunCreate` per Spec-014/017 constraints.
+- All phase execution routes through existing `OrchestrationRunCreate` per Spec-014/015 constraints.
 - A workflow phase may create runs, request approvals, emit artifacts, or block on user input.
 - Workflow execution must remain visible in the session timeline and must preserve per-phase provenance.
 - Phase outputs must be durable, addressable after workflow completion, **and immutable once written** (SA-16 / C-9). Accumulator patterns build on top (e.g., a `collect` phase reads N upstream outputs and emits a new output). Retry creates a new phase-run identity and a new output row — never overwrites. The GitHub Actions Artifact v3→v4 mutability-forced migration is the precedent ([GitHub Actions — v3 artifact deprecation notice, 2024-04-16](https://github.blog/changelog/2024-04-16-deprecation-notice-v3-of-the-artifact-actions/)).

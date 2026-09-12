@@ -21,7 +21,7 @@ These invariants apply to every subsequent `CREATE TABLE` in this schema. Downst
 
 ## Users Identity Anchor (Plan-001)
 
-**Migration-order invariant:** Plan-001's first shared Postgres migration creates the minimal `users` identity-anchor row shape below, **before** any FK-bearing shared table is created. This is required because `sessions.owner_user_id` and `runtime_node_attachments.user_id` both `REFERENCES users(id)`, and Plan-001/003 execute before Plan-016. Plan-016 extends this anchor with identity/profile columns and side tables via additive ALTER migrations — see [Users and Identity (Plan-016)](#users-and-identity-plan-016) below.
+**Migration-order invariant:** Plan-001's first shared Postgres migration creates the minimal `users` identity-anchor row shape below, **before** any FK-bearing shared table is created. This is required because `sessions.owner_user_id` and `runtime_node_attachments.user_id` both `REFERENCES users(id)`, and Plan-001/002 execute before Plan-016. Plan-016 extends this anchor with identity/profile columns and side tables via additive ALTER migrations — see [Users and Identity (Plan-016)](#users-and-identity-plan-016) below.
 
 ```sql
 -- Owner: Plan-001 (minimal identity anchor for FK resolution)
@@ -32,7 +32,7 @@ CREATE TABLE users (
 );
 ```
 
-The anchor contains only the stable, non-PII fields needed for referential integrity. Plan-016 adds identity-specific columns (`display_name`, `identity_ref`, `metadata`) and the `identity_mappings` side table. No user rows are inserted before Plan-016's registration flow lands — the anchor table exists only so FK constraints in Plan-001/003 tables can be declared at migration time.
+The anchor contains only the stable, non-PII fields needed for referential integrity. Plan-016 adds identity-specific columns (`display_name`, `identity_ref`, `metadata`) and the `identity_mappings` side table. No user rows are inserted before Plan-016's registration flow lands — the anchor table exists only so FK constraints in Plan-001/002 tables can be declared at migration time.
 
 ---
 

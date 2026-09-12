@@ -93,8 +93,8 @@ preconditions:
   - **Consumes (EXTEND, by SHAPE):**
     - `command_receipts` columns (id, command_id, run_id, status, idempotency_class, dedupe_key, started_at, completed_at, mcp_task_id, created_at) ← Plan-003 owner; "Owner: Plan-003 | Extended by: Plan-013 (recovery + two-phase idempotency protocol, BL-051); Plan-004 (additive nullable mcp_task_id — MCP Tasks durable recovery handle, campaign B10; own Plan-004 migration, never a Plan-003 migration edit)" ([`command_receipts`](../architecture/schemas/local-sqlite-schema.md#queue-and-intervention-tables-plan-003)) — `mcp_task_id` is Plan-004 T5.1's column (NULL until the receiver accepts a task-augmented call); the recovery sweep READS it for T15.3's task-handle carve-out and never writes it.
     - `runtime_bindings` columns incl. `resume_handle`, `runtime_metadata` ← Plan-004 owner; "Extended by Plan-013 (recovery-aware persistence)" ([`runtime_bindings`](../architecture/schemas/local-sqlite-schema.md#driver-and-runtime-binding-tables-plan-004)).
-    - `session_events` ← Plan-001/Plan-005 owner; "Extended by Plan-013 (replay cursors)" ([`session_events`](../architecture/schemas/local-sqlite-schema.md#session-events-plan-001-extended-by-plans-005-008-015)).
-    - `session_snapshots` (read-only consumer of `has_compacted_ranges`, `compacted_range_count`) ← Plan-005 owner; [`session_snapshots`](../architecture/schemas/local-sqlite-schema.md#session-snapshots-plan-001-extended-by-plans-005-015).
+    - `session_events` ← Plan-001/Plan-005 owner; "Extended by Plan-013 (replay cursors)" ([`session_events`](../architecture/schemas/local-sqlite-schema.md#session-events-plan-001-extended-by-plans-005-013)).
+    - `session_snapshots` (read-only consumer of `has_compacted_ranges`, `compacted_range_count`) ← Plan-005 owner; [`session_snapshots`](../architecture/schemas/local-sqlite-schema.md#session-snapshots-plan-001-extended-by-plans-005-013).
     - `queue_items` ← Plan-003 owner (queue state), per Plan-013 Dependencies.
     - approval-state table ← Plan-010 owner (approval records), per Plan-013 Dependencies.
     - `tool.idempotency_class` per-tool declaration ← `Spec-004 §Tool Metadata`, per [Spec-013 §References](../specs/013-persistence-recovery-and-replay.md#references).
@@ -121,7 +121,7 @@ preconditions:
     - `ReplayReadAfterCursor` { sessionId, afterSequence, limit } → { events: EventEnvelope[], nextSequence, hasMore } ← `docs/architecture/contracts/api-payload-contracts.md §Plan-013 — Persistence Recovery And Replay` (replay uses a sequence-position cursor `afterSequence: number`, intentionally distinct from `EventReadAfterCursor`'s opaque `EventCursor` brand — ratified D-013-1).
     - `ProjectionRebuild` { sessionId, force } → { sessionId, rebuiltProjections, asOfSequence } ← `docs/architecture/contracts/api-payload-contracts.md §Plan-013 — Persistence Recovery And Replay`.
     - `EventEnvelope` (incl. `version: EventEnvelopeVersion` "MAJOR.MINOR") ← `docs/architecture/contracts/api-payload-contracts.md §Plan-005 — Session Event Taxonomy`; ADR-018 versioning decisions (semver #1, floor #3, upcaster #6) per `ADR-018 §Decision`.
-    - `session_events` canonical log + `replay_cursors` state machine ← [`session_events`](../architecture/schemas/local-sqlite-schema.md#session-events-plan-001-extended-by-plans-005-008-015) + [`replay_cursors`](../architecture/schemas/local-sqlite-schema.md#gdpr-and-recovery-tables-spec-020-plan-013).
+    - `session_events` canonical log + `replay_cursors` state machine ← [`session_events`](../architecture/schemas/local-sqlite-schema.md#session-events-plan-001-extended-by-plans-005-013) + [`replay_cursors`](../architecture/schemas/local-sqlite-schema.md#gdpr-and-recovery-tables-spec-020-plan-013).
     - Event-log replay obligation ← Plan-005 (event log).
 
 - [ ] **T15.4 — Expose recovery-status reads and renderer surfaces for degraded or blocked startup conditions.**

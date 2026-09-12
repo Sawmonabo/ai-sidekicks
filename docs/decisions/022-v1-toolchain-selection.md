@@ -11,7 +11,7 @@
 
 ## Context
 
-V1 begins with no checked-in code. The repo holds a stub `package.json` (Apache-2.0 licensed) and the docs corpus; [Container Architecture](../architecture/container-architecture.md) §Canonical Implementation Topology is authoritative for the workspace shape (`packages/contracts/`, `packages/client-sdk/`, `packages/runtime-daemon/`, `packages/control-plane/`, `apps/desktop/`, `apps/cli/`). [Plan-001](../plans/001-session-core.md) is the next code-execution gate and owns `0001-initial.ts`, whose column shape is forward-declared into Plan-002/006/018/022.
+V1 begins with no checked-in code. The repo holds a stub `package.json` (Apache-2.0 licensed) and the docs corpus; [Container Architecture](../architecture/container-architecture.md) §Canonical Implementation Topology is authoritative for the workspace shape (`packages/contracts/`, `packages/client-sdk/`, `packages/runtime-daemon/`, `packages/control-plane/`, `apps/desktop/`, `apps/cli/`). [Plan-001](../plans/001-session-core.md) is the next code-execution gate and owns `0001-initial.ts`, whose column shape is forward-declared into Plan-002/005/016/020.
 
 Constraints already locked by accepted ADRs:
 
@@ -166,7 +166,7 @@ A skeptical staff engineer would argue:
 - **Reversal cost:** Medium-to-high. Per-primitive switching cost varies: package-manager swap (≈ 1–2 days, lockfile + CI rewrite + binding rebuild), build-orchestrator swap (≈ 1 day, `turbo.json` → `nx.json`), test-runner swap (≈ 2–3 days, test-API rewrites), linter swap (≈ 1 day with migration tooling), SQLite binding swap (≈ 0.5 day for sync API → sync API; medium for sync → async), Postgres client swap (≈ 1–2 days, query-construction rewrites). Two-tier Node target is per-package `tsconfig` toggle (≈ minutes).
 - **Blast radius:** Every package, every CI pipeline, all dev environments, all `electron-rebuild` workflows, all release artifacts.
 - **Migration path:** Adopt new primitive in a feature branch; rebuild lockfile; rebuild bindings; swap CI. For the package manager and test runner specifically, the migration is invasive enough that we should treat the swap as a Type 2 ADR in its own right.
-- **Point of no return:** After Plan-001 lands and Plans 002/006/018/022 build on the migration shape and binding ABI. As of 2026-04-26 we are pre-PoNR; this ADR sets the floor before that boundary is crossed.
+- **Point of no return:** After Plan-001 lands and Plans 002/005/016/020 build on the migration shape and binding ABI. As of 2026-04-26 we are pre-PoNR; this ADR sets the floor before that boundary is crossed.
 
 ---
 

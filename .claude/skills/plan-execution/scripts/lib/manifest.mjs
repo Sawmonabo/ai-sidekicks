@@ -30,10 +30,10 @@
 // `shipped[]` remains the sole record of shipped work.
 //
 // It exists because a lane-2/lane-3 PR can pick up a plan's title token by
-// accident. The 2026-08-15 case: PR #216 `chore(repo): retire Plan-006/025
+// accident. The 2026-08-15 case: PR #216 `chore(repo): retire Plan-006
 // compact-inline cite exemptions` is a tooling-lane PR that shipped no
 // Plan-006 task, yet `Plan-006` is a genuine title token inside the compound
-// `Plan-006/025` (`/` is a word boundary). manifest reconciliation flagged it as an unrecorded
+// `Plan-006` (`/` is a word boundary). manifest reconciliation flagged it as an unrecorded
 // shipment while the manifest schema had no honest entry shape for it — every
 // `shipped[]` entry requires a `phase`/`task` pair that PR does not have.
 //

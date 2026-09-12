@@ -371,7 +371,7 @@ Per spec §5.5 row 17: "multi-PR shape: `PRs:` block tick per §3a.1 (one tier p
   - [ ] tier-4 — Plan-004 plan-readiness audit (Tier 4)
   - [ ] tier-5 — Plan-005 plan-readiness audit (Tier 5)
   - [ ] tier-6 — Plan-006 plan-readiness audit (Tier 6)
-  - [ ] tier-7 — Plan-008 plan-readiness audit (Tier 7)
+  - [ ] tier-7 — the retired control-plane-relay-and-session-join plan plan-readiness audit (Tier 7)
   - [ ] tier-8 — Plan-007 plan-readiness audit (Tier 8)
 ```
 
@@ -1486,7 +1486,8 @@ test("verifyPlanIdentity: --task substring branch", () => {
 test("verifyPlanIdentity: --tier substring branch (rule 3)", () => {
   assert.equal(
     verifyPlanIdentity({
-      headingTitle: "Tier 2 plan-readiness audit — Plan-002",
+      headingTitle:
+        "the retired tier plan-readiness audit — the retired invite-membership-and-presence plan",
       args: { plan: "002", tier: "2" },
       type: "audit (doc-only)",
     }).ok,
