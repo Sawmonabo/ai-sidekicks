@@ -49,7 +49,7 @@ describe("diffCreateSubjectFor — which addresses name a diffable subject", () 
   });
 
   it("negative control: the three kinds with no checkout name nothing at all", () => {
-    for (const kind of ["repo", "invite", "participant"]) {
+    for (const kind of ["repo", "participant"]) {
       expect(diffCreateSubjectFor({ kind, id: "x-1" }, SESSION_ID)).toBeUndefined();
     }
   });

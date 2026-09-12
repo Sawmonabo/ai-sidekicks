@@ -199,9 +199,6 @@ const MUTATING_METHOD_CLASSES: Record<MutatingDaemonMethod, MutationClass> = {
   "repo.worktreeRetire": "repo and workspace changes",
   "session.create": "session roster changes",
   "session.join": "session roster changes",
-  "membership.update": "session roster changes",
-  "invite.create": "session roster changes",
-  "invite.revoke": "session roster changes",
   "providerAccount.probe": "account probes",
 };
 

@@ -18,10 +18,7 @@ import { op } from "./operation-entry.js";
  */
 type IdentityOperationId = Extract<
   GrowthOperationId,
-  | "callerParticipantRead"
-  | "callbackToolRegistryRead"
-  | "membershipRosterRead"
-  | "participantPresenceDetailRead"
+  "callerParticipantRead" | "callbackToolRegistryRead" | "participantPresenceDetailRead"
 >;
 
 /** The identity rows, in the order the single table carried them. */
@@ -41,12 +38,6 @@ export const IDENTITY_GROWTH_OPERATIONS: Readonly<
   // could disagree with nothing able to say which was right.
   callerParticipantRead: op("callerParticipantRead", "caller-participant-identity", "method"),
   callbackToolRegistryRead: op("callbackToolRegistryRead", "callback-tool-registry-read", "method"),
-  // The membership roster, which names no wire method because none is registered:
-  // every shape that carries a `membershipId` answers a JOIN or a WRITE, so a window
-  // that neither created nor joined the session in this process holds an identifier
-  // for no membership but its own — and the four `membership.update` controls are
-  // keyed by exactly that identifier.
-  membershipRosterRead: op("membershipRosterRead", "membership-roster-read", "method"),
   // The per-device fan-out behind the aggregated presence summary. It DOES name a
   // registered method — the `participant.*` registry carries it — and it is the one
   // read whose refusal is specified as a projection rather than as an error: a caller

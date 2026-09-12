@@ -35,11 +35,11 @@
 // about the node it stands for, like every other fact in it.
 
 import { readActivityFromScenario } from "../growth/activity.js";
-import { growthUnscriptedReply, type GrowthPort } from "../../growth-port/index.js";
+import { type GrowthPort } from "../../growth-port/index.js";
 import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /**
- * The two presence operations the fixture answers.
+ * The presence operation the fixture answers.
  *
  * Declared here and spread into `FIXTURE_SERVED_GROWTH_OPERATION_IDS` in
  * `call-plane/served-operations.ts`, on
@@ -47,17 +47,14 @@ import type { ScenarioEngine } from "../../scenario/runtime/index.js";
  * are one set with one home, and a second tuple in the served module would agree with
  * this one until a read landed in only one of them.
  */
-export const FIXTURE_SERVED_PRESENCE_OPERATION_IDS = [
-  "presenceActivityRead",
-  "controlPlaneHostRead",
-] as const;
+export const FIXTURE_SERVED_PRESENCE_OPERATION_IDS = ["presenceActivityRead"] as const;
 
 /** One presence operation the fixture serves. Derived, so the set has one home. */
 export type FixtureServedPresenceOperationId =
   (typeof FIXTURE_SERVED_PRESENCE_OPERATION_IDS)[number];
 
 /**
- * The fixture's two presence answers for one running scenario.
+ * The fixture's presence answer for one running scenario.
  *
  * `Pick` over the port rather than a shape of its own, on `fixtureShellAnswers`'
  * reason: a handler whose signature drifts from the operation it serves is a compile
@@ -72,18 +69,5 @@ export function fixturePresenceAnswers(
     // roster's reason: this answer is a function of the CLOCK, and the reply table
     // answers each call with one fixed value.
     presenceActivityRead: async (request) => readActivityFromScenario(engine, request),
-    // The node's control-plane host, from the scenario's own declaration. Refused as
-    // the SCENARIO's gap where none is declared — this fixture serves the operation,
-    // so naming an unbuilt wire would send a reader to a document owing something
-    // that already has a stand-in — and never answered with a host this fixture
-    // chose, which would compose a link that opens nothing and looks exactly like
-    // one that works.
-    controlPlaneHostRead: async () => {
-      const { controlPlaneHost } = engine.scenario;
-      if (controlPlaneHost === undefined) {
-        return growthUnscriptedReply("controlPlaneHostRead", "this node's control-plane host");
-      }
-      return { status: "served", value: { host: controlPlaneHost } };
-    },
   };
 }

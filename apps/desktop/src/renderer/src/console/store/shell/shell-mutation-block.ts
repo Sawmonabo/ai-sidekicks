@@ -33,15 +33,6 @@ import type { ShellState } from "./shell-state.js";
  * the probe is one of them, and a re-check dispatched through a stopped supervisor is
  * a write this window had no business putting.
  *
- * `membership.update` is the second entry admitted on that reading and not on a
- * census: `api-payload-contracts.md` registers `MembershipUpdateRequest` /
- * `MembershipUpdateResponse` as a role change, a suspension, a revocation, or a
- * reactivation of somebody's membership, the console's own call door binds it, and the
- * daemon ships no handler for it yet. Leaving it off left the membership ledger with no
- * transport signal at all, which is how its four controls came to be gated on the
- * session store's degraded flag — a fact about the PROJECTION, which says nothing about
- * whether a call can be sent.
- *
  * So the authority is the CORPUS registration — `api-payload-contracts.md`, per
  * namespace — of which the shipped handlers are the subset that has landed.
  * Review holds the tuple to that subset in the one direction a check can support: every
@@ -49,16 +40,11 @@ import type { ShellState } from "./shell-state.js";
  * `mutating: false`. What that cannot answer — a corpus-registered verb whose
  * handler has not landed — is what the paragraph above is for.
  *
- * AND A VERB THE DAEMON PROXIES IS STILL THIS CONSOLE'S WRITE. `membership.update` and
- * `invite.revoke` reach the control plane THROUGH the daemon rather than terminating in
- * it, and a durable act is no less durable for having been forwarded — the roster it
- * changes is the session's. `bridge/daemon/daemon-reply-registry.ts` says exactly that
- * while classifying them for a different question: both are `false` on its
- * `CHANGES_A_RUN` table, and its own prose names them "mutations all the same" that
- * "change the session's own roster". That table answers whether a call moves a RUN and
- * says in so many words that it is not the door's read-versus-mutation rule, so its
- * `false` is no evidence against this tuple — it is the corroboration that the
- * classification belongs here.
+ * AND A VERB THE DAEMON PROXIES IS STILL THIS CONSOLE'S WRITE. `session.join` reaches
+ * the control plane THROUGH the daemon rather than terminating in it, and a durable
+ * act is no less durable for having been forwarded — the roster it changes is the
+ * session's, which is why `bridge/daemon/daemon-reply-registry.ts` binds it as a
+ * record.
  *
  * The table stays a closed tuple so "exactly these and no others" is countable, and so
  * an added mutating verb is a deliberate edit here rather than a control that silently
@@ -82,9 +68,6 @@ export const MUTATING_DAEMON_METHODS = [
   "repo.worktreeRetire",
   "session.create",
   "session.join",
-  "membership.update",
-  "invite.create",
-  "invite.revoke",
   "providerAccount.probe",
 ] as const;
 

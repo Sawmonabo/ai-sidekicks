@@ -41,14 +41,10 @@
 //
 // Canonical `JoinMode` home:
 //
-//   `docs/architecture/contracts/api-payload-contracts.md §Shared Enums` binds `JoinMode` as the canonical enum
-//   (also used by `InviteCreateRequest.joinMode: JoinMode` at
-//   `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`). This file owns the canonical
-//   declaration; `InviteCreate.joinMode` in `invites.ts` consumes
-//   `JoinMode` / `JoinModeSchema` via direct import. The canonical home
-//   is presence.ts because the wire-doc authority for `JoinMode` lives
-//   in `docs/architecture/contracts/api-payload-contracts.md §Shared Enums` adjacent to the
-//   `JoinMode` definition.
+//   This file owns the canonical `JoinMode` declaration. The enum has no
+//   remaining wire consumer now that the invite surface is gone; it is
+//   retained here only until the presence surface itself is reshaped
+//   around devices rather than people.
 //
 // Naming convention — Request/Response vs Params/Result:
 //
@@ -128,22 +124,19 @@ export const PresenceStateSchema: z.ZodType<PresenceState, PresenceState> = z.en
 ]);
 
 // --------------------------------------------------------------------------
-// JoinMode — canonical enum (`docs/architecture/contracts/api-payload-contracts.md §Shared Enums` + `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`)
+// JoinMode — canonical enum
 // --------------------------------------------------------------------------
 //
-// Canonical name per `docs/architecture/contracts/api-payload-contracts.md §Shared Enums`; also referenced by
-// `InviteCreateRequest.joinMode: JoinMode` at `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`.
-// This file owns the canonical declaration; `InviteCreate.joinMode` in
-// `invites.ts` consumes `JoinMode` / `JoinModeSchema` via direct import.
+// This file owns the canonical declaration. No wire shape consumes it any
+// more; it survives only until the presence surface is reshaped.
 //
 // "runtime contributor" includes the SPACE — preserved verbatim from the
 // canonical enum. Editing to "runtime_contributor" / "runtimeContributor"
 // is a contract break and requires the spec edit FIRST.
 //
-// Why double-T: `JoinMode` composes into request schemas at the invite
-// layer (`InviteCreateSchema` in invites.ts) and future Phase 2
-// service-layer types; the double-T annotation preserves
-// Standard-Schema-V1 input inference for any tRPC v11 consumer per ADR-014.
+// Why double-T: the double-T annotation preserves Standard-Schema-V1 input
+// inference for any tRPC v11 consumer that composes this enum into a
+// request schema.
 
 export type JoinMode = "viewer" | "collaborator" | "runtime contributor";
 export const JoinModeSchema: z.ZodType<JoinMode, JoinMode> = z.enum([
@@ -215,7 +208,7 @@ export const DEVICE_TYPE_MAX_LEN = 64;
 // `.strict()` on the outer object AND the nested metadata object rejects
 // unknown keys at parse time, surfacing schema drift early. Matches the
 // convention used by every other request schema in this package (see
-// `SessionCreateRequest`, `InviteCreate`, `MembershipUpdate`).
+// `SessionCreateRequest`).
 //
 // `lastActivityAt` follows the session.ts ISO 8601 convention (RFC 3339
 // §5.6 — accepts both Z-suffixed UTC and numeric offsets like "+00:00").

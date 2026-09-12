@@ -13,8 +13,6 @@ const QUEUE_ITEM_ONE = "9f2c4a10-0000-4000-8000-000000000001";
 const QUEUE_ITEM_TWO = "9f2c4a10-0000-4000-8000-000000000002";
 const QUEUE_ITEM_THREE = "9f2c4a10-0000-4000-8000-000000000003";
 const WORKTREE_ID = "9f2c4a10-0000-4000-8000-000000000020";
-const SESSION_ID = "9f2c4a10-0000-4000-8000-0000000000aa";
-const INVITE_ID = "9f2c4a10-0000-4000-8000-0000000000bb";
 
 function queuedItem(itemId: string, label: string): SidebarBulkItem {
   return { sectionId: "runs", act: "cancel-queue-item", itemId, label };
@@ -52,7 +50,7 @@ describe("running one bulk act", () => {
       return await Promise.resolve({ queueItemId, state: "canceled" });
     });
 
-    await runBulkAct({ model, bridge, sessionId: SESSION_ID, act: "cancel-queue-item" });
+    await runBulkAct({ model, bridge, act: "cancel-queue-item" });
 
     expect(model.outcomeFor(items[0] as SidebarBulkItem)).toStrictEqual({ state: "done" });
     expect(model.outcomeFor(items[2] as SidebarBulkItem)).toStrictEqual({ state: "done" });
@@ -73,7 +71,7 @@ describe("running one bulk act", () => {
         }),
     );
 
-    await runBulkAct({ model, bridge, sessionId: SESSION_ID, act: "cancel-queue-item" });
+    await runBulkAct({ model, bridge, act: "cancel-queue-item" });
 
     expect(model.outcomeFor(item)).toStrictEqual({ state: "done" });
   });
@@ -98,7 +96,7 @@ describe("running one bulk act", () => {
       });
     });
 
-    await runBulkAct({ model, bridge, sessionId: SESSION_ID, act: "cancel-queue-item" });
+    await runBulkAct({ model, bridge, act: "cancel-queue-item" });
 
     expect(statesAtFirstCall).toStrictEqual(["running", "running"]);
   });
@@ -115,21 +113,21 @@ describe("running one bulk act", () => {
         }),
     );
 
-    await runBulkAct({ model, bridge, sessionId: SESSION_ID, act: "cancel-queue-item" });
+    await runBulkAct({ model, bridge, act: "cancel-queue-item" });
 
     expect(calls.map((call) => call.method)).toStrictEqual(["run.queueCancel", "run.queueCancel"]);
   });
 
   it("touches no row of another act", async () => {
     const model = new BulkSelectionModel();
-    const invite: SidebarBulkItem = {
-      sectionId: "members",
-      act: "revoke-invite",
-      itemId: INVITE_ID,
-      label: "ada@example.test",
+    const worktree: SidebarBulkItem = {
+      sectionId: "repos",
+      act: "retire-worktree",
+      itemId: WORKTREE_ID,
+      label: "implementer",
     };
     model.toggle(queuedItem(QUEUE_ITEM_ONE, "first"));
-    model.toggle(invite);
+    model.toggle(worktree);
     const { bridge, calls } = bridgeAnswering(
       async (_method, params) =>
         await Promise.resolve({
@@ -138,22 +136,17 @@ describe("running one bulk act", () => {
         }),
     );
 
-    await runBulkAct({ model, bridge, sessionId: SESSION_ID, act: "cancel-queue-item" });
+    await runBulkAct({ model, bridge, act: "cancel-queue-item" });
 
     expect(calls).toHaveLength(1);
-    expect(model.isSelected(invite)).toBe(true);
+    expect(model.isSelected(worktree)).toBe(true);
   });
 
-  it("sends the session beside the invite, and the worktree alone", async () => {
-    // The three acts do not share a request shape, which is why the act table builds
+  it("builds each act's own request shape", async () => {
+    // The two acts do not share a request shape, which is why the act table builds
     // each one rather than a single id being handed to a method name.
     const model = new BulkSelectionModel();
-    model.toggle({
-      sectionId: "members",
-      act: "revoke-invite",
-      itemId: INVITE_ID,
-      label: "ada@example.test",
-    });
+    model.toggle(queuedItem(QUEUE_ITEM_ONE, "first"));
     model.toggle({
       sectionId: "repos",
       act: "retire-worktree",
@@ -161,16 +154,16 @@ describe("running one bulk act", () => {
       label: "implementer",
     });
     const { bridge, calls } = bridgeAnswering(async (method) =>
-      method === "invite.revoke"
-        ? await Promise.resolve({ inviteId: INVITE_ID, state: "revoked" })
+      method === "run.queueCancel"
+        ? await Promise.resolve({ queueItemId: QUEUE_ITEM_ONE, state: "canceled" })
         : await Promise.resolve({ worktreeId: WORKTREE_ID, state: "retired" }),
     );
 
-    await runBulkAct({ model, bridge, sessionId: SESSION_ID, act: "revoke-invite" });
-    await runBulkAct({ model, bridge, sessionId: SESSION_ID, act: "retire-worktree" });
+    await runBulkAct({ model, bridge, act: "cancel-queue-item" });
+    await runBulkAct({ model, bridge, act: "retire-worktree" });
 
     expect(calls).toStrictEqual([
-      { method: "invite.revoke", params: { sessionId: SESSION_ID, inviteId: INVITE_ID } },
+      { method: "run.queueCancel", params: { queueItemId: QUEUE_ITEM_ONE } },
       { method: "repo.worktreeRetire", params: { worktreeId: WORKTREE_ID } },
     ]);
   });
@@ -179,7 +172,7 @@ describe("running one bulk act", () => {
     const model = new BulkSelectionModel();
     const { bridge, calls } = bridgeAnswering(async () => await Promise.resolve({}));
 
-    await runBulkAct({ model, bridge, sessionId: SESSION_ID, act: "retire-worktree" });
+    await runBulkAct({ model, bridge, act: "retire-worktree" });
 
     expect(calls).toStrictEqual([]);
   });

@@ -1600,8 +1600,8 @@ const payloadSequenceSchema = z
  * `(session_id, node_id)` pair on the registrar arm, the verifier's finding on
  * the sixteen verifier failure modes).
  *
- * 512 is the package's short human-reason class (`RuntimeNodeDetachReason`,
- * `InviteRevokeReason`), not the 8192 error-detail class: `detail` is a
+ * 512 is the package's short human-reason class (`RuntimeNodeDetachReason`),
+ * not the 8192 error-detail class: `detail` is a
  * one-line operator signal on a row that is never compacted and never
  * shredded, so it is retained forever.
  */

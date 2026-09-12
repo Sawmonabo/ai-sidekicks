@@ -107,22 +107,16 @@ describe("the address union, at a typed call site", () => {
   });
 });
 
-/** The five kinds `Spec-023 §The surface set` enumerates as sidebar cards. */
-const SIDEBAR_CARD_ENTITY_KINDS = [
-  "participant",
-  "workspace",
-  "worktree",
-  "repo",
-  "invite",
-] as const;
+/** The four kinds the design track enumerates as sidebar cards. */
+const SIDEBAR_CARD_ENTITY_KINDS = ["participant", "workspace", "worktree", "repo"] as const;
 
 describe("the inspector, over the entities the spec routes to it", () => {
   it("parses an inspector address for every entity kind the spec names", () => {
-    // `Spec-023 §Console Design (Meridian)` §The surface set routes five kinds to the
-    // inspector, and two of them — repo and invite — were not console entity kinds at
-    // all, so the address union could not represent them and the runtime scope table
-    // rejected them as kind mismatches. The repos and collaboration branches would
-    // have had to reopen this shared substrate to open a pane the spec already routes.
+    // The design track routes four kinds to the inspector, and one of them — repo —
+    // was not a console entity kind at all, so the address union could not represent
+    // it and the runtime scope table rejected it as a kind mismatch. The repos branch
+    // would have had to reopen this shared substrate to open a pane the design track
+    // already routes.
     for (const entityKind of SIDEBAR_CARD_ENTITY_KINDS) {
       const entity = { kind: entityKind, id: `${entityKind}-1` } satisfies ConsoleEntityRef;
 
@@ -133,24 +127,19 @@ describe("the inspector, over the entities the spec routes to it", () => {
     }
   });
 
-  it("admits the repo and invite refs at a typed call site too", () => {
-    // The compile-time half. Both were unconstructible before, at a type the union
-    // derived from an entity vocabulary that named neither.
+  it("admits the repo ref at a typed call site too", () => {
+    // The compile-time half. It was unconstructible before, at a type the union
+    // derived from an entity vocabulary that did not name it.
     const repoInspector: AddressArm<"inspector"> = {
       kind: "inspector",
       entity: { kind: "repo", id: "repo-1" },
     };
-    const inviteInspector: AddressArm<"inspector"> = {
-      kind: "inspector",
-      entity: { kind: "invite", id: "invite-1" },
-    };
 
     expect(repoInspector.entity.kind).toBe("repo");
-    expect(inviteInspector.entity.kind).toBe("invite");
   });
 
   it("negative control: the inspector still refuses a kind the spec does not route to it", () => {
-    // Without this the two cases above would hold over a scope that admitted every
+    // Without this the cases above would hold over a scope that admitted every
     // entity kind, which is what the fix's own failure mode looks like — an inspector
     // opened over a run has no card to render.
     // @ts-expect-error the spec routes no run entity to the inspector
@@ -164,10 +153,10 @@ describe("the inspector, over the entities the spec routes to it", () => {
 
 describe("the diff pane, over the entities whose changes the spec routes to it", () => {
   it("parses a diff address for every entity kind that sentence enumerates", () => {
-    // `Spec-023 §Console Design (Meridian)` §The surface set, one sentence: "a repo,
-    // workspace, worktree, invite, or member entity is a card in its sidebar section
-    // and opens as an `inspector` pane keyed by its entity kind, its changes opening
-    // the `diff` pane". "its changes" has one antecedent, and it is the same
+    // The design track, one sentence: a repo, workspace, worktree, or member entity
+    // is a card in its sidebar section and opens as an `inspector` pane keyed by its
+    // entity kind, its changes opening the `diff` pane. "its changes" has one
+    // antecedent, and it is the same
     // enumerated subject the inspector clause takes — so both clauses distribute over
     // one list. The row was `worktree | workspace`, which refused a repo's changes
     // statically and answered `pane-entity-kind-mismatch` at the runtime parse.
@@ -178,21 +167,16 @@ describe("the diff pane, over the entities whose changes the spec routes to it",
     }
   });
 
-  it("admits the three added refs at a typed call site too", () => {
-    // The compile-time half. All three were unconstructible before, at a type derived
-    // from a narrower list than the sentence its sibling row already reads.
+  it("admits the two added refs at a typed call site too", () => {
+    // The compile-time half. Both were unconstructible before, at a type derived from
+    // a narrower list than the sentence its sibling row already reads.
     const repoDiff: AddressArm<"diff"> = { kind: "diff", entity: { kind: "repo", id: "repo-1" } };
-    const inviteDiff: AddressArm<"diff"> = {
-      kind: "diff",
-      entity: { kind: "invite", id: "invite-1" },
-    };
     const memberDiff: AddressArm<"diff"> = {
       kind: "diff",
       entity: { kind: "participant", id: "participant-1" },
     };
 
     expect(repoDiff.entity.kind).toBe("repo");
-    expect(inviteDiff.entity.kind).toBe("invite");
     expect(memberDiff.entity.kind).toBe("participant");
   });
 

@@ -181,7 +181,6 @@ export type GrowthOperationId =
   | "onboardingTelemetryPrompt"
   | "shellConfigRead"
   | "shellConfigWrite"
-  | "invitesList"
   | "healthSubscribe"
   | "gitActionExecute"
   | "artifactIngestBegin"
@@ -277,11 +276,7 @@ export type GrowthOperationId =
   | "channelUnmute"
   | "channelArchive"
   | "channelRosterRead"
-  // The membership roster read, which folds to no wire method: `membership.update` is
-  // keyed by an identifier every registered carrier answers only from a join or a
-  // write, so the read that would supply one is registered nowhere and has no tail to
-  // fold. The per-device presence fan-out beside it does have one.
-  | "membershipRosterRead"
+  // The per-device presence fan-out, which does name a registered wire method.
   | "participantPresenceDetailRead"
   // The session's terminal-control holder, which folds to no wire method either: the
   // holder is a MEMBER of the runtime-node roster reply rather than a read of its
@@ -293,15 +288,6 @@ export type GrowthOperationId =
   | "presenceActivityRead"
   | "presenceComposingSet"
   | "presenceComposingClear"
-  // invite — the pending-invite namespace `Spec-023 §Preload Bridge Contract` writes
-  // out verbatim, each id its named method's tail with the root folded in, plus the
-  // control-plane host a shareable link is composed from, which folds to no method.
-  | "invitePendingSubscribe"
-  | "inviteOutcomeSubscribe"
-  | "inviteConfirmPending"
-  | "inviteRetryPending"
-  | "inviteDismissPending"
-  | "controlPlaneHostRead"
   // the shell's notification-permission reading, which decides whether the
   // notification centre is the only surface these items reach a person on
   | "shellNotificationPermissionRead"

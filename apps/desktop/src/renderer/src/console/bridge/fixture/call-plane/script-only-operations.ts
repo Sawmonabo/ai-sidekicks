@@ -54,11 +54,9 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "terminalReleaseWriteLease",
   "workspaceExecutionContextRead",
   ...FIXTURE_SERVED_COLLABORATION_OPERATION_IDS,
-  // Neither has an honest empty answer. "Nobody is composing anywhere" is a claim
-  // about the room that nothing checked, and there is no empty host — a node either
-  // answers on one or this fixture has not been told which.
+  // It has no honest empty answer: "Nobody is composing anywhere" is a claim about
+  // the room that nothing checked.
   "presenceActivityRead",
-  "controlPlaneHostRead",
   "shellNotificationPermissionRead",
   "providerSessionImportBegin",
   "providerSessionImportSubscribe",

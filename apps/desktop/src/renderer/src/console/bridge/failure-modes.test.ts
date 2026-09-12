@@ -166,7 +166,7 @@ describe("failure matrix — a growth-slate row lands and the port still claims 
 
   it("refuses every operation under the live bridge, as the not-checked absence", async () => {
     const port = createRefusingGrowthPort();
-    const outcome = await port.invitesList({ sessionId: "session-1" });
+    const outcome = await port.presenceActivityRead({ sessionId: "session-1" });
 
     expect(outcome.status).toBe("unavailable");
     if (outcome.status === "unavailable") {

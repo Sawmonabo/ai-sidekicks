@@ -1,12 +1,10 @@
-// The session plane's values: a session as a directory row, an invite, a component
-// health reading, and an import's progress.
+// The session plane's values: a session as a directory row, a component health
+// reading, and an import's progress.
 //
 // One of the domain modules behind `growth-values/index.ts`. The barrel states the
 // rules every value here obeys — why a shape earns a name, what belongs in the
 // signature table instead, and what belongs in a module of its own — and publishes
 // the whole set. Import from the barrel; this file is the domain's own text.
-
-import type { JoinMode } from "@ai-sidekicks/contracts";
 
 export interface GrowthSessionSummary {
   readonly sessionId: string;
@@ -19,26 +17,6 @@ export interface GrowthSessionSummary {
    */
   readonly title?: string;
   readonly state: string;
-}
-
-export interface GrowthInviteSummary {
-  readonly inviteId: string;
-  readonly state: string;
-  readonly expiresAt: string;
-  /**
-   * The role the invitation grants, wire-verbatim.
-   *
-   * REQUIRED, and the requiredness is the claim. `InviteCreate` in
-   * `@ai-sidekicks/contracts` makes `joinMode` a required member of every invitation
-   * this console can mint, so a ledger row that could omit it would be describing an
-   * invitation the create path cannot produce — and the ledger's own empty state
-   * promises the reader that an invitation appears "with the role it grants".
-   *
-   * `JoinMode` is the contract's, imported: the same closed enum the create form
-   * offers and the daemon parses, so a row cannot render a role no invitation could
-   * have been minted with.
-   */
-  readonly joinMode: JoinMode;
 }
 
 export interface GrowthHealthReading {

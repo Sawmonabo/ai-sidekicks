@@ -287,7 +287,6 @@ describe("I-007-9 — method-name format validation", () => {
   const ACCEPTED = [
     "session.create",
     "session.read",
-    "session.join",
     "session.subscribe",
     "presence.subscribe",
     "run.stream.notify",

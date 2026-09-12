@@ -26,8 +26,6 @@ import { type BulkSelectionModel } from "./bulk-selection.js";
 export interface BulkRunRequest {
   readonly model: BulkSelectionModel;
   readonly bridge: ConsoleBridge;
-  /** The session the acts that need one are scoped to. */
-  readonly sessionId: string;
   readonly act: SidebarBulkAct;
 }
 
@@ -59,7 +57,7 @@ async function settleOne(request: BulkRunRequest, item: SidebarBulkItem): Promis
   // name — an unsendable request, a wire error, a reply that would not parse. So there
   // is no catch here and no invented refusal beside its vocabulary: a rejection that
   // escaped it would be a defect in the door, and swallowing one here would hide it.
-  const reply = await descriptor.call(request.bridge, request.sessionId, item.itemId);
+  const reply = await descriptor.call(request.bridge, item.itemId);
   if (reply.status === "refused") {
     request.model.markRefused(item, reply.refusal);
     return;

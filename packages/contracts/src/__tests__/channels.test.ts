@@ -25,7 +25,7 @@
 //     elements, missing `channels`, non-array `channels`, `.strict()` outer
 //     anti-leakage.
 //
-// Coverage shape mirrors presence.test.ts and invites.test.ts.
+// Coverage shape mirrors presence.test.ts.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -307,7 +307,7 @@ describe("ChannelListResponseChannelSchema (per-element projection)", () => {
   //
   // Pin both the inclusive accept (= CHANNEL_NAME_MAX_LEN) and the strict
   // reject (= CHANNEL_NAME_MAX_LEN + 1). Mirrors the convention in
-  // presence.test.ts:434-462 and invites.test.ts:216-219. Guards against
+  // presence.test.ts:434-462. Guards against
   // silent widening — a future PR that bumps the constant without intent
   // will fail these tests.
 

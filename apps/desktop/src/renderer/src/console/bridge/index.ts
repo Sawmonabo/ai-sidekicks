@@ -377,18 +377,6 @@ export { openObservedSubscription } from "./transport/observed-subscription.js";
 // carries no port with it, so nothing gains a way to CALL an operation through it.
 export type { GrowthOperationSignatures } from "./growth-signatures/signature-table.js";
 
-// The `invitesList` outcome, its served row, and the armable expiries of a set of
-// them. Published because TWO sibling view families read that one operation — the sent
-// ledger and the received shelf — and a view family may not import its sibling, so
-// each had declared the pair itself under a name of its own, and each then wrote the
-// expiry walk a second time. Derived off the growth signature here, once.
-export type {
-  InvitesListOutcome,
-  InvitesListRefusal,
-  ServedInvite,
-} from "./growth-port/invites-outcome.js";
-export { expiryDeadlinesOf } from "./growth-port/invites-outcome.js";
-
 // The channel plane's shapes, published because the collaboration family RENDERS
 // them: an audience badge, a pair-labelled row, a create form whose every field is one
 // member of `GrowthChannelConfig`, and the receipts the four lifecycle writes answer
@@ -409,15 +397,11 @@ export {
   type GrowthChannelTurnPolicy,
 } from "./growth-values/channels.js";
 
-// The membership plane's two, on the same rule: the ledger renders the identifier its
-// controls are keyed by, and the roster's detail card renders the devices behind one
-// person's aggregate. The device ROW inside that fan-out is deliberately not a third
-// line — the card maps over `GrowthPresenceDetail["devices"]` and names the row type
+// The presence plane's detail card, which renders the devices behind one person's
+// aggregate. The device ROW inside that fan-out is deliberately not a second line —
+// the card maps over `GrowthPresenceDetail["devices"]` and names the row type
 // nowhere, and a door is never widened for symmetry.
-export type {
-  GrowthMembershipRosterEntry,
-  GrowthPresenceDetail,
-} from "./growth-values/memberships.js";
+export type { GrowthPresenceDetail } from "./growth-values/presence.js";
 
 // The saved definition the registry serves. Published because the definition picker
 // in the agent console projects one onto its own row shape, and a projection cannot
@@ -735,18 +719,6 @@ export type {
   GrowthAgentActivityReading,
   GrowthComposingReading,
 } from "./growth-values/presence.js";
-
-// The pending confirmation and the six arms one attempt on it can end in. Through
-// the door and from their declaring module for the same reason: the confirmation
-// surface is the collaboration family's, and every arm it renders is one of these.
-export type {
-  GrowthInviteAttempt,
-  GrowthInviteOutcome,
-  GrowthPendingInvite,
-  GrowthPendingInvitePreviewFailure,
-  GrowthPendingInviteRefused,
-  GrowthPendingInviteState,
-} from "./growth-values/invites.js";
 
 // The WebAuthn ceremony seam. Through the door because the sign-in family is the
 // reader and this family is where the seam has to live: the fixture WRITES an

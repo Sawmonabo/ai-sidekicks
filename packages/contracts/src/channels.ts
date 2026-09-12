@@ -28,8 +28,7 @@
 //   "@ai-sidekicks/contracts"` and pull the full ChannelList surface in one
 //   shot, without ownership trespass. session.ts remains the single source of
 //   truth — adding new wrapper schemas here would create a divergent surface
-//   that consumers would have to choose between (the same anti-pattern called
-//   out in memberships.ts:60 around `MembershipRoleSchema`).
+//   that consumers would have to choose between.
 //
 // Why `name?` is optional and what it encodes:
 //
@@ -100,9 +99,7 @@
 // is explicitly annotated with `z.ZodType<T, T>` (the double-T shape
 // required for Standard-Schema-V1 input inference in tRPC v11 per
 // ADR-014). The existing single-T `ChannelStateSchema` re-exported from
-// session.ts composes inside the double-T outer schemas without issue —
-// same pattern as `memberships.ts` composing the single-T
-// `MembershipRoleSchema` inside the double-T `MembershipUpdateSchema`.
+// session.ts composes inside the double-T outer schemas without issue.
 //
 // Refs: `Spec-002 §Interfaces And Contracts`, Plan-002 §Phase 1 (C5),
 // `docs/architecture/contracts/api-payload-contracts.md §Shared Enums` (`ChannelState`)
@@ -202,8 +199,8 @@ export interface ChannelListResponseChannel {
 // because `ChannelStateSchema` from session.ts is declared as the
 // single-T `z.ZodType<ChannelState>`) to the double-T target type
 // required for Standard-Schema-V1 input inference at tRPC v11 consumer
-// sites. Same bridge pattern as `MembershipUpdateSchema` in
-// memberships.ts:228 and `brandedUuidIdSchema` in `./internal/branded.ts`.
+// sites. Same bridge pattern as `brandedUuidIdSchema` in
+// `./internal/branded.ts`.
 // Re-wrapping `ChannelStateSchema` locally would create a divergent
 // surface from `session.ts` — the cast preserves the canonical
 // single-source-of-truth posture per the file header.

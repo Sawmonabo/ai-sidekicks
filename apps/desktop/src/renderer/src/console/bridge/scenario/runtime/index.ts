@@ -40,8 +40,6 @@ export type {
   ScenarioTransportOutage,
 } from "./frames.js";
 
-export type {} from "./pending-invites.js";
-
 export { ScenarioEngine } from "./engine.js";
 
 // The `incident` class's two seams, from the modules that DECLARE them. The pair lives

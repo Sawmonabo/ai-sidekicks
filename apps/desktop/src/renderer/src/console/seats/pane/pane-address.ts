@@ -102,23 +102,22 @@ type ScopedEntityRef<TEntityKind extends ConsoleEntityKind> = ConsoleEntityRef &
 /**
  * The entity kinds that open as a card in a sidebar section.
  *
- * `Spec-023 §Console Design (Meridian)` §The surface set: "a repo, workspace,
- * worktree, invite, or member entity is a card in its sidebar section and opens as an
- * `inspector` pane keyed by its entity kind, its changes opening the `diff` pane".
- * All five are here — `participant` is that sentence's member — now that the console's
- * entity vocabulary names repo and invite.
+ * The design track: a repo, workspace, worktree, or member entity is a card in its
+ * sidebar section and opens as an `inspector` pane keyed by its entity kind, its
+ * changes opening the `diff` pane. All four are here — `participant` is that
+ * sentence's member — now that the console's entity vocabulary names repo.
  *
  * ONE LIST FOR BOTH PANE KINDS, because it is one enumerated subject with two
  * clauses hanging off it. Named for the card rather than for either pane, so neither
  * row reads as the owner of a set they share.
  */
-type SidebarCardEntityKind = "participant" | "workspace" | "worktree" | "repo" | "invite";
+type SidebarCardEntityKind = "participant" | "workspace" | "worktree" | "repo";
 
 /**
  * Every entity kind, decided. The exhaustiveness check, and the union's proof.
  *
  * A TOTAL map rather than a list of the admitted kinds, because a list grows a hole
- * silently — which is exactly how repo and invite went missing. The three intersected
+ * silently — which is exactly how repo went missing. The three intersected
  * constraints pin it in every direction that can be wrong: `Record<ConsoleEntityKind,
  * boolean>` means a kind added to `CONSOLE_ENTITY_KINDS` fails to compile here until
  * the sidebar-card question is answered for it, and the two halves after it hold this
@@ -140,7 +139,6 @@ const SIDEBAR_CARD_ADMITS_ENTITY_KIND = {
   "workflow-run": false,
   "browser-page": false,
   repo: true,
-  invite: true,
 } as const satisfies Record<ConsoleEntityKind, boolean> &
   Record<SidebarCardEntityKind, true> &
   Record<Exclude<ConsoleEntityKind, SidebarCardEntityKind>, false>;

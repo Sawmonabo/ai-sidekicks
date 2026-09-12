@@ -31,7 +31,7 @@
 //   * UUID composability — branded UUID guards reject malformed strings on
 //     every UUID-typed field.
 //
-// Coverage shape mirrors memberships.test.ts and invites.test.ts.
+// Coverage shape mirrors channels.test.ts.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -66,7 +66,7 @@ const LAST_SEEN = "2026-05-22T14:29:45.000Z";
 // Fixture returns a wire-shaped object without per-field brand casts —
 // safeParse accepts plain UUID strings and brands them on the way out.
 // The schema (not the type system) is the unit under test, so feeding raw
-// wire data is the natural test surface. Mirrors the invites.test.ts pattern.
+// wire data is the natural test surface.
 const buildHeartbeatPayload = () => ({
   participantId: PARTICIPANT_ID,
   deviceId: DEVICE_ID,
@@ -427,7 +427,7 @@ describe("PresenceHeartbeatSchema (C4: 5 metadata fields per `Spec-002 §Interfa
   //
   // Pin both the inclusive accept (= MAX_LEN) and the strict reject
   // (= MAX_LEN + 1) for each cap. Mirrors the convention in
-  // invites.test.ts:217-222 and session-create.test.ts:207-216. Guards
+  // session-create.test.ts:207-216. Guards
   // against silent widening — a future PR that bumps either constant
   // without intent will fail these tests.
 

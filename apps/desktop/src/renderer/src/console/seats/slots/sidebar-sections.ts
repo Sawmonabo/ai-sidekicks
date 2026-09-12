@@ -320,12 +320,12 @@ export type SidebarRowDragBinder = (
 /**
  * Which acts a bulk selection can carry, and what each one is.
  *
- * Closed, and closed at the three the design track names: cancel several queued
- * items, revoke several invites, retire several worktrees. Every one of them is
- * destructive, which is why there is no `isDestructive` member — a boolean that is
- * `true` on every row is a member nothing reads.
+ * Closed, and closed at the two the design track names: cancel several queued
+ * items, retire several worktrees. Both are destructive, which is why there is no
+ * `isDestructive` member — a boolean that is `true` on every row is a member nothing
+ * reads.
  */
-export const SIDEBAR_BULK_ACTS = ["cancel-queue-item", "revoke-invite", "retire-worktree"] as const;
+export const SIDEBAR_BULK_ACTS = ["cancel-queue-item", "retire-worktree"] as const;
 
 /** One bulk act. Derived from the enumeration, never restated. */
 export type SidebarBulkAct = (typeof SIDEBAR_BULK_ACTS)[number];

@@ -38,7 +38,6 @@ import { useBulkSelectionSnapshot } from "./use-bulk-selection.js";
 export interface BulkActionBarProps {
   readonly model: BulkSelectionModel;
   readonly bridge: ConsoleBridge;
-  readonly sessionId: string;
 }
 
 export function BulkActionBar(props: BulkActionBarProps): React.JSX.Element | null {
@@ -103,7 +102,6 @@ export function BulkActionBar(props: BulkActionBarProps): React.JSX.Element | nu
             void runBulkAct({
               model: props.model,
               bridge: props.bridge,
-              sessionId: props.sessionId,
               act: confirmingAct,
             });
           }}

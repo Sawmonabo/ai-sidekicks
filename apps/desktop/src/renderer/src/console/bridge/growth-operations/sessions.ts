@@ -1,6 +1,6 @@
 // The session and shell plane's ledger rows: a session's own lifecycle and search,
-// the daemon's status and control, onboarding, the shell's settings, the invite
-// list, the health stream, and the provider-session import.
+// the daemon's status and control, onboarding, the shell's settings, the health
+// stream, and the provider-session import.
 //
 // One plane of `GROWTH_OPERATIONS`, composed into it by `index.ts`.
 
@@ -22,7 +22,6 @@ type SessionOperationId = Extract<
   | `onboarding${string}`
   | `shell${string}`
   | `providerSessionImport${string}`
-  | "invitesList"
   | "healthSubscribe"
 >;
 
@@ -94,7 +93,6 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
     ),
     shellConfigRead: op("shellConfigRead", "shell-config-preferences", "method"),
     shellConfigWrite: op("shellConfigWrite", "shell-config-preferences", "method"),
-    invitesList: op("invitesList", "invites-list", "method", "invites.list"),
     healthSubscribe: op("healthSubscribe", "health-subscribe", "subscription", "health.subscribe"),
     sessionSearch: op("sessionSearch", "session-search", "method"),
     // session goals — the owner/collaborator pair the goal card drives.

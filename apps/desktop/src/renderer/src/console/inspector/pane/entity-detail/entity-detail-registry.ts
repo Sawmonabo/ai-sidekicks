@@ -17,7 +17,6 @@ import { ApprovalEntityDetail } from "./ApprovalEntityDetail.js";
 import { ArtifactEntityDetail } from "./ArtifactEntityDetail.js";
 import { BrowserPageEntityDetail } from "./BrowserPageEntityDetail.js";
 import { ChannelEntityDetail } from "./ChannelEntityDetail.js";
-import { InviteEntityDetail } from "./InviteEntityDetail.js";
 import { ParticipantEntityDetail } from "./ParticipantEntityDetail.js";
 import { RepoEntityDetail } from "./RepoEntityDetail.js";
 import { RunEntityDetail } from "./RunEntityDetail.js";
@@ -46,5 +45,4 @@ export const ENTITY_DETAIL_BY_KIND: Readonly<Record<ConsoleEntityKind, EntityDet
   "workflow-run": WorkflowRunEntityDetail,
   "browser-page": BrowserPageEntityDetail,
   repo: RepoEntityDetail,
-  invite: InviteEntityDetail,
 };

@@ -101,12 +101,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument: "Spec-023 §Preload Bridge Contract + §State And Data Implications",
     wireRegistered: false,
   },
-  "invites-list": {
-    id: "invites-list",
-    wire: "the invites list read",
-    owningDocument: "Spec-002",
-    wireRegistered: false,
-  },
   "health-subscribe": {
     id: "health-subscribe",
     wire: "the health subscription",
@@ -361,13 +355,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
       "Spec-016 §Interfaces And Contracts (D-016-21: the kind discriminator, the immutable member pair, and the audience the daemon forces on a direct channel); api-payload-contracts.md §Plan-016 (ChannelRosterReadRequest / ChannelRosterReadResponse, registered there and in no code package)",
     wireRegistered: false,
   },
-  "membership-roster-read": {
-    id: "membership-roster-read",
-    wire: "a read returning a membershipId beside each of a session's participants — the identifier membership.update is keyed by, which every registered carrier answers only from a join or a write",
-    owningDocument:
-      "Spec-002 §Interfaces And Contracts (MembershipUpdate is keyed by membershipId and no read returns one); api-payload-contracts.md §Tier 2: Plan-002 (the five shapes that carry one, all of them a join or a write)",
-    wireRegistered: false,
-  },
   "participant-presence-detail": {
     id: "participant-presence-detail",
     wire: "participant.presenceDetail — the owner/operator-only per-device presence fan-out behind the aggregated summary every role may read",
@@ -392,20 +379,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "the two Awareness activity fields `activity.typing` and `activity.runs` — a read of the session's live activity state, and the composer's own set and clear emit for the human field",
     owningDocument:
       "Spec-002 §Default Behavior (both fields and the membership-restricted-channel suppression); Plan-002 T3.5 (the daemon presence handler surface the composer emits through); Spec-023 §Preload Bridge Contract (no presence namespace is on the shipped bridge)",
-    wireRegistered: false,
-  },
-  "control-plane-host": {
-    id: "control-plane-host",
-    wire: "the node's control-plane host, which an invitation's shareable link is composed from",
-    owningDocument:
-      "Spec-002 §Invite Delivery (the link's form); Spec-023 §Preload Bridge Contract (no shell read carries the host)",
-    wireRegistered: false,
-  },
-  "pending-invite-namespace": {
-    id: "pending-invite-namespace",
-    wire: "the five-method pending-invite bridge namespace, through which the main-confined result of the registered `invite.preview` mutation reaches the renderer as an opaque, single-use, TTL-bounded reference",
-    owningDocument:
-      "Spec-023 §Preload Bridge Contract (the namespace is named there and is on no shipped bridge); Spec-002 §Interfaces And Contracts (the anonymous non-consuming invite preview main issues behind it)",
     wireRegistered: false,
   },
   "notification-permission-read": {

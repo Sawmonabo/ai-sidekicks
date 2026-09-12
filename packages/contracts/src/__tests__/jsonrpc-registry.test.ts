@@ -33,7 +33,6 @@ describe("METHOD_NAME_FORMAT — canonical JSON-RPC method-name format (BL-142)"
     // Tier-1 `session.*` surface (all-lowercase segments).
     "session.create",
     "session.read",
-    "session.join",
     "session.subscribe",
     "presence.subscribe",
     // Three-segment nested form (`noun.sub.verb`).

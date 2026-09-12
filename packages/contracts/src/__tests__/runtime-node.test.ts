@@ -387,8 +387,7 @@ describe("RuntimeNodeCapabilityUpdateRequestSchema (C2: additions / removals / h
 
   // healthChanges.reason composes `wireFreeFormString` (the package's standard
   // wire free-form-string realization — session.ts:118), so it inherits the
-  // trust-boundary guards. These mirror the InviteRevoke.reason coverage
-  // (invites.test.ts:282-301), the identical-wire-spec precedent.
+  // trust-boundary guards.
   it("rejects a NUL-byte in healthChanges.reason (wireFreeFormString guard)", () => {
     const broken = {
       ...buildValidCapabilityUpdateRequest(),
@@ -549,9 +548,9 @@ describe("RuntimeNodeHeartbeatResponseSchema (C6: null no-content payload)", () 
 // Backstops the detach wire shape (`docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`, `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)`): a
 // `nodeId` + an OPTIONAL free-form `reason`, and a `null` response payload. The
 // `reason` field composes `wireFreeFormString` (session.ts:118), so it inherits
-// the trust-boundary guards — these mirror the four `InviteRevoke.reason` /
+// the trust-boundary guards — these mirror the
 // `RuntimeNodeCapabilityUpdate.healthChanges.reason` guard cases (the identical-
-// wire-spec precedents) and pin that `reason` is NOT a bare `z.string()`.
+// wire-spec precedent) and pin that `reason` is NOT a bare `z.string()`.
 const buildValidDetachRequest = () => ({
   nodeId: NodeIdSchema.parse(NODE_ID),
 });
@@ -577,8 +576,7 @@ describe("RuntimeNodeDetachRequestSchema (C3: nodeId + optional reason)", () => 
   });
 
   // `reason` composes `wireFreeFormString` (session.ts:118) — the four guards
-  // below prove it is NOT a bare `z.string()` (the regressed shape T1.2 was
-  // round-tripped to fix), mirroring invites.test.ts:282-301.
+  // below prove it is NOT a bare `z.string()`.
   it("rejects a NUL-byte in reason (wireFreeFormString guard)", () => {
     const broken = { ...buildValidDetachRequest(), reason: "detach\u0000injected" };
     expect(RuntimeNodeDetachRequestSchema.safeParse(broken).success).toBe(false);

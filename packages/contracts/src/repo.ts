@@ -757,7 +757,7 @@ export const RepoDetachResponseSchema: z.ZodType<RepoDetachResponse> = z
 // Bound on the per-mode reason strings in
 // `WorkspaceExecutionModeCapabilitiesReadResponse.restrictions`. 512 is this
 // package's SHORT-HUMAN-REASON class (`RUNTIME_NODE_DETACH_REASON_MAX_LEN`,
-// `RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN`, `INVITE_REVOKE_REASON_MAX_LEN`),
+// `RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN`),
 // which is the right class here: V1's matrix is STATIC by `vcs_type` (D-009-5),
 // so these values are short daemon-authored explanations such as "no git
 // repository at the mount root", never captured subprocess output.

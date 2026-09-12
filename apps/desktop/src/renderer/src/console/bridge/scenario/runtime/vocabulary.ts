@@ -27,11 +27,10 @@
 // AND THE FRAME FAMILIES ARE NOT HERE EITHER, for the same rule one level down. What
 // a reader opens this file for is the scenario's SHAPE — who is in it, what it
 // answers, what it plays — and each family of tick-scheduled readings carries a page
-// of its own reasoning in front of that. `scenario-frames.ts` holds the roster, the
-// activity, the shell condition and the transport outage; `scenario-pending-invites.ts`
-// holds the three deep-link tables, which are the one family that is not about the
-// session on screen at all. Both are read by the fixture namespace that resolves them
-// and re-exported from this directory's door beside the shape below.
+// of its own reasoning in front of that. `frames.ts` holds the roster, the activity,
+// the shell condition and the transport outage; it is read by the fixture namespace
+// that resolves it and re-exported from this directory's door beside the shape
+// below.
 
 import type { MembershipRole, UpdateState } from "@ai-sidekicks/contracts";
 
@@ -48,11 +47,6 @@ import type {
   ScenarioShellStatusFrame,
   ScenarioTransportOutage,
 } from "./frames.js";
-import type {
-  ScenarioPendingInviteAttemptFrame,
-  ScenarioPendingInviteFrame,
-  ScenarioPendingInviteRefusedFrame,
-} from "./pending-invites.js";
 import type { ScenarioReply } from "./reply.js";
 import type { ScriptedSignInCeremony } from "../../web-authn/ceremony-outcome.js";
 
@@ -208,46 +202,6 @@ export interface ConsoleScenario {
    * which is their ordinary state.
    */
   readonly activity?: readonly ScenarioActivityFrame[];
-  /**
-   * Invitations arriving on this window's deep link, and what accepting each does.
-   *
-   * OPTIONAL on the same rule, and load-bearing in the other direction too: the
-   * confirmation is a whole-surface takeover, so a scenario that scripted one by
-   * default would put a dialog in front of every screenshot of every other surface.
-   */
-  readonly pendingInvites?: readonly ScenarioPendingInviteFrame[];
-  /**
-   * Deep links whose preview could not be put, each with what a retry on it yields.
-   *
-   * A SECOND TABLE RATHER THAN A UNION MEMBER OF THE FIRST, because the two are keyed
-   * on different handles and a fixture that merged them would have to guess which
-   * kind a string names. Optional on the same rule as the invitations beside them.
-   */
-  readonly pendingInviteAttempts?: readonly ScenarioPendingInviteAttemptFrame[];
-  /**
-   * Deep links the control plane REFUSED, each with the code and sentence it sent.
-   *
-   * A THIRD TABLE, and the one with no handle at all: a refused preview mints neither
-   * a reference nor an attempt, so it belongs in neither table beside it and a fixture
-   * building deliveries out of those two could reach the feed's terminal arm from no
-   * scenario at all. Optional on the same rule as its two neighbours.
-   */
-  readonly pendingInviteRefusals?: readonly ScenarioPendingInviteRefusedFrame[];
-  /**
-   * The host this scenario's node answers its control plane on.
-   *
-   * OPTIONAL on the roster member's rule, and the two states are different facts a
-   * surface draws differently: a scenario that names a host lets the invite create
-   * path reveal the link a person would actually send, and one that names none
-   * leaves the host read refusing, which is what a console that has not been told
-   * its own control plane renders.
-   *
-   * A BARE HOST, never a URL and never a scheme. `Spec-002 §Invite Delivery` fixes
-   * the link's form, so the scenario states the one fact the wire would supply and
-   * the composition stays in the one module that owns it — a scenario carrying a
-   * whole link could spell the path differently from the console that renders it.
-   */
-  readonly controlPlaneHost?: string;
   /**
    * The shell's own condition as it reads over scenario time.
    *

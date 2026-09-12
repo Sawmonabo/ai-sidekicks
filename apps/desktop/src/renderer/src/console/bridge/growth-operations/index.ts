@@ -63,7 +63,6 @@ import { CHANNEL_GROWTH_OPERATIONS } from "./channels.js";
 import { DIAGNOSTICS_GROWTH_OPERATIONS } from "./diagnostics.js";
 import { GITFLOW_GROWTH_OPERATIONS } from "./gitflow.js";
 import { IDENTITY_GROWTH_OPERATIONS } from "./identity.js";
-import { INVITE_GROWTH_OPERATIONS } from "./invites.js";
 import { LEDGER_GROWTH_OPERATIONS } from "./ledger.js";
 import { MCP_GROWTH_OPERATIONS } from "./mcp.js";
 import { PANE_GROWTH_OPERATIONS } from "./panes.js";
@@ -100,7 +99,6 @@ export const GROWTH_OPERATION_PLANES: readonly Readonly<
   MCP_GROWTH_OPERATIONS,
   CHANNEL_GROWTH_OPERATIONS,
   PRESENCE_GROWTH_OPERATIONS,
-  INVITE_GROWTH_OPERATIONS,
   RUN_RECORD_GROWTH_OPERATIONS,
 ];
 
@@ -125,6 +123,5 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
   ...MCP_GROWTH_OPERATIONS,
   ...CHANNEL_GROWTH_OPERATIONS,
   ...PRESENCE_GROWTH_OPERATIONS,
-  ...INVITE_GROWTH_OPERATIONS,
   ...RUN_RECORD_GROWTH_OPERATIONS,
 };

@@ -72,7 +72,6 @@ export const FIXTURE_SERVED_COLLABORATION_OPERATION_IDS: readonly [
   "channelMute",
   "channelUnmute",
   "channelArchive",
-  "membershipRosterRead",
   "participantPresenceDetailRead",
   "terminalControlHolderRead",
 ] = [
@@ -81,7 +80,6 @@ export const FIXTURE_SERVED_COLLABORATION_OPERATION_IDS: readonly [
   "channelMute",
   "channelUnmute",
   "channelArchive",
-  "membershipRosterRead",
   "participantPresenceDetailRead",
   "terminalControlHolderRead",
 ];
@@ -91,29 +89,20 @@ export type FixtureServedCollaborationOperationId =
   (typeof FIXTURE_SERVED_COLLABORATION_OPERATION_IDS)[number];
 
 /**
- * How the membership roster read is keyed in a script.
- *
- * The one operation of the seven whose slate row declares NO expected wire method —
- * the corpus registers a membership identifier on four write-shaped replies and on no
- * read — so `bridge/scenario/wire-truth/reply-walk.ts` requires its reply to be keyed on the operation
- * id under the `growth:` prefix rather than on a method name nobody has registered.
- * Named here, where both the handler and the scenario that answers it can take it from
- * one place instead of spelling the prefix twice.
- */
-export const MEMBERSHIP_ROSTER_READ_CALL = "growth:membershipRosterRead";
-
-/**
  * How the terminal-control holder read is keyed in a script.
  *
- * The second of the two whose slate row declares no expected wire method, and for a
- * different reason: the holder is a MEMBER of the runtime-node roster reply rather
- * than a read of its own, so there is no method string to key on even though the
- * member itself is registered.
+ * The one operation here whose slate row declares NO expected wire method: the holder
+ * is a MEMBER of the runtime-node roster reply rather than a read of its own, so there
+ * is no method string to key on even though the member itself is registered, and
+ * `bridge/scenario/wire-truth/reply-walk.ts` requires its reply to be keyed on the
+ * operation id under the `growth:` prefix instead. Named here, where both the handler
+ * and the scenario that answers it can take it from one place instead of spelling the
+ * prefix twice.
  */
 export const TERMINAL_CONTROL_HOLDER_READ_CALL = "growth:terminalControlHolderRead";
 
 /**
- * The channel and membership answers for one running scenario.
+ * The channel and presence answers for one running scenario.
  *
  * The lifecycle is HANDED IN rather than built here, because the same instance answers
  * two doors: these four acts, and the `channel.list` fold that reads the membership each
@@ -146,13 +135,6 @@ export function fixtureCollaborationReads(
     // `channel-lifecycle.ts`'s, and it holds one identifier line across the
     // three, so they arrive here as an object rather than as three closures.
     ...channelLifecycle.operations(),
-    membershipRosterRead: async (request) =>
-      await answerSessionScopedRead(
-        engine,
-        MEMBERSHIP_ROSTER_READ_CALL,
-        "membershipRosterRead",
-        request,
-      ),
     participantPresenceDetailRead: async (request) =>
       await answerSessionScopedRead(
         engine,

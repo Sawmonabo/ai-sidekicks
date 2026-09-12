@@ -10,11 +10,11 @@ const QUEUED_ITEM: SidebarBulkItem = {
   label: "Draft the migration",
 };
 const SECOND_QUEUED_ITEM: SidebarBulkItem = { ...QUEUED_ITEM, itemId: "queue-2", label: "Rebase" };
-const INVITE: SidebarBulkItem = {
-  sectionId: "members",
-  act: "revoke-invite",
-  itemId: "invite-1",
-  label: "ada@example.test",
+const WORKTREE: SidebarBulkItem = {
+  sectionId: "repos",
+  act: "retire-worktree",
+  itemId: "worktree-1",
+  label: "implementer",
 };
 
 describe("the sidebar's bulk selection", () => {
@@ -22,22 +22,22 @@ describe("the sidebar's bulk selection", () => {
     const model = new BulkSelectionModel();
 
     model.toggle(QUEUED_ITEM);
-    model.toggle(INVITE);
+    model.toggle(WORKTREE);
 
     expect(model.snapshot.selectedItems).toHaveLength(2);
-    expect(model.selectedActs()).toStrictEqual(["cancel-queue-item", "revoke-invite"]);
+    expect(model.selectedActs()).toStrictEqual(["cancel-queue-item", "retire-worktree"]);
   });
 
   it("offers each act only the rows that admit it", () => {
     // The reason the selection is act-scoped rather than section-scoped: running the
-    // cancel over the invite would send a queue-cancel for an invite id.
+    // cancel over the worktree would send a queue-cancel for a worktree id.
     const model = new BulkSelectionModel();
     model.toggle(QUEUED_ITEM);
     model.toggle(SECOND_QUEUED_ITEM);
-    model.toggle(INVITE);
+    model.toggle(WORKTREE);
 
     expect(model.selectedFor("cancel-queue-item")).toStrictEqual([QUEUED_ITEM, SECOND_QUEUED_ITEM]);
-    expect(model.selectedFor("retire-worktree")).toStrictEqual([]);
+    expect(model.selectedFor("retire-worktree")).toStrictEqual([WORKTREE]);
   });
 
   it("keys a row on its section and its act, not on its id alone", () => {
@@ -107,7 +107,7 @@ describe("the sidebar's bulk selection", () => {
     const stop = model.subscribe((snapshot) => snapshots.push(snapshot.selectedItems.length));
 
     model.toggle(QUEUED_ITEM);
-    model.toggle(INVITE);
+    model.toggle(WORKTREE);
     stop();
     model.toggle(SECOND_QUEUED_ITEM);
 
