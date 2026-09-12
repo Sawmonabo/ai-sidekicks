@@ -846,7 +846,7 @@ describe("applyMigrations — idempotency", () => {
 // Test substrate choice — hand-rolled mock pool, not pg-mem or real PG:
 //
 //   The behavioral correctness of the service SQL (the `createSession`
-//   four-statement sequence, the join's two-statement sequence) is already
+//   four-statement sequence) is already
 //   proven in the PGlite path above. the load-bearing claim is the ADAPTER
 //   CONTRACT — that `transaction()` holds one connection across
 //   BEGIN/COMMIT and releases on every exit, that `query()`/`exec()` route
@@ -860,8 +860,8 @@ describe("applyMigrations — idempotency", () => {
 //   Assertions are routed through the same mock substrate: the service
 //   body runs against `createPgPoolQuerier(mockPool)`, and we assert the
 //   AC-load-bearing behavior at the service-response shape level (one
-//   session id, one membership, COMMIT issued before resolve, idempotent
-//   membership id on rejoin).
+//   session id, COMMIT issued before resolve, the same id on an idempotent
+//   re-create).
 //
 //   If a future PR needs deeper validation against a real Postgres — in
 //   particular the lock-ordering strengthening — that PR adds the

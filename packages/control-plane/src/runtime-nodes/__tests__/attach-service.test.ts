@@ -60,8 +60,7 @@
 // (a `25P02` aborted-transaction error or a wrong-exception) surfaces
 // immediately, before the happy-path tests.
 //
-// Harness: the PGlite-in-memory pattern from
-// `memberships/__tests__/membership-service.test.ts` / the migrations suites —
+// Harness: the PGlite-in-memory pattern the migrations suites use —
 // a fresh ephemeral PGlite instance per test, `applyMigrations` (v1 + v2 + v3)
 // for schema bootstrap, seeding via direct INSERTs, then exercising the service.
 // The PGlite->Querier adapter is a LOCAL copy (the dispatch contract forbids
@@ -170,8 +169,8 @@ function buildCapabilityUpdateRequest(
 }
 
 // ----------------------------------------------------------------------------
-// PGlite -> Querier adapter (local copy — mirrors membership-service.test.ts
-// `wrap` / migrations/__tests__/runtime-node-upstream-anchors.test.ts note (e)).
+// PGlite -> Querier adapter (local copy — mirrors
+// migrations/__tests__/runtime-node-upstream-anchors.test.ts note (e)).
 // ----------------------------------------------------------------------------
 //
 // PGlite#query expects `params` as `any[]` (mutable); the `Querier` interface
@@ -1143,9 +1142,9 @@ describe("AttachService — P7/P8 + detach (offline transition)", () => {
       state: "online",
     });
     await seedPresence(ctx.querier, { nodeId: NODE_ID, healthState: "online" });
-    // A membership row co-resident in the session.: an explicit detach (or offline) must
-    // NOT revoke this membership — the detach flow must touch ONLY
-    // runtime_node_attachments + runtime_node_presence.
+    // The session row itself: an explicit detach (or offline) must NOT touch it —
+    // the detach flow must touch ONLY runtime_node_attachments +
+    // runtime_node_presence.
 
     const sessionRowBefore = await readSessionRow(ctx.querier, SESSION_ID);
     expect(sessionRowBefore).toBeDefined();
@@ -1170,15 +1169,15 @@ describe("AttachService — P7/P8 + detach (offline transition)", () => {
     const presenceAfter = await readPresenceRow(ctx.querier, NODE_ID);
     expect(presenceAfter?.health_state).toBe("offline");
     // The heartbeat clock is untouched: detach's presence write flips ONLY
-    // health_state, never last_heartbeat_at (parallel to the membership
+    // health_state, never last_heartbeat_at (parallel to the session-row
     // byte-identity check below — makes readPresenceRow's timestamp column
     // load-bearing).
     expect(presenceAfter?.last_heartbeat_at).toBe(presenceBefore?.last_heartbeat_at);
 
-    // P8 /: the co-resident membership row is byte-for-byte unchanged AND the total
-    // membership count is unchanged — the two disjoint mutation modes (in-place UPDATE
+    // P8 /: the co-resident session row is byte-for-byte unchanged AND the total
+    // session count is unchanged — the two disjoint mutation modes (in-place UPDATE
     // vs stray INSERT/DELETE), mirroring the attach test. An offline/detached node
-    // retains its membership.
+    // leaves the session untouched.
     const sessionRowAfter = await readSessionRow(ctx.querier, SESSION_ID);
     expect(sessionRowAfter).toEqual(sessionRowBefore);
     expect(await countSessions(ctx.querier)).toBe(1);
@@ -1273,7 +1272,7 @@ describe("AttachService — P7/P8 + detach (offline transition)", () => {
 // updateCapabilities refreshes the `capabilities` JSONB snapshot (the discovery
 // roster) on the node's single active attachment and, when `healthChanges` is
 // present, applies the daemon-reported capability-health transition — writing
-// `runtime_node_attachments` ONLY (no presence, no membership, no durable
+// `runtime_node_attachments` ONLY (no presence, no session row, no durable
 // event).
 
 describe("AttachService — updateCapabilities (discovery-snapshot refresh)", () => {

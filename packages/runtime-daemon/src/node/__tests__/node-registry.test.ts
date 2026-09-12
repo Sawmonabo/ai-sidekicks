@@ -18,7 +18,7 @@
 //     type. (Session ownership lives in control-plane Postgres `sessions`, NOT
 //     in the daemon's Local SQLite schema — so the daemon registry is
 //     STRUCTURALLY incapable of mutating it: the table is absent here, asserted
-//     below. The end-to-end no-membership-mutation proof is a Phase-3
+//     below. The end-to-end no-ownership-mutation proof is a Phase-3
 //     control-plane concern; P7/P8.)
 //   * Atomicity, two arms — the `nextSequence` injection seam they used to ride
 //     is gone with re-point, so each drives a REAL failure of the real append
@@ -280,7 +280,7 @@ describe("NodeRegistry — registration does not mutate the session directory", 
 
     // The node is recorded: a trust row + a single timeline event whose type is
     // the audit-DISTINCT `runtime_node.registered` (the audit-trail clause:
-    // attach surfaces as its own event, never as a membership change).
+    // attach surfaces as its own event, never as an ownership change).
     expect(readTrustRows(ctx.db, NODE_ID)).toHaveLength(1);
     const events: ReadonlyArray<EventRow> = readEventRows(ctx.db, SESSION_ID);
     expect(events).toHaveLength(1);
@@ -561,7 +561,7 @@ describe("NodeRegistry — D4 (detach + reconnect under stable node identity)", 
     expect(payload["previousState"]).toBe("online");
     expect(payload["lastHeartbeatAt"]).toBe("2026-06-02T12:05:00.000Z");
 
-    // Detach does NOT revoke membership: the node_trust_state row is left INTACT,
+    // Detach does NOT revoke the registration: the node_trust_state row is left INTACT,
     // so lookup still resolves the node after detach (the untouched row is what
     // enables reconnect under the same identity).
     const afterDetach: NodeTrustStateRow | undefined = registry.lookup(NODE_ID);

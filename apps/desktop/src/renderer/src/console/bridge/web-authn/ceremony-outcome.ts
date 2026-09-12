@@ -107,8 +107,7 @@ export type WebAuthnCustody = (typeof WEB_AUTHN_CUSTODY_STATES)[number];
  * would admit an empty string as an identity.
  *
  * ONE MEMBER TODAY, AND THAT IS THE HONEST CLAIM SET RATHER THAN A STUB. The corpus
- * declares no user display name anywhere: `identityHandle` is supplied at
- * `session.join` and belongs to a MEMBERSHIP, so a ceremony that runs before any
+ * declares no user display name anywhere, so a ceremony that runs before any
  * session has none to carry. It is a named group rather than a bare member on the arm
  * because the spec names it as one and four surfaces thread it — so a claim the
  * relying party later adds lands here and at no call site.

@@ -75,7 +75,7 @@
 //
 // WHAT THIS IS NOT. It is not a queue: a second press is REFUSED by `claim`, audibly,
 // by the caller that asked, and SUPERSEDED by `supersedeAndClaim` — never held and
-// applied later. A membership change held and applied later is a second act nobody
+// applied later. A mute held and applied later is a second act nobody
 // re-confirmed, against a row whose state may have moved underneath it. It is not a
 // scheduler either — a burst collapsing into one read is `refresh-scheduler.ts`.
 

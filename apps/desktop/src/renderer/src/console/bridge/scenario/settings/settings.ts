@@ -49,7 +49,7 @@
 //
 // WHY THE NODE IDENTIFIERS ARE NOT UUIDs. `NodeIdSchema` is a bounded branded STRING
 // and not a UUID (`packages/contracts/src/node-id.ts`), unlike every session,
-// user, membership, and agent id in these scenarios. So the readable names
+// user, and agent id in these scenarios. So the readable names
 // below are what the strict layer actually accepts, and spelling them as UUIDs would
 // misreport the one identifier on this wire that is not one.
 //

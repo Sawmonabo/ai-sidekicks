@@ -6,7 +6,7 @@
 // given or cleared a goal here; beside it sit the surfaces a window has whether or
 // not a session is open —
 // the daemon's own status and control, onboarding, the shell's boolean settings,
-// the invite list, the health stream, the provider-session import a new session can
+// the health stream, the provider-session import a new session can
 // be seeded from, and whether this machine will display an OS notification at all.
 
 import type { NegotiationIncompatibleReason } from "@ai-sidekicks/contracts";

@@ -178,7 +178,7 @@ export type ArtifactVisibilityUpdateOutcome =
  *
  * A row the current list no longer holds is left out rather than re-added: the list is
  * what the list read answered, and putting a row back on the strength of a
- * single-artifact read would claim a session membership no list established.
+ * single-artifact read would claim a place in the list no list read established.
  */
 export function withReplacedRow(
   artifacts: ArtifactsPanelState,

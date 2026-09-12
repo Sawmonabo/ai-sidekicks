@@ -15,11 +15,11 @@ function dialog(isDisabled: boolean, onConfirm: () => void = () => undefined): R
   return (
     <ConfirmationDialog
       triggerLabel="Revoke"
-      triggerAriaLabel="Revoke the membership"
+      triggerAriaLabel="Revoke the grant"
       triggerClassName="planted-trigger"
       isDisabled={isDisabled}
-      title="Revoke this membership?"
-      description="The membership ends."
+      title="Revoke this grant?"
+      description="The grant ends."
       keepLabel="Keep it"
       confirmLabel="Revoke"
       tone="destructive"

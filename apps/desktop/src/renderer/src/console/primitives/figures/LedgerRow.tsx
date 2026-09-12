@@ -70,7 +70,7 @@ export function LedgerRow(props: LedgerRowProps): React.JSX.Element {
   // A MEMO RATHER THAN A FORMATTED STRING ON THE ROW MODEL, which is the other way to
   // pay once, because this component is a PRIMITIVE and the instant reaches it as a
   // prop from callers that share no model: the ledger feed builds its rows by folding
-  // admitted events, and the membership and invite ledgers build theirs from a wire
+  // admitted events, and the lease and run ledgers build theirs from a wire
   // read that no fold ever sees. Putting the string on one of those models would leave
   // the others formatting per paint, and putting it on all of them would be three
   // copies of one formatting rule. Keyed on the instant itself, which is the only

@@ -22,8 +22,8 @@
 // the originating channel as an additive-optional `channelId` on
 // `WorkflowRunStartRequest` — provenance and progress-surface binding only. The
 // composer already knows which channel it is addressed within, so the field is read off
-// that address and never composed here; the daemon validates the starter's membership
-// before it binds a surface, and this module neither pre-empts nor re-derives that.
+// that address and never composed here; the daemon validates the start before it binds
+// a surface, and this module neither pre-empts nor re-derives that.
 //
 // EVERY DAEMON REFUSAL IS CARRIED VERBATIM. `workflow.start_denied` is the one this
 // path exists to surface, and it reaches the composer as the port's own refusal with

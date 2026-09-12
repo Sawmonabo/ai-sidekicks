@@ -53,8 +53,8 @@
 //
 // STARTING A SESSION IS AN ACT, NEVER A SIDE EFFECT OF LOOKING AT THE LIST
 //
-// `session.create` and `session.join` are live now, and one pre-console
-// component already calls them — from its MOUNT EFFECT. Mounting that component
+// `session.create` is live now, and one pre-console
+// component already calls it — from its MOUNT EFFECT. Mounting that component
 // with the surface would mean every navigation to Settings and back created a
 // session, because the route lifecycle remounts the slot. A session is a durable
 // object with a cost; creating one is something a person does.

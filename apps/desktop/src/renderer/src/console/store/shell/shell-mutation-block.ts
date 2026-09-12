@@ -212,8 +212,9 @@ export function currentShellMutationBlock(frameStore: FrameStore): ShellMutation
  * Names the shell's own refusal, when it is the shell that ends an act.
  *
  * HERE RATHER THAN AT A DISPATCHER, and the move is the point: the string used to be
- * a `const` inside the invitation mint, so the second surface to abort on a block —
- * the ledger's ask answer — would have spelled `"shell"` again a family away, and the
+ * a `const` inside the first dispatcher that read a block, so the second surface to
+ * abort on one — the ledger's ask answer — would have spelled `"shell"` again a
+ * family away, and the
  * predicate below would then have been true of one producer's refusals and not the
  * other's. The subsystem that refused is the SUPERVISOR, whose condition this module
  * owns, so the origin belongs where the condition does.

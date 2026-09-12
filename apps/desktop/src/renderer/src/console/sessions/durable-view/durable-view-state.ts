@@ -2,7 +2,7 @@
 // the persistence chokepoint.
 //
 // The sessions destination has two of these — which sessions are pinned to the
-// front tier, and which invitations a person has set aside — and they are the same
+// front tier, and whether a new session pins itself on its first send — and they are the same
 // object with different contents: hold a value, hydrate it once from the durable
 // store, notify subscribers when it changes, write every change through
 // `UiStateStore`, and keep the last refusal so a surface can render it instead of
@@ -23,7 +23,7 @@
 // read: controls are offered, refusals are rendered.
 //
 // A LATE HYDRATION NEVER OVERWRITES A NEWER LOCAL ACT. The durable read is
-// asynchronous and a person can pin a session or set an invitation aside while it
+// asynchronous and a person can pin a session or flip that switch while it
 // is still in flight; `commit` installs immediately, so the record that then comes
 // back is older than what is on screen. The mutation generation is the ordering the
 // store itself supplies — `hydrate` captures it before its read and applies the
@@ -217,7 +217,7 @@ export class DurableViewState<TValue extends PersistedValue> {
    * THE SETTLEMENT EMITS WHEN THE REFUSAL CHANGES, IN EITHER DIRECTION. It emitted
    * only on the refused arm, so a write that RECOVERED cleared `#lastRefusal` and
    * told nobody: the pre-write emission happened while the old refusal was still
-   * present, and the pin list and the invitation shelf read this getter on a render
+   * present, and the pin list and the preference switch read this getter on a render
    * they had no reason to perform — so a failure a person had already fixed stayed
    * on screen until something unrelated re-rendered the surface.
    *

@@ -195,7 +195,7 @@ describe("T5 / session.read — end-to-end tRPC roundtrip via pglite", () => {
     expect(response.session.id).toBe(SESSION_ID);
     expect(response.session.state).toBe("provisioning");
     // `SessionSnapshot` carries id/state/config/metadata/timestamps; the
-    // membership list belongs to `SessionCreateResponse` (the create path
+    // owner binding belongs to `SessionCreateResponse` (the create path
     // surfaces the just-bound owner). Verifying config round-trip here
     // proves the snapshot persisted the create-time payload.
     expect(response.session.config).toEqual({ topic: "round-trip" });

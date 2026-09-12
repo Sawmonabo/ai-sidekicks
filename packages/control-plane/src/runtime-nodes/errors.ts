@@ -152,8 +152,8 @@ export class RuntimeNodeCapabilityUpdateConflictException extends AisWireExcepti
  *   - `VERSION_FLOOR_EXCEEDED` on write — neither requires structured details.
  *   - The strict `VersionBoundExceededDetails` schema in `@ai-sidekicks/contracts`
  *     (which the `VersionFloorExceededError` HTTP `ErrorResponse` sibling carries
- *     — canonically emitted by the control-plane peer-floor-validation surface,
- *     e.g. invite-acceptance validating a peer's client floor; see
+ *     — canonically emitted by the control-plane peer-floor-validation surface;
+ *     see
  *     `packages/contracts/src/error.ts` `version.floor_exceeded shape`) requires a
  *     TWO-sided `acceptedRange {min, max}` describing the receiver's accepted
  *     version range. The runtime-node session floor is ONE-sided
@@ -170,7 +170,7 @@ export class RuntimeNodeCapabilityUpdateConflictException extends AisWireExcepti
  * `version.floor_exceeded` is thus a SURFACE-POLYMORPHIC code: (1) on the
  * JSON-RPC daemon handshake it is a `DaemonHelloAck.reason` discriminator STRING
  * (no `details` payload on that surface); (2) on the control-plane
- * peer-floor-validation surface (invite-acceptance) it carries the strict
+ * peer-floor-validation surface it carries the strict
  * two-sided `VersionBoundExceededDetails` in an HTTP `ErrorResponse`; (3) on THIS
  * control-plane runtime-node write-refusal surface it is code+message-only. The
  * transport layer maps this exception to HTTP 409 / tRPC `CONFLICT`.

@@ -77,7 +77,7 @@ export function ProjectionBody(props: {
         kind="empty"
         placement="surface"
         title={NOTHING_NEEDS_YOU}
-        detail="Approvals, questions, finished runs, invitations, and mentions all appear here while they are unresolved."
+        detail="Approvals, questions, finished runs, and mentions all appear here while they are unresolved."
       />
     ) : (
       <>

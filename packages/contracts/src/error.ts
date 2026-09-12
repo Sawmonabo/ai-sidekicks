@@ -368,8 +368,8 @@ export const VersionBoundExceededDetailsSchema: z.ZodType<VersionBoundExceededDe
 //
 // Fired by the receiver when the source's `attemptedVersion` is below
 // the receiver's accepted floor (`details.acceptedRange.min`). The
-// canonical emit site lives (e.g. invite-acceptance validating a
-// peer's client floor).
+// canonical emit site is the control-plane surface that validates a
+// peer's declared client floor.
 
 export interface VersionFloorExceededError {
   code: VersionFloorExceededCode;

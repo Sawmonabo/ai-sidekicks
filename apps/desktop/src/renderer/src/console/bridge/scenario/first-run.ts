@@ -33,10 +33,10 @@ export const FIRST_RUN_SCENARIO: ConsoleScenario = {
     "A freshly installed console with no sessions, no agents, and no history — the state the empty-state design and the screenshot baseline are pinned against.",
   sessionId: SESSION_ID,
   userIdsInJoinOrder: [USER_YOU],
-  // The sole member, and this window is them. A fresh install has exactly one
+  // The one user, and this window is them. A fresh install has exactly one
   // user, so the identity is not in doubt — which is why it is stated: a
-  // first-run surface that could not resolve its own user would render the
-  // invite affordance as unavailable on the one screen whose whole job is to offer it.
+  // first-run surface that could not resolve its own user would render every act it
+  // owns as unavailable on the one screen whose whole job is to offer them.
   viewingUserId: USER_YOU,
   startedAtIso: "2026-01-01T09:00:00.000Z",
   beats: [

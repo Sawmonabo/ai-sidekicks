@@ -104,7 +104,7 @@ export interface DriverSubscribeEventsDeps {
 //
 // The filter below is what makes this a stream of DRIVER events rather than of
 // whatever the injected source happens to emit. Without it a source wired to a
-// session-wide event feed would push approvals, memberships, and audit rows onto
+// session-wide event feed would push approvals and audit rows onto
 // a subscription a client opened for one run's driver activity — and because
 // each of those parses cleanly against `SessionEventSchema`, nothing downstream
 // would notice.

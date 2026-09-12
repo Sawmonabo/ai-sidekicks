@@ -22,7 +22,7 @@ describe("normalizeWireRejection — the retry bound the wire registered", () =>
   it("reads seconds and a reset instant off a JSON-RPC fields payload", () => {
     const refusal = normalizeWireRejection("channels", {
       code: -32603,
-      message: "Too many invites.",
+      message: "Too many requests.",
       data: {
         type: "ratelimit.exceeded",
         fields: { retryAfter: 30, resetAt: "2026-09-01T12:00:30Z" },

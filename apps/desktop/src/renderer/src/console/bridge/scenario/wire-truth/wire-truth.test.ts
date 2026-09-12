@@ -1,4 +1,4 @@
-// The predicate's beat, queue and viewer legs, driven through the aggregate entry.
+// The predicate's beat, queue and caller legs, driven through the aggregate entry.
 //
 // A PER-LEG CONTROL. Each case drives the same imported predicate over a real scenario
 // with one deliberate defect, and never a local copy of the rule.
@@ -32,8 +32,8 @@ describe("scenario wire truth — the shipped seat board", () => {
 /** A queue row the queue-state cases below are about, spelled as its branded id declares. */
 const CONTROL_QUEUE_ITEM_ID = "019b79ee-0280-7c11-8110-d1a4c1159902";
 
-/** Someone the flagship joins, so a viewer case varies the viewer and nothing else. */
-const FLAGSHIP_MEMBER_ID = FLAGSHIP_SCENARIO.userIdsInJoinOrder[0] ?? "";
+/** Someone the flagship joins, so a caller case varies the caller and nothing else. */
+const FLAGSHIP_USER_ID = FLAGSHIP_SCENARIO.userIdsInJoinOrder[0] ?? "";
 
 /**
  * The flagship playing exactly ONE beat, built from its own opening beat.
@@ -212,16 +212,16 @@ describe("scenario wire truth — the state a queue beat says its row moved to",
   });
 });
 
-describe("scenario wire truth — the viewer a scenario answers its identity read with", () => {
-  it("reports a stated viewer who is not in the scenario's own roster", () => {
-    // A viewer outside the join order resolves to no user entry, so every
+describe("scenario wire truth — the caller a scenario answers its identity read with", () => {
+  it("reports a stated caller who is not in the scenario's own user list", () => {
+    // A caller outside the join order resolves to no user entry, so every
     // surface that attributes a row to this window silently attributes it to nobody —
     // a defect that renders as a session nobody is looking at rather than as anything
     // wrong.
     const defects = findScenarioWireTruthDefects([
       {
         ...FLAGSHIP_SCENARIO,
-        id: "names-a-viewer-it-never-joins",
+        id: "names-a-caller-it-never-joins",
         viewingUserId: STRANGER_USER_ID,
       },
     ]);
@@ -232,16 +232,16 @@ describe("scenario wire truth — the viewer a scenario answers its identity rea
     expect(defects.some((defect) => defect.reason.includes("userIdsInJoinOrder"))).toBe(true);
   });
 
-  it("accepts a stated viewer the scenario actually joins", () => {
+  it("accepts a stated caller the scenario actually joins", () => {
     // The other arm, so the case above is a join-order check rather than a blanket
-    // refusal of the field — which would make every scenario that states its viewer
+    // refusal of the field — which would make every scenario that states its caller
     // fail and read exactly the same here.
     expect(
       findScenarioWireTruthDefects([
         {
           ...FLAGSHIP_SCENARIO,
-          id: "names-a-viewer-it-joins",
-          viewingUserId: FLAGSHIP_MEMBER_ID,
+          id: "names-a-caller-it-joins",
+          viewingUserId: FLAGSHIP_USER_ID,
         },
       ]),
     ).toStrictEqual([]);

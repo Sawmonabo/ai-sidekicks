@@ -323,7 +323,7 @@ export type { GrowthSessionSummary } from "./growth-values/sessions.js";
 // narrowing an `unknown` it has no schema for.
 export type { GrowthImportProgress } from "./growth-values/sessions.js";
 // The attention projection's own vocabulary. Published because the notification
-// plane NARROWS against it: it used to declare a second copy of these six triggers
+// plane NARROWS against it: it used to declare a second copy of these five triggers
 // and two severities, which is two closed sets that agree until one of them is
 // widened and nothing notices.
 export {

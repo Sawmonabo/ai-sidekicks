@@ -66,9 +66,9 @@ const SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000e0001" as SessionI
 const USER_ID: UserId = "01970000-0000-7000-8000-0000000f0001" as UserId;
 
 // ----------------------------------------------------------------------------
-// PGlite -> Querier adapter (local copy — mirrors attach-service.test.ts `wrap`
-// / membership-service.test.ts; the dispatch contract forbids exporting a
-// shared test fixture from packages/control-plane).
+// PGlite -> Querier adapter (local copy — mirrors attach-service.test.ts `wrap`;
+// the dispatch contract forbids exporting a shared test fixture from
+// packages/control-plane).
 // ----------------------------------------------------------------------------
 
 function adaptPGlite(pg: PGlite): Querier {

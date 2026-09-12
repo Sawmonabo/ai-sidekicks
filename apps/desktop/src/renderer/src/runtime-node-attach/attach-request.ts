@@ -145,8 +145,8 @@ export const installedBridgeAttachReads: RuntimeNodeAttachReads = {
       );
     }
     // `CpProcedure` brand cast, tightened to the real types — the same
-    // single-documented-cast posture as the sibling `NodeRoster.tsx#readRoster` cast
-    // and the invite flow's `acceptInvite`. The bridge declares
+    // single-documented-cast posture as the sibling `NodeRoster.tsx#readRoster` cast.
+    // The bridge declares
     // `controlPlane.call<P extends CpProcedure>(procedure: P, input: CpInput<P>):
     // Promise<CpOutput<P>>` (desktop-bridge.ts:277) where `CpProcedure` is a
     // `never`-shaped brand in the shipped bridge (desktop-bridge.ts:99) — no literal is

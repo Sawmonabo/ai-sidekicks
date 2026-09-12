@@ -209,7 +209,7 @@ const approvalRecordSchema: z.ZodType<ApprovalRecord> = z
 export interface RememberedRule {
   readonly ruleId: string;
   readonly sessionId: string;
-  /** The GRANTOR. An audit and membership-invalidation key, never a match key. */
+  /** The GRANTOR. An audit key, never a match key. */
   readonly userId: string;
   readonly nodeId: string;
   /** Present exactly when the scope kind is `run`. */

@@ -15,11 +15,10 @@
 // moment it is issued; a settled receipt advances the order for the channel it names. A
 // reply from a read issued before that receipt cannot retire it and cannot render over
 // it — while it still fills every other row, which is why the position is per channel
-// rather than one flag over the whole reply. `invites/sent-invites-reading.ts` orders the
-// same collision the same way, one line up: there the receipt opens a round on the read
-// line itself, because that surface owns the read; here the directory read is a
-// push-driven model the list only receives answers from, so the ordering travels ON the
-// reply instead of aborting it.
+// rather than one flag over the whole reply. A surface that owns its own read orders the
+// same collision one line up, with the receipt opening a round on the read line itself;
+// here the directory read is a push-driven model the list only receives answers from, so
+// the ordering travels ON the reply instead of aborting it.
 //
 // AND THE SEQUENCE SOURCE IS THE CONSOLE'S OWN. `store/read/generation-latch.ts` is the
 // monotonic serial this repository already has, keyed by subject and key, and it is what

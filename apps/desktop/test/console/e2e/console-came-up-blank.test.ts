@@ -97,10 +97,9 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
       // is asynchronous and a bare count would race it into the `not-loaded` arm.
       //
       // Scoped to the list region rather than to the whole surface: the aside
-      // beside it puts two OTHER reads on screen — the invitations shelf and the
-      // attention panel — and each renders its own honest absence, so an unscoped
-      // exclusion would be asserting that those reads had answered rather than
-      // that this one had.
+      // beside it puts ANOTHER read on screen — the attention panel — which renders
+      // its own honest absence, so an unscoped exclusion would be asserting that
+      // that read had answered rather than that this one had.
       await consoleWindow.locator(".meridian-sessions__list .meridian-nothing--empty").waitFor({
         state: "visible",
         timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),

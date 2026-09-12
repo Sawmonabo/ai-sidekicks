@@ -44,7 +44,7 @@
 // values it streams: every delivered frame is parsed against `DriverEventSchema`
 // — the contracts-owned narrowing to the seven driver-event categories — so a
 // daemon that filtered wrongly ends the subscription loudly instead of handing a
-// driver-typed consumer an approval or membership row.
+// driver-typed consumer an approval or audit row.
 //
 // THE THREE READS TAKE NO ARGUMENT. `listCapabilities`, `listModels`, and
 // `listModes` are written no-arg here, matching the `DriverClient` signature
@@ -242,7 +242,7 @@ export interface DriverClient {
    * The value type is `DriverEvent`, not `SessionEvent` — the contracts-owned
    * union over the seven driver-event categories, which is the return type
    * ratifies. A caller therefore branches over driver arms only and never has
-   * to type-handle a membership, approval, or audit event on a driver stream.
+   * to type-handle an approval or audit event on a driver stream.
    * Note that no `run.*` arm appears in that union today: `run_lifecycle` is on
    * decision #4's category list, but no `run.*` payload variant is registered
    * with `SessionEventSchema` yet, and `DriverEvent` covers registered arms
@@ -358,7 +358,7 @@ export function createDaemonProviderClient(client: JsonRpcClient): DriverClient 
  * so in a correct pairing this schema never refuses anything. It earns its
  * place against an INCORRECT one: a daemon whose filter regressed, or a peer
  * running a version that widened the stream, otherwise hands this client an
- * approval or membership row that parses cleanly and reaches a consumer typed
+ * approval or audit row that parses cleanly and reaches a consumer typed
  * to expect neither. With the narrow schema that value fails per-value
  * validation and the subscription ends in a typed `JsonRpcSchemaError` on the
  * `value` phase, which is the loud failure the SDK boundary exists to give.

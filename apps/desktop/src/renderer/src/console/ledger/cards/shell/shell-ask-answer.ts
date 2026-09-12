@@ -35,7 +35,7 @@
 // render-captured guard reading `undefined` while the runtime has already stopped.
 //
 // A CLOSED CONTROL SETTLES AS A REFUSAL AND NOT AS SILENCE, through the same shape
-// the invitation mint's block takes: the shell's own words, minted by
+// every other blocked mutation takes: the shell's own words, minted by
 // `store/shell/shell-mutation-block.ts` so neither surface spells the origin. The
 // user's text is carried on it exactly as a wire refusal carries it, so the
 // draft survives and pressing again once the runtime is back IS the retry.

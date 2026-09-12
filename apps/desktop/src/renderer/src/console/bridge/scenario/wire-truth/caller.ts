@@ -1,4 +1,4 @@
-// The viewer a scenario states.
+// The caller identity a scenario states.
 //
 // One claim, and the defect it catches renders as nothing at all rather than as
 // anything wrong — which is why a predicate has to hold every scenario to it.
@@ -7,7 +7,7 @@ import type { ScenarioWireTruthDefect } from "./defect.js";
 import type { ConsoleScenario } from "../runtime/index.js";
 
 /**
- * A stated viewer who is not in the session, or `undefined` when the scenario is sound.
+ * A stated caller who is not in the session, or `undefined` when the scenario is sound.
  *
  * `viewingUserId` is what the caller-identity read answers with, and every
  * surface that attributes what it renders to this window resolves it by looking that
@@ -16,10 +16,10 @@ import type { ConsoleScenario } from "../runtime/index.js";
  * attributed to nobody — which is invisible in the fixture, because it looks exactly
  * like a session nobody is looking at.
  *
- * Scoped to scenarios that STATE one: an absent viewer is the deliberate state the
+ * Scoped to scenarios that STATE one: an absent caller is the deliberate state the
  * fixture refuses the caller-identity read from, not a defect.
  */
-export function describeViewerDefect(
+export function describeCallerDefect(
   scenario: ConsoleScenario,
 ): ScenarioWireTruthDefect | undefined {
   const { viewingUserId } = scenario;
@@ -33,7 +33,7 @@ export function describeViewerDefect(
     scenarioId: scenario.id,
     subject: `viewingUserId "${viewingUserId}"`,
     reason:
-      "the stated viewer is not in `userIdsInJoinOrder`, so no surface can " +
+      "the stated caller is not in `userIdsInJoinOrder`, so no surface can " +
       "resolve them in this session's own users. Name a user the " +
       "scenario actually joins, or leave the field absent and let the caller-identity " +
       "read refuse.",

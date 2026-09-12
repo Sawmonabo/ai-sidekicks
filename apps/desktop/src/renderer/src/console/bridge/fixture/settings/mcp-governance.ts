@@ -19,7 +19,7 @@
 // The operator page is an inventory and the controls on its rows, and none of it was
 // reachable: no `mcp.*` wire is bound anywhere, so the whole page could only ever be
 // drawn against one refusal. The read answers the EMPTY inventory for a scenario that
-// scripts nothing, on the invite ledger's rule — a node governing no MCP servers is an
+// scripts nothing, on the list reads' own rule — a node governing no MCP servers is an
 // ordinary node and the page draws that state with its add action, while "the inventory
 // could not be read" is what a release build renders and is a different sentence.
 //

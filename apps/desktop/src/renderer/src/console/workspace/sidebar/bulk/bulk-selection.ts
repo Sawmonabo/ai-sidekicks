@@ -7,7 +7,7 @@
 // holding this would be a component every section had to be a child of.
 //
 // SELECTION IS ACT-SCOPED, NOT SECTION-SCOPED. A person may select three queued items
-// and two invites at once, and the bar then offers two acts. What it never does is run
+// and two worktrees at once, and the bar then offers two acts. What it never does is run
 // one act over rows that do not admit it: every item names its own act, and the runner
 // takes only the rows whose act is the one being run.
 //

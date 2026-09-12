@@ -3,8 +3,7 @@
 // MOST FIGURES ON A CONSOLE SURFACE ARE AGES, and an age is only ever wrong by how
 // long ago the surface read. A DEADLINE is not: crossing it changes what the row
 // SAYS — a clone goes from "scheduled for disposal" to "past its disposal time, and
-// the snapshot refs may already be gone", an invite from live to expired, a lease
-// from held to lapsed. A surface rendering against the instant of its last read
+// the snapshot refs may already be gone", a lease from held to lapsed. A surface rendering against the instant of its last read
 // therefore keeps the pre-deadline sentence for as long as the window stays open,
 // which is exactly the state a person leaves a session in.
 //
@@ -59,7 +58,7 @@ import { useSubjectScopedState } from "./subject-scoped-state.js";
  * comment is indistinguishable from a call.
  *
  * A deadline more than about 24.8 days out is ordinary here — a clone scheduled for
- * disposal in two months, an invitation good for a quarter — so an unclamped delay
+ * disposal in two months, a lease held for a quarter — so an unclamped delay
  * would publish that far-future instant immediately and render every row in the list
  * past its deadline, permanently: with the instant beyond every threshold, nothing
  * is outstanding and nothing re-arms.

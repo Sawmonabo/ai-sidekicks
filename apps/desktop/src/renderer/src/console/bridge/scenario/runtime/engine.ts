@@ -57,7 +57,7 @@
 //
 // AND AN ADVANCE IS PUBLISHED EVEN WHEN NO BEAT IS DUE, which is the second thing a
 // subscriber may ask for. Beats reach `subscribe`; every other frame a scenario
-// schedules against its own tick — the deep link's pending invitations are the first
+// schedules against its own tick — the transport-outage windows are the first
 // — reaches `subscribeToAdvances`. Routing those through the beat emitter is not
 // available and would be wrong twice over: the beat emitter carries session events
 // and is silent on an advance that crosses no beat, so a frame whose tick fell in a

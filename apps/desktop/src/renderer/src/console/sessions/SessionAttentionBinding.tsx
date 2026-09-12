@@ -96,7 +96,7 @@ const SESSION_ATTENTION_ORIGIN = "session-attention-binding";
  * The five members are what the consumers between them need, and no more: the rail
  * counts the reading, this binding's own emitter raises what the delivery reading
  * permits, the destination renders the reading and its delivery arm and offers the
- * re-open, and both the list and the invitations fan-out are addressed by the same
+ * re-open, and both the list and the OS-notification fan-out are addressed by the same
  * session set this binding already merged to address its own read.
  */
 export interface SessionAttention {

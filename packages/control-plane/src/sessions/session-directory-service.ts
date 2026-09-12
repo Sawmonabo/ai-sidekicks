@@ -10,9 +10,8 @@
 //
 // Ownership model: a session has exactly one owner, recorded in
 // `sessions.owner_user_id` and bound at the first successful create. There is
-// no membership table and no role ladder — the owner is the user, and every
-// other actor on a session is one of that user's own devices or the system
-// itself.
+// no second role — the owner is the user, and every other actor on a session is
+// one of that user's own devices or the system itself.
 //
 // What this service does NOT do:
 //   * Session-event payload storage — the shared Postgres store holds

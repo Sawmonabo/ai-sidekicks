@@ -332,13 +332,13 @@ describe("ScenarioEngine — the computed-reply ordinal", () => {
     const engine = new ScenarioEngine({ scenario: scenarioWithBeatsDueAt([]) });
 
     const minted = [
-      engine.nextComputedReplyOrdinal("invite.create"),
-      engine.nextComputedReplyOrdinal("invite.create"),
-      engine.nextComputedReplyOrdinal("invite.create"),
+      engine.nextComputedReplyOrdinal("channel.create"),
+      engine.nextComputedReplyOrdinal("channel.create"),
+      engine.nextComputedReplyOrdinal("channel.create"),
     ];
 
     expect(minted).toStrictEqual([1, 2, 3]);
-    expect(engine.nextComputedReplyOrdinal("invite.revoke")).toBe(1);
+    expect(engine.nextComputedReplyOrdinal("channel.archive")).toBe(1);
   });
 
   it("negative control: the frozen clock cannot stand in for it", () => {
@@ -350,9 +350,9 @@ describe("ScenarioEngine — the computed-reply ordinal", () => {
     const engine = new ScenarioEngine({ scenario: scenarioWithBeatsDueAt([]) });
 
     const firstInstant = engine.clock.now();
-    const firstOrdinal = engine.nextComputedReplyOrdinal("invite.create");
+    const firstOrdinal = engine.nextComputedReplyOrdinal("channel.create");
     const secondInstant = engine.clock.now();
-    const secondOrdinal = engine.nextComputedReplyOrdinal("invite.create");
+    const secondOrdinal = engine.nextComputedReplyOrdinal("channel.create");
 
     expect(secondInstant).toBe(firstInstant);
     expect(secondOrdinal).not.toBe(firstOrdinal);

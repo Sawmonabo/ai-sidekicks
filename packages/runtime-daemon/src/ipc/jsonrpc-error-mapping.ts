@@ -162,7 +162,7 @@ function mapFramingErrorCode(code: string): JsonRpcErrorCodeValue {
  * distinct from `resource.limit_exceeded` (quota-enforcement code, HTTP
  * 429): a wire frame exceeding the 1MB body cap is a TRANSPORT failure (peer
  * is mis-using the framing layer) — it is NOT a domain-level resource limit
- * (which describes sessions / runs / invites being created at a rate above
+ * (which describes sessions / runs being created at a rate above
  * `ResourceLimitExceededDetailsSchema`'s `{resource, limit, current}`
  * contract). Conflating them violates strict-schema invariant and makes
  * 413-semantic peer mis-framing indistinguishable from 429- semantic quota

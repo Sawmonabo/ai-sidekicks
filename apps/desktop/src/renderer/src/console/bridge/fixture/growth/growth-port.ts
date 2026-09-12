@@ -18,7 +18,7 @@
 // `attention-derivation.ts` folds beats into an attention projection,
 // `workflows/workflow-scope.ts` derives which workflow subjects a script can answer for,
 // `workflows/workflow-reads.ts` holds the workflow answers and the reasoning that governs
-// them, `session/channel-reads.ts` the channel and membership answers,
+// them, `session/channel-reads.ts` the channel answers,
 // `settings/diagnostics-reads.ts` the five the settings page's diagnostics regions
 // are built on, `settings/provider-account-writes.ts` the three verbs of the sign-in
 // handoff, `settings/mcp-governance.ts` the inventory read and the two mutations that
@@ -104,8 +104,8 @@ export function createFixtureGrowthPort(
     // and the shell channel are both minted per port inside those calls, so a step
     // recorded — or a control pressed — in this window reaches no other.
     ...fixtureWorkflowReads(engine),
-    // Every channel and membership answer is script-only: the reasoning for each
-    // refusal lives in that module.
+    // Every channel answer is script-only: the reasoning for each refusal lives in
+    // that module.
     ...fixtureChannelReads(engine, channelLifecycle),
     ...fixtureOnboardingAnswers(engine),
     ...fixtureShellAnswers(engine),

@@ -3,7 +3,7 @@
 // OWNER. The attention plane owns this wire: `AttentionProjectionRead` exposes
 // current actionable and informational attention state at both run and session
 // scope. The typed request and reply shapes are registered in the payload
-// contracts, and the six triggers and two severities below are transcribed from
+// contracts, and the five triggers and two severities below are transcribed from
 // the `AttentionItem` union there rather than re-derived from prose — that union is
 // what
 // `packages/contracts/src/attention/` will carry.

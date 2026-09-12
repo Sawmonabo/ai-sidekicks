@@ -191,8 +191,8 @@ export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
 export { SCENARIO_FIXTURE_GLOBAL, SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "./fixture-globals.js";
 // The millisecond unit factors, beside the reading that makes the millisecond this
 // console's unit. Through the door because a duration is composed and compared above
-// every family: the presence model, the deadline wake and the invite shelf each wrote
-// their own chain of them before this.
+// every family: the presence model and the deadline wake each wrote their own chain
+// of them before this.
 //
 // Each claim below is the set of tasks whose branch carries a PRODUCTION module that
 // will rebind through this door — measured over the six family tips, not inferred

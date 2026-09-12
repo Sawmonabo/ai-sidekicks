@@ -6,8 +6,7 @@
 //
 // THE DEFECT THESE CASES EXIST FOR. A served create emptied the form unconditionally, and
 // a create is a round trip whose length this console does not decide. The fields stay
-// live for it — the sibling create-invite form leaves its controls live while a mint is
-// in flight, and a text box that went dead mid-trip would drop keystrokes a person had
+// live for it — a text box that went dead mid-trip would drop keystrokes a person had
 // already committed — so everything typed while one was out was thrown away the moment
 // the receipt landed, with the receipt on screen as the explanation.
 

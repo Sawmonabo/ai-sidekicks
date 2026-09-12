@@ -95,7 +95,7 @@ describe("AttachFlow — the request it sends and how it settles", () => {
       clickAttach();
 
       // The count is asserted only AFTER the attach settles. The violation this
-      // forbids — a coupled membership mutation — would most plausibly be
+      // forbids — a coupled ownership mutation — would most plausibly be
       // chained off attach success, so a count taken while the promise is
       // still pending would be blind to exactly the shape it exists to catch.
       await screen.findByLabelText("runtime-node-attach-resolved");

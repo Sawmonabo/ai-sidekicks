@@ -77,8 +77,8 @@ export interface ChannelRow {
   /**
    * True for the session's bootstrap channel.
    *
-   * The main channel has no row of its own — the channel-list projection composes
-   * it from the session's own membership count — so the console recognises it by
+   * The main channel has no row of its own — the channel-list projection synthesizes
+   * it from the session's own row — so the console recognises it by
    * the one thing the wire carries: `MAIN_CHANNEL_NAME`, imported from the
    * contracts package that the projection itself emits under, so both sides of the
    * seam move together. Recognising it by position would make the ordering rule

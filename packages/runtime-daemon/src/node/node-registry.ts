@@ -9,14 +9,14 @@
 //
 // `detach` emits `runtime_node.offline` (`reason: "explicit_shutdown"`) and
 // LEAVES the `node_trust_state` row INTACT — the untouched row is what lets the
-// node reconnect under the same `node_id` (detach does not revoke membership).
+// node reconnect under the same `node_id` (detach does not revoke the registration).
 // It is an emit-only path (no durable write, no transaction); the full
 // rationale lives on the method below.
 //
 // Dual-write with single-transaction atomicity
 // --------------------------------------------------------------------------
 // `node_trust_state` is the durable node-keyed state; the parallel
-// `runtime_node.registered` row in `session_events` is the collaboration
+// `runtime_node.registered` row in `session_events` is the session
 // TIMELINE. Every `register` is therefore a DUAL-WRITE: upsert the node-keyed
 // table AND emit the session-scoped event. Both writes target the same local
 // SQLite handle and commit in ONE transaction. A non-atomic dual-write would
@@ -304,8 +304,8 @@ export class NodeRegistry {
   /**
    * Emits `runtime_node.offline` for the explicit-shutdown trigger and LEAVES THE
    * `node_trust_state` REGISTRATION ROW INTACT, so the node can reconnect under the
-   * same `node_id` (a disconnected node keeps membership — node identity stable across
-   * reconnect). This is guarantee that detach does not revoke membership.
+   * same `node_id` (a disconnected node keeps its registration — node identity stable
+   * across reconnect). This is the guarantee that detach does not revoke it.
    *
    * LEAVE-INTACT (no durable write, no transaction): `detach` does NOT
    * update/delete/insert `node_trust_state` — it is `emitOffline` ONLY. The

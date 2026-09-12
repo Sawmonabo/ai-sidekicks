@@ -73,8 +73,8 @@ export interface ProviderReadinessStepProps {
    *
    * A LOCAL EXIT AND NEVER A RECORDED SKIP. This group persists nothing — no config
    * key, no partial-state entry, no keystore entry, and no event — so leaving the step
-   * tells the daemon nothing: this handler closes the walkthrough and writes nowhere,
-   * on the invitation shelf's **Not now** precedent. It used to dispatch
+   * tells the daemon nothing: this handler closes the walkthrough and writes nowhere.
+   * It used to dispatch
    * `onboarding.stepSkip`, which recorded the provider step in the daemon's own
    * completed set — a second record of a step whose truth lives in the account
    * registry, and one that stayed true after every account was signed out.

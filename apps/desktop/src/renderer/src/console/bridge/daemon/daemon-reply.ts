@@ -30,7 +30,7 @@
 //
 // NO REFUSED VALUE EVER REACHES THE DETAIL SENTENCE. A schema failure knows exactly
 // what it rejected, and what it rejected can be a user's message, a repo
-// path, or an invite token. A refused value never reaches a refusal's detail, so
+// path, or a credential. A refused value never reaches a refusal's detail, so
 // this module composes
 // its own sentence from the METHOD and, at most, the member PATHS that failed —
 // structural names the wire itself publishes. It never renders the validator's

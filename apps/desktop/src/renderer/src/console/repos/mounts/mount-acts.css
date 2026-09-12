@@ -141,7 +141,7 @@
   gap: var(--meridian-space-1);
 }
 
-/* The three popups share one geometry: the members dialog's, which this follows. */
+/* The four popups share one geometry, declared once here. */
 .meridian-repo-attach__backdrop,
 .meridian-bind__backdrop,
 .meridian-reattach__backdrop,

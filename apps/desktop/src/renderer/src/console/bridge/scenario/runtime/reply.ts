@@ -99,15 +99,15 @@ export interface ScenarioRejectingReply extends ScenarioReplyBase {
  * AND IT IS HANDED THE INSTANT IT SETTLES AT, which is what lets a room answer a read
  * about a lifetime. A ledger row that expires forty seconds in was a fixed `pending`
  * for the life of the window: every re-read past the expiry answered the state the
- * scenario had at tick zero, so the one thing that room was written to show — an
- * invitation ageing out — was unreachable from it. The instant comes off the engine's
+ * scenario had at tick zero, so the one thing that room was written to show — a row
+ * ageing out — was unreachable from it. The instant comes off the engine's
  * own frozen clock, so it is the SAME timeline the beats are due on rather than a
  * second one a reply could drift from, and a computation that ignores it settles
  * exactly where it always did.
  *
  * AND THE ORDINAL OF THIS ANSWER, which is what lets a room MINT. A reply that
  * answered a create call with one fixed receipt handed the same identity to every
- * caller: the second invitation a person sent arrived under the first one's id, so a
+ * caller: the second row a person minted arrived under the first one's id, so a
  * keyed ledger held two rows under one key, a list drew duplicate keys, and revoking
  * either moved both. The instant beside it cannot carry that — two calls parked on the
  * frozen clock together are released by one advance and read the same tick — so the

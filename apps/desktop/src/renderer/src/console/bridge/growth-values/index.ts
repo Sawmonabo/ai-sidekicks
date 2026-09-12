@@ -143,7 +143,7 @@ export type {
 // identities.
 export { mcpBindingKeyOf } from "./mcp.js";
 
-// What the channel plane's and the membership plane's SIGNATURES take, and nothing
+// What the channel plane's SIGNATURES take, and nothing
 // else. Every one of these is a shape no code package carries, which is what puts them
 // here rather than behind a contracts import.
 //

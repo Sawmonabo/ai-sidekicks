@@ -77,8 +77,7 @@ export interface WorkflowStartMenuProps {
    * The originating channel, where this composer is addressed at one.
    *
    * Provenance only, and never typed by anybody: the composer reads it off the address
-   * it already holds, and the daemon validates the starter's membership before it binds
-   * a surface.
+   * it already holds, and the daemon validates the start before it binds a surface.
    */
   readonly channelId: string | undefined;
 }

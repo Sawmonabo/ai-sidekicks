@@ -5,9 +5,8 @@ import { OverlayAlertDialogPopup } from "../primitives/index.js";
 /**
  * Archiving, and what it costs, stated before it happens.
  *
- * An alert dialog rather than a button that fires on press, on the membership
- * ledger's precedent and for its reason: archival is the one lifecycle move the
- * opposite control does not undo. A muted channel unmutes; an archived one is
+ * An alert dialog rather than a button that fires on press: archival is the one
+ * lifecycle move the opposite control does not undo. A muted channel unmutes; an archived one is
  * terminal, sinks below the live rows, and offers nothing afterwards — so it is
  * confirmed once, with the consequence in the sentence a person is agreeing to.
  *

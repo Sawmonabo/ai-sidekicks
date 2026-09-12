@@ -45,7 +45,7 @@ import { settleScriptedReply, type ScenarioEngine } from "../../scenario/runtime
  *   • **Unscripted** is the CALLER's to answer, and its answer is an outcome rather
  *     than a value — because the honest reading differs per operation and neither
  *     arm may be forced on the other. The list reads' is a served EMPTY state: a
- *     session with no invites and a node with no saved sidekick definitions are
+ *     session with no channels and a node with no saved sidekick definitions are
  *     ordinary, and a surface has to draw them. The approvals reads', the branch
  *     read's, and every workflow read's is a refusal: a scenario that models no
  *     approvals has left the question unasked, the registered branch-context reply is

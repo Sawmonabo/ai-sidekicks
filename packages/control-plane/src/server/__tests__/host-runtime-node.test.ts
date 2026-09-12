@@ -65,7 +65,7 @@ const CURRENT_USER_ID: UserId = "01970000-0000-7000-8000-0000000f0001" as UserId
 const NEXT_SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000e0001" as SessionId;
 
 // Ids for the errorFormatter-projection dispatches (the attach / capabilityupdate
-// / join refusals seed real attachment + membership rows). `SESSION_ID` reuses
+// refusals seed real attachment rows). `SESSION_ID` reuses
 // `NEXT_SESSION_ID`; `NODE_ID` is a daemon-minted opaque TEXT scalar (not a UUID).
 const SESSION_ID: SessionId = NEXT_SESSION_ID;
 const USER_ID: UserId = CURRENT_USER_ID;

@@ -496,9 +496,9 @@ afterEach(async () => {
 
 describe("I1 / — live attach leaves session identity unchanged", () => {
   it("control-plane transport: a joined user attaches a node; the sessions row is byte-identical and no second session is materialized", async () => {
-    // Seed the already-active session (NULL floor), the user, and an
-    // active membership (the "has joined a live session" precondition). Direct
-    // INSERTs — the SDK has no session-create surface.
+    // Seed the already-active session (NULL floor) and its owner — the "a live
+    // session exists" precondition. Direct INSERTs — the SDK has no session-create
+    // surface.
     await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
 
@@ -575,9 +575,8 @@ describe("I1 / — live attach leaves session identity unchanged", () => {
 
 describe("I2 / — degraded node remains distinguishable", () => {
   it("control-plane transport: a capability-degraded node stays visible and distinguishable from a healthy online node in the same session", async () => {
-    // Seed the live session (NULL floor — version gating is the axis, not
-    // I2's), the user, and an active membership. Direct INSERTs — the
-    // SDK has no session-create surface.
+    // Seed the live session (NULL floor — version gating is the axis here) and
+    // its owner. Direct INSERTs — the SDK has no session-create surface.
     await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID);
 
@@ -1019,8 +1018,7 @@ describe("Roster read / — the control-plane roster query projects both axes pe
     // (1) Seed TWO live sessions: the floored subject session (floor =
     // CLIENT_VERSION "1.4", the I3 boundary shape) and a NULL-floor second
     // session that exists purely as the isolation foil. Direct INSERTs, as in
-    // I1-I3; memberships seeded for scenario faithfulness (the attach path
-    // never reads them).
+    // I1-I3.
     await seedUser(ctx.querier, USER_ID);
     await seedSession(ctx.querier, SESSION_ID, CLIENT_VERSION);
     await seedSession(ctx.querier, OTHER_SESSION_ID);
@@ -1219,8 +1217,7 @@ describe("Roster read / — the control-plane roster query projects both axes pe
 
     // Malformed on the ONLY field: not a UUID, so the `SessionIdSchema`
     // member of `RuntimeNodeRosterRequestSchema` rejects. The cast is the
-    // malformed-fixture idiom (the membership fail-fast leg) — the runtime
-    // parse is the subject under test. Capture-once `.then()`, as in I3.
+    // malformed-fixture idiom — the runtime parse is the subject under test. Capture-once `.then()`, as in I3.
     const rejection = await sdk.roster({ sessionId: "not-a-uuid" as SessionId }).then(
       () => {
         throw new Error("expected the malformed roster request to be rejected");
@@ -1230,7 +1227,7 @@ describe("Roster read / — the control-plane roster query projects both axes pe
 
     // The control-plane factory parses via `Schema.parse` directly, so the
     // RAW `ZodError` surfaces (contrast the daemon path, where `client.call`
-    // wraps the issues in `JsonRpcSchemaError` — the membership fail-fast
+    // wraps the issues in `JsonRpcSchemaError` — the daemon-path fail-fast
     // leg pins that wrapping).
     expect(rejection).toBeInstanceOf(ZodError);
     expect(fetcher).not.toHaveBeenCalled();
