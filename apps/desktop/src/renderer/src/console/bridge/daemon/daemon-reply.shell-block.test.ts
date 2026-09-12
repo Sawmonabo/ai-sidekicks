@@ -126,7 +126,7 @@ describe("callDaemon — a record is refused at the door while the shell is not 
 
 describe("callDaemon — a read stays live through every shell condition", () => {
   it("serves a read while the shell is stopped", async () => {
-    const { bridge, calls } = bridgeAnswering(async () => ({ participants: [] }));
+    const { bridge, calls } = bridgeAnswering(async () => ({ devices: [] }));
     windowReporting(bridge, { kind: "stopped" });
 
     const reply = await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID });
@@ -137,7 +137,7 @@ describe("callDaemon — a read stays live through every shell condition", () =>
 
   it("puts a read on the transport under every reported condition", async () => {
     for (const connection of REPORTED_CONNECTIONS) {
-      const { bridge, calls } = bridgeAnswering(async () => ({ participants: [] }));
+      const { bridge, calls } = bridgeAnswering(async () => ({ devices: [] }));
       windowReporting(bridge, connection);
 
       const reply = await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID });

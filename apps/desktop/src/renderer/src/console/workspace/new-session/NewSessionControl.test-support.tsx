@@ -64,12 +64,10 @@ export function blockedActSaying(sentence: string): NewSessionBlockedAct {
 export const CREATE_REPLY: {
   readonly sessionId: string;
   readonly state: string;
-  readonly memberships: readonly never[];
   readonly channels: readonly never[];
 } = {
   sessionId: CREATED_SESSION_ID,
   state: "active",
-  memberships: [],
   channels: [],
 };
 
@@ -171,7 +169,7 @@ export function renderControl(options: { readonly scriptsCreate: boolean }): HTM
 /**
  * A bridge whose `session.create` fulfils with a reply the registered schema refuses.
  *
- * Short of `state`, `memberships` and `channels`, so the call door answers
+ * Short of `state` and `channels`, so the call door answers
  * `reply-unreadable` — the daemon was reached, ran, and answered, and only this
  * build's reading of what it said failed. That is the state a session may exist in
  * with no name this window holds.

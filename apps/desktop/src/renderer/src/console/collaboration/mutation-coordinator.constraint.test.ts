@@ -59,7 +59,6 @@ const ADMITTED_METHODS = [
   "repo.ephemeralCloneDispose",
   "repo.worktreeRetire",
   "session.create",
-  "session.join",
   "providerAccount.probe",
 ] as const satisfies readonly CollaborationMutationMethod[];
 

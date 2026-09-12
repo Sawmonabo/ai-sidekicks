@@ -31,10 +31,6 @@ describe("the mutating method set", () => {
     // the call door refuses on. This literal is the render side's copy, because
     // `store/` sits below `bridge/` on the console DAG and cannot import it; the two
     // are held equal in both directions by that registry's own suite.
-    //
-    // `session.join` is a durable act the daemon PROXIES to the control plane, which
-    // is why the reply registry binds it as a record: a durable act is no less durable
-    // for having been forwarded.
     expect([...MUTATING_DAEMON_METHODS]).toEqual([
       "run.queueCreate",
       "run.queueCancel",
@@ -52,7 +48,6 @@ describe("the mutating method set", () => {
       "repo.ephemeralCloneDispose",
       "repo.worktreeRetire",
       "session.create",
-      "session.join",
       "providerAccount.probe",
     ]);
   });
@@ -144,23 +139,21 @@ describe("shellBlockForMethod", () => {
     expect(shellBlockForMethod(offline, "driver.subscribeEvents")).toBeUndefined();
   });
 
-  it("closes the roster act the daemon proxies, and only while it is closed", () => {
-    // NAMED RATHER THAN LEFT TO THE LOOP ABOVE, because this is the act the daemon
-    // only forwards, and the session surfaces disable their controls from exactly this
-    // seam. A regression that dropped it from the tuple would leave the loop above
-    // passing over a smaller set and say nothing at all.
+  it("closes the session mint, and only while it is closed", () => {
+    // NAMED RATHER THAN LEFT TO THE LOOP ABOVE, because the sessions surface disables
+    // its own control from exactly this seam. A regression that dropped the verb from
+    // the tuple would leave the loop above passing over a smaller set and say nothing
+    // at all.
     const offline = stateWith({ kind: "offline", attemptLimit: 5, lastError: undefined });
     const stopped = stateWith({ kind: "stopped" });
     const connected = stateWith({ kind: "connected" });
 
-    for (const method of ["session.join"]) {
-      expect(shellBlockForMethod(offline, method)?.code, method).toBe("shell-offline");
-      expect(shellBlockForMethod(stopped, method)?.code, method).toBe("shell-stopped");
-      // ADMITTED OTHERWISE, which is the half a blanket block would also satisfy: a
-      // console that closed these controls whatever the shell said would pass every
-      // assertion above.
-      expect(shellBlockForMethod(connected, method), method).toBeUndefined();
-      expect(shellBlockForMethod(UNREPORTED_SHELL_STATE, method), method).toBeUndefined();
-    }
+    expect(shellBlockForMethod(offline, "session.create")?.code).toBe("shell-offline");
+    expect(shellBlockForMethod(stopped, "session.create")?.code).toBe("shell-stopped");
+    // ADMITTED OTHERWISE, which is the half a blanket block would also satisfy: a
+    // console that closed this control whatever the shell said would pass every
+    // assertion above.
+    expect(shellBlockForMethod(connected, "session.create")).toBeUndefined();
+    expect(shellBlockForMethod(UNREPORTED_SHELL_STATE, "session.create")).toBeUndefined();
   });
 });

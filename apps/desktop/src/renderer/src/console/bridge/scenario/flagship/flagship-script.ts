@@ -16,7 +16,6 @@ import {
   AGENT_REVIEWER,
   AGENT_SCOUT,
   FLAGSHIP_AGENTS,
-  MEMBERSHIP_PRIYA,
   PARTICIPANT_PRIYA,
   PARTICIPANT_YOU,
   RUN_ARCHITECT,
@@ -43,9 +42,6 @@ export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
   ...ledgerOpeningEntries({
     sessionId: SESSION_ID,
     openedBy: PARTICIPANT_YOU,
-    joinedBy: PARTICIPANT_PRIYA,
-    membershipId: MEMBERSHIP_PRIYA,
-    joinedAtMs: 50,
     cast: FLAGSHIP_AGENTS,
   }),
   lane.transition(RUN_IMPLEMENTER, {

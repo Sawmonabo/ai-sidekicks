@@ -53,7 +53,6 @@ const SESSION_ID = `${ENDURANCE_ID_PREFIX}-75e5-8510-ada11a5a47a5`;
 const EVENT_ID_STEM = `${ENDURANCE_ID_PREFIX}-7ea1-8110-e5e0d115`;
 const PARTICIPANT_YOU = `${ENDURANCE_ID_PREFIX}-79a4-8110-cca0117a0490`;
 const PARTICIPANT_PRIYA = `${ENDURANCE_ID_PREFIX}-79a4-8120-cca0117a04a0`;
-const MEMBERSHIP_PRIYA = `${ENDURANCE_ID_PREFIX}-7e3b-8110-cca0117a04b0`;
 /**
  * The base instant, minted from its fields rather than read back out of a string.
  *
@@ -94,7 +93,7 @@ const ENDURANCE_AGENTS = [
 ] as const;
 
 /** The opening beats every generated session shares: the room, then the cast. */
-const OPENING_BEAT_COUNT = 2 + ENDURANCE_AGENTS.length;
+const OPENING_BEAT_COUNT = 1 + ENDURANCE_AGENTS.length;
 
 /** Beats one run spends on its own lifecycle: queued, starting, running, completed. */
 const RUN_LIFECYCLE_BEAT_COUNT = 4;
@@ -151,12 +150,11 @@ export function createLedgerEnduranceScenario(
     ...ledgerOpeningEntries({
       sessionId: SESSION_ID,
       openedBy: PARTICIPANT_YOU,
-      joinedBy: PARTICIPANT_PRIYA,
-      membershipId: MEMBERSHIP_PRIYA,
-      joinedAtMs: ENDURANCE_BEAT_INTERVAL_MS,
       cast: ENDURANCE_AGENTS.map((agent, agentIndex) => ({
         ...agent,
-        attachedAtMs: (2 + agentIndex) * ENDURANCE_BEAT_INTERVAL_MS,
+        // One beat precedes the cast — the room itself — so the first agent lands on
+        // the tick after it and the walk below picks up where these leave off.
+        attachedAtMs: (1 + agentIndex) * ENDURANCE_BEAT_INTERVAL_MS,
       })),
     }),
   );

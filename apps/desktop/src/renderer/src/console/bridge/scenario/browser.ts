@@ -53,11 +53,9 @@
 // growth port's refusal today, which is what the ingest trio returns.
 
 import {
-  MembershipIdSchema,
   ParticipantIdSchema,
   RunIdSchema,
   SessionIdSchema,
-  type MembershipId,
   type ParticipantId,
   type RunId,
   type SessionId,
@@ -102,9 +100,6 @@ const SESSION_ID: SessionId = SessionIdSchema.parse("019b7b20-0280-75e5-8510-ada
 
 const HUMAN_PARTICIPANT_ID: ParticipantId = ParticipantIdSchema.parse(
   "019b7b20-0280-79a4-8110-cca0117a0120",
-);
-const HUMAN_MEMBERSHIP_ID: MembershipId = MembershipIdSchema.parse(
-  "019b7b20-0280-7e3b-8110-cca0117a0121",
 );
 const AGENT_PARTICIPANT_ID: ParticipantId = ParticipantIdSchema.parse(
   "019b7b20-0280-7a6e-8100-d1a4c1150022",
@@ -180,34 +175,11 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
       },
     },
     {
-      atMs: 80,
-      event: {
-        id: "019b7b20-0280-7ea1-8110-e5e0d1150003",
-        sessionId: SESSION_ID,
-        sequence: 3,
-        // The canonical first-joined event. `participant.joined` is not a
-        // registered type — the `participant.*` family covers device reset,
-        // export, and purge — so a fixture scripting it would be scripting a
-        // string no consumer will ever receive.
-        kind: "membership.created",
-        occurredAt: "2026-01-01T11:05:00.080Z",
-        actorId: HUMAN_PARTICIPANT_ID,
-        // The registered membership shape: the membership row's own id, the
-        // participant, the role from the closed role vocabulary, and the handle.
-        payload: {
-          membershipId: HUMAN_MEMBERSHIP_ID,
-          participantId: HUMAN_PARTICIPANT_ID,
-          role: "owner",
-          identityHandle: "sawyer",
-        },
-      },
-    },
-    {
       atMs: 160,
       event: {
         id: "019b7b20-0280-7ea1-8110-e5e0d1150004",
         sessionId: SESSION_ID,
-        sequence: 4,
+        sequence: 3,
         kind: "agent.attached",
         occurredAt: "2026-01-01T11:05:00.160Z",
         // The person who attached the agent, not the agent: an agent does not
@@ -233,7 +205,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
       event: {
         id: "019b7b20-0280-7ea1-8110-e5e0d1150005",
         sessionId: SESSION_ID,
-        sequence: 5,
+        sequence: 4,
         kind: "run.queued",
         occurredAt: "2026-01-01T11:05:00.240Z",
         actorId: AGENT_PARTICIPANT_ID,
@@ -249,7 +221,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
       event: {
         id: "019b7b20-0280-7ea1-8110-e5e0d1150006",
         sessionId: SESSION_ID,
-        sequence: 6,
+        sequence: 5,
         kind: "run.starting",
         occurredAt: "2026-01-01T11:05:00.300Z",
         actorId: AGENT_PARTICIPANT_ID,
@@ -267,7 +239,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
       event: {
         id: "019b7b20-0280-7ea1-8110-e5e0d1150007",
         sessionId: SESSION_ID,
-        sequence: 7,
+        sequence: 6,
         kind: "run.running",
         occurredAt: "2026-01-01T11:05:00.320Z",
         actorId: AGENT_PARTICIPANT_ID,
@@ -285,7 +257,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
       event: {
         id: "019b7b20-0280-7ea1-8110-e5e0d1150008",
         sessionId: SESSION_ID,
-        sequence: 8,
+        sequence: 7,
         kind: "artifact.published",
         occurredAt: "2026-01-01T11:05:00.900Z",
         actorId: AGENT_PARTICIPANT_ID,
@@ -310,7 +282,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
       event: {
         id: "019b7b20-0280-7ea1-8110-e5e0d1150009",
         sessionId: SESSION_ID,
-        sequence: 9,
+        sequence: 8,
         kind: "artifact.published",
         occurredAt: "2026-01-01T11:05:01.400Z",
         actorId: AGENT_PARTICIPANT_ID,
@@ -331,7 +303,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
       event: {
         id: "019b7b20-0280-7ea1-8110-e5e0d1150010",
         sessionId: SESSION_ID,
-        sequence: 10,
+        sequence: 9,
         kind: "artifact.published",
         occurredAt: "2026-01-01T11:05:02.000Z",
         actorId: AGENT_PARTICIPANT_ID,
@@ -353,7 +325,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
       event: {
         id: "019b7b20-0280-7ea1-8110-e5e0d1150011",
         sessionId: SESSION_ID,
-        sequence: 11,
+        sequence: 10,
         kind: "artifact.published",
         occurredAt: "2026-01-01T11:05:02.600Z",
         actorId: AGENT_PARTICIPANT_ID,
@@ -375,7 +347,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
       event: {
         id: "019b7b20-0280-7ea1-8110-e5e0d1150012",
         sessionId: SESSION_ID,
-        sequence: 12,
+        sequence: 11,
         kind: "artifact.published",
         occurredAt: "2026-01-01T11:05:03.200Z",
         actorId: AGENT_PARTICIPANT_ID,
@@ -393,7 +365,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
       event: {
         id: "019b7b20-0280-7ea1-8110-e5e0d1150013",
         sessionId: SESSION_ID,
-        sequence: 13,
+        sequence: 12,
         kind: "artifact.superseded",
         occurredAt: "2026-01-01T11:05:03.400Z",
         actorId: AGENT_PARTICIPANT_ID,
@@ -414,7 +386,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
       event: {
         id: "019b7b20-0280-7ea1-8110-e5e0d1150014",
         sessionId: SESSION_ID,
-        sequence: 14,
+        sequence: 13,
         kind: "run.completed",
         occurredAt: "2026-01-01T11:05:03.900Z",
         actorId: AGENT_PARTICIPANT_ID,

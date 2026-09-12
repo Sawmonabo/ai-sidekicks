@@ -41,9 +41,9 @@
 // reason; the slate row names the registered request and reply as the half the corpus
 // already owns.
 //
-// WHAT THE BASE STATE HONESTLY IS — and why it is not derived here. Cursor zero,
-// the session's roster, and the memberships that roster holds, all of it
-// `session-snapshot.ts`'s, whose header carries the reasoning for each.
+// WHAT THE BASE STATE HONESTLY IS — and why it is not derived here. Cursor zero and
+// the session's own snapshot, all of it `session-snapshot.ts`'s, whose header carries
+// the reasoning for each.
 //
 // WHY THE CALLER-IDENTITY READ IS ANSWERED FROM A FIELD AND NOT FROM JOIN ORDER
 //

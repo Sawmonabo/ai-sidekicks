@@ -376,10 +376,10 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // repos — the workspace's own execution context, answered from a scenario that
   // scripts one and refused for one that does not. See the header.
   "workspaceExecutionContextRead",
-  // channels and memberships — the four lifecycle verbs, the channel roster read, the
-  // membership roster read, and one participant's per-device presence, taken from the
-  // module that implements them so the ids and the handlers cannot disagree. Every one
-  // is script-only, and `collaboration/collaboration-reads.ts` carries the reasoning for each.
+  // channels — the four lifecycle verbs, the one user's per-device presence, and the
+  // terminal-control holder, taken from the module that implements them so the ids and
+  // the handlers cannot disagree. Every one is script-only, and
+  // `collaboration/collaboration-reads.ts` carries the reasoning for each.
   ...FIXTURE_SERVED_COLLABORATION_OPERATION_IDS,
   // presence — the activity read and the node's own control-plane host, from the same
   // kind of module. The composer's two writes are deliberately absent, and

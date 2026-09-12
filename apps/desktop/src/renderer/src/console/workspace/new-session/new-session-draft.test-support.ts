@@ -32,7 +32,6 @@ export const CREATED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5ac0de";
 const CREATE_REPLY = {
   sessionId: CREATED_SESSION_ID,
   state: "active",
-  memberships: [],
   channels: [],
 } as const;
 
@@ -132,7 +131,7 @@ function scenario(options: ScriptedLegs): ConsoleScenario {
 /**
  * A reply to `session.create` the registered response schema refuses.
  *
- * Short of `state`, `memberships` and `channels`, which `SessionCreateResponseSchema`
+ * Short of `state` and `channels`, which `SessionCreateResponseSchema`
  * requires — so the call FULFILS and the call door answers `reply-unreadable`. That
  * distinction is the whole subject of the ambiguous arm: the daemon was reached, ran,
  * and answered, and only this build's reading of what it said failed.

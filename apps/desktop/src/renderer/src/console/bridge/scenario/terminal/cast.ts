@@ -20,12 +20,6 @@ const AGENT_PARTICIPANT_ID = "019b7b30-0280-7a6e-8100-d1a4c1150034";
 /** The session whose one shared shell this scenario is about. */
 export const TERMINAL_SCENARIO_SESSION_ID = "019b7b30-0280-75e5-8510-ada11a5a5555";
 
-/** The owner's membership row, named by the `membership.created` beat that admits them. */
-export const TERMINAL_OWNER_MEMBERSHIP_ID = "019b7b30-0280-7e3b-8110-cca0117a0131";
-
-/** The collaborator's membership row. Collaborator and never viewer — see the cast below. */
-export const TERMINAL_COLLABORATOR_MEMBERSHIP_ID = "019b7b30-0280-7e3b-8110-cca0117a0133";
-
 /**
  * The agent's run, here rather than implied: `auto_released_run_idle` releases the
  * lease when THE ACQUIRING RUN leaves its running state, so the reason cannot be

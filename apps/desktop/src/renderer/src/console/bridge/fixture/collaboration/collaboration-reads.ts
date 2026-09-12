@@ -93,7 +93,7 @@ export const TERMINAL_CONTROL_HOLDER_READ_CALL = "growth:terminalControlHolderRe
  * The channel and presence answers for one running scenario.
  *
  * The lifecycle is HANDED IN rather than built here, because the same instance answers
- * two doors: these four acts, and the `channel.list` fold that reads the membership each
+ * two doors: these four acts, and the `channel.list` fold that reads the channels each
  * create recorded. A second instance would be a second fixture answering for one
  * session's channels, and the fold's rows would name counts no act had produced.
  */

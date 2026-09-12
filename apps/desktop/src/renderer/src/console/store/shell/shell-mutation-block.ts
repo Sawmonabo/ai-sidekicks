@@ -39,11 +39,6 @@ import type { ShellState } from "./shell-state.js";
  * `mutating: false`. What that cannot answer — a corpus-registered verb whose
  * handler has not landed — is what the paragraph above is for.
  *
- * AND A VERB THE DAEMON PROXIES IS STILL THIS CONSOLE'S WRITE. `session.join` reaches
- * the control plane THROUGH the daemon rather than terminating in it, and a durable
- * act is no less durable for having been forwarded, which is why
- * `bridge/daemon/daemon-reply-registry.ts` binds it as a record.
- *
  * The table stays a closed tuple so "exactly these and no others" is countable, and so
  * an added mutating verb is a deliberate edit here rather than a control that silently
  * stays live through an outage.
@@ -65,7 +60,6 @@ export const MUTATING_DAEMON_METHODS = [
   "repo.ephemeralCloneDispose",
   "repo.worktreeRetire",
   "session.create",
-  "session.join",
   "providerAccount.probe",
 ] as const;
 

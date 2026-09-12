@@ -58,7 +58,7 @@ function readLine(): AbortController {
 
 /** A reply the presence schema admits, so a served arm is reachable in these cases. */
 function servedPresenceReply(): unknown {
-  return { participants: [] };
+  return { devices: [] };
 }
 
 /**
@@ -70,7 +70,7 @@ function servedPresenceReply(): unknown {
  * line that stays live really does settle as `reply-unreadable`.
  */
 function refusedPresenceReply(): unknown {
-  return { participants: "not a list" };
+  return { devices: "not a list" };
 }
 
 /**

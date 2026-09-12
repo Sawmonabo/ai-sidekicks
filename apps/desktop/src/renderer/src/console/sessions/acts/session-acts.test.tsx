@@ -39,6 +39,19 @@ import {
 import { settle } from "../../core/settle.test-support.js";
 import type { ConsoleBridge, GrowthImportProgress } from "../../bridge/index.js";
 
+/** The acts bar's bridge for a case that drives no growth operation of its own. */
+function bridge(): ConsoleBridge {
+  return fixtureBridgeWithGrowth(BRING_YOUR_HISTORY_SCENARIO, {});
+}
+
+/** Submit the panel's form, the way the control does. */
+function submit(container: HTMLElement): void {
+  const form = container.querySelector("form");
+  act(() => {
+    form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+}
+
 /** Type into one of a form's fields, the way a person does. */
 function fill(container: HTMLElement, labelText: string, value: string): void {
   const field = [...container.querySelectorAll("label")].find((label) =>

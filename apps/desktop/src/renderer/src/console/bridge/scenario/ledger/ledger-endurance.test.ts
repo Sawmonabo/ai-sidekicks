@@ -85,11 +85,11 @@ describe("createLedgerEnduranceScenario", () => {
   });
 
   it("accepts the smallest row count that does fit", () => {
-    // The negative control for the refusal above: 5 opening beats, plus 12 chapters
-    // of 4 lifecycle beats, plus one body row for each of those 12, is 65 — and one
+    // The negative control for the refusal above: 4 opening beats, plus 12 chapters
+    // of 4 lifecycle beats, plus one body row for each of those 12, is 64 — and one
     // row fewer leaves a chapter with no body at all.
-    expect(() => createLedgerEnduranceScenario({ rowCount: 65, runCount: 12 })).not.toThrow();
-    expect(() => createLedgerEnduranceScenario({ rowCount: 64, runCount: 12 })).toThrow(RangeError);
+    expect(() => createLedgerEnduranceScenario({ rowCount: 64, runCount: 12 })).not.toThrow();
+    expect(() => createLedgerEnduranceScenario({ rowCount: 63, runCount: 12 })).toThrow(RangeError);
   });
 
   it("refuses a run count that is not a whole positive number", () => {

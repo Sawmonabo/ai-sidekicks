@@ -30,7 +30,6 @@ export const PARTICIPANT_YOU: ParticipantId = ParticipantIdSchema.parse(
 export const PARTICIPANT_PRIYA: ParticipantId = ParticipantIdSchema.parse(
   "019b7a11-1100-79a4-8120-cca0117a0320",
 );
-export const MEMBERSHIP_PRIYA = "019b7a11-1100-7e3b-8110-cca0117a0330";
 export const AGENT_IMPLEMENTER = "019b7a11-1100-7a6e-8110-d1a4c1150301";
 export const AGENT_REVIEWER = "019b7a11-1100-7a6e-8120-d1a4c1150302";
 export const RUN_ID: RunId = RunIdSchema.parse("019b7a11-1100-740e-8110-d1a4c1150311");
@@ -94,5 +93,5 @@ export const COMPOSER_AGENTS: readonly ComposerAgentFixture[] = [
   },
 ];
 
-/** The sequence the first `agent.attached` beat takes. Two beats precede it. */
-export const FIRST_AGENT_SEQUENCE: number = 3;
+/** The sequence the first `agent.attached` beat takes. One beat precedes it. */
+export const FIRST_AGENT_SEQUENCE: number = 2;

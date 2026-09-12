@@ -231,7 +231,7 @@ function createdDirectoryRow(
  * `channel.list` read, so a report raised from inside it would fire once per read of a
  * scenario that carries one bad beat rather than once per defect — and the fixture's own
  * home for "this scenario contradicts the shipped wire contract" is the wire-truth walk
- * in `scenarios/wire-truth/`, which reads each scenario once and names the beat.
+ * in `scenario/wire-truth/`, which reads each scenario once and names the beat.
  */
 function statesThisSession(
   eventKind: string,

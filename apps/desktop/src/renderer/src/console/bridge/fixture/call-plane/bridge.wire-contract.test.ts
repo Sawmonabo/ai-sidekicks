@@ -23,11 +23,13 @@ const REGISTERED_CALL = "presence.read";
 /** A growth-slate call the registry deliberately does not bind. */
 const UNREGISTERED_CALL = "gitflow.branchContextRead";
 
-/** The reply `presence.read` registers: participants, each with the three members. */
+/** The reply `presence.read` registers: devices, each with the five members. */
 const ON_CONTRACT_REPLY = {
-  participants: [
+  devices: [
     {
-      participantId: "019b79ee-0280-7f00-8110-a11ce0000001",
+      deviceId: "019b79ee-0280-7f00-8110-a11ce0000001",
+      deviceType: "desktop",
+      appVisible: true,
       state: "online",
       lastSeen: "2026-01-01T14:20:00.500Z",
     },
@@ -55,12 +57,12 @@ describe("fixture bridge — a scripted reply is held to the registered shape", 
   });
 
   it("catches the near miss, not only the obviously wrong shape", async () => {
-    // One member off — the state a participant can be in. This is what a scenario
+    // One member off — the state a device can be in. This is what a scenario
     // author actually gets wrong, and a check that only caught a wholly different
     // object would let it through.
     const fixture = createFixture(
       scenarioAnswering(REGISTERED_CALL, {
-        participants: [{ ...ON_CONTRACT_REPLY.participants[0], state: "loitering" }],
+        devices: [{ ...ON_CONTRACT_REPLY.devices[0], state: "loitering" }],
       }),
     );
 

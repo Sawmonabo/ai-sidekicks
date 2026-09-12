@@ -27,11 +27,10 @@
 // against the frozen clock. A script cannot do it — `resultFor` is handed the request
 // and nothing else, so it has no clock to schedule against.
 //
-// THE THREE GROWTH KEYS. `growth:<operationId>` is the reply key a growth row with no
+// THE GROWTH KEYS. `growth:<operationId>` is the reply key a growth row with no
 // registered wire method takes; `wire-truth/reply-walk.ts` states that rule and
 // rejects a method-shaped key for such a row, because a method string nobody
-// registered is an invented wire. `session.join` is keyed by its own method name for
-// the opposite reason: the corpus registers it and the console binds it.
+// registered is an invented wire.
 
 import type { ConsoleScenario } from "./runtime/index.js";
 import type { GrowthImportProgress } from "../growth-values/index.js";
@@ -43,7 +42,6 @@ export const BRING_YOUR_HISTORY_SCENARIO_ID = "bring-your-history";
 
 const SESSION_ID = "019b78c9-0a80-7b31-9c40-4f0a0b6d1100";
 const PARTICIPANT_YOU = "019b78c9-0a80-7b31-9c40-4f0a0b6d1101";
-const MEMBERSHIP_YOU = "019b78c9-0a80-7b31-9c40-4f0a0b6d1102";
 
 /** The reply key the shell's notification-permission reading is scripted under. */
 export const SHELL_NOTIFICATION_PERMISSION_CALL = "growth:shellNotificationPermissionRead";
@@ -121,12 +119,6 @@ function importProgressStream(): GrowthStream<GrowthImportProgress> {
   };
 }
 
-/** The refusal a daemon sends for a session identifier that resolves to nothing. */
-const SESSION_NOT_FOUND: WireErrorEnvelope = {
-  code: "session.not_found",
-  message: "No session on this node carries that identifier.",
-};
-
 /** The refusal a daemon sends for a provider whose transcripts it cannot read. */
 const IMPORT_PROVIDER_UNSUPPORTED: WireErrorEnvelope = {
   code: "session.import_provider_unsupported",
@@ -176,23 +168,6 @@ export const BRING_YOUR_HISTORY_SCENARIO: ConsoleScenario = {
     // centre's only-surface line exists for. `granted` renders nothing extra, so a
     // script answering it would leave that line unreachable here.
     { call: SHELL_NOTIFICATION_PERMISSION_CALL, result: { state: "denied" } },
-    {
-      // Both arms of the join. The session this scenario plays is joinable; every
-      // other identifier refuses as the daemon refuses, which is what the form's
-      // refusal rendering is measured against.
-      call: "session.join",
-      resultFor: (request) => {
-        if (requestedIdentifier(request, "sessionId") !== SESSION_ID) {
-          throw SESSION_NOT_FOUND;
-        }
-        return {
-          sessionId: SESSION_ID,
-          participantId: PARTICIPANT_YOU,
-          membershipId: MEMBERSHIP_YOU,
-          sharedMetadata: {},
-        };
-      },
-    },
     {
       // The import's opening call, and its refusing arm: a provider this node holds
       // no reader for never reaches a progress subscription at all.

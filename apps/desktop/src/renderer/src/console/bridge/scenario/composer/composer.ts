@@ -58,7 +58,6 @@ import {
   AGENT_REVIEWER,
   COMPOSER_AGENTS,
   FIRST_AGENT_SEQUENCE,
-  MEMBERSHIP_PRIYA,
   PARTICIPANT_PRIYA,
   PARTICIPANT_YOU,
   RUN_ID,
@@ -102,25 +101,6 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
         payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },
-    {
-      atMs: 60,
-      event: {
-        id: "019b7a11-1100-7e00-8110-e5e0c1150002",
-        sessionId: SESSION_ID,
-        sequence: 2,
-        // A person joining a session is a membership event: `participant.*` is not
-        // in the census at all.
-        kind: "membership.created",
-        occurredAt: "2026-01-01T11:05:00.060Z",
-        actorId: PARTICIPANT_PRIYA,
-        payload: {
-          membershipId: MEMBERSHIP_PRIYA,
-          participantId: PARTICIPANT_PRIYA,
-          role: "collaborator",
-          identityHandle: "priya",
-        },
-      },
-    },
     ...COMPOSER_AGENTS.map((agent, agentIndex) => ({
       atMs: agent.attachedAtMs,
       event: {
@@ -148,7 +128,7 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
       event: {
         id: "019b7a11-1100-7e00-8110-e5e0c1150003",
         sessionId: SESSION_ID,
-        sequence: 5,
+        sequence: 4,
         kind: "run.queued",
         occurredAt: "2026-01-01T11:05:00.260Z",
         actorId: PARTICIPANT_YOU,
@@ -167,7 +147,7 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
       event: {
         id: "019b7a11-1100-7e00-8110-e5e0c1150004",
         sessionId: SESSION_ID,
-        sequence: 6,
+        sequence: 5,
         kind: "run.starting",
         occurredAt: "2026-01-01T11:05:00.320Z",
         // No actor: the daemon moves a run out of `queued`, and a participant id
@@ -186,7 +166,7 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
       event: {
         id: "019b7a11-1100-7e00-8110-e5e0c1150005",
         sessionId: SESSION_ID,
-        sequence: 7,
+        sequence: 6,
         kind: "run.running",
         occurredAt: "2026-01-01T11:05:00.400Z",
         payload: {
@@ -203,7 +183,7 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
       event: {
         id: "019b7a11-1100-7e00-8110-e5e0c1150006",
         sessionId: SESSION_ID,
-        sequence: 8,
+        sequence: 7,
         // Waiting is not pausing: this run is blocked on someone, and the composer
         // is where that someone answers.
         kind: "run.waiting_for_input",
@@ -222,7 +202,7 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
       event: {
         id: "019b7a11-1100-7e00-8110-e5e0c1150007",
         sessionId: SESSION_ID,
-        sequence: 9,
+        sequence: 8,
         // The session's one goal, as the log carries it — there is no goal store, so
         // this event IS the goal and the sidebar's line is a fold over it. A person
         // set it, so the beat carries an actor.

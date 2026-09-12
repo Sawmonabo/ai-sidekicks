@@ -2,9 +2,9 @@
 //
 // An alert dialog rather than an inline hint, on the console's own precedent for a
 // destructive confirmation: it traps focus, it does not dismiss on an outside press,
-// and its description states the cost of the act rather than restating the act. A browser `confirm()` is not a candidate — it is a main
-// process modal this console does not style, cannot test, and cannot render in an
-// auxiliary window.
+// and its description states the cost of the act rather than restating the act. A
+// browser `confirm()` is not a candidate — it is a main process modal this console
+// does not style, cannot test, and cannot render in an auxiliary window.
 //
 // IT IS CONTROLLED AND CARRIES NO TRIGGER. The act that raises it is a command-palette
 // row, which is a surface away from here, so the open state is the composer's own and

@@ -45,21 +45,21 @@ export interface LedgerOpeningInput {
   readonly sessionId: string;
   /** The participant who opened the session, and whose window this is. */
   readonly openedBy: string;
-  /** The second person, who joins by membership. */
-  readonly joinedBy: string;
-  readonly membershipId: string;
   /** The cast, each attached at the tick beside it. */
   readonly cast: readonly (LedgerCastMember & { readonly attachedAtMs: number })[];
-  /** When the second person joins, in scenario time. */
-  readonly joinedAtMs: number;
   /**
    * The one named channel this session opens, where it opens one.
    *
    * Optional because most scenarios' lanes speak in the implicit main channel,
    * which is unnamed on the wire and needs no beat; a scenario that wants a
-   * channel-addressed pane to be a log of something scripts one here.
+   * channel-addressed pane to be a log of something scripts one here, and says at
+   * which tick it opens.
    */
-  readonly channel?: { readonly channelId: string; readonly name: string };
+  readonly channel?: {
+    readonly channelId: string;
+    readonly name: string;
+    readonly openedAtMs: number;
+  };
 }
 
 /**
@@ -88,12 +88,11 @@ export function ledgerCastMember<Member extends LedgerCastMemberLookup>(
 /**
  * The opening of a ledger session: the room, then the cast.
  *
- * Every ledger scenario opens the same way, and the three payload shapes here are
- * the ones a mistake is quietest in — `session.created` carries no title, a person
- * joining is a `membership.created` rather than a `participant.*` the census does
- * not have, and `agent.attached` carries `name` where a reader expects
- * `displayName`. Written once, every scenario is right or every scenario is wrong,
- * and the wire-truth predicate says which.
+ * Every ledger scenario opens the same way, and the payload shapes here are the ones
+ * a mistake is quietest in — `session.created` carries no title, `channel.created`
+ * carries an OPTIONAL name and nothing else, and `agent.attached` carries `name`
+ * where a reader expects `displayName`. Written once, every scenario is right or
+ * every scenario is wrong, and the wire-truth predicate says which.
  */
 export function ledgerOpeningEntries(input: LedgerOpeningInput): readonly LedgerScriptEntry[] {
   return [
@@ -110,7 +109,7 @@ export function ledgerOpeningEntries(input: LedgerOpeningInput): readonly Ledger
       ? []
       : [
           {
-            atMs: input.joinedAtMs,
+            atMs: input.channel.openedAtMs,
             kind: "channel.created",
             actorId: input.openedBy,
             // The registered shape is the id and an optional name, and nothing
@@ -120,17 +119,6 @@ export function ledgerOpeningEntries(input: LedgerOpeningInput): readonly Ledger
             payload: { channelId: input.channel.channelId, name: input.channel.name },
           },
         ]),
-    {
-      atMs: input.joinedAtMs,
-      kind: "membership.created",
-      actorId: input.joinedBy,
-      payload: {
-        membershipId: input.membershipId,
-        participantId: input.joinedBy,
-        role: "collaborator",
-        identityHandle: "priya",
-      },
-    },
     ...input.cast.map((agent) => ({
       atMs: agent.attachedAtMs,
       kind: "agent.attached",
