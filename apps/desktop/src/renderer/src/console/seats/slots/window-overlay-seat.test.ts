@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../../bridge/index.js";
-import { COLLABORATION_SCENARIO } from "../../bridge/scenario/collaboration/collaboration.js";
+import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { FrameStore, modalSurfaceClaimFor } from "../../store/index.js";
 import {
   registerWindowOverlaySeat,
@@ -61,7 +61,7 @@ describe("the window overlay seat", () => {
     });
 
     windowOverlayRenderer()?.({
-      bridge: createFixtureBridge({ scenario: COLLABORATION_SCENARIO }),
+      bridge: createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }),
       openSession: () => undefined,
       claimModalSurface: modalSurfaceClaimFor(frameStore),
     });
@@ -77,7 +77,7 @@ describe("the window overlay seat", () => {
     registerWindowOverlaySeat(OWNER, () => null);
 
     windowOverlayRenderer()?.({
-      bridge: createFixtureBridge({ scenario: COLLABORATION_SCENARIO }),
+      bridge: createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }),
       openSession: () => undefined,
       claimModalSurface: modalSurfaceClaimFor(frameStore),
     });

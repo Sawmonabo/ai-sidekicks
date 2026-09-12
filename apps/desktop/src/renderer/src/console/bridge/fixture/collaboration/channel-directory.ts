@@ -243,7 +243,7 @@ function createdDirectoryRow(
  *
  * The three TRANSITIONS take the required arm. `Spec-006` gives `channel.muted`,
  * `channel.unmuted` and `channel.archived` a `{sessionId, channelId}` payload, and both
- * producers write it — the beats `bridge/scenario/collaboration/beats.ts` authors by hand and the frames
+ * producers write it — the beats a scenario authors by hand and the frames
  * `channel-lifecycle.ts` publishes from a served act — so a transition that omits
  * the member is malformed rather than terse, and one that names another session is a
  * frame no daemon emits. Either way it moves no row here: the whole of the fixture's

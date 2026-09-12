@@ -113,10 +113,6 @@ export function contextWith(options: {
   readonly isRegistryDisposed?: boolean;
   /** Attention items the projection serves, per session. Refused unless named. */
   readonly attentionBySessionId?: Readonly<Record<string, readonly unknown[]>>;
-  /** Invitations the port serves, per session. Refused unless a test names them. */
-  readonly invitesBySessionId?: Readonly<Record<string, readonly unknown[]>>;
-  /** The session each `invitesList` call named, appended in call order. */
-  readonly invitesListCalls?: string[];
   /**
    * What the shell's notification-permission read answers. Refused unless named,
    * which is what the live bridge does and therefore the default a case inherits.
@@ -168,15 +164,6 @@ export function contextWith(options: {
     bridge: {
       source: options.bridgeSource ?? "fixture",
       growth: {
-        invitesList: ({ sessionId }: { readonly sessionId: string }) => {
-          options.invitesListCalls?.push(sessionId);
-          const invites = options.invitesBySessionId?.[sessionId];
-          return Promise.resolve(
-            invites === undefined
-              ? refusedRead("invitesList", "invites-list")
-              : { status: "served", value: invites },
-          );
-        },
         attentionProjectionRead: ({ sessionId }: { readonly sessionId: string }) => {
           const items = options.attentionBySessionId?.[sessionId];
           return Promise.resolve(

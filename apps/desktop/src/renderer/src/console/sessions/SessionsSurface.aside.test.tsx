@@ -1,13 +1,13 @@
-// Both session-scoped reads in the destination's aside, and the address they are NOT
+// The session-scoped read in the destination's aside, and the address it is NOT
 // keyed on.
 //
 // `SessionsSurface.test.tsx` next door holds the list's own three kinds of nothing
 // and the act of starting a session. This file holds the other job the destination
-// does: the attention projection and the invitations list are each scoped to ONE
-// session on the wire, and every address that mounts this surface is
-// `kind: "sessions"` and names none — so a read keyed on the route asks about
-// nothing at all and reports every session's answer as unasked. Each read is
-// therefore asserted through a session THIS ADDRESS DOES NOT NAME.
+// does: the attention projection is scoped to ONE session on the wire, and every
+// address that mounts this surface is `kind: "sessions"` and names none — so a read
+// keyed on the route asks about nothing at all and reports every session's answer as
+// unasked. The read is therefore asserted through a session THIS ADDRESS DOES NOT
+// NAME.
 //
 // And the attention read has a second half that no query into the panel can see: a
 // person who cannot read the screen is told what the read settled on through the
@@ -19,9 +19,8 @@ import { contextWith } from "./session-surface.context.test-support.js";
 import { renderSurface, settle } from "./session-surface.test-support.js";
 
 describe("what the destination puts beside the list", () => {
-  it("mounts the invitations shelf and the attention panel", () => {
+  it("mounts the attention panel", () => {
     const { container } = renderSurface(contextWith({}));
-    expect(container.querySelector(".meridian-invite-shelf")).not.toBeNull();
     expect(container.querySelector(".meridian-attention")).not.toBeNull();
   });
 
@@ -95,76 +94,5 @@ describe("what the destination puts beside the list", () => {
     // And the sentence is the announcer's, not a second copy rendered into the
     // panel — the surface's own element does not carry it.
     expect(container.textContent ?? "").not.toContain("One item needs you.");
-  });
-});
-
-describe("the invitations the destination reads for", () => {
-  /**
-   * One invitation as the port serves it. Pending AND unlapsed, so the shelf lists it.
-   *
-   * The expiry is far out rather than merely plausible, and that is what keeps these
-   * cases about the fan-out. The shelf stops offering an invitation whose expiry has
-   * passed, and this surface runs on the wall clock, so a nearby stamp would make
-   * every case below start failing on a date rather than on a change.
-   */
-  function pendingInvite(inviteId: string): unknown {
-    return { inviteId, state: "pending", expiresAt: "2999-01-01T00:00:00.000Z" };
-  }
-
-  it("asks once per session it can name, and names each of them", async () => {
-    // The regression this arm exists for: the read was keyed on the route's
-    // session, every address that mounts this surface names none, and the fan-out
-    // was therefore empty forever. Under that reader this array stays `[]`.
-    const invitesListCalls: string[] = [];
-    renderSurface(
-      contextWith({
-        directorySessionIds: ["session-a", "session-b"],
-        invitesListCalls,
-      }),
-    );
-    await settle();
-    expect(invitesListCalls).toStrictEqual(["session-a", "session-b"]);
-  });
-
-  it("lists an invitation for a session this address does not name", async () => {
-    const { container } = renderSurface(
-      contextWith({
-        directorySessionIds: ["session-a"],
-        invitesBySessionId: { "session-a": [pendingInvite("invite-1")] },
-      }),
-    );
-    await settle();
-    const text = container.textContent ?? "";
-    expect(text).toContain("invite-1");
-    expect(text).not.toContain("No invitations have been read.");
-  });
-
-  it("does not let one session's refusal hide another session's invitation", async () => {
-    // Each session's outcome travels on its own, so a partial read is a partial
-    // read. A fan-out that collapsed to the first answer would render the refusal
-    // and drop the invitation that did arrive — and one that dropped the refusal
-    // would hide a session the console never got an answer from, so both are on
-    // screen and neither stands for the other.
-    const { container } = renderSurface(
-      contextWith({
-        directorySessionIds: ["session-refused", "session-served"],
-        invitesBySessionId: { "session-served": [pendingInvite("invite-2")] },
-      }),
-    );
-    await settle();
-    const text = container.textContent ?? "";
-    expect(text).toContain("invite-2");
-    expect(text).toContain("the invitesList read is not registered yet");
-  });
-
-  it("negative control: asks nothing when it can name no session", async () => {
-    // Without this, the fan-out could pass by asking about a session it invented.
-    // A console holding none has nothing to ask about, and the shelf says exactly
-    // that rather than reporting an empty inbox.
-    const invitesListCalls: string[] = [];
-    const { container } = renderSurface(contextWith({ invitesListCalls }));
-    await settle();
-    expect(invitesListCalls).toStrictEqual([]);
-    expect(container.textContent ?? "").toContain("No invitations have been read.");
   });
 });

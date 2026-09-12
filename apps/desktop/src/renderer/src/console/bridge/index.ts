@@ -748,12 +748,6 @@ export type {
   GrowthPendingInviteState,
 } from "./growth-values/invites.js";
 
-// The composer's own composing publisher. It lives in this family because it is a
-// write adapter over the growth port — the `quotas/` reads' mirror image — and it
-// leaves through this door because its one production reader is the composer, which
-// sits outside the console entirely and reaches every console family through a door.
-export { ComposingPublisher } from "./presence/composing-publisher.js";
-
 // The WebAuthn ceremony seam. Through the door because the sign-in family is the
 // reader and this family is where the seam has to live: the fixture WRITES an
 // outcome and the sign-in family READS one, so the union sits below both — the

@@ -22,8 +22,8 @@
 // answer has not said anything happened, so both arms return the outcome untouched.
 //
 // AND THE CREATE IS THE FOURTH, WHICH IT ONCE WAS NOT. The three moves share one
-// receipt shape and one registered payload — `{sessionId, channelId}`, the shape
-// `bridge/scenario/collaboration/beats.ts`'s own `channel.archived` beat carries — so one derivation
+// receipt shape and one registered payload — `{sessionId, channelId}`, the shape a
+// `channel.archived` beat carries — so one derivation
 // serves all three, and a create was left out because its own payload is a different
 // shape. What that cost was the whole act: a served create returned its receipt, the
 // form reported success and reset, and the channel appeared in no directory anywhere,
@@ -163,8 +163,8 @@ export class FixtureChannelLifecycle {
       // participant count reach a reader from `channel.list`, never from the creation
       // event, and an unnamed channel OMITS the member rather than carrying it
       // undefined, because `name?` is an absent member on this wire and never a
-      // present empty one. Both are `bridge/scenario/collaboration/beats.ts`'s own statement about the
-      // beat it writes by hand.
+      // present empty one. Both are the statement a hand-written beat makes about
+      // itself.
       this.#appendFrame(CHANNEL_CREATED_EVENT_KIND, {
         channelId: outcome.value.channelId,
         ...(request.name === undefined ? {} : { name: request.name }),
@@ -209,8 +209,7 @@ export class FixtureChannelLifecycle {
     if (outcome.status === "served") {
       // The payload carries the session and the channel the envelope is about and
       // invents nothing else, because the census registers no payload variant for
-      // these three kinds — the same restraint `bridge/scenario/collaboration/beats.ts` states for the
-      // archival beat it writes by hand.
+      // these three kinds — the same restraint a hand-written archival beat keeps.
       this.#appendFrame(move.eventKind, {
         sessionId: this.#engine.scenario.sessionId,
         channelId: outcome.value.channelId,

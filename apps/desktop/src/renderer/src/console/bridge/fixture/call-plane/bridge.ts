@@ -41,7 +41,6 @@ import { createFixtureAuxiliaryWindowPort, readFixtureShell } from "../shell/aux
 import { resolveScriptedReply, assertScriptedReplyOnContract } from "./call-door.js";
 import { FixtureChannelLifecycle } from "../collaboration/channel-lifecycle.js";
 import { createFixtureGrowthPort } from "../growth/growth-port.js";
-import { FixtureInviteLedger } from "../invites/invite-ledger.js";
 import { createSettledCallFolds } from "./settled-call-folds.js";
 import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./served-operations.js";
 import { refuseAbsentCapability } from "./refusal.js";
@@ -90,13 +89,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
   // one, the other would be answering from a second fixture's memory of this session's
   // channels.
   const channelLifecycle = new FixtureChannelLifecycle(scenarioEngine);
-  // ONE INVITE LEDGER PER BRIDGE, on the same rule and for a sharper version of it: the
-  // mint and the revoke are DAEMON calls and the ledger read is a GROWTH operation, so
-  // the two doors do not merely both read this holder — one writes what the other
-  // answers with. Built inside either, a served mint would leave the ledger it is
-  // supposed to appear in untouched.
-  const inviteLedger = new FixtureInviteLedger(scenarioEngine);
-  const settledCallFolds = createSettledCallFolds(channelLifecycle, inviteLedger);
+  const settledCallFolds = createSettledCallFolds(channelLifecycle);
   const updaterState: UpdateState = options.scenario.updaterState ?? { status: "idle" };
   // Read ONCE and handed to both the namespace and the port below, so a fixture
   // window cannot be on the shell arm for one and the no-shell arm for the other.
@@ -210,7 +203,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
     // honour. An injectable port used to sit here and nothing ever passed one;
     // keeping it would have meant a caller could hand in a port while the served
     // set beside it still described a different one.
-    growth: createFixtureGrowthPort(scenarioEngine, channelLifecycle, inviteLedger),
+    growth: createFixtureGrowthPort(scenarioEngine, channelLifecycle),
     growthServedOperations: new Set(FIXTURE_SERVED_GROWTH_OPERATION_IDS),
     // The roster read is answered from the scenario's own frames rather than from
     // the reply table, because a roster moves and a reply does not. The presence

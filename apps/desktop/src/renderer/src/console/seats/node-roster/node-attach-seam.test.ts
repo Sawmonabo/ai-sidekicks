@@ -15,7 +15,7 @@ import type { RuntimeNodeAttachRequest, SessionId } from "@ai-sidekicks/contract
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { SETTINGS_SCENARIO } from "../../bridge/scenario/settings/settings.js";
 import { SETTINGS_RUNTIME_NODE_ATTACH_DRAFT } from "../../bridge/scenario/settings/runtime-nodes.js";
-import { COLLABORATION_SCENARIO } from "../../bridge/scenario/collaboration/collaboration.js";
+import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { nodeAttachDraftFor, nodeAttachReadsFor } from "./node-attach-seam.js";
 
 /** Past the scripted latency on the settings scenario's attach reply. */
@@ -38,7 +38,7 @@ describe("node attach seam", () => {
   it("answers nothing for a scenario that names no declaration", () => {
     // A reading rather than a gap, and the live bridge's ordinary answer: no
     // registered read delivers a local machine's self-description to this renderer.
-    expect(nodeAttachDraftFor(createFixtureBridge({ scenario: COLLABORATION_SCENARIO }))).toBe(
+    expect(nodeAttachDraftFor(createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }))).toBe(
       undefined,
     );
   });
@@ -62,9 +62,9 @@ describe("node attach seam", () => {
     // Without this, the case above would pass over a seam that answered from a second
     // transport — an unscripted call is the fixture's own authoring refusal, and only
     // a seam bound to this engine can produce it.
-    const bridge = createFixtureBridge({ scenario: COLLABORATION_SCENARIO });
+    const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
     await expect(
-      nodeAttachReadsFor(bridge).attachNode(attachRequest(COLLABORATION_SCENARIO.sessionId)),
+      nodeAttachReadsFor(bridge).attachNode(attachRequest(FLAGSHIP_SCENARIO.sessionId)),
     ).rejects.toThrow(/runtimenode\.attach/);
   });
 

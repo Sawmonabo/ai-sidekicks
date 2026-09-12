@@ -43,8 +43,7 @@
 //   • The ONLY wire call in this file is the `runtimenode.attach` mutation —
 //     no `membership.*`, no `invite.*`, no `session.*` call, named or
 //     implied. Membership acceptance is a SEPARATE, PRIOR step owned by a
-//     DIFFERENT view (`session-members/invite-accept-view.tsx`, the Plan-002
-//     T6.1 surface): a participant first holds active membership
+//     DIFFERENT view: a participant first holds active membership
 //     (`Spec-003 §Required Behavior`), THEN — as its own deliberate action — attaches a node under
 //     it.
 //   • A future editor will be tempted to fold the two into a "one-click

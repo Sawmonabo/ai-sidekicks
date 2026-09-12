@@ -14,8 +14,8 @@
 //     never about her session at all.
 //   • **The two health axes move independently.** The frame pair either side of the
 //     departure beat has to disagree in OPPOSITE directions on the two axes, which is
-//     the state the never-mask rule exists for and the reason both scenarios carry a
-//     roster at all.
+//     the state the never-mask rule exists for and the reason the settings scenario
+//     carries a roster at all.
 //
 // The seam's own vocabulary — the procedure name, the presence event set, the shipped
 // frames' conformance to the registered response schema — is the suite beside
@@ -30,7 +30,6 @@ import {
   RUNTIME_NODE_ROSTER_SCENARIO_REFUSAL_CODES,
 } from "./runtime-node-roster.js";
 import { RUNTIME_NODE_ROSTER_REFUSAL_ORIGIN } from "../../runtime-nodes/runtime-node-roster.js";
-import { COLLABORATION_SCENARIO } from "../../scenario/collaboration/collaboration.js";
 import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
 import { SETTINGS_SCENARIO } from "../../scenario/settings/settings.js";
 import { ScenarioEngine } from "../../scenario/runtime/index.js";
@@ -97,7 +96,6 @@ describe("the fixture roster read", () => {
 
   it("serves the reading current at the tick the clock has reached", () => {
     expect(servedNodes(rosterAt(SETTINGS_SCENARIO, 200))).toHaveLength(2);
-    expect(servedNodes(rosterAt(COLLABORATION_SCENARIO, 600))).toHaveLength(3);
   });
 
   it("answers a later tick with a later reading", () => {
@@ -208,21 +206,5 @@ describe("the two health axes", () => {
     const after = axesOf(servedNodes(rosterAt(SETTINGS_SCENARIO, 320)), "node-builder");
     expect(before).toStrictEqual({ state: "online", healthState: "degraded" });
     expect(after).toStrictEqual({ state: "degraded", healthState: "online" });
-  });
-
-  it("can disagree outright, which the wire admits by construction", () => {
-    // The collaboration story: the runner's attachment reaches its departure
-    // verdict while the sweep still finds the machine healthy.
-    const after = axesOf(servedNodes(rosterAt(COLLABORATION_SCENARIO, 640)), "node-tomas-runner");
-    expect(after).toStrictEqual({ state: "offline", healthState: "online" });
-  });
-
-  it("keeps a below-floor machine in the set rather than hiding it", () => {
-    // Admit-not-eject: a node whose reported wire version is below the session's
-    // floor is rendered read-only, never dropped. A roster that filtered it would
-    // pass a node-count assertion and hide a participant's own machine from her.
-    const nodes = servedNodes(rosterAt(COLLABORATION_SCENARIO, 640));
-    expect(nodes.filter((node) => node.readOnly)).toHaveLength(1);
-    expect(nodes).toHaveLength(3);
   });
 });

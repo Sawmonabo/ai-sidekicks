@@ -61,7 +61,6 @@ export const SCENARIO_FROZEN_TICKS: FrozenTickTable = {
   composer: [{ name: "settled", atMs: 540 }],
   runs: [{ name: "settled", atMs: 980 }],
   approvals: [{ name: "settled", atMs: 1_100 }],
-  collaboration: [{ name: "settled", atMs: 640 }],
   agents: [{ name: "settled", atMs: 420 }],
   settings: [{ name: "settled", atMs: 380 }],
   repos: [{ name: "settled", atMs: 1_900 }],

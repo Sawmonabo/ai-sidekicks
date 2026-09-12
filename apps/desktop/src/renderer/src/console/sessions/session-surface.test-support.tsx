@@ -30,12 +30,11 @@ import type { ConsoleSurfaceContext, NewSessionControlComponent } from "../seats
 /**
  * Let the destination's asynchronous arrivals land.
  *
- * Three reads settle behind this destination — the attention projection, the invites
- * fan-out, and the node's session directory — and each settles an effect that can
- * schedule the next, so the count is the depth of that chain rather than a number
- * picked to make a test pass. Two of the three are performed by the binding ABOVE the
- * surface now rather than by the surface, which changes where they are mounted and
- * not how long the chain is.
+ * Two reads settle behind this destination — the attention projection and the node's
+ * session directory — and each settles an effect that can schedule the next, so the
+ * count is the depth of that chain rather than a number picked to make a test pass.
+ * Both are performed by the binding ABOVE the surface now rather than by the surface,
+ * which changes where they are mounted and not how long the chain is.
  *
  * The attention read is the one that also costs TIME. It goes through the console's
  * one refresh scheduler, so its first read lands a debounce interval after the
@@ -55,11 +54,10 @@ export async function settle(): Promise<void> {
 /**
  * The absence the LIST is rendering, as its kind classes.
  *
- * Scoped to the list region deliberately. The aside beside it holds two other
- * reads — the invitations shelf and the attention panel — and each renders its own
- * honest absence, so an unscoped query would answer with whichever of the three
- * came first in the document and would pass or fail for reasons that have nothing
- * to do with the directory.
+ * Scoped to the list region deliberately. The aside beside it holds the attention
+ * panel, which renders its own honest absence, so an unscoped query would answer with
+ * whichever of the two came first in the document and would pass or fail for reasons
+ * that have nothing to do with the directory.
  */
 export function listAbsenceKinds(container: HTMLElement): readonly string[] {
   return [...container.querySelectorAll(".meridian-sessions__list .meridian-nothing")].flatMap(
@@ -74,9 +72,7 @@ export function listAbsenceKinds(container: HTMLElement): readonly string[] {
  * THE CONTEXT rather than an element, because the mount now has two things to do with
  * it — hand it to the surface and supply it to the provider — and a helper that took
  * the composed element could reach neither. The provider is part of the shape under
- * test: the invite shelf takes the window's clock from `useConsoleClock`, which
- * resolves through it, and the provider's own error says every console surface renders
- * inside one.
+ * test: its own error says every console surface renders inside one.
  *
  * THE SURFACE'S OWN ELEMENT IS RETURNED, not the render container — the
  * `settings/pages/application/updates/UpdatesBlock.reading.test.tsx` shape, and here it is

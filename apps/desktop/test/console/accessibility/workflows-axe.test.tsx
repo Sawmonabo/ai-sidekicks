@@ -26,9 +26,9 @@
 // repeated control per list entry, and an entry exists only after a person adds one — so
 // the three mounts above audit a form that has never had one, and the control they never
 // see is the one drawn straight through the field dispatch with none of the chrome that
-// names a scalar field. It is audited as a component, on `collaboration-axe.test.tsx`'s
-// reasoning: one scheme, because it carries no surface of its own and inherits the tokens
-// the three surfaces above are already measured under.
+// names a scalar field. It is audited as a component under one scheme, because it
+// carries no surface of its own and inherits the tokens the three surfaces above are
+// already measured under.
 //
 // AND IT IS THE CASE THAT HAS TO BE WAITED FOR. Its phase graph is a lazily-loaded
 // chunk, and the mount helper returns on the run READ — the park banner — which lands

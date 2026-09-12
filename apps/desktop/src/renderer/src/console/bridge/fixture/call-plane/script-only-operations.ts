@@ -54,13 +54,6 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "terminalReleaseWriteLease",
   "workspaceExecutionContextRead",
   ...FIXTURE_SERVED_COLLABORATION_OPERATION_IDS,
-  // The three acts on a pending invitation. Each addresses a reference the scenario
-  // minted, so a scenario that scripted no invitation has no reference for any of
-  // them to name — and serving a receipt for one would tell the confirmation that
-  // main accepted an invitation no author ever wrote down.
-  "inviteConfirmPending",
-  "inviteRetryPending",
-  "inviteDismissPending",
   // Neither has an honest empty answer. "Nobody is composing anywhere" is a claim
   // about the room that nothing checked, and there is no empty host — a node either
   // answers on one or this fixture has not been told which.

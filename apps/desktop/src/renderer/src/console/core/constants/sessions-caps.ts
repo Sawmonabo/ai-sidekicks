@@ -1,5 +1,5 @@
-// The sessions family's bounds: the back tier's visible rows, what the attention
-// emitter remembers announcing, and what the shelf remembers a person set aside.
+// The sessions family's bounds: the back tier's visible rows and what the attention
+// emitter remembers announcing.
 
 /**
  * Back-tier rows the all-sessions list shows before folding the rest under a
@@ -25,15 +25,3 @@ export const SESSION_BACK_TIER_VISIBLE_CAP = 5;
  * is allowed to be wrong in.
  */
 export const ATTENTION_NOTIFIED_ITEM_CAP = 200;
-
-/**
- * Invitations the shelf remembers a person set aside.
- *
- * Bounded because the hide set is a durable cache and an unbounded cache is a
- * store that grows for as long as the install lives. Sixty-four is generous
- * against the shape of the thing — an invitation is a rare, expiring object, and
- * a person with more than this many set aside has a different problem — and the
- * set is pruned against every served read besides, so the cap is the second line
- * of defence rather than the first.
- */
-export const HIDDEN_INVITE_CAP = 64;

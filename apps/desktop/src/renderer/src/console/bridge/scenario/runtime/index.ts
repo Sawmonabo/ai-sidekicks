@@ -40,11 +40,7 @@ export type {
   ScenarioTransportOutage,
 } from "./frames.js";
 
-export type {
-  ScenarioPendingInviteAttemptFrame,
-  ScenarioPendingInviteFrame,
-  ScenarioPendingInviteRefusedFrame,
-} from "./pending-invites.js";
+export type {} from "./pending-invites.js";
 
 export { ScenarioEngine } from "./engine.js";
 

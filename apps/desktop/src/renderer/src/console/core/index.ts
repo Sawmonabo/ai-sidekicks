@@ -83,9 +83,7 @@ export {
   RELAYED_TOOL_CALL_ROW_CAP,
 } from "./constants/browser-caps.js";
 export {
-  COMPOSING_IDLE_STOP_MS,
   COMPOSING_NAMED_CAP,
-  COMPOSING_PUBLISH_INTERVAL_MS,
   COMPOSING_RECEIVED_STALE_MS,
 } from "./constants/collaboration-caps.js";
 export {
@@ -169,7 +167,6 @@ export {
 } from "./constants/session-store-caps.js";
 export {
   ATTENTION_NOTIFIED_ITEM_CAP,
-  HIDDEN_INVITE_CAP,
   SESSION_BACK_TIER_VISIBLE_CAP,
 } from "./constants/sessions-caps.js";
 export { MOUNT_INVENTORY_READ_CAP } from "./constants/settings-caps.js";

@@ -12,7 +12,6 @@
 // the viewer, over `collaboration/session-snapshot.ts`, which derives the base state one
 // session opens with, and `collaboration/session-directory.ts`, which derives what the
 // node HAS, `approval-answers.ts` the two approvals reads and the two acts,
-// `invites/invite-answers.ts` the sent-invite ledger read and the pending lifecycle,
 // `shell/presence-answers.ts` the activity read and the node's control-plane host,
 // `collaboration/session-identity.ts` the header's own identity read,
 // `shell/auxiliary-windows.ts` models the shell's own window plane,
@@ -38,8 +37,6 @@ import { fixtureApprovalAnswers } from "./approval-answers.js";
 import { FixtureAttachmentIngest, fixtureAttachmentIngest } from "./attachment-ingest.js";
 import { BROWSER_PRODUCED_ARTIFACTS_CALL } from "../../scenario/browser.js";
 import { deriveAttentionProjection } from "./attention-derivation.js";
-import type { FixtureInviteLedger } from "../invites/invite-ledger.js";
-import { fixtureInviteAnswers } from "../invites/invite-answers.js";
 import { fixtureDiagnosticsReads } from "../settings/diagnostics-reads.js";
 import { paceGrowthStreamOnScenarioClock } from "./due-frames.js";
 import { fixtureMcpGovernance } from "../settings/mcp-governance.js";
@@ -93,12 +90,10 @@ import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 export function createFixtureGrowthPort(
   engine: ScenarioEngine,
   channelLifecycle: FixtureChannelLifecycle,
-  inviteLedger: FixtureInviteLedger,
 ): GrowthPort {
-  // The ingest spools, held for this port's life on the reason
-  // `invites/invite-answers.ts` states for its pending table: the three legs of one
-  // upload are three calls over one accumulating record, so a handler that minted its
-  // state per call could acknowledge no chunk and complete no stream.
+  // The ingest spools, held for this port's life: the three legs of one upload are
+  // three calls over one accumulating record, so a handler that minted its state per
+  // call could acknowledge no chunk and complete no stream.
   const attachmentSpools = new FixtureAttachmentIngest();
   const served: Pick<GrowthPort, FixtureServedGrowthOperationId> = {
     // workflow, collaboration, onboarding and shell — spread from the modules that
@@ -114,12 +109,10 @@ export function createFixtureGrowthPort(
     ...fixtureCollaborationReads(engine, channelLifecycle),
     ...fixtureOnboardingAnswers(engine),
     ...fixtureShellAnswers(engine),
-    // sessions, approvals, invites and presence — the same shape: each plane declares
-    // its own served ids beside the answers it composes, and the pending-invite table
-    // is minted inside its own module for the reason the shell channel is.
+    // sessions, approvals and presence — the same shape: each plane declares its own
+    // served ids beside the answers it composes.
     ...fixtureSessionAnswers(engine),
     ...fixtureApprovalAnswers(engine),
-    ...fixtureInviteAnswers(engine, inviteLedger),
     ...fixturePresenceAnswers(engine),
     // The attachment ingest trio and its abort. Answered from the spool rather than
     // from the script, which is what makes every ingest state a surface renders
@@ -229,7 +222,7 @@ export function createFixtureGrowthPort(
     // agent plane
     //
     // Each unscripted arm answers the EMPTY state of its own read rather than a
-    // refusal, on the invite ledger's rule above: a session with no agents attached
+    // refusal: a session with no agents attached
     // and a session whose roster could not be read are different answers, and the
     // agent console draws them differently. A scenario that scripts nothing here has
     // a session with nobody in it, which is what a fresh session IS.
@@ -251,7 +244,7 @@ export function createFixtureGrowthPort(
     // browser — the provenance the produced-object shelf joins the log against.
     //
     // Routed through the scripted-reply seam and answered with the EMPTY SET when a
-    // scenario names nothing, on the invite ledger's rule: a session whose browser has
+    // scenario names nothing, on the same empty-answer rule: a session whose browser has
     // produced nothing is an ordinary session the shelf has to draw, and a refusal
     // here would say the question was never asked. A scenario that publishes artifacts
     // and scripts no reply is saying those artifacts came from somewhere else.
@@ -351,11 +344,11 @@ export function createFixtureGrowthPort(
       ),
     // repos — the workspace's own execution context.
     //
-    // ITS UNSCRIPTED ARM IS THE WORKFLOW SUBJECT READS' AND NOT THE INVITE LEDGER'S,
-    // for the reason `call-plane/served-operations.ts` gives: this read answers facts
-    // about ONE named workspace, so an empty answer would assert that the workspace
-    // exists and is bound to no root — an invention, where an invite ledger with no
-    // rows is an ordinary session. Routed through the scripted seam so a scenario
+    // ITS UNSCRIPTED ARM IS THE WORKFLOW SUBJECT READS' AND NOT THE EMPTY SET, for the
+    // reason `call-plane/served-operations.ts` gives: this read answers facts about ONE
+    // named workspace, so an empty answer would assert that the workspace exists and is
+    // bound to no root — an invention, where a session-scoped list with no rows is an
+    // ordinary session. Routed through the scripted seam so a scenario
     // answers per workspace, exactly as the entity-scoped `repo.*` reads beside it do.
     workspaceExecutionContextRead: async (request) =>
       answerFromScriptedReply(
