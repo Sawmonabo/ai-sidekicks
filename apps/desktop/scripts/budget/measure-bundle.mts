@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Renderer initial-graph budgets — Plan-023 Phase 1C (T-023p-1C-1).
+// Renderer initial-graph budgets.
 //
 // Walks the renderer's initial import graph, read from Vite's own
 // `.vite/manifest.json` (`renderer.build.manifest: true` in
@@ -47,7 +47,7 @@ import {
   type BudgetGateReading,
 } from "./budget-harness.mts";
 
-/** The compressed-code ceiling — `Spec-023 §Console Design (Meridian)` §Budgets row 1. */
+/** The compressed-code ceiling for the renderer's initial graph. */
 export const RENDERER_BUNDLE_BUDGET_ID: string = "renderer-initial-bundle";
 
 /** The raw-font-byte ceiling, this harness's own row beside the spec's. */
@@ -300,7 +300,7 @@ export function formatRendererBundleReport(
 ): string {
   return formatBudgetReport(
     {
-      title: "Renderer initial-graph budgets — Plan-023 T-023p-1C-1",
+      title: "Renderer initial-graph budgets",
       provenance: [
         `  output tree:   ${measurement.rendererOutputDirectory}`,
         `  chunk graph:   ${RENDERER_MANIFEST_RELATIVE_PATH}, entries: ${measurement.entryKeys.join(", ")}`,

@@ -1,6 +1,6 @@
 // The browser tier: the assertions a DOM shim cannot answer.
 //
-// `Spec-023 §Console Test Tiers` splits browser from unit for one reason, and it
+// The browser tier is split from unit for one reason, and it
 // is a reason rather than a preference: happy-dom returns zeroes from every
 // `getBoundingClientRect`, resolves no custom property through the cascade, and
 // lays nothing out. Under it, "the rail is 56 px wide", "the attribution edge is

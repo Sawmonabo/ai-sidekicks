@@ -1,8 +1,7 @@
 // Compile-time icon resolution — one plugin, one weight, three consumers.
 //
-// `Spec-023 §Console Libraries` admits the Tabler set through `unplugin-icons`
-// with our own signature glyphs "in the same collection", compiled at build
-// time. This module is the whole of that wiring: `~icons/tabler/<name>` and
+// The Tabler set is admitted through `unplugin-icons` with our own signature
+// glyphs in the same collection, compiled at build time. This module is the whole of that wiring: `~icons/tabler/<name>` and
 // `~icons/signature/<name>` both resolve here, both are compiled to a React
 // component by `@svgr`, and both leave carrying the same stroke contract.
 //
@@ -222,9 +221,8 @@ async function compileFaceToReactComponent(
  */
 export function iconCompilationPlugin(): Plugin | Plugin[] {
   return Icons({
-    // `Spec-023 §Console Libraries`' own row names the `@svgr` path, and this is
-    // it — see the compiler above for the one respect in which it is spelled out
-    // rather than named. `extension` is what makes the resolved specifier end in
+    // The `@svgr` path — see the compiler above for the one respect in which it
+    // is spelled out rather than named. `extension` is what makes the resolved specifier end in
     // `.jsx`, so the bundler applies its JSX transform to what comes back.
     compiler: { compiler: compileFaceToReactComponent, extension: "jsx" },
     customCollections: {

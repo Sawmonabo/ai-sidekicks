@@ -1,7 +1,6 @@
 // The screenshot tier's ledger arm: the console's signature surface, pinned.
 //
-// `Spec-023 §Console Test Tiers` puts "the flagship frame at its frozen tick" on
-// this tier, and the ledger is what makes that sentence worth anything — the frame
+// This tier captures the flagship frame at its frozen tick, and the ledger is what makes that sentence worth anything — the frame
 // beside it is chrome around an empty surface until a session is open in it. So
 // this file captures the whole console window with the FLAGSHIP session loaded, in
 // both schemes, and the ledger's own region for the one state no loaded session can

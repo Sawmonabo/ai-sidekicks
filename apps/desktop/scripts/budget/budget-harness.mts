@@ -1,4 +1,4 @@
-// The shell both budget harnesses run inside — Plan-023 Phase 1C (T-023p-1C-1).
+// The shell both budget harnesses run inside.
 //
 // A measuring harness owns its own reading and nothing else: this file owns the
 // report skeleton every reading prints inside, and the mapping from a verdict to
@@ -37,9 +37,9 @@ function formatByteDelta(byteDelta: number): string {
   return `${byteDelta >= 0 ? "+" : "−"}${formatBytes(Math.abs(byteDelta))}`;
 }
 
-/** The two provenance lines every harness prints above its own reading. */
+/** The provenance line every harness prints above its own reading. */
 function formatBudgetRegistryHeaderLines(registry: ConsoleBudgetRegistry): readonly string[] {
-  return [`  registry:      ${registry.budgetsFilePath}`, `  spec source:   ${registry.source}`];
+  return [`  registry:      ${registry.budgetsFilePath}`];
 }
 
 /** One gate, resolved against the registry and evaluated against a reading. */

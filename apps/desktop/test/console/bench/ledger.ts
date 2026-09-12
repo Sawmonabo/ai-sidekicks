@@ -1,17 +1,16 @@
-// The console bench-tier ledger — Plan-023 Phase 1C (T-023p-1C-1).
+// The console bench-tier ledger.
 //
-// `Spec-023 §Console Design (Meridian)`'s fourth product bar ("light on the
-// machine") admits a library "only after its bytes, heap, and frame cost are
-// measured against an own build", and `Spec-023 §Console Test Tiers` records
-// endurance results "in a dated ledger that records refutations". The bench
+// The console is light on the machine: a library is admitted only after its
+// bytes, heap, and frame cost are measured against an own build, and endurance
+// results are recorded in a dated ledger that records refutations. The bench
 // tier is where the own-build measurements those two rules depend on are taken,
 // and this file is where their numbers go.
 //
 // Three properties, each deliberate:
 //
 //   • It appends and never deletes. A ledger that rewrites history cannot
-//     record a refutation, which is the one thing `§Console Test Tiers` asks of
-//     it. Re-running a benchmark adds a row; it does not replace one.
+//     record a refutation, which is the one thing a ledger is for. Re-running
+//     a benchmark adds a row; it does not replace one.
 //
 //   • Every row carries its provenance — the git commit the numbers were taken
 //     at (best effort; a detached or git-less checkout records `null` rather

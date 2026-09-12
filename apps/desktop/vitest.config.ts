@@ -1,7 +1,6 @@
 // Vitest 4.x config for @ai-sidekicks/desktop.
 //
-// Plan-001 Phase 5 T5.2 substrate completion (T-amend-002): introduces a
-// renderer-unit-test surface alongside the existing main-process smoke test.
+// There is a renderer-unit-test surface alongside the main-process smoke test.
 // The two surfaces have fundamentally different runtime environments and
 // MUST NOT share a single `environment` setting:
 //
@@ -15,15 +14,14 @@
 // invocation. Per-project `include` globs are disjoint, so there is no
 // double-discovery risk.
 //
-// Renderer-untrusted boundary (Spec-023 §Trust Stance) note: happy-dom is a
+// Renderer-untrusted boundary note: happy-dom is a
 // pure-JS DOM shim with no Node-IPC capabilities; it does NOT punch a hole
 // in the renderer's process isolation at test time. The bridge surface
 // (`window.sidekicks`) is mocked per test (see SessionBootstrap.test.tsx)
 // rather than dispatched to the real preload — there is no `electron`
 // runtime in this test surface.
 //
-// Plan-023 Phase 1C (T-023p-1C-1) registers the console's test tiers
-// (`Spec-023 §Console Test Tiers`). All of them are Vitest projects,
+// The console's test tiers are all Vitest projects,
 // declared in `vitest/console-projects.ts` and spread below — there is no
 // `playwright.config.ts` anywhere in this repository, and the two tiers that
 // need a real Electron window do not want one: `console-e2e` and
@@ -52,9 +50,9 @@ import { iconCompilationPlugin } from "./vitest/icon-compilation";
 
 export default defineConfig({
   test: {
-    // BL-123 Stage 1 measurement substrate. Vitest 4 resolves `coverage`
-    // root-only when `projects` are declared, so this block sits beside
-    // `projects`, not inside one.
+    // Coverage measurement. Vitest 4 resolves `coverage` root-only when
+    // `projects` are declared, so this block sits beside `projects`, not
+    // inside one.
     //
     // The denominator is deliberately the renderer sub-tree alone. The `main`
     // project's one test spawns a real Electron binary as a child process
@@ -62,7 +60,7 @@ export default defineConfig({
     // that one, so `src/main/**` and `src/preload/**` would report ~0% and drag
     // the package number toward a figure that measures the harness rather than
     // the code. Widening this include is the correct move only once the main
-    // process is exercised in-process — see BL-131's renderer/E2E leg.
+    // process is exercised in-process.
     coverage: sharedCoverageOptions({
       include: ["src/renderer/**/*.{ts,tsx}"],
     }),
@@ -73,8 +71,8 @@ export default defineConfig({
           environment: "node",
           // The three files directly under `test/`, and only those: the two
           // Electron-spawning probes and the sidecar unit that has always sat
-          // beside them. Narrowed from `test/**/*.test.ts` by Plan-023 Phase 1C
-          // so the console tiers under `test/console/**` are not
+          // beside them. Narrowed from `test/**/*.test.ts` so the console
+          // tiers under `test/console/**` are not
           // double-discovered here in a node environment that would fail them
           // for the wrong reason.
           //
@@ -114,8 +112,8 @@ export default defineConfig({
         },
       },
       {
-        // Plan-023 Phase 1B (T-023p-1B-3). Named `main-unit` because `main` is
-        // already taken by the smoke project above — these are the in-process
+        // Named `main-unit` because `main` is already taken by the smoke
+        // project above — these are the in-process
         // units for `src/main/**`, which neither existing project reaches.
         //
         // Deliberately NOT hung off `build:smoke` in `turbo.json`: these are
@@ -237,7 +235,7 @@ export default defineConfig({
         },
       },
 
-      // --- Console test tiers (`Spec-023 §Console Test Tiers`) --------------
+      // --- Console test tiers ----------------------------------------------
       //
       // Declared in `vitest/console-projects.ts`, spread here. The tiers are one
       // subject and this file composes rather than declares them, so the count

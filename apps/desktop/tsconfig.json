@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  // Plan-023 Phase 1: this is the Node-context entry for the desktop package and
+  // The Node-context entry for the desktop package; it
   // typechecks `src/main/**` + `src/preload/**`. The renderer lives in a separate
   // composite project at `src/renderer/tsconfig.json` (browser context: DOM lib,
   // JSX, no Node types) and is wired in via the `references` array below — so
@@ -22,7 +22,7 @@
     { "path": "./src/renderer" }
   ],
   "include": ["src/**/*"],
-  // `src/**/*.test.ts` joins the exclude list at Plan-023 Phase 1B (T-023p-1B-3):
+  // `src/**/*.test.ts` is excluded because
   // the `main-unit` Vitest project co-locates main-process units beside the
   // modules they cover (`src/main/protocol.test.ts`), and this project EMITS, so
   // an included test file would compile a `vitest` import into `dist/`.

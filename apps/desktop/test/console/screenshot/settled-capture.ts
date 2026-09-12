@@ -44,7 +44,7 @@ import { page } from "vitest/browser";
 
 // The LEAF and not the family door: `pendingPaneKindsIn` has no production reader, so
 // `console/seats/index.ts` carries no line for it — a door line only a test reaches is
-// what `apps/desktop/AGENTS.md` §Module shape rejects.
+// what the module-shape rules in `apps/desktop/AGENTS.md` reject.
 import { pendingPaneKindsIn } from "../../../src/renderer/src/console/seats/pane/pending-pane-body.js";
 import { settle } from "../../../src/renderer/src/console/core/settle.test-support.js";
 import { captureWindowStep, stabilityWaitMsFor, type CaptureViewport } from "./capture-viewport.js";
@@ -208,8 +208,8 @@ export class CaptureWindow {
    * before it returns; both are photographed at the size the tier configures.
    *
    * Reported rather than re-measured by the caller. The sizes are this class's, and
-   * two derivations of one quantity is the drift `apps/desktop/AGENTS.md` §Shared code
-   * forbids on the two sides of a seam — the caller reads what was held and
+   * two derivations of one quantity is the drift the shared-code rule in
+   * `apps/desktop/AGENTS.md` forbids on the two sides of a seam — the caller reads what was held and
    * `stabilityWaitMsFor` decides what holding it costs.
    */
   public get heldViewportRatio(): number {

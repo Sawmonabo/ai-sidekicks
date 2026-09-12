@@ -1,12 +1,11 @@
-// Plan-001 §CP-001-1 / Plan-024 §I-024-4 sidecar-lifecycle integration test.
+// Sidecar-lifecycle integration test.
 //
-// What this asserts (Plan-001 Phase 5 Test I5):
+// What this asserts:
 //   1. `registerSidecarLifecycle(app, getPtyHost)` registers exactly one
 //      `will-quit` listener on the supplied `app` object.
 //   2. The handler is registered at position 0 — index 0 in the FIFO
 //      `app.listeners('will-quit')` array. This is the discriminating
-//      assertion for the FIFO-ordering invariant (Plan-024 §I-024-4 +
-//      Plan-001 §CP-001-1 resolution): a downstream `will-quit` handler
+//      assertion for the FIFO-ordering invariant: a downstream `will-quit` handler
 //      registered AFTER this module's call MUST appear at position >= 1.
 //   3. When `will-quit` fires with a `null` PtyHost (bootstrap-window
 //      case before the daemon has provisioned a host), the handler is a
@@ -52,13 +51,6 @@
 //   contract for the real Electron `app.on('will-quit', ...)` is
 //   structurally identical — Electron's `App` extends `EventEmitter`
 //   directly.
-//
-// Refs:
-//   • Plan-001 §Cross-Plan Obligations CP-001-1 — drain orchestration.
-//   • Plan-024 §Invariants I-024-4 — FIFO registration-order invariant.
-//   • ADR-019 §Decision item 8 — backend polymorphism (we never see
-//     RustSidecarPtyHost or NodePtyHost in the test — only the
-//     interface).
 
 import { EventEmitter } from "node:events";
 
@@ -186,11 +178,8 @@ async function flushAsyncQuitChain(): Promise<void> {
 // Tests
 // ----------------------------------------------------------------------------
 
-// Governing obligations for this suite (Plan-001 CP-001-1, Plan-024 I-024-4)
-// are named in the file header and the per-assertion comments — never in
-// test titles.
 describe("registerSidecarLifecycle", () => {
-  // -- I5 anchor assertion: FIFO registration-ordering invariant ----------
+  // -- Anchor assertion: FIFO registration-ordering invariant ------------
 
   it("registers exactly one will-quit listener at index 0 (FIFO position assertion)", () => {
     const { app } = makeFakeApp();
@@ -215,7 +204,7 @@ describe("registerSidecarLifecycle", () => {
     registerSidecarLifecycle(app, getPtyHost);
 
     // Simulate a downstream handler registered AFTER sidecar-lifecycle.
-    // Per Plan-024 §I-024-4 the sidecar handler MUST remain at position
+    // The sidecar handler MUST remain at position
     // 0 — Electron's EventEmitter invokes listeners in registration
     // order, so the drain runs before any peer handler closes resources
     // the drain depends on.
@@ -354,8 +343,7 @@ describe("registerSidecarLifecycle", () => {
     const { app, emitWillQuit } = makeFakeApp();
     // A `PtyHost` whose ONLY working method is `shutdown` — every
     // other field throws if touched. The lifecycle handler MUST NOT
-    // reach for any other surface (`ADR-019 §Decision` item 4:
-    // "Consumers never see the backend choice").
+    // reach for any other surface: consumers never see the backend choice.
     const shutdown = vi.fn(
       async (): Promise<DrainResult> => ({
         sessionsDrained: 0,
@@ -371,7 +359,7 @@ describe("registerSidecarLifecycle", () => {
         }
         throw new Error(
           `registerSidecarLifecycle accessed backend-specific surface '${String(prop)}' — ` +
-            `violates ADR-019 polymorphism (Consumers never see the backend choice).`,
+            `violates backend polymorphism: consumers never see the backend choice.`,
         );
       },
     });

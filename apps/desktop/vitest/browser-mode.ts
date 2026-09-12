@@ -2,8 +2,8 @@
 //
 // Lifted out of `vitest.config.ts` when that file passed the package's ceiling, and
 // the seam is the one the file already had: these are values SEVERAL projects read,
-// while everything left behind is one project's own declaration. `Spec-023 §Console
-// Test Tiers` names four projects that run in a browser and they must render under
+// while everything left behind is one project's own declaration. Four projects
+// run in a browser and they must render under
 // the same conditions, which is a property that survives only while the conditions
 // have one home.
 

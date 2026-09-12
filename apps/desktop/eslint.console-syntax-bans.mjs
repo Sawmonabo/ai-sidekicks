@@ -203,8 +203,8 @@ export const CONSOLE_TIME_READING_EXEMPT_FILES = [
  * and this one is lifted for nothing.
  */
 export const EXPORTED_COLLECTION_SELECTOR = {
-  // A COLLECTION PUBLISHED THROUGH A MODULE DOOR, which `apps/desktop/AGENTS.md`
-  // §State and views rejects and no gate could see: a `ReadonlySet` or
+  // A COLLECTION PUBLISHED THROUGH A MODULE DOOR, which the state-and-views rules
+  // in `apps/desktop/AGENTS.md` reject and no gate could see: a `ReadonlySet` or
   // `ReadonlyMap` annotation hides `add` and `set` from a READER and from
   // nothing at runtime, so an exported one is a single object every importer
   // in the window shares and any of them can grow. It is the one collection

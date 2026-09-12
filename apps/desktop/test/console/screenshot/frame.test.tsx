@@ -1,7 +1,6 @@
 // The screenshot tier: the frame and the first-run scenario, per scheme.
 //
-// `Spec-023 §Console Test Tiers` names a screenshot tier "per component and per
-// scheme", and since 2026-09-09 it is a LOCAL CAPTURE AID rather than a regression
+// The screenshot tier captures per component and per scheme, and since 2026-09-09 it is a LOCAL CAPTURE AID rather than a regression
 // gate: every capture is written into the gitignored
 // `test/console/screenshot/__screenshots__/`, compared against nothing, in no CI job
 // and in no `pnpm test` chain. What it still refuses is a capture that would be a

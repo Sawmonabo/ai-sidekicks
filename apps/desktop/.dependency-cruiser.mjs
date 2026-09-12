@@ -1,4 +1,4 @@
-// Layering gate for `apps/desktop` (`Spec-023 §Console Libraries`, structure-enforcement row).
+// Layering gate for `apps/desktop` — one of the two structure-enforcement legs.
 //
 // It answers one question the type system cannot: which module is allowed to import which.
 // ESLint's `no-restricted-imports` already owns the renderer-untrusted specifier bans, and it
@@ -152,8 +152,8 @@ export default {
         "A plan-owned subtree whose owner MOUNTS INTO the console reaches the frame by calling " +
         "`registerConsoleSurface`, which is a call and not an import — so the console imports " +
         "it through no path, and this rule takes no exception. It is deliberately not a ban on " +
-        "every sibling subtree: Plan-023's Phase-1C rule has the console absorb the shipped " +
-        "Tier-1 components (`session-bootstrap/`, `runtime-node-attach/`) " +
+        "every sibling subtree: the console absorbs the shipped legacy renderer " +
+        "components (`session-bootstrap/`, `runtime-node-attach/`) " +
         "by import, and a gate stricter than its own plan is a defect. A later plan whose page " +
         "mounts into the console adds its subtree to this list.",
       severity: "error",
@@ -318,7 +318,7 @@ export default {
       name: "console-cross-family-deep-import",
       comment:
         "A console family reached into another family's module instead of its door. " +
-        "`apps/desktop/AGENTS.md` §Module shape: cross-family imports go through the " +
+        "The module-shape rules in `apps/desktop/AGENTS.md`: cross-family imports go through the " +
         "family door, intra-family imports are deep. The two rules above order the " +
         "families and keep view families apart; neither says anything about HOW a " +
         "permitted edge is written, so a downward edge past a barrel — the shape a " +

@@ -1,4 +1,4 @@
-// The Electron spawn-and-probe harness — Plan-023 Phase 1B.
+// The Electron spawn-and-probe harness.
 //
 // Extracted from `../launch.smoke.test.ts`, which had grown to ~1,780 lines of
 // which the assertions were the last quarter. The split is by ROLE and not by
@@ -48,8 +48,8 @@ const __dirname = path.dirname(__filename);
 export const PACKAGE_ROOT: string = path.resolve(__dirname, "../..");
 
 // The `electron-vite build` output paths (per `apps/desktop/electron.vite.
-// config.ts`'s per-target `outDir`). At Plan-023 Phase 1 T-023p-1-7 the
-// build pipeline swapped from the original `tsc -b` posture to
+// config.ts`'s per-target `outDir`). The build pipeline swapped from the
+// original `tsc -b` posture to
 // `electron-vite build` — the bundler bundles + handles the sandboxed-
 // preload CJS constraint that `tsc -b`'s straight emit cannot satisfy
 // (an ESM `import` in a `"type": "module"` package is rejected by
@@ -118,9 +118,9 @@ export const SMOKE_PROBE_TAG = "[SIDEKICKS_SMOKE_PROBE]";
 // exactly one tagged line.
 export const READINESS_BREADCRUMB_TAG = "[SIDEKICKS_SMOKE_READY]";
 
-// Spec-023 acceptance: window appears within 5 seconds. We allow a
+// The window must appear within 5 seconds. We allow a
 // modest buffer above that on the SPAWN side so we can distinguish a
-// slow-but-passing boot (which is still a pass per the AC: the inner
+// slow-but-passing boot (which is still a pass: the inner
 // `windowMs` measurement is the load-bearing one) from a fully-stuck
 // Electron process (which we want to kill rather than hang the suite).
 export const WINDOW_BUDGET_MS = 5_000;
@@ -290,7 +290,7 @@ export interface SmokeProbe {
     readonly require: string;
     readonly process: string;
     readonly global: string;
-    // Plan-023 Phase 1B (T-023p-1B-2) — the origin readings. These exist only
+    // The origin readings. These exist only
     // because the probe now runs against the REAL bundle served over the
     // privileged scheme; on the retired `about:blank` document every one of
     // them would have read the opaque origin instead.

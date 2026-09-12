@@ -1,4 +1,4 @@
-// Tier: endurance — `Spec-023 §Console Test Tiers`.
+// Tier: endurance.
 //
 // A pane that is closed while its read is on the wire pays for nothing after it
 // closes, and a console that opens and closes panes all day accumulates nothing from

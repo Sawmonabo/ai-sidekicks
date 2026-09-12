@@ -1,12 +1,11 @@
-// The streaming block layer's benchmark gate — Plan-023 Phase 1C, the bench tier's
-// second arm.
+// The streaming block layer's benchmark gate — the bench tier's second arm.
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // WHY THIS ARM EXISTS
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// `Spec-023 §Console Design (Meridian)`'s fourth product bar admits a library "only
-// after its bytes, heap, and frame cost are measured against an own build", and the
+// The console admits a library only after its bytes, heap, and frame cost are
+// measured against an own build, and the
 // console's streaming block layer is the largest own build in the tree: an
 // incremental block segmenter, a memoised settled-block parse, and a tail that is the
 // only text `remend` is applied to. The design track's decision A8 says that layer

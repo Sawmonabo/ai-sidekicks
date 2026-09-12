@@ -19,8 +19,8 @@
  * What a TypeScript module file name ends in — the ONE declared set.
  *
  * Four extensions and not two, because `.mts` and `.cts` are TypeScript modules
- * this package actually writes: `AGENTS.md §Executables` makes every file under
- * `scripts/**` and `build/**` a `.ts` or a `.mts`, and seven `.mts` executables
+ * this package actually writes: every file under `scripts/**` and `build/**` is a
+ * `.ts` or a `.mts`, and seven `.mts` executables
  * live under `scripts/budget/` today. A walk keyed on `/\.tsx?$/` therefore
  * quantifies over less than its own sentence claims, and the failure is silent by
  * construction: the module it skipped is absent from the set, so no claim about

@@ -12,8 +12,8 @@
 // WHY IT EXISTS
 // -------------
 // Electron 44 publishes NO `scripts` field — and the change is 42.0's, which 44
-// merely inherits: `docs/breaking-changes.md` §Breaking API Changes (42.0)
-// records both that `electron` "no longer downloads itself via `postinstall`
+// merely inherits: Electron's own breaking-changes notes for 42.0
+// record both that `electron` "no longer downloads itself via `postinstall`
 // script" and that `ELECTRON_SKIP_BINARY_DOWNLOAD` "is no longer supported, as
 // its primary purpose was to prevent the `postinstall` script from running".
 // Every line through 41.6.1 shipped `"postinstall": "node install.js"`; every

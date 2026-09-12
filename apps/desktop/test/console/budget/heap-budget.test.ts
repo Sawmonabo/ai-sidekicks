@@ -1,8 +1,8 @@
-// The renderer heap-at-rest budget row — Plan-023 Phase 1C (T-023p-1C-1).
+// The renderer heap-at-rest budget row.
 //
-// `Spec-023 §Console Design (Meridian)` §Budgets row 3 bounds the renderer heap
-// with ONE SESSION OPEN at 120 MB. The reading is taken by the endurance tier —
-// `test/console/endurance/heap-at-rest.test.ts`, which launches the built console
+// The renderer heap with ONE SESSION OPEN is bounded at 120 MB. The reading is
+// taken by the endurance tier — `test/console/endurance/heap-at-rest.test.ts`,
+// which launches the built console
 // and reads its renderer's own heap — and this file pins what THIS tier can see
 // about that arrangement, in both directions:
 //
@@ -92,7 +92,6 @@ describe("the renderer heap-at-rest budget row", () => {
     expect(budget.status).toBe("enforced");
     expect(budget.measuredBy).toBe(ENDURANCE_HARNESS_PATH);
     expect(budget.notMeasurableReason).toBeNull();
-    expect(budget.producedBy).toBe("T-023p-1C-8");
   });
 
   it("keeps the spec's ceiling, so a re-pointed reading never relaxes the budget", () => {
@@ -109,7 +108,6 @@ describe("the heap budget CLI's delegation", () => {
 
     expect(report).toContain("MEASURED ELSEWHERE");
     expect(report).toContain(ENDURANCE_HARNESS_PATH);
-    expect(report).toContain(budget.producedBy);
     expect(report).toContain(SPEC_CEILING_BYTES.toLocaleString("en-US"));
     // The two verdicts a measured budget prints. Either one here would be a
     // comparison against a figure this process never took.
@@ -123,7 +121,6 @@ describe("the heap budget CLI's delegation", () => {
       budgetId: HEAP_AT_REST_BUDGET_ID,
       status: "measured-elsewhere",
       measuredBy: ENDURANCE_HARNESS_PATH,
-      producedBy: budget.producedBy,
       limitCanonicalValue: SPEC_CEILING_BYTES,
       canonicalUnit: "bytes",
     } satisfies HeapAtRestDelegationRecord);

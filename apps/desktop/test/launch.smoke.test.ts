@@ -1,34 +1,30 @@
-// Plan-023 Phase 1 T-023p-1-7 — Vitest substrate-boots smoke test.
+// Vitest substrate-boots smoke test.
 //
-// Tier 1 unblock proof: programmatically spawns the built Electron bundle
-// against `apps/desktop/src/main/index.ts`'s `SIDEKICKS_SMOKE_PROBE=1`
-// branch and asserts the Spec-023 §Security Hardening Baseline runtime
-// invariants:
+// Programmatically spawns the built Electron bundle against
+// `apps/desktop/src/main/index.ts`'s `SIDEKICKS_SMOKE_PROBE=1` branch and
+// asserts the security-hardening runtime invariants:
 //
 //   1. The main window's renderer document loads within 5 seconds.
-//   2. `window.sidekicks` is defined (the preload bridge from T-023p-1-4
-//      actually registered on the renderer surface — i.e., the
-//      `contextBridge.exposeInMainWorld` call ran).
-//   3. `window.require` is `undefined` (the Spec-023 §Security Hardening
-//      Baseline `nodeIntegration: false` + `sandbox: true` combination
-//      successfully prevented any Node API leak into the renderer).
-//   4. `window.process` is `undefined` — the second of the three Node-
-//      API-leak globals named by `Spec-023 §Acceptance Criteria`.
-//   5. `window.global` is `undefined` — the third Node-API-leak global
-//      named by `Spec-023 §Acceptance Criteria`. With this third
-//      assertion the Tier 1 smoke covers the full `Spec-023 §Acceptance Criteria` set
-//      (`require` / `process` / `global`); the Tier 8 Playwright E2E
-//      suite repeats the assertion across packaged-binary surfaces, but
-//      the Tier 1 substrate is the load-bearing single-source-of-truth.
+//   2. `window.sidekicks` is defined (the preload bridge actually registered
+//      on the renderer surface — i.e., the `contextBridge.exposeInMainWorld`
+//      call ran).
+//   3. `window.require` is `undefined` (the `nodeIntegration: false` +
+//      `sandbox: true` combination successfully prevented any Node API leak
+//      into the renderer).
+//   4. `window.process` is `undefined` — the second Node-API-leak global.
+//   5. `window.global` is `undefined` — the third. With this third assertion
+//      the smoke covers the full set (`require` / `process` / `global`); a
+//      later Playwright E2E suite repeats the assertion across
+//      packaged-binary surfaces, but this substrate is the load-bearing
+//      single source of truth.
 //
 // Why Vitest, not Playwright:
-//   Plan-023 §Implementation Steps step 18 + §Test And Verification Plan
-//   defer the Playwright `_electron` E2E suite to Tier 8 remainder. Tier 1
-//   ships only this single Vitest-driven smoke test as the substrate-boots
-//   proof; the heavier `@playwright/test` dep is a Tier 8 lift.
+//   The Playwright `_electron` E2E suite is deferred. This ships as the one
+//   Vitest-driven smoke test that proves the substrate boots; the heavier
+//   `@playwright/test` dependency is a later lift.
 //
-// Mechanism — Option (ii) in the T-023p-1-7 dispatch contract:
-//   The renderer is renderer-untrusted (Spec-023 §Trust Stance), so we do
+// Mechanism:
+//   The renderer is untrusted, so we do
 //   NOT add a probe to the renderer source. Instead, the main entrypoint
 //   has a smoke-mode branch gated on `SIDEKICKS_SMOKE_PROBE=1` that calls
 //   `webContents.executeJavaScript(...)` from the trusted main process,
@@ -87,7 +83,7 @@
 //   bundle) instead of `pnpm build` (which would produce a probe-less
 //   release bundle that this test cannot use).
 //
-// Module-system shape (verified empirically at T-023p-1-7):
+// Module-system shape (verified empirically):
 //   • `out/main/index.js`     — ESM (matches package `"type": "module"`).
 //                              Electron supports ESM main since v28, so
 //                              the 44.x pin carries it.
@@ -95,15 +91,15 @@
 //                              includes the probe body (the
 //                              `[SIDEKICKS_SMOKE_PROBE]` tag and the
 //                              `webContents.executeJavaScript(...)` call;
-//                              the `about:blank` load was RETIRED at
-//                              Plan-023 T-023p-1B-2, the probe now running
-//                              against the real bundle). In RELEASE
+//                              the `about:blank` load was RETIRED, the
+//                              probe now running against the real
+//                              bundle). In RELEASE
 //                              mode both are physically absent —
 //                              Vite's `define` substitutes the outer
 //                              `__SIDEKICKS_SMOKE_BUILD__` flag with
 //                              `false` and Rollup eliminates the branch
-//                              as dead code. The Spec-023 §Security
-//                              Hardening Baseline runtime invariants
+//                              as dead code. The security-hardening
+//                              runtime invariants
 //                              (sidekicks defined; require / process /
 //                              global all undefined) hold identically in
 //                              both modes — the smoke probe just adds
@@ -156,10 +152,6 @@ import {
 import { TEST_TIMEOUT_SLACK_MS } from "./helpers/electron-child.js";
 import { TERMINATION_GRACE_MS } from "./helpers/managed-electron-child.js";
 
-// Doc references for this suite (Plan-023 Phase 1 T-023p-1-7,
-// Spec-023 §Security Hardening Baseline / §Acceptance Criteria) are in the
-// file header and the per-assertion comments below — never in the emitted
-// test titles.
 describe("desktop shell substrate boot", () => {
   it("verifies built bundle exists before spawning Electron", () => {
     // Fail-fast diagnostic. If the test runs without the smoke bundle
@@ -194,9 +186,9 @@ describe("desktop shell substrate boot", () => {
     ).not.toBeNull();
   });
 
-  // Asserts the Spec-023 §Security Hardening Baseline runtime invariants:
-  // the preload bridge registered, and none of the three Node-API-leak
-  // globals named by `Spec-023 §Acceptance Criteria` reached the renderer.
+  // Asserts the security-hardening runtime invariants: the preload bridge
+  // registered, and none of the three Node-API-leak globals reached the
+  // renderer.
   it(
     "renderer exposes the preload bridge and leaks no Node globals",
     async () => {
@@ -217,7 +209,7 @@ describe("desktop shell substrate boot", () => {
       // Invariant 1: main window appears within 5 seconds.
       // The `windowMs` measurement is from `app.whenReady()` to
       // `webContents.did-finish-load` on the REAL renderer bundle served over
-      // `sidekicks-renderer://` (Plan-023 Phase 1B) — i.e. the moment the
+      // `sidekicks-renderer://` — i.e. the moment the
       // renderer is up, the preload has executed, and the served document has
       // finished loading. The retired `about:blank` arm measured only that a
       // window existed, so this budget now covers the handler and the bundle
@@ -233,41 +225,37 @@ describe("desktop shell substrate boot", () => {
       expect(probe.probe.sidekicks).toBe("object");
 
       // Invariant 3: `window.require` is `undefined` — i.e., no Node API
-      // leak into the renderer. `Spec-023 §Acceptance Criteria`:
-      // "Renderer attempts to access `require`, `process`, or `global`
-      // return `undefined` — verified by runtime assertion in a sandbox
-      // test." If this drifts to `"function"`, `nodeIntegration: true`
-      // has slipped past `assert-webprefs.ts`.
+      // leak into the renderer. A renderer attempt to reach `require`,
+      // `process`, or `global` returns `undefined`. If this drifts to
+      // `"function"`, `nodeIntegration: true` has slipped past
+      // `assert-webprefs.ts`.
       expect(probe.probe.require).toBe("undefined");
 
       // Invariant 4: `window.process` is `undefined` — the second of the
-      // three Node-API-leak globals named by `Spec-023 §Acceptance Criteria`
-      // (require / process / global).
+      // three Node-API-leak globals (require / process / global).
       expect(probe.probe.process).toBe("undefined");
 
       // Invariant 5: `window.global` is `undefined` — the third Node-API-
-      // leak global named by `Spec-023 §Acceptance Criteria`. Tier 1
-      // covers the full set of three at this single smoke layer; the Tier 8
+      // leak global. This smoke layer covers the full set of three; a later
       // Playwright `_electron` E2E suite repeats the assertion across the
       // packaged-binary surfaces (signed installer, asar bundle, autoupdate
-      // applied snapshot) but the Tier 1 substrate is the load-bearing
-      // single-source-of-truth that the runtime invariant holds.
+      // applied snapshot), but this substrate is the load-bearing single
+      // source of truth that the runtime invariant holds.
       expect(probe.probe.global).toBe("undefined");
 
-      // Invariant 6 (Plan-023 Phase 1B, I-023-11): the document came from the
-      // privileged scheme at the `app` host. This is the assertion that
+      // Invariant 6: the document came from the privileged scheme at the
+      // `app` host. This is the assertion that
       // distinguishes "a window exists" from "the bundle is served" — the
       // whole reason the `about:blank` arm was retired.
       expect(probe.probe.protocol).toBe("sidekicks-renderer:");
       expect(probe.probe.host).toBe("app");
 
-      // Invariant 7 (I-023-11): the origin carries storage. A scheme
+      // Invariant 7: the origin carries storage. A scheme
       // registered WITHOUT `standard: true` still loads documents — it just
       // has an opaque origin, so `indexedDB` is absent and `localStorage`
       // throws. The console's persisted layout, scroll position, selection,
-      // pins, and expansion sets live here — UI state ONLY, per
-      // `Spec-023 §Console Design (Meridian)`; drafts are deliberately not in
-      // that set and live in their window's memory for its lifetime — so a
+      // pins, and expansion sets live here — UI state ONLY; drafts are
+      // deliberately not in that set and live in their window's memory for its lifetime — so a
       // silent regression to a non-standard scheme would surface as data that
       // never survives a restart rather than as an error.
       expect(probe.probe.indexedDB).toBe("object");
@@ -491,7 +479,7 @@ describe("desktop shell substrate boot", () => {
     FORCED_STALL_TEST_TIMEOUT_MS,
   );
 
-  // The retirement, asserted rather than assumed (Plan-023 T-023p-1B-2).
+  // The retirement, asserted rather than assumed.
   //
   // The smoke bundle is the one build where the probe body SURVIVES — a
   // release bundle tree-shakes the whole branch, so grepping it for

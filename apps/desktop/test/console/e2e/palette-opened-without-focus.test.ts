@@ -1,5 +1,5 @@
-// Tier: end-to-end — `Spec-023 §Console Test Tiers`, whose spec files are named for
-// the incident they reproduce rather than for the module they touch.
+// Tier: end-to-end. Its spec files are named for the incident they reproduce
+// rather than for the module they touch.
 //
 // Every other console tier renders the console into something that is not the
 // application: happy-dom for the unit tier, a Chromium page for the three browser-mode

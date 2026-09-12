@@ -1,6 +1,6 @@
 // The console at its narrowest supported viewport.
 //
-// `Spec-023 §Console Design (Meridian)` sets WCAG 2.2 AA, and SC 1.4.10 (Reflow) is
+// The console is held to WCAG 2.2 AA, and SC 1.4.10 (Reflow) is
 // the one criterion in it that no rule in this directory's axe runs can reach —
 // `axe-tags.test.ts` records that the 2.2 tags select `target-size` and nothing
 // else at this pin, and reflow is a property of a layout at a width rather than of

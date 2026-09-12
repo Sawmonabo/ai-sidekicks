@@ -280,7 +280,7 @@ const PARSER_ANSWERS_BY_PRINTING: readonly string[] = ["--help", "-h"];
  * `unitProjectsClaiming()` a value it resolved as a path, matched to no project,
  * and refused with the misuse code — a valid invocation this script would not
  * run. Any arity table written here would be a second parser holding a copy of
- * vitest's own option list, which is the drift `AGENTS.md §Shared code` forbids
+ * vitest's own option list, which is the drift the shared-code rule in `AGENTS.md` forbids
  * and which no test could keep current.
  *
  * `parseCLI` is vitest's parser, exported from `vitest/node`, so what it calls a

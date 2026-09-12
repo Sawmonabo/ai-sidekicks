@@ -7,9 +7,9 @@
   // typechecked without polluting the project-references graph or the
   // production `dist/` layout.
   //
-  // ONE OWNER PER DIRECTORY. This config was widened to `scripts/` at Plan-023
-  // Phase 1B and narrowed back at Phase 1C, when `tsconfig.scripts.json` was
-  // authored to own that directory. The overlap was not merely redundant: the
+  // ONE OWNER PER DIRECTORY. This config once covered `scripts/` too, and was
+  // narrowed back when `tsconfig.scripts.json` was authored to own that
+  // directory. The overlap was not merely redundant: the
   // two configs disagreed about `allowImportingTsExtensions`, which the
   // `scripts/` harnesses require because `node --experimental-strip-types`
   // resolves the extension it is given and rewrites no specifier. So the

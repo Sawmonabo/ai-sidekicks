@@ -1,7 +1,6 @@
-// The renderer heap-at-rest budget, measured — Plan-023 Phase 1C.
+// The renderer heap-at-rest budget, measured.
 //
-// `Spec-023 §Console Design (Meridian)` §Budgets row 3 bounds "renderer heap, one
-// session open at rest" at 120 MB, and `budgets.json` carries the ceiling. This
+// Renderer heap with one session open at rest is bounded at 120 MB, and `budgets.json` carries the ceiling. This
 // file is the row's `measuredBy`: it takes the reading and compares it through
 // the registry's own `evaluateBudget`, so the number this gate uses and the
 // number the spec wrote are the same number read from one file.

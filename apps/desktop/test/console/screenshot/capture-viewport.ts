@@ -140,8 +140,8 @@ export const STABILITY_WAIT_PER_VIEWPORT_MS = 5000;
  * always given it and never a fraction of it. A `Math.max(1, …)` here would be
  * unreachable rather than defensive — both sides of the ratio are window areas, so
  * neither is ever zero or negative — and an unreachable guard is one the suite beside
- * this module cannot plant a failure into, which is `apps/desktop/AGENTS.md` §Tests'
- * bar and not a matter of taste.
+ * this module cannot plant a failure into, which is the bar the test rules in
+ * `apps/desktop/AGENTS.md` set and not a matter of taste.
  *
  * A PURE FUNCTION OVER THE RATIO, which is what makes the wait checkable without
  * taking a capture: `CaptureWindow` measures the two windows and reports what it held,
@@ -165,8 +165,8 @@ export function stabilityWaitMsFor(heldViewportRatio: number): number {
  *
  * `grow` CARRIES THE OVERHANG IT MEASURED rather than leaving the caller to subtract
  * the same two numbers over again. That figure is the input the next pass is judged
- * against, and two subtractions of one quantity is the drift `apps/desktop/AGENTS.md`
- * §Shared code forbids on the two sides of a seam.
+ * against, and two subtractions of one quantity is the drift the shared-code rule
+ * in `apps/desktop/AGENTS.md` forbids on the two sides of a seam.
  */
 export type CaptureWindowStep =
   | { readonly kind: "fits" }

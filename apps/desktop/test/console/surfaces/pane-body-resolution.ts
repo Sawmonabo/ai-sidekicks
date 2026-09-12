@@ -2,8 +2,8 @@
 //
 // ONE HOME BECAUSE THE WAIT IS ONE CLAIM. Four family mount modules resolved a body out
 // of a registry with the same four lines, and when pane bodies became loader-backed all
-// four needed the same new line in front of them — which is the shape
-// `apps/desktop/AGENTS.md` §Shared code names: a helper used by two modules is hoisted
+// four needed the same new line in front of them — which is the shape the
+// shared-code rule in `apps/desktop/AGENTS.md` names: a helper used by two modules is hoisted
 // on the second use. A per-module copy is also how a tier ends up with three mounts that
 // await the body and a fourth that races it, and a screenshot taken against a body that
 // had not arrived is stable, green, and a picture of the wrong thing.

@@ -33,8 +33,8 @@
 // Vitest runs that hook after a FAILED assertion exactly as it does after a passed one,
 // with each removal forced so a case that threw before writing its fixture leaves nothing
 // behind either. It is never `afterAll`: a directory that outlives the case that planted
-// it is filesystem state the next case runs against, which `apps/desktop/AGENTS.md`
-// §Pre-PR self-audit closes with "every temporary directory removed in `afterEach`". A
+// it is filesystem state the next case runs against, and `apps/desktop/AGENTS.md`
+// closes with "every temporary directory removed in `afterEach`". A
 // suite whose cases each need their own tree calls `create` per case rather than sharing
 // one, which is what makes the per-case removal safe.
 

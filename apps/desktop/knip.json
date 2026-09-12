@@ -1,8 +1,8 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
 
-  // Dead-code gate for `apps/desktop` (`Spec-023 §Console Libraries`, structure-enforcement
-  // row). knip resolves a set of entry points, then reports everything under `project` that no
+  // Dead-code gate for `apps/desktop` — one of the two structure-enforcement legs.
+  // knip resolves a set of entry points, then reports everything under `project` that no
   // entry reaches, transitively. That is the whole claim this file makes.
   //
   // RUN IT FROM THE WORKSPACE ROOT — `pnpm --filter @ai-sidekicks/desktop structure:dead-code`
@@ -98,7 +98,7 @@
       // at `src/renderer/src/console/core/` was reported by nothing at rc 0, while the same
       // plant under `scripts/budget/` failed the run at rc 1. No setting here can see that
       // — the edge is real and the entry is one this plugin is right to claim — so the rule
-      // lives where the pattern is written: `apps/desktop/AGENTS.md` §Tests forbids a
+      // lives where the pattern is written: the test rules in `apps/desktop/AGENTS.md` forbid a
       // directory glob in any module under `src/`, and `no-restricted-syntax` in
       // `apps/desktop/eslint.config.mjs` enforces it.
       "vitest": { "config": ["vitest.config.ts"] },

@@ -1,4 +1,4 @@
-// Shared reading helpers for the four window-factory suites — Plan-023 Phase 1B.
+// Shared reading helpers for the four window-factory suites.
 //
 // `window.ts` was split by role (construction, navigation policy, failure
 // ladder, auxiliary launch) and its suite split with it. Each suite still owns

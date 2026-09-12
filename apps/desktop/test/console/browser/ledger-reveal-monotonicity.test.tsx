@@ -1,6 +1,6 @@
 // Reveal monotonicity, in the engine that actually paints.
 //
-// `Spec-023 §Console Test Tiers` puts reveal monotonicity in the BROWSER tier, and
+// Reveal monotonicity belongs in the BROWSER tier, and
 // the reason is the reason the tier exists: a DOM shim delivers the mutation records
 // the shim was asked for, so a green run there says the shim agreed with itself. The
 // claim under test is that a reader's eye keeps its place while a lane streams — a

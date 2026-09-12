@@ -103,13 +103,13 @@ export const PANE_BOARD_SUBDIRECTORY = `${CONSOLE}/panes/[^/]+/`;
 /**
  * Test scaffolding, subtracted from the DOOR rule alone and from no other rule here.
  *
- * A `.test-support.*` module is a module like any other — `apps/desktop/AGENTS.md`
- * §Module shape says so — and it stays a subject of every rule in this file that is
+ * A `.test-support.*` module is a module like any other — the module-shape rules in
+ * `apps/desktop/AGENTS.md` say so — and it stays a subject of every rule in this file that is
  * about module SHAPE: cycles, orphans, the process boundary, the family ordering, and
  * view-family isolation all still bite it. What it cannot be a subject of is the rule
  * that says "import the door instead", because two gates would then contradict each
  * other and leave the module class with no legal form at all:
- * `apps/desktop/AGENTS.md` §Module shape rejects a door line whose only
+ * the module-shape rules in `apps/desktop/AGENTS.md` reject a door line whose only
  * reader is a test, and the symbols a harness reaches for are exactly that class —
  * `createLiveBridge`, which the shipped console resolves inside the bridge family, and
  * the per-family scenario seats, which `bridge/index.ts`'s own header records as

@@ -6,7 +6,7 @@
   // `noEmit` plus an isolated buildinfo, so the scripts are typechecked without
   // entering the project-references graph or the production `dist/` layout.
   //
-  // Authored at Plan-023 Phase 1C (T-023p-1C-1), when the harnesses under
+  // Authored when the harnesses under
   // `scripts/` moved from `.mjs` beside hand-written `.d.mts` declarations to
   // TypeScript sources run through `node --experimental-strip-types`. That move
   // is the whole point of this file: the declarations are now GENERATED from the

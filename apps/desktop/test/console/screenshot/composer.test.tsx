@@ -5,8 +5,8 @@
 // gates on whether each surface can be captured at all.
 //
 // WHAT IS PINNED, AND WHY. The composer is one component whose whole design claim is
-// about ADDRESSING. `Spec-023 §Signature Feature Composition Sketches`' Session
-// Composer fixes the half that decides these images — "a path label under the input
+// about ADDRESSING. The session composer's own design
+// fixes the half that decides these images — "a path label under the input
 // reading _new turn_ or _steer_ from the target run's subscribed state and never
 // predicted" — and this composer's own rule is that the placeholder names the target
 // too. That claim is invisible to a DOM assertion reading one attribute and is

@@ -12,14 +12,14 @@
 // page rather than the tester iframe — same engine, same rule set, one less
 // indirection.
 //
-// (`axe-core` is MPL-2.0 and is admitted as a never-distributed test dependency by
-// ADR-020's Decision Log; it must not reach a shipped bundle, which is why it is
-// imported under `test/` and nowhere under `src/`.)
+// (`axe-core` is MPL-2.0 and is admitted as a never-distributed test dependency;
+// it must not reach a shipped bundle, which is why it is imported under `test/`
+// and nowhere under `src/`.)
 
 import axe, { type Result } from "axe-core";
 
 /**
- * WCAG 2.2 A + AA, which is the level `Spec-023 §Console Design (Meridian)` rule 3 sets.
+ * WCAG 2.2 A + AA, which is the level every console surface is held to.
  *
  * Both levels of every version, because axe's tags select the criteria a version
  * INTRODUCED rather than everything that version's conformance requires: `wcag2a` and

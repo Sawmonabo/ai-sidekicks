@@ -1,7 +1,6 @@
-// The four-lane frame-time budget, measured — Plan-023 Phase 1C.
+// The four-lane frame-time budget, measured.
 //
-// `Spec-023 §Console Design (Meridian)` §Budgets bounds the renderer's 95th-
-// percentile frame duration at 16.7 ms while four agent lanes stream into the
+// The renderer's 95th-percentile frame duration is bounded at 16.7 ms while four agent lanes stream into the
 // ledger. This file is the row's `measuredBy`, and it compares through the
 // registry's own `evaluateBudget`, so the number this gate uses and the number the
 // spec wrote are one number read from one file.

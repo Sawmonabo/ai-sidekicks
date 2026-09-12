@@ -1,8 +1,8 @@
 // The console's own test tiers, as Vitest projects.
 //
-// `Spec-023 §Console Test Tiers` names the console's tiers — unit, browser,
-// end-to-end, accessibility, endurance, assets, bundle — and each is declared below.
-// The array also holds two projects that are NOT spec tiers and gate nothing, each
+// The console's tiers — unit, browser, end-to-end, accessibility, endurance,
+// assets, bundle — are each declared below.
+// The array also holds two projects that are NOT tiers and gate nothing, each
 // saying so in its own block: `console-screenshot`, the local capture aid that
 // compares against nothing since the pixel gate was retired, and `console-bench`,
 // this package's own micro-benchmark ledger. No count is stated here: a reader
@@ -62,7 +62,7 @@ const CONSOLE_TIERS: readonly TestProjectInlineConfiguration[] = [
       include: [
         "src/renderer/src/console/**/*.test.{ts,tsx}",
         "src/renderer/src/console/**/__tests__/**/*.test.{ts,tsx}",
-        // The shell subtree (Plan-023's own; it hosts the composer seat) composes
+        // The shell subtree (it hosts the composer seat) composes
         // console seats and so needs the fixture define — it is a console tier.
         "src/renderer/src/shell/**/*.test.{ts,tsx}",
         "src/renderer/src/shell/**/__tests__/**/*.test.{ts,tsx}",
@@ -88,7 +88,7 @@ const CONSOLE_TIERS: readonly TestProjectInlineConfiguration[] = [
     // Tier: screenshot (component half). A LOCAL CAPTURE AID since 2026-09-09:
     // it writes every surface's picture into the gitignored `__screenshots__/`
     // and compares against nothing, so it gates no branch and runs in no CI job.
-    // The Electron-window half rides Playwright and lands with T-023p-1C-8.
+    // The Electron-window half rides Playwright and is not wired yet.
     define: { __SIDEKICKS_CONSOLE_FIXTURES__: "true" },
     resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS, dedupe: BROWSER_MODE_DEDUPE },
     optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
@@ -241,7 +241,7 @@ const CONSOLE_TIERS: readonly TestProjectInlineConfiguration[] = [
     },
   },
   {
-    // Not one of the eight tiers `Spec-023 §Console Test Tiers` registers: the
+    // Not one of the eight registered console tiers: the
     // micro-benchmark ledger. Separated so a
     // benchmark's timing noise can never fail a gate — it records, and a
     // human reads the ledger.

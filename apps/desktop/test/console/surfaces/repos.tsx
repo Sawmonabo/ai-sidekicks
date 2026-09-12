@@ -20,7 +20,7 @@
 // TWO SURFACES ARE MOUNTED DIRECTLY, AND EACH FOR A STATED REASON.
 //
 //   • The DIFF PANE takes its model as a prop and no wire produces one
-//     (`gitflow.diffArtifactCreate` is a `Plan-023 §Console growth slate` row), so
+//     (`gitflow.diffArtifactCreate` is a growth-slate row), so
 //     the deck's own body renders the `not-checked` absence — which is the emptiest
 //     frame the surface has and would pin a baseline of a box. The pane is mounted
 //     with `extendedHeaderChangeSet()` instead, which is the composition

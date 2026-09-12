@@ -1,7 +1,6 @@
 // Driving the frozen clock a mounted console is running on.
 //
-// THE ROLE, STATED ONCE. `Spec-023 §Console Design (Meridian)` §The fixture bridge
-// makes the scenario's clock the only clock the renderer reads in fixture mode, so
+// THE ROLE, STATED ONCE. The fixture bridge makes the scenario's clock the only clock the renderer reads in fixture mode, so
 // every deadline a mounted window arms — a store's apply window, a refresh
 // scheduler's debounce, the engine's own beats — is armed on it and fires when a
 // driver moves it and at no other moment. A tier that mounts a whole console and

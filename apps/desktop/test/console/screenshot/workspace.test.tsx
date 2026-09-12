@@ -1,7 +1,6 @@
 // The screenshot tier: the session workspace, with its sidebar open and collapsed.
 //
-// `Spec-023 §Console Test Tiers` names a screenshot tier "per component and per
-// scheme", and the workspace is the surface where the sidebar's own claim is
+// The screenshot tier captures per component and per scheme, and the workspace is the surface where the sidebar's own claim is
 // visible at all: the split between the deck and the column, the eight section
 // headers a person reads down, and the rail the collapsed sidebar leaves behind.
 // None of that is checkable from the DOM assertions in the unit tier — a sidebar

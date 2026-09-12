@@ -1,7 +1,7 @@
 // The assets tier: generated artifacts against their sources.
 //
-// `Spec-023 §Console Test Tiers` names this tier "generated tokens and schema
-// artifacts byte-identical to their sources". The console has no COMMITTED
+// This tier holds generated tokens and schema artifacts byte-identical to their
+// sources. The console has no COMMITTED
 // stylesheet to byte-diff — `generate-css.ts` builds the sheet at runtime and
 // `frame/bindings/token-installation.ts` writes it into the document head before
 // first paint, deliberately,
@@ -14,7 +14,7 @@
 // assertions below are measuring nothing.
 //
 // A SECOND CLAIM USED TO LIVE HERE AND IS NOW A REVIEW RULE, stated in
-// `apps/desktop/AGENTS.md` §Module shape — that every `var(--meridian-*)` a console
+// the module-shape rules in `apps/desktop/AGENTS.md` — that every `var(--meridian-*)` a console
 // stylesheet references is defined somewhere the console controls. It is a real
 // drift (a stylesheet naming a property nobody sets does not fail, it paints
 // nothing) and it was checked by READING every console `.css` source, which is the
@@ -202,11 +202,11 @@ describe("assets — the generated token sheet", () => {
   });
 
   it("emits ONE settle easing, and it is the sampled spring", () => {
-    // `Spec-023 §Console Design (Meridian)` rule 5 asks for chrome that settles and
-    // never bounces, implemented by an own spring sampler emitting `linear()`. Two
-    // easings — a hand-written cubic beside the sampled spring — meant every one of
-    // the stylesheets reading `--meridian-ease-settle` got the cubic while the spring
-    // the rule asks for was emitted under a name no sheet read.
+    // Chrome settles and never bounces, implemented by an own spring sampler
+    // emitting `linear()`. Two easings — a hand-written cubic beside the sampled
+    // spring — meant every one of the stylesheets reading
+    // `--meridian-ease-settle` got the cubic while the spring the rule asks for
+    // was emitted under a name no sheet read.
     //
     // The sampler runs at BUILD time now — `tokens/motion.ts` carries what it
     // answered and `tokens/motion.test.ts` re-derives that constant against it — so
