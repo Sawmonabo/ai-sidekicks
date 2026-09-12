@@ -2,7 +2,7 @@
 // becomes something this surface may render.
 //
 // `SidekicksBridge.daemon.call` answers `DaemonResult<M>`, which resolves to
-// `unknown` until Plan-007's method union lands, and `packages/contracts` registers
+// `unknown` until the daemon method union lands, and `packages/contracts` registers
 // no approval payload at all — so a surface that rendered whatever arrived would
 // render a row for a malformed emission as confidently as for a real one. Every
 // field below is parsed before it reaches a component, on the same posture
@@ -15,9 +15,8 @@
 //     as enums would make one unrecognized token drop a whole record, and this
 //     surface's history rule — stated once in `approvals-wire.ts` — is that an
 //     unfiltered read renders every record it returns and drops nothing. It is also
-//     the fail-closed direction `Spec-023 §Rules every console surface obeys` asks
-//     for: an unknown member renders "as the explicit unrecognized row or badge,
-//     never as a guess".
+//     the fail-closed direction every console surface obeys: an unknown member
+//     renders as the explicit unrecognized row or badge, never as a guess.
 //   • **A malformed record is dropped and COUNTED, never silently skipped.** The
 //     count is what the pane renders beside the list, because "the daemon returned
 //     eleven and we could read nine" is a fact an operator has to be able to see.
@@ -34,7 +33,7 @@
 //     where the requested one belongs.
 //
 // WHAT IS DELIBERATELY ABSENT: a barrier identifier. The wait-for-all barrier is
-// real — `Spec-012` makes a turn wait on every request it raised — and no member of
+// real — a turn waits on every request it raised — and no member of
 // this reply groups the requests one turn raised. The
 // pane states the rule in copy rather than inventing a field to group by, because
 // a fabricated grouping key would silently claim that two unrelated requests must
@@ -287,8 +286,8 @@ const rememberedRuleSchema: z.ZodType<RememberedRule> = z
  *
  * `unreadableCount` is not an error state. The read succeeded; some rows were
  * shaped in a way this build cannot render, and both halves of that are true at
- * once — which is exactly the conflation `Spec-023 §Console Design (Meridian)`
- * rule 8 exists to prevent.
+ * once — which is exactly the conflation the console's kinds-of-nothing rule exists
+ * to prevent.
  */
 export interface ParsedRows<TRow> {
   readonly rows: readonly TRow[];

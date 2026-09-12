@@ -46,8 +46,8 @@ const REFUSED_CALL = "session.read";
 /**
  * The refusal a scripted rejection carries.
  *
- * A real registered code rather than an invented one: `Spec-021`'s rate-limit
- * refusals are exactly the class of typed daemon failure this arm exists to make
+ * A real registered code rather than an invented one: the rate-limit refusals are
+ * exactly the class of typed daemon failure this arm exists to make
  * reachable, and a fixture refusing under a code no namespace owns would train a
  * surface against a value nothing sends.
  */

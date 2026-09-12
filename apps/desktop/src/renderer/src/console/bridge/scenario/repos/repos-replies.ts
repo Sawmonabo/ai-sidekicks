@@ -188,7 +188,7 @@ export const REPOS_WORKTREE_STATUS_REPLY: WorktreeStatusReadResponse =
 /** Every scripted answer this scenario has, in the order a reader meets them. */
 export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
   {
-    // `Spec-009`'s only health-carrying read, answered per mount.
+    // The one health-carrying mount read, answered per mount.
     call: "repo.mountRead",
     resultFor: (request) => mountReadFor(request),
   },
@@ -202,7 +202,7 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
     // What an explicit switch answers with. `provisioning` rather than `ready`,
     // and no `executionRoot`: a writable select returns while the workspace is
     // still provisioning and the root does not exist yet, and a placeholder root
-    // would be a guess the contract admits no fallback for (I-010-7).
+    // would be a guess the contract admits no fallback for.
     call: "repo.executionModeSelect",
     result: {
       workspaceId: GIT_WORKSPACE_ID,
@@ -288,7 +288,7 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
     // absence, and the proposal gate could only ever be drawn against a session
     // with no branch context at all.
     //
-    // The four values are `Spec-011 §Interfaces And Contracts`'s and are wire
+    // The four values are the branch context's own and are wire
     // strings the console never computes: nothing here derives a branch name from a
     // pane, a tab, or a focused view. `worktreeId` is the anchoring this context
     // actually has — `branch_contexts` carries an at-most-one association check, so

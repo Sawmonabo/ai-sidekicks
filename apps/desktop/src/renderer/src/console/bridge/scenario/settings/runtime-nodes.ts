@@ -276,7 +276,7 @@ export const RUNTIME_NODE_ROSTER_FRAMES: readonly ScenarioRuntimeNodeRosterFrame
  * The declaration a third machine makes about itself, for the attach control to review.
  *
  * A NODE'S OWN CLAIM, AND THE FIXTURE IS STANDING IN FOR THE PROCESS THAT MAKES IT.
- * `Spec-023 §Trust Stance` puts the composition of an attach draft in the main
+ * The console's trust stance puts the composition of an attach draft in the main
  * process, off the node registry, because identity, contract version, health, and
  * capability set are things a machine asserts and a renderer may not assert on its
  * behalf. So the console resolves this and composes nothing: the deck supplies it the

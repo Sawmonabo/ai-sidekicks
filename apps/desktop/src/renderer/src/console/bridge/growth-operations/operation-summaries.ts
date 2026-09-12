@@ -5,7 +5,7 @@
 // CONSUMER, which is the rule `growth-slate-consumers.ts` states for the slate's own
 // `consumingSurface`: a running console reads exactly one member of an operation row,
 // `slateRow`, which is what `growth-refusals.ts` attributes a refusal by, and it never
-// reads a sentence. These are written for a reader of `Plan-023 §Console growth slate`,
+// reads a sentence. These are written for a reader of the growth slate,
 // and the check beside this table is their only mechanical reader.
 //
 // A MODULE OF ITS OWN IS WHAT KEEPS THEM OFF THE GRAPH. The operation table is reached

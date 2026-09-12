@@ -77,8 +77,8 @@ import type {
  *
  * TWO ARMS AND NO THIRD. A method that reads and writes is a RECORD: the question this
  * answers is whether the call may be dispatched through a supervisor that is not
- * serving (`Spec-023 §Daemon Supervision Lifecycle` step 3 blocks mutating operations
- * and keeps read-only subscriptions live), and a call that writes anything may not.
+ * serving (supervision blocks mutating operations while it is not serving and keeps
+ * read-only subscriptions live), and a call that writes anything may not.
  *
  * HERE RATHER THAN AT THE REGISTRY, beside the method set it is a fact about: a
  * method's kind is part of WHAT it is, which is this module's half, while binding a
@@ -185,14 +185,14 @@ export interface ConsoleDaemonMethodContract {
 
   // repo — the mounts, workspaces, and execution roots the repos section reads AND
   // mutates. One namespace and two registry tables behind it: the six mount-and-
-  // workspace rows and the seven worktree-and-clone rows are registered in
-  // `docs/architecture/contracts/api-payload-contracts.md` §Repo Method-Name Registry
-  // (Tier 6) as one `repo` root, and the rows below are in those tables' own order.
+  // workspace rows and the seven worktree-and-clone rows are registered in the repo
+  // method-name registry as one `repo` root, and the rows below are in those tables'
+  // own order.
   //
   // TWELVE OF THE THIRTEEN. `repo.detach` is the one registered method this console
   // deliberately does not bind, and its absence is a rule rather than a gap:
-  // `Spec-009 §Detach Semantics (V1 Definition)` gives the desktop renderer no detach
-  // surface in V1, so binding the shape would make the call one import away from a
+  // the desktop renderer has no detach surface in V1, so binding the shape would make
+  // the call one import away from a
   // surface that must not offer it. The mount card DISCLOSES where detach lives
   // instead of being silent about it.
   readonly "repo.attach": {
@@ -293,9 +293,8 @@ export interface ConsoleDaemonMethodContract {
   /**
    * Live. `provider-account-quota.ts` calls it and the composer's accessory rail
    * renders the reading, so the row is bound by a caller rather than ahead of one.
-   * The run-start account selector
-   * `Spec-023 §Provider Accounts And Cost View (→ Plan-029 Provider Accounts And Credential Homes)`
-   * puts on the composer is a second reader of the same registry, not the first.
+   * The run-start account selector the composer carries is a second reader of the
+   * same registry, not the first.
    */
   readonly "providerAccount.list": {
     readonly request: ProviderAccountListRequest;

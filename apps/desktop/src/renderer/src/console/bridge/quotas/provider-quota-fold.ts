@@ -14,8 +14,8 @@
 // key silently collapses them into whichever arrived last.
 //
 // SUPERSESSION IS TWO RULES IN ONE ORDER, AND THE ORDER IS THE POINT.
-// `Spec-029 §Per-limit provider quota` states them as "newest wins, by observation
-// time — except that a same-window reading never moves backward", and the exception
+// The per-limit provider quota states them as newest-wins by observation time,
+// except that a same-window reading never moves backward — and the exception
 // is evaluated FIRST. Consumption inside one window rises monotonically, so a lower
 // `usedPercent` against the same `limitId` and the same `resetsAt` is not a newer
 // truth however new its timestamp is: it is an erroneous or out-of-order reading, and

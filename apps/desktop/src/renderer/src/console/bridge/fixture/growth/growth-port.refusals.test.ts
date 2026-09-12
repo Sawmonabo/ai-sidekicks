@@ -103,7 +103,7 @@ describe("the fixture's identity read — answered from the field, refused witho
     expect(outcome.status).toBe("unavailable");
     if (outcome.status === "unavailable") {
       expect(outcome.slateRow).toBe("caller-participant-identity");
-      expect(outcome.owningDocument).toContain("Authenticated Principal");
+      expect(outcome.owningDocument).toContain("authenticated-principal");
     }
   });
 
@@ -228,11 +228,11 @@ describe("the fixture's registry reads — refusing on a stated premise", () => 
     const port = fixturePort();
 
     for (const [operationId, owner] of [
-      ["callbackToolRegistryRead", "Spec-005"],
+      ["callbackToolRegistryRead", "the provider driver design"],
       // The definition row's own refusal, taken from an operation the fixture does
       // NOT serve: its list read is answered from the script now, so the attribution
       // claim has to be made on a sibling that still refuses.
-      ["sidekickDefinitionCreate", "Spec-030"],
+      ["sidekickDefinitionCreate", "the sidekick-definitions design"],
     ] as const) {
       const outcome = await callOperation(port, operationId);
 

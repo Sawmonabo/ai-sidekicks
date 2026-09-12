@@ -65,7 +65,7 @@ export type GrowthPrerequisiteKind =
  * closed id set, because the split is by CONSUMER — the rule `growth-slate-consumers.ts`
  * states for the slate's own `consumingSurface`. A running console reads exactly one
  * member of this row, `slateRow`, which attributes a refusal; the sentence is written
- * for a reader of `Plan-023 §Console growth slate` and its only mechanical reader is the
+ * for a reader of the growth slate and its only mechanical reader is the
  * check beside that table. These rows are on the initial import graph because every
  * refusal composes from them, so a sentence carried here was prose on the document every
  * session downloads. That module states the whole reading.

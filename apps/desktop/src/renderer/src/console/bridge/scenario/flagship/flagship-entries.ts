@@ -15,7 +15,7 @@ import { type LedgerScriptEntry } from "../ledger/ledger-script.js";
 import { RUN_IMPLEMENTER, SESSION_ID } from "./flagship-cast.js";
 
 /**
- * One cost reading, in the shape `Spec-006 §Usage Telemetry (usage_telemetry)` registers for it.
+ * One cost reading, in the shape the usage-telemetry family registers for it.
  *
  * The three required members are carried in full — `usage.cost_update` MUST set
  * `costStatus` and `costSource`, and post-2026-08-26 emitters MUST set
@@ -60,10 +60,10 @@ export const APPROVAL_SCOPE = "run";
 export const PROVIDER_ACCOUNT_ID = "019b79ee-0280-7c34-8160-b21a0c150001";
 
 /**
- * One approval row, in the shape `Spec-006 §Approval Flow (approval_flow)` registers.
+ * One approval row, in the shape the approval-flow family registers.
  *
  * The members that differ between a request and its resolution are the caller's —
- * that spec's row makes `requestedBy` and `resourceDescriptor` present on the
+ * that family's row makes `requestedBy` and `resourceDescriptor` present on the
  * request and `approver` and `effectiveScope` present on the resolution, and a row
  * carrying the other pair would be a shape no emitter produces.
  */

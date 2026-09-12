@@ -8,8 +8,8 @@
 //
 // THE IDENTIFIERS ARE UUIDs, spelled as the wire spells them. `SessionId`,
 // `ParticipantId`, `MembershipId`, `AgentId`, and `RunId` are branded UUIDs
-// (`§Branded ID Types` in `docs/architecture/contracts/api-payload-contracts.md`), and
-// the strict layer refuses anything else. A readable `"agent-scout"` would also have
+// declared once in the payload contracts, and the strict layer refuses anything
+// else. A readable `"agent-scout"` would also have
 // rendered at a third of the width a real one does, which is a design lie in a fixture
 // whose whole job is to be measured.
 
@@ -69,7 +69,7 @@ export const STARTED_AT_ISO: string = new Date(startedAtMs).toISOString();
  *
  * One table rather than a literal per beat and a second literal per reply: the
  * `agent.attached` payload and the `agent.list` row are two views of one record
- * (`Spec-006 §Channel and Agent Lifecycle (session_lifecycle)` makes the event replay-complete
+ * (the agent lifecycle makes the event replay-complete
  * precisely so the projection can be rebuilt from it), and two hand-written copies
  * of one agent would drift in exactly the direction nothing catches.
  *

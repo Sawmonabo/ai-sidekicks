@@ -6,14 +6,14 @@
 // which beat follows which, and why.
 //
 // WHAT IT CAN SCRIPT, AND WHY IT IS MORE THAN THE BROWSER'S. The terminal's own
-// renderer surface is unregistered (`Plan-023 §Console growth slate` row 3), but the
+// renderer surface is unregistered on the growth slate, but the
 // lease is not: `pty.control_changed` is a registered event type with a closed
 // five-member reason vocabulary, and the holder is a field on it. So the transitions
 // this scenario scripts are wire-true today, and it is the terminal output — the
 // bytes, the scrollback, the resize — that has no type to carry it and is absent
 // here rather than invented.
 //
-// THE FIVE REASONS ARE THE POINT. `Spec-023 §Console Design (Meridian)` 8.8 requires
+// THE FIVE REASONS ARE THE POINT. The console's design language requires
 // every transition to render as a ledger line naming its reason, with the three
 // automatic reasons kept distinct — the holder disconnected, the holder lost
 // authorization, or the acquiring agent run left its running state. A fixture that
@@ -26,7 +26,7 @@
 // run-idle release below is preceded by the acquisition it releases: the agent's run
 // queued, started, and reached `running`; an AGENT-PATH take bound to that run; the
 // run leaving `running`; and only then `auto_released_run_idle` for that holder.
-// `Spec-003 §Required Behavior` makes this release the acquiring run's first
+// The lease design makes this release the acquiring run's first
 // lifecycle transition out of `running` after an agent-path take, and it leaves a
 // client-acquired human hold alone — so releasing a human who had simply pressed
 // Claim was a beat with no producer, and the tests and baselines reading it were
@@ -48,8 +48,8 @@
 // unheld and read-only under one line naming the node. There is deliberately NO
 // `pty.control_changed` for it — the roster read SUPPRESSES `controlHolder` to null
 // while the producing node reads offline and writes nothing, so nothing transitioned
-// and a read authors no events (`api-payload-contracts.md §Session Terminal-Control
-// Method Registry`). The only wire signal a departed host emits is its presence
+// and a read authors no events. The only wire signal a departed host emits is its
+// presence
 // transition, so this scenario scripts exactly that — a `runtime_node.offline` beat
 // after the final take — and a surface that derived the unheld rendering from a
 // missing `pty.control_changed` would never reach it, which is also why 8.8's last
@@ -257,8 +257,8 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     // and the ledger's actor column reads "The daemon". The holder is the
     // NODE-OWNER participant, which is who an agent-path take holds as: agents are
     // `AgentId`-keyed domain actors and not `participants` rows, so no
-    // agent-participant exists to hold and the holder surfaces stay participant ids
-    // (`api-payload-contracts.md §Session Terminal-Control Method Registry`). The
+    // agent-participant exists to hold and the holder surfaces stay participant
+    // ids, exactly as the terminal-control method registry declares. The
     // roster reply names the same owner.
     terminalLeaseTransitionBeat({
       atMs: 3300,

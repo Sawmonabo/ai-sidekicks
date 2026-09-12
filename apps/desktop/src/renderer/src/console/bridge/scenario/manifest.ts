@@ -6,7 +6,7 @@
 //   • `scenarios` — the scripted sessions the fixture can play.
 //   • `frozenTicks` — per scenario, the frames the capture tiers pin.
 //   • `growthOperations` — one row per eventual bridge operation, each naming the
-//     `Plan-023 §Console growth slate` row it serves and whether the fixture has a
+//     growth-slate row it serves and whether the fixture has a
 //     script for it. Operations are what a surface CALLS.
 //   • `prerequisites` — the rest of the slate: types, settings keys, pane-kind
 //     declarations, event-type registrations, error namespaces, and one governing
@@ -23,7 +23,7 @@
 // which reads every side off ONE manifest: a walk that read each shipped registry
 // directly would agree with itself no matter what a surface was actually handed.
 //
-// I-023-13's test reads them and asserts the two directions that matter: no slate row is
+// The shape test reads them and asserts the two directions that matter: no slate row is
 // unmapped, and no ledger entry names a row that is not on the slate. The second
 // direction is the one that fires the day a wire lands — the row leaves the slate, and
 // the entry still claiming `fixture-only` fails the build, which is precisely the
@@ -91,8 +91,8 @@ export interface SlateRowCoverage {
  * provably pure to the bundler, so Rollup retained the whole declaration in a
  * release build even though every reader of it is a test. Retaining it retained
  * `CONSOLE_SCENARIOS`, and that retained all nine scenario modules and the four
- * `fixture/` modules they reach — the corpus `Spec-023 §Console Design (Meridian)`
- * §The fixture bridge says a release bundle carries none of. Measured on the
+ * `fixture/` modules they reach — all of which a release bundle is meant to carry
+ * none of. Measured on the
  * release artifact: `"Browsing agent"`, `artifact-capture-staging-header`, and
  * `fixtureServedOperations` were all grep-positive in `index-*.js`.
  *
@@ -117,7 +117,7 @@ export function consoleScenarioManifest(): ConsoleScenarioManifest {
 
 /**
  * Map each slate row to the ledger entries that serve it. A row with neither is the
- * failure I-023-13 exists to catch: the console named a wire it needs and then
+ * failure the shape test exists to catch: the console named a wire it needs and then
  * built nothing that would consume it.
  */
 export function mapSlateRowCoverage(

@@ -13,10 +13,9 @@
 // Three consequences a reader will notice first:
 //
 //   • **`agent.attached` carries `name`.** `displayName` is not a member of that
-//     payload anywhere in the corpus.
-//     `Spec-006 §Channel and Agent Lifecycle (session_lifecycle)` registers the full
-//     persona plus the daemon-resolved resulting state, so the `agents` projection
-//     rebuilds from the log alone.
+//     payload anywhere. The agent lifecycle registers the full persona plus the
+//     daemon-resolved resulting state, so the `agents` projection rebuilds from the
+//     log alone.
 //   • **A `run.*` beat is a STATE TRANSITION.** Its payload is
 //     `{sessionId, runId, runVersion, previousState, newState, …}` and not a bare
 //     `{runId}` — `previousState` is absent only on `run.queued`, where the run is
@@ -71,7 +70,7 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
   purpose:
     "A session whose newest run is blocked on a person's next message — the state the composer's target, posture, and send resolution are read against.",
   sessionId: SESSION_ID,
-  // Join order IS hue order (`Spec-023 §Console Design (Meridian)` rule 2): the two
+  // Join order IS hue order: the two
   // people who joined, then the agents in the order they were attached.
   participantIdsInJoinOrder: [
     PARTICIPANT_YOU,

@@ -51,7 +51,7 @@
 // it landed went on gating controls after a driver was installed, upgraded, or
 // removed. So the entry is retained per bridge — one read still serves every family
 // — and refresh goes through `store/read/refresh-scheduler.ts`'s `RefreshScheduler`, on exactly
-// the reasons `Spec-023 §Rules every console surface obeys` names: subscribe, window
+// the three admitted refresh reasons: subscribe, window
 // focus, and reconnect. There is no interval and no retry loop; a refusal is simply
 // re-asked at the next reason, like every other read in this console.
 //
@@ -156,8 +156,8 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
     this.#bridge = bridge;
     this.#scheduler = new RefreshScheduler({
       // The fixture's frozen clock wherever a scenario is playing and the real one
-      // otherwise, resolved once per bridge — §The fixture bridge makes the frozen
-      // clock the only clock the renderer reads in fixture mode.
+      // otherwise, resolved once per bridge — the frozen clock is the only clock the
+      // renderer reads in fixture mode.
       clock: consoleClockFor(bridge),
       perform: async (_reasons, round) => {
         await this.#read(round);

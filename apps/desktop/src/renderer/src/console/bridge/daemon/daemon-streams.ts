@@ -92,9 +92,9 @@ export function subscribeNodeDaemon(
  * WHAT HAPPENS TO THE REQUEST TODAY, EXACTLY. It is VALIDATED and HELD, and it is
  * not yet forwarded, because there is nowhere to forward it to:
  * `SidekicksBridge.daemon.subscribe<E>(event, handler)` carries an event name and a
- * handler and NO request-parameter channel, and `Spec-023 §Preload Bridge Contract`
- * pins that signature as a Tier-1 placeholder whose shape — positional parameter,
- * options bag, or an event-to-params map — is owned by Plan-007 / Plan-008 and is
+ * handler and NO request-parameter channel, and the preload bridge contract pins
+ * that signature as an early placeholder whose shape — positional parameter, options
+ * bag, or an event-to-params map — belongs to the daemon and transport work and is
  * deliberately not fixed from one caller's vantage. Widening the contract type here
  * would be that premature narrowing; widening the CONSOLE's own wrapper is not, and
  * it is what makes the day the channel lands a one-line change inside this function

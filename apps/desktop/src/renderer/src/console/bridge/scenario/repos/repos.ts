@@ -2,7 +2,7 @@
 //
 // What the repos family needs from a fixture is a session that HAS repositories
 // attached rather than one that could have: three mounts rather than one, because
-// `Spec-009 §Required Behavior` admits several in a session and a section that had
+// a session admits several mounts and a section that had
 // only ever been drawn against one is a section that has never been drawn as a
 // list; and three DIFFERENT mounts, because a plain-directory mount is the case the
 // git-only controls have to be unavailable in and a checkout that is no longer the
@@ -36,9 +36,9 @@
 // `repo.*` / `workspace.*` / `worktree.*` beats below carry the registered family
 // payload `{sessionId, repoMountId?, workspaceId?, worktreeId?, state, actor?}`, and
 // the `run.*` and `artifact_publication` beats carry the shapes
-// `Spec-006 §Run Lifecycle (run_lifecycle)` and `Spec-006 §Artifact and Diff Publication (artifact_publication)` state, which
+// the run-lifecycle and artifact-publication families state, which
 // the strict layer does not yet register a variant for — so the census leg is what
-// holds them and the payloads are transcribed from the spec rather than invented.
+// holds them and the payloads are transcribed from the wire rather than invented.
 //
 // THE CAST, THE ENVELOPE AND THE REPLIES LIVE BESIDE THIS FILE.
 // `repos-fixture-data.ts` holds the identifiers, the two agents, and the three
@@ -188,7 +188,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         state: "ready",
       },
     }),
-    // A root per agent, in the two-beat `creating -> ready` shape Plan-010 D-010-12
+    // A root per agent, in the two-beat `creating -> ready` shape the snapshot design
     // emits. Both hang off the GIT mount's workspace: a worktree is a git-backed
     // execution root, so a plain-directory mount has none and never grows one.
     ...REPOS_AGENTS.flatMap((agent, agentIndex) => [
@@ -256,7 +256,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       kind: "run.running",
       // `executionPosture` is stamped on this transition and only this one — the
       // post-setup-gate spawn success, where the resolved workspace root and the
-      // effective posture are final (`Spec-006 §Run Lifecycle (run_lifecycle)`). The shape is the
+      // effective posture are final. The shape is the
       // registered `ExecutionPosture` in `packages/contracts/src/provider-driver.ts`,
       // whose sandboxed arms REQUIRE `credentialPolicyRef` — a content-addressed
       // reference rather than a credential list, so the posture reveals which
@@ -296,7 +296,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       sequence: 16,
       kind: "diff.created",
       actorId: AGENT_IMPLEMENTER,
-      // `Spec-006 §Artifact and Diff Publication (artifact_publication)`'s family payload, verbatim:
+      // The artifact-publication family payload, verbatim:
       // `{sessionId, artifactId?, runId?, diffArtifactId?, visibility?, state}`. A
       // diff names itself through `diffArtifactId`; the base and head refs a diff
       // header renders are the branch context's and reach the console through
@@ -343,8 +343,8 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       },
     }),
     // The rewind. A FORWARD, non-terminal event with its own payload — no
-    // `previousState` / `newState`, because a rollback is not a state transition
-    // (`Spec-006 §Run Lifecycle (run_lifecycle)`), and `targetPosition` is the turn-boundary anchor
+    // `previousState` / `newState`, because a rollback is not a state transition,
+    // and `targetPosition` is the turn-boundary anchor
     // the run actually landed at. The turns above it stay in the log and are marked
     // superseded by projection; nothing is truncated.
     reposBeat({

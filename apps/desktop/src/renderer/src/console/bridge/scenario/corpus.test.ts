@@ -12,7 +12,7 @@
 // both scripts below sit on that board, so every one of those legs already runs
 // against them. This file once carried its own census, its own ordering rule, and
 // its own duplicate-call check. Each was a second implementation of a rule that
-// module owns, which `apps/desktop/AGENTS.md` §Tests rejects, and the ordering copy
+// module owns, which this package's test rules reject, and the ordering copy
 // was also the weaker one: it demanded a first beat at sequence 1, where the shipped
 // rule demands the log position the fixture's own session read leaves off at.
 //

@@ -1,27 +1,27 @@
 // What a sign-in ceremony ANSWERS, and the one codec both sides of that seam read.
 //
-// `Spec-023 §WebAuthn Credential Flow` step 6 fixes the answer: main "resolves the
-// bridge call with a `WebAuthnCeremonyOutcome` — a closed union of an authenticated
-// arm carrying the participant identity claims, a fallback-required arm naming the
-// probe result that produced it, and a refused arm carrying a typed reason. No arm
-// carries an assertion, a PRF output, a derived key, or a handle to one."
+// The credential flow fixes the answer: main resolves the bridge call with a
+// `WebAuthnCeremonyOutcome` — a closed union of an authenticated arm carrying the
+// participant identity claims, a fallback-required arm naming the probe result that
+// produced it, and a refused arm carrying a typed reason. No arm carries an
+// assertion, a PRF output, a derived key, or a handle to one.
 //
 // THIS MODULE IS THAT UNION, DECLARED IN `bridge/` AND NOT IN THE SIGN-IN FAMILY,
 // because two things read it and they sit on opposite sides of the bridge: the
 // fixture WRITES an outcome (a scenario states what this host's authenticator does)
-// and the sign-in family READS one. `apps/desktop/AGENTS.md` §Shared code — "two
-// sides of one seam share a module" — is the rule, and the alternative here is two
-// spellings of one closed set with nothing holding them together.
+// and the sign-in family READS one. Two sides of one seam share a module, and the
+// alternative here is two spellings of one closed set with nothing holding them
+// together.
 //
 // WHY THE OUTCOME RIDES THE RESOLUTION OF A METHOD TYPED `PublicKeyCredential`.
 // The shipped bridge carries the Tier-1 three-method stub, whose
 // `PublicKeyCredential` is an EMPTY interface — it asserts nothing about the value,
-// by its own declaration in `packages/contracts/src/desktop-bridge.ts`. The corpus
-// has already decided WHO produces the verdict and WHAT it may carry; what the
-// NS-99 narrowing to `signIn()` / `register()` changes is the method name and the
-// declared return type, not the producer. So reading the resolution through the
-// reader below is reading the shape the corpus fixes, one method name early, and
-// the narrowing is a change to `sign-in/ceremony-adapter.ts` alone.
+// by its own declaration in `packages/contracts/src/desktop-bridge.ts`. WHO produces
+// the verdict and WHAT it may carry are already settled; what the later narrowing to
+// `signIn()` / `register()` changes is the method name and the declared return type,
+// not the producer. So reading the resolution through the reader below is reading
+// the settled shape, one method name early, and the narrowing is a change to
+// `sign-in/ceremony-adapter.ts` alone.
 //
 // A RESOLUTION THE READER DOES NOT RECOGNISE IS `unavailable`, NEVER `authenticated`.
 // The Tier-1 preload throws from every method and the fixture refuses a scenario
@@ -37,11 +37,11 @@ import { isWireRecord, readWireString, type ConsoleRefusal } from "../../core/in
 /**
  * Why this host fell back to the Device Authorization Grant.
  *
- * `Spec-023 §Fallback Behavior` states the condition as a per-host PROBE result and
- * not a platform name: "the capability probe reports no usable authenticator, or the
- * authenticator that answered does not support the PRF extension". The third arm is
- * `Spec-023 §WebAuthn Platform-Authenticator Native Module`'s third detection rule —
- * a binding that will not load is a negative capability result rather than a crash.
+ * The condition is a per-host PROBE result and not a platform name: the capability
+ * probe reports no usable authenticator, or the authenticator that answered does not
+ * support the PRF extension. The third arm is the native module's third detection
+ * rule — a binding that will not load is a negative capability result rather than a
+ * crash.
  *
  * A closed tuple with the union derived from it, so a fourth probe result is a
  * compile error at the copy table in the sign-in family rather than a verdict that
@@ -58,15 +58,15 @@ export type WebAuthnProbeResult = (typeof WEB_AUTHN_PROBE_RESULTS)[number];
 /**
  * Why the ceremony ended without authenticating, when the host was capable.
  *
- * `cancelled` is the arm `Spec-023 §WebAuthn Credential Flow` insists is NOT a
- * capability result: "A participant who dismisses the OS dialog has answered the
- * question, and the answer is no." It is terminal — it opens no loopback and tries
- * no second provider — and the sign-in model honours that by construction.
+ * `cancelled` is the arm that is NOT a capability result: a participant who
+ * dismisses the OS dialog has answered the question, and the answer is no. It is
+ * terminal — it opens no loopback and tries no second provider — and the sign-in
+ * model honours that by construction.
  *
  * The other two are the relying party's verdict, which step 4 of that flow makes the
  * only thing that can turn provisional PRF bytes into a usable key: a credential the
  * server would not verify, and an options set whose origin did not match the paired
- * control-plane origin (I-023-16's refusal, raised before any binding is invoked).
+ * control-plane origin, refused before any binding is invoked.
  */
 export const WEB_AUTHN_REFUSAL_REASONS = [
   "cancelled",
@@ -79,9 +79,9 @@ export type WebAuthnRefusalReason = (typeof WEB_AUTHN_REFUSAL_REASONS)[number];
 /**
  * Where the long-lived credential this session mints will be kept.
  *
- * `Spec-023 §Fallback Behavior`: "If the OS keystore is unavailable: refuse to
- * persist long-lived auth material; session is memory-only; surface the
- * degradation." It rides the authenticated arm because that is the moment a person
+ * If the OS keystore is unavailable the console refuses to persist long-lived auth
+ * material, the session is memory-only, and the degradation is surfaced. It rides
+ * the authenticated arm because that is the moment a person
  * can still decide differently — signing in again on a repaired host, or not at all.
  * It is a statement about CUSTODY and never about the credential itself, so no arm
  * of this union carries key material of any kind.
@@ -93,9 +93,9 @@ export type WebAuthnCustody = (typeof WEB_AUTHN_CUSTODY_STATES)[number];
 /**
  * WHO signed in, as the relying party's verdict named them.
  *
- * `Spec-023 §WebAuthn Credential Flow` step 6 puts these on the authenticated arm and
- * step 7 makes them the whole of what crosses the bridge: "Main process returns only
- * the ceremony success signal + participant identity claims to the renderer." Without
+ * The credential flow puts these on the authenticated arm and makes them the whole
+ * of what crosses the bridge: main returns only the ceremony success signal and the
+ * participant identity claims to the renderer. Without
  * them the arm carries custody alone, and a console that has just authenticated
  * somebody can say only that a sign-in happened — which is a receipt with no subject.
  *

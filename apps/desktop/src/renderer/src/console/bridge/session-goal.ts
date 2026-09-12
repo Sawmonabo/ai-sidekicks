@@ -1,7 +1,7 @@
 // The session goal: where the current one comes from, what a valid one is, and the
 // two operations that may change it.
 //
-// `Spec-016 §Session Goals` makes the goal a PROJECTION of the event log — an
+// The session goal is a PROJECTION of the event log — an
 // accepted update emits `session.goal_updated` carrying the canonical goal, there is
 // no separate goal store, and the current goal is whatever the latest goal event
 // says. So the fold below reads the store's timeline rather than
@@ -131,7 +131,7 @@ export function foldSessionGoal(timeline: readonly ConsoleSessionEvent[]): Sessi
  * method STRING whose request and reply shapes `@ai-sidekicks/contracts` does not
  * publish, so there is nothing for the call door to parse against and the registered
  * table admits no row for it. The port refuses by name under the live bridge and says
- * that Plan-016 owes the pair.
+ * that the session plane owes the pair.
  */
 export function updateSessionGoal(
   bridge: ConsoleBridge,

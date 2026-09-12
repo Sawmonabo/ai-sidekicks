@@ -38,9 +38,9 @@
 // boundary used to drop `category` on the floor, after which every projector routes
 // on `kind` alone and mutates the run partition off a pair the strict layer rejects.
 // The census is exported for exactly this: `SESSION_EVENT_CATEGORY_BY_TYPE` is
-// published so "consumers (projectors, replay machinery, integrity verifiers in
-// Plan-006) can assert category/type consistency without re-parsing the schema", and
-// that is the check below.
+// published so consumers — projectors, replay machinery, integrity verifiers — can
+// assert category/type consistency without re-parsing the schema, and that is the
+// check below.
 
 import {
   EventEnvelopeSchema,

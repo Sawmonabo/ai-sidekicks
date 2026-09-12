@@ -1,16 +1,16 @@
 // The workflow plane's event taxonomy, as the console declares it for itself.
 //
-// OWNER. `Spec-017`'s SA-19 event-type enumeration names twenty-four `workflow.*`
-// types across five `Spec-006` categories, and `Spec-006 §Event Type Summary` — the
-// owning registry — carries no `workflow` category at all. That registration is the
-// `workflow-event-registration` row on `Plan-023 §Console growth slate`, and until it
+// OWNER. The workflow plane's event-type enumeration names twenty-four `workflow.*`
+// types across five event categories, and the owning event registry carries no
+// `workflow` category at all. That registration is the
+// `workflow-event-registration` row on the growth slate, and until it
 // lands `packages/contracts` registers none of these strings: `SessionEventType` does
 // not admit one, and the fixture's own wire-truth predicate refuses a beat carrying
 // one, because a beat of a type no daemon emits is a lie about the wire.
 //
 // SO WHY DECLARE THEM. Because the run pane has to say WHEN its read goes stale, and
-// the console's refresh policy answers that with "the terminal events the owning spec
-// names" (`Spec-023 §Rules every console surface obeys`, under "No interval polling").
+// the console's refresh policy answers that with the terminal events the owning
+// wire names, because no console surface polls on an interval.
 // A pane that could not name those events has two options and both are wrong: poll on
 // a timer, which that rule forbids outright, or re-read only when the operator at THIS
 // keyboard acts — which is what the run pane did, so a run moved by another window, by
@@ -30,8 +30,8 @@
 // DELETION OBLIGATION. When `packages/contracts` registers the taxonomy, this module
 // is DELETED and its consumers derive the set from the registered `SessionEventType`
 // union instead — at which point the set becomes checkable by the compiler rather than
-// by the count below. The slate row leaves `growth-slate.ts` and
-// `Plan-023 §Console growth slate` in the same PR.
+// by the count below. The slate row leaves `growth-slate.ts` and the growth slate
+// in the same PR.
 
 /**
  * `workflow_lifecycle` — the run's own arc, seven types.

@@ -28,7 +28,7 @@
 //
 // THE QUEUE STREAM HAS A SECOND SOURCE, AND HAS TO. `QueueItemSummary` is a
 // projection of the `queue_items` ROW, so it requires `priority` and `createdAt`,
-// which the registered queue payload does not carry — `Spec-006 §Queue Events` fixes
+// which the registered queue payload does not carry — the queue event family fixes
 // it at `{sessionId, queueItemId, channelId?, state}`. This module used to demand
 // those two off the beat, which refused every contract-valid queue event and made
 // the only way to pass a beat carrying members no daemon emits. The row now arrives
@@ -266,8 +266,8 @@ function projectRunQueueStreamBeat(
   if (queueItemId === undefined) {
     return unprojectableFor(event, "names no `queueItemId` to find its queue row by");
   }
-  // Required, exactly as `newState` is on the state arm above. `Spec-006 §Queue
-  // Events` fixes the payload at `{sessionId, queueItemId, channelId?, state}`, so
+  // Required, exactly as `newState` is on the state arm above. The queue event
+  // family fixes the payload at `{sessionId, queueItemId, channelId?, state}`, so
   // a beat without one is not a queue event that omitted a check — it is a queue
   // event no daemon emits. Skipping the comparison when the member was absent let
   // the summary take its state from the KIND alone and delivered a valid-looking

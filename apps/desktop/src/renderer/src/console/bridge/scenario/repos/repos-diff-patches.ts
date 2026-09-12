@@ -18,7 +18,7 @@
 // the implementer's run did on the branch the worktree row names, taken between that
 // root's branch context's own base and head; the workspace-fallback patch is a change
 // sitting in the git workspace's own checkout, ahead of the shared branch, with no run
-// to attribute it to — which is the condition `Spec-011 §Required Behavior` makes the
+// to attribute it to — which is the condition that makes the
 // fallback attribution mean: precise run attribution is unavailable, so the artifact is
 // workspace-level and labelled as such. `repos-diff-replies.ts` scripts the ref pair
 // each of these two is the comparison of, and answers no other pair.

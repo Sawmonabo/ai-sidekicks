@@ -1,9 +1,9 @@
 // What is left of each provider account's quota, read from the account plane.
 //
 // WHERE THIS DATA IS NOT. The composer's rate chips used to fold
-// `usage.rate_limit_update` rows out of the session timeline. `Spec-006 §Daemon-Scope
-// Event Binding And Node-Scope Anchoring` binds that row to the reserved node-scope
-// sentinel session, so no live session store ever held one and the chips could appear
+// `usage.rate_limit_update` rows out of the session timeline. Node-scope anchoring
+// binds that row to the reserved node-scope sentinel session, so no live session
+// store ever held one and the chips could appear
 // only under a fixture — a surface nothing would have failed on until someone opened
 // it against a daemon.
 //

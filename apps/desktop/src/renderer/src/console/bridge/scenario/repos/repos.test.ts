@@ -228,7 +228,7 @@ describe("the repos scenario — the growth reads it answers", () => {
     if (implementer.status !== "served" || reviewer.status !== "served") {
       throw new Error("the fixture refused a branch-context read this scenario scripts");
     }
-    // The values `Spec-011 §Interfaces And Contracts` requires, read straight off the
+    // The values the branch-context read carries, read straight off the
     // reply — the registered response is flat.
     expect(implementer.value.baseBranch).toBe("develop");
     expect(implementer.value.headBranch).toBe("feat/rate-limit-wiring");

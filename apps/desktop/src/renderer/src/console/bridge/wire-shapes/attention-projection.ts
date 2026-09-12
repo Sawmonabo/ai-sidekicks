@@ -1,11 +1,11 @@
 // The console's declaration of the attention plane's projection shape.
 //
-// OWNER. `Spec-019 §Interfaces And Contracts` owns this wire: "`AttentionProjectionRead`
-// must expose current actionable and informational attention state at both run and
-// session scope." The typed request and reply shapes are registered in
-// `docs/architecture/contracts/api-payload-contracts.md` §Plan-019, and the six
-// triggers and two severities below are transcribed from the `AttentionItem` union
-// there rather than re-derived from the spec's prose — that union is what
+// OWNER. The attention plane owns this wire: `AttentionProjectionRead` exposes
+// current actionable and informational attention state at both run and session
+// scope. The typed request and reply shapes are registered in the payload
+// contracts, and the six triggers and two severities below are transcribed from
+// the `AttentionItem` union there rather than re-derived from prose — that union is
+// what
 // `packages/contracts/src/attention/` will carry.
 //
 // WHY THE CONSOLE DECLARES IT AT ALL. It is registered in no code package: there is
@@ -18,8 +18,8 @@
 //
 // DELETION OBLIGATION. When `packages/contracts` registers these types, this module
 // is DELETED and `growth-signatures/attention.ts` imports `AttentionItem` from the
-// package instead. The slate row leaves `growth-slate.ts` and `Plan-023 §Console growth
-// slate` in the same PR, and `failure-modes.test.ts` then fails on the port entries
+// package instead. The slate row leaves `growth-slate.ts` and the growth slate in
+// the same PR, and `failure-modes.test.ts` then fails on the port entries
 // that still claim fixture-only — which is the reminder this file wants at that
 // moment.
 //
@@ -40,7 +40,7 @@
 /**
  * Every attention trigger, transcribed from the registered `AttentionItem` union.
  *
- * `Spec-019 §Required Behavior` states the minimum set — pending approval or
+ * The attention plane states the minimum set — pending approval or
  * participant input, run completion, run failure, invite receipt, mention or direct
  * request — and the registered union fixes their spellings. Closed and declared
  * once: a seventh trigger is an amendment to the owning document, never a string a
@@ -61,8 +61,8 @@ export type AttentionTrigger = (typeof ATTENTION_TRIGGERS)[number];
 /**
  * The two severities, and the distinction the product turns on.
  *
- * `Spec-019 §Required Behavior`: "Users must be able to distinguish passive
- * informational notifications from actionable blocking attention." A console that
+ * A person has to be able to distinguish passive informational notifications
+ * from actionable blocking attention. A console that
  * rendered one badge for both would be shipping against a wire whose whole point is
  * that they are different.
  */
@@ -76,8 +76,7 @@ export type AttentionSeverity = (typeof ATTENTION_SEVERITIES)[number];
  *
  * `runId` is the scope discriminator and there is no second type: an item carrying
  * one is run-scoped, an item omitting one is the session aggregate that
- * `Spec-019 §Required Behavior` requires alongside run scope (Plan-019 D-019-2, in
- * `api-payload-contracts.md` §Plan-019). A console surface therefore reads scope off
+ * the read requires alongside run scope. A console surface therefore reads scope off
  * the presence of `runId` and never off a field that says which kind this is.
  *
  * The identifiers are plain strings rather than the branded `SessionId` / `RunId`
@@ -100,9 +99,9 @@ export interface AttentionItem {
   /**
    * Set once the state that produced the item resolves.
    *
-   * Optional because an unresolved item is the interesting one, and
-   * `Spec-019 §State And Data Implications` keeps actionable attention durable
-   * "until resolved" — so absence means outstanding, not unknown.
+   * Optional because an unresolved item is the interesting one, and actionable
+   * attention stays durable until it resolves — so absence means outstanding, not
+   * unknown.
    */
   readonly resolvedAt?: string;
 }

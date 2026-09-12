@@ -10,7 +10,7 @@
 // that cannot reach the network or the clock cannot accidentally become flaky.
 //
 // WHAT IS NOT HERE. The engine that plays one, which is `scenario-engine.ts`. The
-// two were one file until the seam `apps/desktop/AGENTS.md` §Module shape splits on
+// two were one file until the seam this package's module rules split on
 // was drawn between them, and that seam is exactly this one — WHAT a scenario
 // is, against HOW it is played. The split is load-bearing rather than tidy: a seat
 // board, the scenario manifest, and the wire-truth predicate that holds every scenario

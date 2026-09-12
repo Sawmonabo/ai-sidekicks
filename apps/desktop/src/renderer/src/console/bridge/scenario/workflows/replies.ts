@@ -87,7 +87,7 @@ const DEFINITION_NAME_BY_RUN_VERSION: Readonly<Record<string, string>> = {
  * The channel each run was started from, for the runs that were started from one.
  *
  * Exactly one row, and that is the fixture's claim rather than an omission: the
- * provenance rides a chat-borne start (`Spec-017 §Chat-start surface (SA-38)`) and the
+ * provenance rides a chat-borne start and the
  * other three runs in this table were not started from a conversation. A table where
  * every run carried a channel would leave the "this channel started nothing" arm — the
  * one a pinned region draws as no element at all — unreachable from this scenario.

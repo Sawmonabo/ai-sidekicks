@@ -40,8 +40,8 @@ type DirectoryVisibility = "listed" | "hidden";
  * rendered as an empty directory.
  *
  * THE RULE, AND ITS SOURCE. No directory read is registered anywhere in the
- * corpus — `Plan-023 §Console growth slate` carries the row precisely because
- * `Spec-001` registers the `session.read` payloads and no list — so there is no
+ * corpus — the growth slate carries the row precisely because the session core
+ * registers the `session.read` payloads and no list — so there is no
  * wire behaviour to mirror and the rule is this module's own, stated once: the
  * directory lists what this node HAS, which is every registered state except the
  * two ends of the lifecycle that are not a session anyone can open.
@@ -49,20 +49,19 @@ type DirectoryVisibility = "listed" | "hidden";
  *   • `provisioning` is hidden because the session is still being created — the
  *     state a first run sits in, and the whole reason the first-run scenario
  *     exists. Listing it would make a freshly installed console show a session row
- *     where `Spec-023 §Console Design (Meridian)` §The five kinds of nothing
- *     requires the EMPTY kind: "no sessions yet", a stated fact with a next action.
- *   • `purged` is hidden because `Spec-022 §Required Behavior` makes the purge
- *     irreversible and its data gone; a row for it would name something to open
+ *     where the five kinds of nothing require the EMPTY kind: "no sessions yet", a
+ *     stated fact with a next action.
+ *   • `purged` is hidden because the purge is irreversible and its data gone; a row
+ *     for it would name something to open
  *     that no longer has anything in it.
- *   • `purge_requested` is LISTED, on the same rule read the other way: that spec
+ *   • `purge_requested` is LISTED, on the same rule read the other way: the retention rule
  *     calls it a transient processing state in which "the session is locked
  *     against further modification while purge processing is pending". The session
  *     still exists, and hiding it would make a pending erasure invisible on the one
  *     surface that lists sessions.
  *   • `closed` and `archived` are listed for the plainest reason of all: the
- *     all-sessions list renders each row's "wire-verbatim `SessionState`"
- *     (`Spec-023 §Console Design (Meridian)` §The surface set), which is only a
- *     sentence about rows that reach it.
+ *     all-sessions list renders each row's wire-verbatim `SessionState`, which is
+ *     only a sentence about rows that reach it.
  */
 const DIRECTORY_VISIBILITY_BY_SESSION_STATE: Readonly<Record<SessionState, DirectoryVisibility>> = {
   provisioning: "hidden",

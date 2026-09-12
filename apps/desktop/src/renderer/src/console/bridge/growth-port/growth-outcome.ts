@@ -204,8 +204,8 @@ export interface GrowthStream<TEvent> {
  * True where a refusal means the console never asked, rather than that asking failed.
  *
  * THE ONE READING OF THAT QUESTION, and it is a question every surface offering a
- * growth-backed list has to answer: `Spec-023 §Console Design (Meridian)` rule 8
- * separates "we have not asked" from a read that was put and failed, and a surface
+ * growth-backed list has to answer: the console's design language separates "we
+ * have not asked" from a read that was put and failed, and a surface
  * that renders one as the other tells a person the console is idle while a channel is
  * down. The three surfaces that render the node's session directory each asked it by
  * eye and each got it wrong the same way, so it is answered here — beside the code it

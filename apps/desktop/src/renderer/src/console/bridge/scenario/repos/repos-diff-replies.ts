@@ -8,8 +8,8 @@
 // cannot open.
 //
 // BOTH ARMS OF THE MINT ARE REACHABLE FROM THIS SCENARIO, and they answer with
-// DIFFERENT change sets. `Spec-011 §Pitfalls To Avoid` names pretending a workspace diff
-// is run-attributed, and a fixture whose two arms returned one patch could not show that
+// DIFFERENT change sets. Pretending a workspace diff is run-attributed is the
+// pitfall, and a fixture whose two arms returned one patch could not show that
 // the console tells them apart: the run arm answers the work the implementer's run did —
 // the diff the scenario's own `diff.created` beat already names — and the workspace arm
 // answers a change sitting in the git workspace's own checkout, ahead of the shared
@@ -18,7 +18,7 @@
 // EVERY OTHER SUBJECT REFUSES, WITH THE CODE THE DAEMON WOULD USE. A run or workspace
 // this scenario does not model is `run.not_found` / `workspace.not_found`, and a payload
 // read for an artifact it did not mint is `artifact.not_found` — which is
-// `Spec-023 §Console Design (Meridian)`'s reading of the diff surface's refusals: a diff
+// the console's reading of the diff surface's refusals: a diff
 // IS an artifact once minted, so the artifact codes are the ones its payload read
 // refuses in. A scenario that served every request would leave both the refusal card and
 // the create form's refused arm undrawn.

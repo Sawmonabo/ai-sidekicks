@@ -7,8 +7,8 @@
 // is empty, the ledger's empty state is unreachable in the fixture picker at all,
 // and an empty state nobody can look at is an empty state nobody designed.
 //
-// The roster is the load-bearing part, exactly as it is next door: `Spec-023
-// §Console Design (Meridian)` rule 2 allocates participant hues by join-log order,
+// The roster is the load-bearing part, exactly as it is next door: participant hues
+// are allocated by join-log order,
 // so two people and one agent is the smallest roster that still shows a wrapped-hue
 // treatment apart from a first-step one.
 //

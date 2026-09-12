@@ -346,7 +346,7 @@ export const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
     contentLength: 296,
   }),
 
-  // The thread between two runs. `Spec-006 §Run Lifecycle (run_lifecycle)` puts the linkage members
+  // The thread between two runs. The run lifecycle puts the linkage members
   // on the BIRTH beat — `run.queued` — so the parent is named where the child is
   // created, and nowhere else: a second event announcing the link would be a second
   // record of one fact, and the projection would have to pick one. Through the shared

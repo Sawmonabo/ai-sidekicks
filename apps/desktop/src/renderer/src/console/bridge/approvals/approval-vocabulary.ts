@@ -2,11 +2,10 @@
 //
 // All six — nine canonical categories, five approval states, two decisions, two
 // remembered-scope kinds, and four invalidation triggers — are vocabularies the
-// daemon owns rather than ones the console may widen. `api-payload-contracts.md
-// §Plan-012 — Approvals Permissions And Trust Boundaries` is where they are
-// written, and `Spec-023 §Signature Feature Composition Sketches`' Approvals View
-// names the scope kinds on the surface itself, as "a `RememberedScope { kind: 'run'
-// | 'session' }` grant with category-derived pattern semantics".
+// daemon owns rather than ones the console may widen. The approvals payload
+// contracts are where they are written, and the approvals view names the scope kinds
+// on the surface itself, as a `RememberedScope { kind: 'run' | 'session' }` grant
+// with category-derived pattern semantics.
 //
 // WHY THEY ARE DECLARED HERE AND NOT IMPORTED FROM `@ai-sidekicks/contracts`.
 // They are not registered there. `packages/contracts` carries the seven
@@ -60,8 +59,8 @@ export const APPROVAL_DECISIONS = ["approved", "rejected"] as const;
 
 export type ApprovalDecision = (typeof APPROVAL_DECISIONS)[number];
 
-/** `RememberedScope.kind` — an enum token, never free text: "explicit enum, not
- * free-form", per that Plan-012 wire block. */
+/** `RememberedScope.kind` — an enum token, never free text: the wire declares an
+ * explicit enum rather than a free-form string. */
 export const REMEMBERED_SCOPE_KINDS = ["run", "session"] as const;
 
 export type RememberedScopeKind = (typeof REMEMBERED_SCOPE_KINDS)[number];

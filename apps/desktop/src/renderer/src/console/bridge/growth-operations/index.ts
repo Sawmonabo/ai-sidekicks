@@ -1,7 +1,7 @@
 // The callable half of the growth ledger: one entry per eventual bridge method or
 // subscription, each naming the slate row it serves. This file is its door.
 //
-// `Plan-023 §Console growth slate` names the wires the console builds against and
+// The growth slate names the wires the console builds against and
 // does not yet have. Those rows are not methods — one bundles a whole namespace
 // plus two settings plus a pane-kind declaration — so the ledger is keyed by
 // OPERATION rather than by row, and this table is the operation half of that key
@@ -48,7 +48,7 @@
 // `growth-slate-consumers.ts` states for the slate's own `consumingSurface` — the split
 // is by CONSUMER. A running console reads exactly one member of a row, `slateRow`,
 // which is what `growth-refusals.ts` attributes a refusal by, and it never reads a
-// sentence; those are written for a reader of `Plan-023 §Console growth slate`. This
+// sentence; those are written for a reader of the growth slate. This
 // table is reached from the bridge door on every launch, so a sentence carried on a row
 // was prose on the document every session downloads, and a module nothing imports takes
 // all 145 of them off it. That file states the measurement and the bundler property it

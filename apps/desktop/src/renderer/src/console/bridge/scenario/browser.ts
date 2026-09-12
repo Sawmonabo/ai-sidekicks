@@ -3,7 +3,7 @@
 //
 // WHAT IT CAN SCRIPT, AND WHY THAT IS SO LITTLE ON THE PAGE SIDE. A scenario's
 // beats are session events, and the browser namespace is unregistered
-// (`Plan-023 §Console growth slate` rows 1, 2, and 4) — so there is no page-opened
+// (three rows on the growth slate) — so there is no page-opened
 // event type, no navigation event type, and no tool-call event type to script.
 // Inventing one here would put a wire string in the fixture that no document owns,
 // and the fixture's whole value is that it is shape-identical to something real.
@@ -18,7 +18,7 @@
 // which is exactly the one-pipeline rule the design section rests on — the browser
 // is one more caller of a pipeline three other surfaces already use, so it inherits
 // a registered event family instead of needing one of its own.
-// `artifact.published` and `artifact.superseded` are registered Spec-006 types with
+// `artifact.published` and `artifact.superseded` are registered event types with
 // the payload shape `{sessionId, artifactId?, runId?, diffArtifactId?, visibility?,
 // state}`, so the rows below are wire-true today.
 //
@@ -133,7 +133,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
   purpose:
     "A session whose agent works in the embedded browser and leaves four artifacts behind — a capture mid-ingest, a settled capture, a download, and an asset bundle — reaching all three artifact states. The page beats are appended once the browser namespace, the tool relay, and the dev-server probe are registered.",
   sessionId: SESSION_ID,
-  // Join order IS hue order (`Spec-023 §Console Design (Meridian)` rule 2), so a
+  // Join order IS hue order, so a
   // screenshot baseline depends on this list. One person and one agent: the pane's
   // whole design question is what a human sees of what an agent is doing, and a
   // second agent would only add a hue.
@@ -185,7 +185,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
         // The person who attached the agent, not the agent: an agent does not
         // attach itself, and the envelope actor is who acted.
         actorId: HUMAN_PARTICIPANT_ID,
-        // The full persona `Spec-006` registers for an attach, minus the optional
+        // The full persona registered for an attach, minus the optional
         // members this session does not set. `name` and not `displayName`: the
         // registered member is `name`, and the cast bar reads whatever the wire
         // spells.

@@ -45,7 +45,7 @@
 // V1.1-gated. So this file's `degraded` beat is held to the census leg alone, and it
 // carries the SAME base members the four registered lifecycle variants share rather
 // than a shape of its own — the honest reading of an event whose payload contract is
-// stated in `Spec-006` and not yet registered here.
+// stated on the wire and not yet registered here.
 //
 // WHY THE NODE IDENTIFIERS ARE NOT UUIDs. `NodeIdSchema` is a bounded branded STRING
 // and not a UUID (`packages/contracts/src/node-id.ts`), unlike every session,
@@ -107,7 +107,7 @@ export const SETTINGS_SCENARIO: ConsoleScenario = {
   startedAtIso: "2026-01-01T08:00:00.000Z",
   runtimeNodeRoster: RUNTIME_NODE_ROSTER_FRAMES,
   // The declaration the attach control reviews, supplied by the deck because
-  // `Spec-023 §Trust Stance` puts its composition off the renderer entirely. The
+  // the console's trust stance puts its composition off the renderer entirely. The
   // roster above says which machines are already here; this says what a machine
   // arriving would claim about itself, and the two are different subjects.
   runtimeNodeAttachDraft: SETTINGS_RUNTIME_NODE_ATTACH_DRAFT,

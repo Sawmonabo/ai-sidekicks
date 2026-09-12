@@ -29,7 +29,7 @@
 // console's own `SessionSnapshot` from `store/session/session-state.ts`: a numeric
 // `cursor`, the `entities` the read carried, and the `participantJoinLog` the hue
 // wheel is allocated in. The reply carries neither of the last two at all, and its
-// cursor is an opaque branded STRING whose internal structure Plan-006 owns and whose
+// cursor is an opaque branded STRING whose internal structure the daemon owns and whose
 // schema is `min(1)` — so nothing here can order on it. Adopting the registered shape
 // would leave the adapter fabricating all three anyway.
 //

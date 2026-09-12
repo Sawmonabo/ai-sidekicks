@@ -131,8 +131,8 @@ const LIVE_RUN_STATES: ReadonlySet<RunState> = new Set<RunState>([
  *
  * Used to decide what a surface OFFERS or SAYS, never whether the daemon will admit
  * anything: eligibility is the daemon's and reaches a surface as a typed refusal
- * (`Spec-023 §Rules every console surface obeys` — "eligibility is never projected by
- * the renderer"). What this answers is the narrower question of whether an act is
+ * — eligibility is never projected by the renderer. What this answers is the
+ * narrower question of whether an act is
  * meaningful at all — a `completed` run has no turn to interrupt, and a restart
  * interrupts nothing by ending it.
  */

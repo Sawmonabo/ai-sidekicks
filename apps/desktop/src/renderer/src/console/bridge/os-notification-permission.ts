@@ -90,7 +90,7 @@ export interface OsNotificationPermissionReadOptions {
  * One machine's notification permission, kept current by the window's triggers.
  *
  * A class with private fields rather than a memoised trigger target holding a
- * published cell, per `apps/desktop/AGENTS.md` §State and views: what it owns is a
+ * published cell, on this package's state rules: what it owns is a
  * scheduler, a single-flight round, and the rule that decides which probe's answer is
  * the one on screen.
  */

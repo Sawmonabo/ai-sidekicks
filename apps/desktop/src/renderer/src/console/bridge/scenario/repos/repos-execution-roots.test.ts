@@ -12,7 +12,7 @@
 // directory spelled two ways, and the fixture stated exactly that for as long as its
 // checkout root was the bound root with `/.` on the end. Byte inequality is therefore
 // the wrong assertion to pin a fixture with: it passes on the defect. What is asserted
-// below is the relationship `Spec-010 §Turn-Boundary Snapshots` describes — a bound root
+// below is the relationship turn-boundary snapshots describe — a bound root
 // nested inside the working-tree top level its snapshots normalize to — which no
 // spelling discrepancy can satisfy.
 

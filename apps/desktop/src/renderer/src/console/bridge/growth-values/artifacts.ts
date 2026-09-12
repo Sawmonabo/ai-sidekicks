@@ -12,9 +12,8 @@
 
 /**
  * The artifact families the manifest discriminates. Closed, declared once, derived
- * below — `docs/architecture/contracts/api-payload-contracts.md` §ArtifactManifest's
- * `ArtifactType`, which is the five families `Spec-014 §Required Behavior` enumerates
- * plus the workflow phase-output type.
+ * below — the registered `ArtifactManifest`'s `ArtifactType`, which is the five
+ * families the artifact design enumerates plus the workflow phase-output type.
  */
 export const GROWTH_ARTIFACT_TYPES = [
   "file",
@@ -31,10 +30,10 @@ export type GrowthArtifactType = (typeof GROWTH_ARTIFACT_TYPES)[number];
 /**
  * The visibility classes an artifact carries.
  *
- * Two, and the distinction is the one `Spec-014 §Required Behavior` makes load-bearing:
+ * Two, and the distinction is the one the artifact design makes load-bearing:
  * visibility is explicit and `local-only` is a different fact from shared-visible.
- * Partial per-participant redaction is deliberately absent — that spec puts it out of
- * V1 scope, and a third value here would let a surface offer a state nothing serves.
+ * Partial per-participant redaction is deliberately absent — it is out of V1 scope,
+ * and a third value here would let a surface offer a state nothing serves.
  *
  * THIS VOCABULARY AND THE TWO BELOW IT ARE UNIONS RATHER THAN DERIVATIONS OF A LIST.
  * Each was a `readonly` array with a `typeof …[number]` beside it, and nothing in the
@@ -85,13 +84,12 @@ export interface GrowthAttachmentIngestCompletion {
 /**
  * One artifact as the manifest envelope carries it.
  *
- * Mirrored member-for-member from the registered `ArtifactManifest` in
- * `docs/architecture/contracts/api-payload-contracts.md` §ArtifactManifest — the
- * OCI-inspired envelope `Spec-014 §Interfaces And Contracts` states, plus the
+ * Mirrored member-for-member from the registered `ArtifactManifest` in the payload
+ * contracts — the OCI-inspired envelope the artifact design states, plus the
  * daemon-persisted `visibility` / `state` / `metadata` fields the wire shape adds.
- * `packages/contracts` registers no artifact schema yet (Plan-014 Task 1 mints it in
- * `packages/contracts/src/artifacts/`), so the architecture contract is the source,
- * named here so the mirror is checkable by reading one section rather than by memory.
+ * `packages/contracts` registers no artifact schema yet — it will be minted under
+ * `packages/contracts/src/artifacts/` — so the payload contract is the source, named
+ * here so the mirror is checkable by reading one registration rather than by memory.
  *
  * ONE MEMBER IS SPELLED DIFFERENTLY, AND ONLY ONE. The envelope's `id` is
  * `artifactId` here, because a bare `id` on a value a renderer passes around says
@@ -177,10 +175,10 @@ export type GrowthArtifactPayloadEncoding = "utf8" | "base64";
  * inline content leaves the served path with no way to REACH the bytes, a `payload`
  * with no `payloadEncoding` leaves it with no way to DECODE them, and a
  * `payloadEncoding` with no payload describes bytes that are not there. The contract
- * says both halves of this — `Spec-014 §Interfaces And Contracts` requires a read to
- * return "manifest plus retrievable payload handle or inline content", and the
- * registered response comments the encoding as "present when payload is" — so the arms
- * below are the registration read as it is written rather than a console tightening.
+ * says both halves of this — a read returns a manifest plus a retrievable payload
+ * handle or inline content, and the registered response comments the encoding as
+ * "present when payload is" — so the arms below are the registration read as it is
+ * written rather than a console tightening.
  *
  * TWO ARMS, NOT THREE. Deferred is a handle and no bytes; inline is the bytes with the
  * encoding to read them by. The metadata read — `includePayload` absent — lands on the

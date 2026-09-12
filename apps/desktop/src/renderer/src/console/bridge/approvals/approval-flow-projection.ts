@@ -5,7 +5,7 @@
 // was written and no family projected into it, so `session.subscribe` carried every
 // `approval.*` beat into the timeline and none of them reached the partition a pane
 // reads. The members that live on the EVENT and on no read went nowhere at all —
-// `askId` above all, which `Spec-006 §Approval Flow (approval_flow)` registers on
+// `askId` above all, which the approval-flow event family registers on
 // `approval.requested` exactly when the request originates from a provider
 // permission ask. The projection read carries no marker of that origin, so a
 // console with no fold here cannot tell a provider's mid-run permission ask from a
@@ -32,11 +32,11 @@
 // `packages/contracts` registers no approval payload variant at all —
 // `SessionEventSchema` carries none, which `approval-vocabulary.ts` says in as many
 // words — so there is no registered shape to derive a member union from. The list
-// comes from where the corpus puts it: `Spec-006 §Approval Flow (approval_flow)`
-// fixes the payload at `{sessionId, runId?, approvalRequestId?, askId?, category,
-// scope, requestedBy?, resourceDescriptor?, expiryAt?, approver?, effectiveScope?,
-// nodeId?, rememberedScope?, ruleId?, invalidationTrigger?}` and
-// `api-payload-contracts.md §Plan-012` says which of them each variant carries. So
+// comes from the approval-flow event family, which fixes the payload at
+// `{sessionId, runId?, approvalRequestId?, askId?, category, scope, requestedBy?,
+// resourceDescriptor?, expiryAt?, approver?, effectiveScope?, nodeId?,
+// rememberedScope?, ruleId?, invalidationTrigger?}`, and from the approval payload
+// contracts, which say which of them each variant carries. So
 // the tables below are PER TYPE, on `run-lifecycle-projector.ts`'s precedent and for
 // its reason: `approver` is a member of a resolution and of nothing else, and
 // `invalidationTrigger` is a member of a revocation and of nothing else, so one flat
@@ -185,9 +185,9 @@ const SHARED_APPROVAL_BODY_MEMBERS: Readonly<Record<string, WireMemberSchema>> =
 /**
  * The members each kind registers ALONE, and the schema that carries each one.
  *
- * Total over the seven by `satisfies`. Every entry is a member
- * `api-payload-contracts.md §Plan-012`'s per-variant refinement names for that
- * variant and for no other, and a member the shared table already carries would be a
+ * Total over the seven by `satisfies`. Every entry is a member the approval payload
+ * contracts' per-variant refinement names for that variant and for no other, and a
+ * member the shared table already carries would be a
  * second spelling of it — which the co-located test refuses outright rather than
  * leaving to review.
  */

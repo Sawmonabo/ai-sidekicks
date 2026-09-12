@@ -14,11 +14,10 @@
 // stream up stops being true the moment it lands, so every arm here that fails to open
 // returns rather than reading on, and every read guards on the tail still being up.
 //
-// TWO RULES THIS MODULE ENCODES. `Spec-023 §Signature Feature Composition Sketches`'
-// Runs View strikes queue reorder in terms — "`Spec-004 §Resolved Questions and V1
-// Scope Decisions` defers queue priority overrides for V1 … the queue's only V1
-// removal path is `run.queueCancel`" — and these two are this module's own, because no
-// committed document states them.
+// TWO RULES THIS MODULE ENCODES. The runs view strikes queue reorder in terms: queue
+// priority overrides are deferred for V1, and the queue's only V1 removal path is
+// `run.queueCancel`. These two are this module's own, because nothing above states
+// them.
 //
 //   • **The order is rendered, never reordered.** `run.queueList` answers in
 //     canonical FIFO order within the target scheduling scope, and the snapshot's

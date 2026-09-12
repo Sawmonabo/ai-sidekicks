@@ -24,9 +24,9 @@
 // a property of the value rather than a preference:
 //
 //   • The two ENUMERATIONS answer with an empty list. A context that resolves no
-//     definitions, and a session holding no runs, are both the EMPTY kind of nothing
-//     (`Spec-023 §Console Design (Meridian)` §The five kinds of nothing) — a stated
-//     fact a surface draws — and an empty enumeration is a real daemon answer to the
+//     definitions, and a session holding no runs, are both the EMPTY kind of
+//     nothing — a stated fact a surface draws — and an empty enumeration is a real
+//     daemon answer to the
 //     question asked. No `nextCursor` travels with the definitions, on the scripted
 //     reply's own reasoning: a `result`-shaped reply is one fixed value the engine
 //     finds by call name, so a cursor would promise a second page that every later

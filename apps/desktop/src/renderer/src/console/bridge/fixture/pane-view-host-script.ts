@@ -7,7 +7,7 @@
 // contract, and taking that door from the contract would close the cycle `no-circular`
 // fails. The deep specifier is the remedy for exactly that one edge.
 //
-// `Spec-023 §Console Design (Meridian)` 12.11 puts a scripted host under fixture and
+// The console's design language puts a scripted host under fixture and
 // end-to-end runs, the real view where a window exists, and an unavailable host
 // otherwise. The wiring table itself is `browser/geometry/view-host.ts`'s — that is the family
 // that owns the rectangle, the sample, and the refusal vocabulary a pane renders —
@@ -23,8 +23,8 @@
 // refusal code stays in the one module that enumerates it.
 //
 // WHY THE FIXTURE HOLDS EVERY PANE IT IS ASKED ABOUT. A scenario is a log of session
-// events, and the browser namespace is unregistered — `Plan-023 §Console growth slate`
-// row `browser-pane-namespace` — so no beat names a page, a view, or a pane's
+// events, and the browser namespace is unregistered — the growth slate's
+// `browser-pane-namespace` row — so no beat names a page, a view, or a pane's
 // destruction. Scripting a refusal here would be inventing a fact no wire carries;
 // what the fixture can honestly say is that the window it is standing in for still
 // holds the pane. The refusing arm is not dead: it is the shape a test drives to

@@ -76,8 +76,8 @@ describe("the ceremony reader — what it refuses to read", () => {
     ["an unknown custody state", { ceremonyOutcome: { kind: "authenticated", custody: "disk" } }],
     ["a custody state that is missing", { ceremonyOutcome: { kind: "authenticated" } }],
     // The identity half of the same claim, and the reason the arm is the strictest
-    // one: `Spec-023 §WebAuthn Credential Flow` step 7 makes the participant claims
-    // the whole of what crosses the bridge, so an authenticated resolution that names
+    // one: the credential flow makes the participant claims the whole of what
+    // crosses the bridge, so an authenticated resolution that names
     // nobody is an authentication with no subject. Reading it as success would sign a
     // person in as whoever the surface happened to be showing.
     [

@@ -1,9 +1,9 @@
 // The first sixty seconds — the session a fresh console opens into.
 //
-// `Spec-023 §The four bars`, Richness, names this composition: "The first sixty
-// seconds and the flagship frame are designed compositions, regression-tested by
-// screenshot." WHAT THE MINUTE IS FOR is this scenario's own decision, because no
-// committed document states it: the product demonstrates itself before it asks for
+// Richness names this composition: the first sixty seconds and the flagship frame
+// are designed compositions, regression-tested by screenshot. WHAT THE MINUTE IS FOR
+// is this scenario's own decision, because nothing above states it: the product
+// demonstrates itself before it asks for
 // anything. First launch opens into a live session already in flight — several
 // sidekicks and several people working, parallel streams revealing, an approval
 // arriving, a receipt landing past tense — and the empty state IS the demo. So this

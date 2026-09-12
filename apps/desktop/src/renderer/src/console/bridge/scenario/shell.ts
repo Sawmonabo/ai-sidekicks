@@ -72,8 +72,8 @@ export const SHELL_SCENARIO: ConsoleScenario = {
           reason: undefined,
         },
         lastHeartbeatAt: occurredAt(0),
-        // Both notices standing at once, which is one of the four states
-        // §Loopback and keystore notices enumerates and the only one in which a
+        // Both notices standing at once, which is one of the four states the
+        // loopback and keystore notices enumerate and the only one in which a
         // surface can be caught rendering them as one line.
         transport: "loopback",
         keystore: "unavailable",

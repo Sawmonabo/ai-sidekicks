@@ -276,7 +276,7 @@ describe("ScenarioEngine — the advance subscription", () => {
     // The finding: `subscribeToAdvances` and `subscribeToAdvance` shipped side by side
     // over one emitter, and the fixture's schedule-driven namespaces were split between
     // them — two identical wrappers, which is the duplicate-implementation drift
-    // `apps/desktop/AGENTS.md` §Shared code forbids. Read off the prototype rather than
+    // this package's shared-code rule forbids. Read off the prototype rather than
     // compared against a written list, so a second name added later fails here whatever
     // it happens to be called.
     const advanceSubscriptions = Object.getOwnPropertyNames(ScenarioEngine.prototype).filter(

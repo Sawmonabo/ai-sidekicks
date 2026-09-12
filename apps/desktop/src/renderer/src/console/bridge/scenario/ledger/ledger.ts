@@ -46,7 +46,7 @@
 //     seams, and the meter is not on any of them. Flagship is
 //     the scenario that moves the meter; a second one here would be a reading no surface
 //     in this session's frame reads. Scripting one would carry every member
-//     `Spec-006 §Usage Telemetry (usage_telemetry)` makes required of a post-amendment
+//     the usage-telemetry family makes required of a post-amendment
 //     emitter — `costStatus`, `costSource`, and `effectivePrincipal` — exactly as
 //     flagship's own builder does.
 //   • **A machine body.** `assistant.*` and `tool.*` payloads carry their body's
@@ -199,8 +199,8 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
     // no demonstration window carries a claim about the operator's own install.
     //
     // It does not contradict the three lanes above it. An incompatible handshake
-    // blocks MUTATING dispatch and leaves reads alone (`Spec-023 §Daemon Supervision
-    // Lifecycle` step 3), and every beat this session plays is a replayed event —
+    // blocks MUTATING dispatch and leaves reads alone, and every beat this session
+    // plays is a replayed event —
     // which is what makes a refusal and a streaming ledger true at once rather than
     // an inconsistency the script papered over.
     REFUSED_NEGOTIATION_REPLY,

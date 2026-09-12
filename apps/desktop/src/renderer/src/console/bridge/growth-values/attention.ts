@@ -9,9 +9,8 @@
 /**
  * One notification preference, as both the read reply and the update request carry it.
  *
- * `Spec-019 §Interfaces And Contracts` requires the preference pair to "support
- * per-surface preferences", and `Spec-019 §Resolved Questions and V1 Scope Decisions`
- * scopes the store itself to global-per-participant in V1 — so the console's shape is
+ * The preference pair supports per-surface preferences, and the store itself is
+ * scoped to global-per-participant in V1 — so the console's shape is
  * an opaque keyed value rather than an enumeration of surfaces, and stays that way
  * until a document names the keys. Read and update share one declaration because they
  * are the two sides of one record: two copies would let the reply and the request

@@ -70,9 +70,9 @@ export const PANE_GROWTH_OPERATIONS: Readonly<Record<PaneOperationId, GrowthOper
     "terminalAcquireWriteLease",
     "terminal-pane",
     "method",
-    // The registered pair, named here rather than left to a scenario to invent:
-    // `api-payload-contracts.md §Session Terminal-Control Method Registry` declares
-    // both, and a scenario scripting either is held to these names.
+    // The registered pair, named here rather than left to a scenario to invent: the
+    // terminal-control method registry declares both, and a scenario scripting either
+    // is held to these names.
     "session.takeControl",
   ),
   terminalReleaseWriteLease: op(

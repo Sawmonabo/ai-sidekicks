@@ -1,6 +1,6 @@
 // The engine that plays a scenario, and the one frozen clock it plays it on.
 //
-// `Spec-023 §Console Design (Meridian)` §The fixture bridge makes the fixture clock
+// The fixture bridge makes the fixture clock
 // the only clock the renderer reads in fixture mode, and this module is where that
 // clock lives. The script it plays is `scenario.ts`'s: nothing here declares a
 // scenario, and nothing there runs one.
@@ -189,8 +189,8 @@ export class ScenarioEngine {
    * AFTER that advance's beats have landed, and a disposed engine calls it not at
    * all, both on `advance`'s own rule.
    *
-   * THE ONE ADVANCE SUBSCRIPTION, and singular for `apps/desktop/AGENTS.md` §Shared
-   * code's reason: a second method over this same emitter split the fixture's callers
+   * THE ONE ADVANCE SUBSCRIPTION, and singular for the shared-code rule's reason: a
+   * second method over this same emitter split the fixture's callers
    * between two identical names for a while, on the class whose whole job is to be the
    * single source of scenario time.
    *

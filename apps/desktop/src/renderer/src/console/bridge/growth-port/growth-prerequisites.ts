@@ -11,7 +11,7 @@
 // derives its method surface from `GrowthOperationId` alone, so nothing declared
 // here can widen it even by accident.
 //
-// What these rows are FOR is the audit. `I-023-13` maps the ledger and the slate in
+// What these rows are FOR is the audit. The shape test maps the ledger and the slate in
 // both directions, and a slate row whose only unmet need is a type member would be
 // unmappable without a row here, which is the same fiction from the other side: the
 // row would look unserved forever.

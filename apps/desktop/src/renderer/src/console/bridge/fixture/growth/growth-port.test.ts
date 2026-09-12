@@ -345,7 +345,7 @@ describe("the fixture growth port — what it serves, and what it still refuses"
     // unconditionally, so the FIRST-RUN scenario — a fresh install whose whole
     // purpose is "no sessions, no agents, no history" — listed a session row on the
     // one surface whose committed screenshot baselines exist to pin the EMPTY kind
-    // of nothing (`Spec-023 §Console Design (Meridian)` §The five kinds of nothing).
+    // of nothing.
     //
     // Derived from what the scenario DECLARES rather than from which scenario it is:
     // first-run's `session.read` reply says `provisioning`, which is a session still

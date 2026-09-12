@@ -117,8 +117,8 @@ export function createFixture(scenario: ConsoleScenario = FLAGSHIP_SCENARIO): Fi
  *
  * The event name is cast to the `DaemonEvent` brand and the payload left
  * `unknown` — the same single brand bypass the two shipped renderer families
- * make, because `DaemonEvent` is a `never`-shaped Plan-007 stub and a tighter
- * payload type here would be a fiction.
+ * make, because `DaemonEvent` is a `never`-shaped stub and a tighter payload type
+ * here would be a fiction.
  *
  * The delivered type is a PARAMETER because the answer depends on the name: the
  * whole-session stream and a bare event type deliver the canonical `EventEnvelope`,

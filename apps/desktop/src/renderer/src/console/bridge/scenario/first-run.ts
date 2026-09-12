@@ -2,8 +2,8 @@
 //
 // This is the scenario the screenshot baseline pins, because the emptiest state is
 // the one most likely to look unfinished and the product bar is that it does not.
-// `Spec-023 §Console Design (Meridian)` §The five kinds of nothing is the whole
-// design problem here: a fresh install has no sessions, and "no sessions yet" is
+// The five kinds of nothing are the whole design problem here: a fresh install has
+// no sessions, and "no sessions yet" is
 // the EMPTY kind — a stated fact with a next action — not the "not loaded" kind and
 // not an error.
 //

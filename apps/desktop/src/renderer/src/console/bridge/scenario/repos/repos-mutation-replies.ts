@@ -16,10 +16,10 @@
 //
 // THE FIXTURE MAY COMPARE A PATH AND THE RENDERER MAY NOT. `repo.attach` below refuses
 // `repo.already_attached` for the git mount's own root, which means reading the request
-// and comparing a string — the daemon's job under
-// `Spec-009 §Local Trust Envelope (V1 Definition)`, and this module is standing in for
-// the daemon. Nothing in `console/repos/` does the same, and the recovery that refusal
-// renders is deliberately a place to go rather than a link the console resolves.
+// and comparing a string — the daemon's job under the local trust envelope, and this
+// module is standing in for the daemon. Nothing in `console/repos/` does the same,
+// and the recovery that refusal renders is deliberately a place to go rather than a
+// link the console resolves.
 //
 // EVERY REPLY IS A SHAPE `packages/contracts` REGISTERS, on `repos-replies.ts`'s rule:
 // the call door parses each `repo.*` reply with the contract's own schema, so a reply
@@ -84,7 +84,7 @@ const WORKTREE_PARENT = "/Users/dev/code/ai-sidekicks-worktrees";
  *
  * THREE ARMS, EACH REACHABLE FROM THE DIALOG. A path this scenario does not recognise
  * attaches and mints its default `read-only` workspace, which is
- * `Spec-009 §Default Behavior`'s unconditional post-attach state and the shape the
+ * the unconditional post-attach state and the shape the
  * dialog's success path renders. The git mount's own root refuses `repo.already_attached`
  * — a second working tree of one repository being a re-attach by design — and the one
  * path below that names a file rather than a repository refuses
@@ -205,7 +205,7 @@ function executionRootPrepareResultFor(request: unknown): unknown {
  * reachable from either of the others. The implementer's branch has a live candidate
  * that is DIRTY and compatible — the one case that offers the separate acknowledgement.
  * The reviewer's has a live candidate that is clean and INCOMPATIBLE, which offers no
- * override at all, because `Spec-010 §Fallback Behavior` makes it never bindable. Any
+ * override at all, because it is never bindable. Any
  * other branch has no candidate, which is the complete, well-formed negative answer.
  */
 function reuseCheckResultFor(request: unknown): unknown {
@@ -280,7 +280,7 @@ function disposeResultFor(request: unknown): unknown {
  *
  * THE GIT WORKSPACE IS THE INTERESTING ONE, and it is the only binding in which the
  * three roots genuinely differ. It is bound `branch`, which under
- * `Spec-010 §Turn-Boundary Snapshots` means the execution root is the participant's own
+ * turn-boundary snapshots mean the execution root is the participant's own
  * live working tree — here a linked worktree rather than the checkout the mount resolved
  * to — and it is bound at a SUBDIRECTORY of that tree, which the same rule normalizes to
  * the enclosing working-tree top level. So the bound root is nested inside the
@@ -294,7 +294,7 @@ function disposeResultFor(request: unknown): unknown {
  * than against the case it exists to draw.
  *
  * IT ALSO CARRIES THE FALLBACK MARKER, naming the mode it was substituted away FROM.
- * `Spec-010 §Fallback Behavior` requires a substituted mode to be marked distinctly from
+ * A substituted mode has to be marked distinctly from
  * normal worktree mode, and a scenario in which nothing was ever substituted cannot draw
  * that badge at all.
  *

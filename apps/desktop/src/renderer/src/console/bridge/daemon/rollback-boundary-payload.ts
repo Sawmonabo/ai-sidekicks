@@ -1,8 +1,8 @@
 // The rollback boundary's payload, decoded at the bridge.
 //
 // WHY IT LIVES HERE AND NOT BESIDE ITS CONSUMER. A contracts schema is a parser, and
-// `Spec-023 §Console Design (Meridian)` puts every parse of a wire value at the
-// bridge boundary: a surface that held its own schema would be a second reading of
+// every parse of a wire value happens at the bridge boundary: a surface that held its
+// own schema would be a second reading of
 // one shape, and the two would drift the moment the contract moved. The ledger's
 // fixture projection consumes what this returns and never a schema of its own.
 //

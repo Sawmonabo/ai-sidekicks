@@ -1,7 +1,7 @@
 // The composition the screenshot tier pins, asserted element by element.
 //
-// `Spec-023 §Console Test Tiers` puts the flagship frame at its frozen tick on that
-// tier, and a reference image cannot say WHY it is the right frame: a capture of a
+// The screenshot tier captures the flagship frame at its frozen tick, and a
+// reference image cannot say WHY it is the right frame: a capture of a
 // session missing half its story is a perfectly stable image that compares green
 // forever. So the elements are named here, in the file that owns the script, and the
 // image pins how they look rather than whether they are there.

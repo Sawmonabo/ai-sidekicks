@@ -16,7 +16,7 @@
 // to every launch — and the only production readers of this module are inside the schema
 // form seat, which is itself a loader-backed chunk. A door line for the compiler therefore
 // assigned this module, the schema library's JSON-Schema entry point, and everything under
-// it to the STATIC chunk, exactly as `apps/desktop/AGENTS.md` §Module shape says a door
+// it to the STATIC chunk, exactly as this package's module rules say a door
 // line for a body only a lazy chunk reads does. So the door publishes
 // `json-schema-check-loader.ts`, which reaches this module through `import()` and through
 // nothing else, and the ADDRESSING this module used to declare beside the compiler moved
@@ -24,7 +24,7 @@
 // because the form's descriptors, controls and plan all read it before any schema is
 // compiled. What is left here is the one thing that needs the library.
 //
-// WHY IT IS WRAPPED RATHER THAN CALLED. `Spec-023 §Console Libraries` admits Zod's
+// WHY IT IS WRAPPED RATHER THAN CALLED. The console's library set admits Zod's
 // JSON-Schema reader for exactly this job and nothing else, and the library's own
 // documentation calls that reader experimental and outside its stable API. It THROWS —
 // it does not return a verdict — on the draft-07 constructs it does not implement:

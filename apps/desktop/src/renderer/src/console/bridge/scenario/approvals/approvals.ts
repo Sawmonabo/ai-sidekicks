@@ -11,7 +11,7 @@
 //
 // The lifecycle beats are opaque re-read triggers by design: the surface's rule is
 // that those five event payloads are never decoded. They still carry the REGISTERED
-// payload — `Spec-006 §Approval Flow (approval_flow)` shapes it
+// payload — the approval-flow family shapes it
 // `{sessionId, runId?, approvalRequestId?, askId?, category, scope, requestedBy?,
 // resourceDescriptor?, expiryAt?, approver?, effectiveScope?, …}` — because a
 // payload a surface does not read is still a payload a daemon emits, and a beat
@@ -21,7 +21,7 @@
 // `scenario/wire-truth/wire-truth.ts` holds the beats to the census
 // (`SESSION_EVENT_CATEGORY_BY_TYPE`) and to the strict payload layer
 // (`SessionEventSchema`), both in `packages/contracts/src/event.ts`. The `approval.*`
-// beats reach the census leg alone, since Plan-012 has not registered their variants
+// beats reach the census leg alone, since nothing has registered their variants
 // yet; `session.created` and `agent.attached` reach both, which is why the first
 // carries `{sessionId, config, metadata}` and the second carries `name` rather than
 // the `displayName` that is on no wire in this corpus.

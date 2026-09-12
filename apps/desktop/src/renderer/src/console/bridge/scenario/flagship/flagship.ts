@@ -55,7 +55,7 @@
 //     DESCRIPTION and never the body, which is sealed in `content_payload` and
 //     served by no bridge namespace. The cards render the named absence, which is
 //     the true state of that wire today.
-//   • **A link TYPE on the run thread.** `linkType` is typed by a Plan-016 symbol no
+//   • **A link TYPE on the run thread.** `linkType` is typed by a symbol no
 //     TypeScript in this workspace declares, so the thread carries the two linkage
 //     members that do have types — `parentRunId` and `internalHelper` — and says
 //     nothing about which kind of link it is.
@@ -73,8 +73,8 @@
 // TWO CONSEQUENCES A READER WILL NOTICE FIRST:
 //
 //   • **The identifiers are UUIDs.** `SessionId`, `ParticipantId`, `MembershipId`,
-//     `AgentId`, and `RunId` are branded UUIDs (`§Branded ID Types` in
-//     `docs/architecture/contracts/api-payload-contracts.md`), and the strict layer
+//     `AgentId`, and `RunId` are branded UUIDs declared once in the payload
+//     contracts, and the strict layer
 //     refuses anything else. A readable `"agent-scout"` would also have rendered at
 //     a third of the width a real one does, which is a design lie in a fixture
 //     whose whole job is to be measured.
@@ -189,7 +189,7 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
     // is to reach every state a surface renders.
     //
     // Nothing is drawn from this reply in this window: the agreeing arm renders no
-    // banner and no version line, which is the whole of what `Spec-023` asks for when
+    // banner and no version line, which is the whole of what is asked for when
     // the two builds met. It is scripted so the fixture HAS the agreeing outcome —
     // the negative control for a surface that only ever appears on the other one.
     AGREED_NEGOTIATION_REPLY,

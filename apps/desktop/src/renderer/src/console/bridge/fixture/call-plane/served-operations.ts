@@ -56,8 +56,8 @@
 // PREPARATION is not an absence a surface has to draw: a proposal was either assembled
 // or it was not, so there is no "we asked and there is none" state here for the served
 // arm to answer with, and the port would have to mint a `prPreparationId` and a
-// `proposalBlob` out of nothing. `Spec-011 §Required Behavior` puts the
-// review before any remote mutation, which is the last of it — a fixture that answered
+// `proposalBlob` out of nothing. The review comes before any remote mutation, which
+// is the last of it — a fixture that answered
 // would be standing in for the review rather than for the wire.
 //
 // The finder pins that too, from the same side it pins the branch premise: no scenario
@@ -140,7 +140,7 @@
 // WHY THE FIVE WINDOW OPERATIONS ARE SERVED WITHOUT A SCENARIO SCRIPTING ANYTHING
 //
 // They are the one plane here addressed to the SHELL rather than to the daemon — the
-// window bridge `Spec-023 §Windows` describes — and the rule above cannot be applied
+// window bridge the shell describes — and the rule above cannot be applied
 // to them as written, because a scenario carries no windows and never will. For a
 // shell-addressed operation the fixture IS the shell, so the answers come from a real
 // model of one that `../shell/auxiliary-windows.ts` holds per bridge, and every one of
@@ -239,8 +239,8 @@
 // No scenario carries a goal — no `session.goal_updated` beat, no scripted reply, and
 // `ConsoleScenario` has no field for one — so there is nothing to answer from, and a
 // mutation the fixture pretended to accept would leave the card waiting for a
-// projection event the log will never grow. The refusal names Plan-016, which is the
-// true state of that wire.
+// projection event the log will never grow. The refusal names the owning surface,
+// which is the true state of that wire.
 
 // AND EVERY PLANE WITH A MODULE STATES ITS OWN MEMBERSHIP, in the module that
 // implements it — read the import list below for the residents rather than a count

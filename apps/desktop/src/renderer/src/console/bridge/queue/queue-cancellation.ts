@@ -16,11 +16,10 @@
 // on the snapshot or on the tail. So this module holds no rows at all, and a reader
 // looking for what the queue contains looks in exactly one place.
 //
-// `Spec-023 §Signature Feature Composition Sketches`' Runs View offers
-// "cancel-before-admission (`run.queueCancel`) on the queue" and strikes queue reorder
-// in terms — "`Spec-004 §Resolved Questions and V1 Scope Decisions` defers queue
-// priority overrides for V1 … the queue's only V1 removal path is `run.queueCancel`".
-// There is no reorder control and no priority control in this file either.
+// The runs view offers cancel-before-admission (`run.queueCancel`) on the queue and
+// strikes queue reorder in terms: queue priority overrides are deferred for V1, and
+// the queue's only V1 removal path is `run.queueCancel`. There is no reorder control
+// and no priority control in this file either.
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import { QUEUE_REFUSAL_ORIGIN } from "./queue-refusals.js";

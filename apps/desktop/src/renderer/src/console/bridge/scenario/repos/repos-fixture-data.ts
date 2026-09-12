@@ -168,7 +168,7 @@ export const WORKSPACE_DIFF_MANIFEST_ID: string = "9f2c4a10-0000-4000-8000-00000
  * call it three roots that differ.
  *
  * THE BOUND ROOT IS NESTED INSIDE THE CHECKOUT ROOT, WHICH IS THE CASE THE DISCLOSURE
- * EXISTS FOR. `Spec-010 §Turn-Boundary Snapshots` names it: a workspace bound at a
+ * EXISTS FOR. Turn-boundary snapshots name it: a workspace bound at a
  * subdirectory of its checkout normalizes to the enclosing working-tree TOP LEVEL,
  * because capture is cwd-scoped while restore updates the whole tree — so the two
  * values are genuinely different facts about one binding rather than two spellings of
@@ -237,13 +237,13 @@ export interface ReposScenarioAttachment {
 /**
  * The three attachments, and where each one's payload stands on this node.
  *
- * `Spec-014 §Fallback Behavior` requires an unresolved attachment to sit in its
+ * An unresolved attachment sits in its
  * declared position carrying its own cause, so the three rows below are three
  * different causes rather than three copies of one — a pinned payload the console
  * can open, one the publisher has not finished replicating, and one whose bytes are
  * no longer obtainable and whose remedy is a re-publish while the publisher is
  * online. `replicationStatus` is the additive member a relay-pinned
- * `artifact.published` carries per `Spec-006 §Artifact and Diff Publication (artifact_publication)`.
+ * `artifact.published` carries on the artifact-publication family.
  */
 export const REPOS_ATTACHMENTS: readonly ReposScenarioAttachment[] = [
   {

@@ -57,7 +57,7 @@ interface PreloadStandIn {
  * what makes the negative control possible: point it at a misspelling and the seam,
  * still sending the registered name, gets the refusal a real router would give it.
  *
- * The two casts are the Plan-007/Plan-008 brands. `CpProcedure` and `DaemonEvent`
+ * The two casts are the transport and daemon brands. `CpProcedure` and `DaemonEvent`
  * are `never`-shaped, so no literal is assignable to them and no stand-in can be
  * written without one; the seam under test carries the same two casts and for the
  * same reason.

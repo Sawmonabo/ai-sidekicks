@@ -1,11 +1,11 @@
 // An `event-type` slate row claims a type is absent from the shipped census. This is
 // the gate that reads the claim instead of believing it.
 //
-// I-023-13 already checks that every ledger entry resolves to a slate row and that
-// every entry is fixture-only while its row is unregistered. Both of those are checks
+// The ledger shape test already checks that every ledger entry resolves to a slate
+// row and that every entry is fixture-only while its row is unregistered. Both of those are checks
 // on the ledger's INTERNAL agreement, and an `event-type` row makes a claim about
 // something outside it: that `packages/contracts` does not register the type. Nothing
-// read that. The day `Plan-016 T1.13` widens the census by its two agent-switch
+// read that. The day the agent plane widens the census by its two agent-switch
 // terminals, the two rows below would have gone on reporting a debt already paid —
 // and the surfaces waiting on them would have gone on rendering the absence, because
 // nothing would have told anyone the wire had landed.

@@ -1,7 +1,7 @@
 // What the console holds instead of `window.sidekicks`.
 //
-// `Spec-023 §Console Design (Meridian)` §The fixture bridge requires the fixture to
-// be "shape-identical to `SidekicksBridge`". The cheapest way to keep a claim like
+// The fixture has to be shape-identical to `SidekicksBridge`. The cheapest way to
+// keep a claim like
 // that true is to make it a type: both bridges below ARE `SidekicksBridge`, so a
 // namespace added to the contract breaks the fixture at compile time rather than at
 // review time.
@@ -165,8 +165,8 @@ export interface ConsoleBridge {
 /**
  * The clock every subsystem this bridge feeds has to run on.
  *
- * `Spec-023 §Console Design (Meridian)` §The fixture bridge: "the fixture clock is
- * the only clock the renderer reads in fixture mode". A window whose stores kept
+ * The fixture clock is the only clock the renderer reads in fixture mode. A window
+ * whose stores kept
  * their own `RealClock` broke that sentence without looking like it — apply
  * coalescing and every refresh deadline ran on wall time while scenario beats
  * advanced on frozen time, so a screenshot or an endurance step taken straight

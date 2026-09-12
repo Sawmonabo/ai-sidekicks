@@ -149,7 +149,7 @@ export function subscribeToScenario(
  * that session's to serve.
  *
  * Composed rather than forwarded raw for the reason the two envelope arms above are:
- * the relay frame is a Plan-008 stub the corpus has not shaped yet, and whatever it
+ * the relay frame is a stub the corpus has not shaped yet, and whatever it
  * turns out to be, it is not this console's own projection type. Handing that type
  * out here would leave one door through which the fixture still teaches a surface a
  * shape no wire sends.

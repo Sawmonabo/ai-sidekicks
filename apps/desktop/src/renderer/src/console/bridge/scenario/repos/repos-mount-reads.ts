@@ -19,9 +19,9 @@
 // THREE MOUNTS, AND NO TWO OF THEM ARE ONE ROW WITH A DIFFERENT ID. The GIT mount is
 // the ordinary healthy checkout. The PLAIN mount is `none`-vcs and `unreachable`,
 // agreeing with the `workspace.stale` beat and with its workspace row's own
-// `lastError`; its capabilities are the D-009-5 answer for a non-git mount —
-// `read-only` alone, with a reason per excluded mode, which is the I-009-8 explicit
-// gap. The DRIFTED mount is a git checkout whose root still resolves and is no longer
+// `lastError`; its capabilities are the answer for a non-git mount — `read-only`
+// alone, with a reason per excluded mode, which is the explicit gap. The DRIFTED
+// mount is a git checkout whose root still resolves and is no longer
 // the repository it was attached as. A fixture serving the git answer for all three
 // would have drawn four execution modes on a mount that can host one, and would have
 // left two of the three health verdicts unreachable.
@@ -71,7 +71,7 @@ const MOUNT_READS_BY_MOUNT_ID: Readonly<Record<string, unknown>> = {
     nodeId: NODE_ID,
     localPath: "/Users/dev/notes",
     canonicalRoot: "/Users/dev/notes",
-    // `none`, which is `Spec-009`'s honest non-git classification (I-009-4) and not a
+    // `none`, the honest non-git classification and not a
     // third "unknown" verdict: the resolver either found a repository or did not.
     vcsType: "none",
     state: "attached",
@@ -114,15 +114,15 @@ const MOUNT_READS_BY_MOUNT_ID: Readonly<Record<string, unknown>> = {
  * neither. The picker labels the two separately and a reader who conflates them will
  * think one is wrong.
  *
- * The plain workspace is the D-009-5 answer for a `none` mount: `read-only` alone,
+ * The plain workspace is the answer for a `none` mount: `read-only` alone,
  * `read-only` as the default because no writable mode exists to default to, and a
- * reason for each excluded mode — I-009-8's explicit-gap mandate, which is the half a
+ * reason for each excluded mode — the explicit-gap rule, which is the half a
  * surface renders when it explains why a control is not offered.
  */
 const CAPABILITIES_BY_WORKSPACE_ID: Readonly<Record<string, unknown>> = {
   [GIT_WORKSPACE_ID]: {
     // All four, with no `restrictions` map at all, because a git mount restricts
-    // nothing (D-009-5), and `worktree` the default per ADR-006.
+    // nothing, and `worktree` is the default.
     availableModes: ["read-only", "branch", "worktree", "ephemeral clone"],
     defaultMode: "worktree",
   },
@@ -184,7 +184,7 @@ const CAPABILITIES_BY_MOUNT_ID: Readonly<Record<string, unknown>> = {
 /**
  * The mount this scenario holds for the id one request names, or `undefined`.
  *
- * `Spec-009`'s only health-carrying read, answered per mount.
+ * The one health-carrying mount read, answered per mount.
  */
 export function mountReadFor(request: unknown): unknown {
   return answerFor(MOUNT_READS_BY_MOUNT_ID, "repoMountId", request);

@@ -45,7 +45,7 @@ export type RunStreamProjection =
  * The envelope-against-payload session cross-check, for every arm of both run streams.
  *
  * A fact about this BEAT that no schema can make, and one none of the three arms can
- * skip. `Spec-006` gives every one of these payloads a required `sessionId`, so a beat
+ * skip. Every one of these payloads carries a required `sessionId`, so a beat
  * delivered on session A whose payload names session B is not a beat that omitted a
  * check: it is a frame no daemon produces. The state and queue arms then compound it,
  * because neither registered stream shape carries a `sessionId` member at all — the

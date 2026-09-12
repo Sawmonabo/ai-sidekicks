@@ -28,8 +28,8 @@ export type GrowthBranchContextReadRequest =
   | { readonly workspaceId: string; readonly worktreeId: string };
 
 /**
- * A writable run's branch context, as `Spec-011 §Interfaces And Contracts`
- * requires the read to expose it — base, head, upstream, and worktree association.
+ * A writable run's branch context, as the read exposes it — base, head, upstream,
+ * and worktree association.
  *
  * THIS IS THE WHOLE REPLY AND NEVER A MEMBER OF ONE. `BranchContextReadResponse`
  * returns these fields directly, so the operation's value is this interface itself:
@@ -61,8 +61,8 @@ export interface GrowthBranchContext {
 /**
  * The states a prepared pull request is in. Closed, declared once, derived below.
  *
- * `Spec-011 §Required Behavior` makes PR preparation reviewable BEFORE any remote
- * mutation, and these two are what that review is between: a proposal still being
+ * PR preparation is reviewable BEFORE any remote mutation, and these two are what
+ * that review is between: a proposal still being
  * assembled and one a person may send. Neither names a remote state — nothing here
  * has talked to a git host.
  */
@@ -84,14 +84,14 @@ export type GrowthPrPreparationState = (typeof GROWTH_PR_PREPARATION_STATES)[num
  * request carrying both keys and one carrying neither, the two shapes no producer
  * resolves.
  *
- * IT IS ALSO WHAT KEEPS THE RENDERER HONEST ONE LAYER UP. `Spec-011 §Pitfalls To
- * Avoid` names pretending a workspace diff is run-attributed; with the mode on the
+ * IT IS ALSO WHAT KEEPS THE RENDERER HONEST ONE LAYER UP. Pretending a workspace
+ * diff is run-attributed is the pitfall; with the mode on the
  * REQUEST there is no shape in which a caller asks for a workspace diff and receives
  * something it may label with a run, because the arm it sent is the arm it gets back.
  *
- * BOTH REFS ARE REQUIRED ON BOTH ARMS. `Spec-011 §Interfaces And Contracts` requires
- * the create call to identify the compared states, so a create with one side missing
- * is a request the contract does not have — the caller names both or sends nothing.
+ * BOTH REFS ARE REQUIRED ON BOTH ARMS. The create call identifies the compared
+ * states, so a create with one side missing is a request the contract does not
+ * have — the caller names both or sends nothing.
  */
 export type GrowthDiffArtifactCreateRequest =
   | {

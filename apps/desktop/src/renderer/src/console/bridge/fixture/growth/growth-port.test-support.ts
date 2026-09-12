@@ -127,7 +127,7 @@ export type OperationSettlement =
  * WHY THE THROWN ARM EXISTS AT ALL. A fixture answering for the daemon refuses the way
  * the daemon does — by throwing the wire's own envelope — wherever a surface reads the
  * daemon's code rather than the console's: `sessionRead` does it for the unresolvable
- * resume cursor, and the ingest plane does it for every refusal `Spec-014` names,
+ * resume cursor, and the ingest plane does it for every refusal the artifact plane names,
  * because the client's own normalizer keeps a typed envelope's code verbatim and
  * paraphrasing it into a growth code would teach the surface a shape the live seam
  * never sends. A sweep that only awaited outcomes would report that as an unhandled

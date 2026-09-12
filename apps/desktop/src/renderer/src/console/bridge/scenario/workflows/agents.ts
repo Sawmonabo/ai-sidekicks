@@ -39,8 +39,8 @@ interface WorkflowScenarioAgent {
  * carries them.
  *
  * One table rather than a literal per beat and a second per reply, on the flagship's
- * precedent: the `agent.attached` payload is the replay-complete record `Spec-006
- * §Channel and Agent Lifecycle (session_lifecycle)` makes it, so the projection
+ * precedent: the `agent.attached` payload is the replay-complete record the agent
+ * lifecycle makes it, so the projection
  * rebuilds from it alone, and two hand-written copies of one agent would drift in
  * exactly the direction nothing catches. The drivers are deliberately mixed so the
  * parked story can show one phase waiting on a spent account while the other runs.

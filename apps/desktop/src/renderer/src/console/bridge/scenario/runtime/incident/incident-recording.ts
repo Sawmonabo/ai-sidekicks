@@ -1,7 +1,7 @@
 // An incident recording: wire frames held as text, replayed through the real decode.
 //
-// `Spec-023 §Console Design (Meridian)` §The fixture bridge names an `incident` class of
-// scenario "carrying byte-faithful wire deltas for replay of recorded defects". It is
+// The fixture bridge names an `incident` class of scenario carrying byte-faithful
+// wire deltas for replay of recorded defects. It is
 // the one mechanism the design gives for turning a defect that happened into a
 // regression the console cannot lose, and the reason it has to be TEXT rather than a
 // hand-written script is the defect class it exists for.

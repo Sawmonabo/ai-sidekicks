@@ -1,9 +1,9 @@
-// I-023-13, as a test.
+// The fixture-bridge shape claim, as a test.
 //
-// The invariant: "the fixture bridge is typed from the same `packages/contracts`
+// The claim: the fixture bridge is typed from the same `packages/contracts`
 // desktop-bridge types as the live bridge, is shape-identical to `SidekicksBridge`
 // namespace for namespace, and the scenario manifest's live-status field is checked
-// against `Plan-023 §Console growth slate`."
+// against the growth slate.
 //
 // WHY A RUNTIME TEST FOR SOMETHING THE TYPES ALREADY SAY. Both bridges are declared
 // `SidekicksBridge`, so a namespace added to the contract breaks the fixture at
@@ -78,7 +78,7 @@ afterEach(() => {
   Reflect.deleteProperty(globalThis, "sidekicks");
 });
 
-describe("I-023-13 — the fixture bridge is shape-identical to the live bridge", () => {
+describe("the fixture bridge is shape-identical to the live bridge", () => {
   it("exposes the same namespaces and the same members in each", () => {
     const live = resolveLiveBridgeFrom(createTier1Bridge());
     expect(live, "the preload-shaped bridge was refused by the probe").toBeDefined();
@@ -194,7 +194,7 @@ describe("I-023-13 — the fixture bridge is shape-identical to the live bridge"
   });
 });
 
-describe("I-023-13 — the growth ledger's live status is checked against the slate", () => {
+describe("the growth ledger's live status is checked against the slate", () => {
   it("exposes every ledgered operation on the growth port of BOTH bridges", () => {
     // The manifest carries a `liveStatus` per operation. A status for an operation
     // no bridge exposes is a claim about a method that does not exist — the ledger

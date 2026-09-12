@@ -108,7 +108,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
         id: "019b7a22-2200-7e00-8110-e5e0c2250004",
         sessionId: SESSION_ID,
         sequence: 4,
-        // The queue's first row. `Spec-006 §Queue Events` registers the payload as
+        // The queue's first row. The queue event family registers the payload as
         // `{sessionId, queueItemId, channelId?, state}` — the ITEM's state, not the run's.
         kind: "queue_item.created",
         occurredAt: "2026-01-01T16:00:00.130Z",
@@ -299,8 +299,8 @@ export const RUNS_SCENARIO: ConsoleScenario = {
         sessionId: SESSION_ID,
         sequence: 15,
         // The rewind: the second arm of the `run.subscribeState` stream, FORWARD and
-        // NON-STATE. Its registered payload (`Spec-006 §Run Lifecycle (run_lifecycle)`:
-        // `{sessionId, runId, runVersion, channelId?, targetPosition}`) carries no
+        // NON-STATE. Its registered payload —
+        // `{sessionId, runId, runVersion, channelId?, targetPosition}` — carries no
         // `previousState` / `newState`, because a rollback is not a transition and a
         // consumer that fabricated one would corrupt the stream others replay. The
         // version still advances, so a stale comparand's next guarded control refuses.

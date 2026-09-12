@@ -7,8 +7,8 @@
 // the DOCUMENT — the schema marker, the two top-level parts, and the target a caller
 // supplies — and this module owns what goes inside the first of them.
 //
-// THE SEAM IS THE GOVERNING SPEC'S OWN. `Spec-017 §Definition file form — export and
-// import (C-17)` says the document has exactly two top-level parts, the hashed
+// THE SEAM IS THE FILE FORM'S OWN. The definition file form says the document has
+// exactly two top-level parts, the hashed
 // definition body and the optional non-hashed `layout`; this module is the first of
 // them, end to end. The split is not "the file was too long": a reader asking what the
 // executable part of a definition file is reads one module, and a reader asking what a

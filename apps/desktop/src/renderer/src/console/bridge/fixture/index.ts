@@ -33,8 +33,8 @@
 // that is measured rather than stylistic: the two the import graph would earn doors
 // for read each other, and a door on either closes a cycle `no-circular` fails, since
 // the served set reads the plane modules that read the port's own answer builders.
-// Every cross-group edge is therefore a deep specifier, which is the remedy
-// `apps/desktop/AGENTS.md` §Module shape records for exactly this shape.
+// Every cross-group edge is therefore a deep specifier, which is the remedy this
+// package's module rules record for exactly this shape.
 //
 // A SUB-MODULE DOOR, NOT A SECOND FAMILY DOOR — `growth-values/index.ts` states the
 // rule. `bridge/index.ts` publishes `createFixtureBridge` from the module that

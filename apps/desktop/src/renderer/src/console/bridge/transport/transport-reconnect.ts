@@ -1,7 +1,7 @@
 // The console's one transport-reconnect signal: the wire went away, and it is back.
 //
-// `Spec-023 §Console Design (Meridian)` fixes the refresh policy as "on subscribe, on
-// window focus, on reconnect, and on the terminal events the owning spec names", and
+// The console's refresh policy is fixed: on subscribe, on window focus, on
+// reconnect, and on the terminal events the owning wire names — and
 // several surfaces restate it in their own words — the mounts inventory and the
 // diagnostics page name all three. Two of the three were wired anywhere in the console
 // and the third was not: the only producer of `RefreshReason`'s `reconnect` was a

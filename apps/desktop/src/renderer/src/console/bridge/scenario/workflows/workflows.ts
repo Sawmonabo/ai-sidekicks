@@ -20,8 +20,8 @@
 //
 // They are data in the `scenarios/workflow-fixture-*.ts` modules, not events on this
 // stream, and that is a fact about the wire rather than a shortcut. The twenty-four
-// workflow event types sit on `Plan-023 §Console growth slate` under
-// `workflow-event-registration` and the corpus registers none of them, so a
+// workflow event types sit on the growth slate under
+// `workflow-event-registration` and no code package registers one of them, so a
 // `workflow.phase_suspended` beat would be a type no daemon emits —
 // `scenario/wire-truth/wire-truth.ts` refuses it, and it would yield screenshots, geometry
 // readings, and end-to-end results about a wire that does not exist.

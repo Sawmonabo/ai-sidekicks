@@ -6,7 +6,7 @@
 // `growth-refusals.ts` composes the sentence a person sees out of it — and
 // `owningDocument` travels on every growth refusal's ledger. Nothing in a running
 // console has ever read `consumingSurface`: it is written for a reader of
-// `Plan-023 §Console growth slate`, and its only mechanical reader is the pair of
+// the growth slate, and its only mechanical reader is the pair of
 // checks below it.
 //
 // SO IT IS OFF THE INITIAL IMPORT GRAPH, which is the point. `growth-slate.ts` is

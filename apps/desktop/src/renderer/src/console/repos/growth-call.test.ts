@@ -99,7 +99,7 @@ describe("the growth-call door — the two ways one operation fails", () => {
       status: "unavailable",
       operationId: "artifactRead",
       slateRow: "artifact-ingest-and-crud",
-      owningDocument: "artifact ingest, read, re-classification, and delete",
+      owningDocument: "the artifacts, files, and attachments design",
     });
 
     // And the sentence carries what the rejection said. Suppressing it was this door's

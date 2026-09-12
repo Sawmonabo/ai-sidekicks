@@ -1,7 +1,7 @@
 // The bridge provider: one context, one decision, made once at mount.
 //
-// `Spec-023 §Console Design (Meridian)` §The fixture bridge makes the fixture a
-// `define`-gated build-time constant, not a runtime flag. `__SIDEKICKS_CONSOLE_FIXTURES__`
+// The fixture is a `define`-gated build-time constant, not a runtime flag.
+// `__SIDEKICKS_CONSOLE_FIXTURES__`
 // is replaced by `electron.vite.config.ts` with a literal, so a production bundle
 // contains the string `false` at that site and the whole fixture subtree — every
 // scenario, the engine, the manifest — is dead code the bundler drops. A runtime

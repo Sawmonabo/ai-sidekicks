@@ -4,8 +4,8 @@
 // states that matter. That pair is the point of the scenario rather than
 // decoration: the agent card's hardest rule is that the EFFECTIVE binding and a
 // PENDING switch are two different lines and the effective columns move only when
-// the terminal settlement lands (`Spec-023 §Console Design (Meridian)` §The agent
-// card). A scenario with only `agent.attached` beats can never exercise that, so
+// the terminal settlement lands. A scenario with only `agent.attached` beats can
+// never exercise that, so
 // the card would be built against a case that cannot go wrong.
 //
 // Every `kind` is a registered wire event type CARRYING THE REGISTERED PAYLOAD, and
@@ -30,7 +30,7 @@
 //     states one explicitly.
 //
 // WHY THE SWITCH TERMINALS ARE NOT BEATS. `agent.provider_switched` and
-// `agent.provider_switch_failed` are named by `Spec-016 §The mutation surface` and
+// `agent.provider_switch_failed` are named by the mutation surface and
 // are NOT in the shipped census (`packages/contracts/src/event.ts` registers
 // `agent.attached`, `agent.detached`, and `agent.config_updated` and no third agent
 // type), which is why `agents/agent-wire.ts` leaves them out of its own signal set.
@@ -43,7 +43,7 @@
 // these surfaces have, and every axis control is composed from the pair — a model's
 // effort vocabulary from the model catalog, the output-speed vocabulary and the
 // capability gate from the capability report. The vocabularies below are the pinned
-// providers' own published ones (`Spec-005 §Provider Parameter Vocabularies`): they
+// providers' own published parameter vocabularies: they
 // differ PER MODEL, one of them exposes no effort surface at all, and only one of
 // the two drivers declares an output-speed axis. A fixture that gave both drivers
 // one uniform list would let the axis controls be built against a wire shape neither

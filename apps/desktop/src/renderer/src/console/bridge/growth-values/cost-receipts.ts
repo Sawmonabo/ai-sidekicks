@@ -12,9 +12,9 @@ import type { BillingMode } from "@ai-sidekicks/contracts";
  * Whether a figure is fully priced. Aggregate reuse of the row-level usage vocabulary.
  *
  * A type alias rather than a value list because nothing here enumerates it: the wire
- * supplies the reading and the console renders it, and `Spec-016 §Cost Figure Display
- * Consistency` makes it observability only — a surface that branched enforcement on it
- * would be a second trust regime over a number the daemon already settled.
+ * supplies the reading and the console renders it, and cost-figure display
+ * consistency makes it observability only — a surface that branched enforcement on
+ * it would be a second trust regime over a number the daemon already settled.
  */
 export type GrowthCostStatus = "priced" | "unpriced";
 
