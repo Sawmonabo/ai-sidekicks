@@ -77,7 +77,7 @@ export function createSessionSubscribeSse(deps: SessionRouterDeps): SessionSubsc
     // `SessionSubscribeRequest` doc in @ai-sidekicks/contracts for the
     // two-transport rationale), (c) thread the abort signal through,
     // (d) re-yield the tracked envelopes verbatim.
-    // Tier 5 swaps the provider; this generator body is the stable surface.
+    // A later phase swaps the provider; this generator body is the stable surface.
     yield* deps.eventStreamProvider({
       sessionId: input.sessionId,
       afterCursor: input.lastEventId ?? input.afterCursor,

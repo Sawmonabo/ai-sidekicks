@@ -37,7 +37,7 @@ import { APPROVALS_SCENARIO } from "../../scenario/approvals/approvals.js";
 import { FIRST_RUN_SCENARIO } from "../../scenario/first-run.js";
 import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
 import { WORKFLOWS_SCENARIO } from "../../scenario/workflows/workflows.js";
-import { createTier1Bridge } from "@ai-sidekicks/contracts";
+import { createStubBridge } from "@ai-sidekicks/contracts";
 
 /**
  * A scenario whose `session.read` reply declares `state`.
@@ -283,7 +283,7 @@ describe("the fixture growth port — what it serves, and what it still refuses"
     // literal would have been right for exactly as long as the served set drew on
     // one slate row, and the assertion it makes — that a refusal attributes to the
     // row that owes ITS wire — is the ledger's claim, not this file's.
-    const bridge = createLiveBridge(createTier1Bridge());
+    const bridge = createLiveBridge(createStubBridge());
 
     expect([...bridge.growthServedOperations]).toStrictEqual([]);
     for (const operationId of FIXTURE_SERVED_GROWTH_OPERATION_IDS) {

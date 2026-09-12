@@ -578,12 +578,9 @@ function createPoolClientQuerier(client: PoolClient): Querier {
 /**
  * Compose a `SessionDirectoryService` from a `pg.Pool`.
  *
- * Convenience one-liner for production wiring: the SDK / control-plane
- * host (PR #5 and consumers downstream) gets a fully-constructed service
- * in one call instead of the two-step `new
- * SessionDirectoryService(createPgPoolQuerier(pool))`. The factory
- * matches the export-shape Phase 4 anticipated in the in-file note "Plan-
- * 001 PR #5 will compose a `Querier` from `pg.Pool`".
+ * Convenience one-liner for production wiring: the SDK and the
+ * control-plane host get a fully-constructed service in one call instead
+ * of the two-step `new SessionDirectoryService(createPgPoolQuerier(pool))`.
  */
 export function createSessionDirectoryServiceFromPool(pool: Pool): SessionDirectoryService {
   return new SessionDirectoryService(createPgPoolQuerier(pool));

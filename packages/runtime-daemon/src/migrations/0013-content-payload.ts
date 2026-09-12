@@ -64,7 +64,6 @@
 // table's sole reader and minter.
 
 export const CONTENT_PAYLOAD_MIGRATION_SQL: string = `
--- Owner: | Migration: 0013-content-payload.ts (Tier 4 Phase 3B)
 
 -- Machine-authored prose: the assistant message body, the reasoning-update
 -- body, and tool-call arguments / result / error bodies. Sealed AES-256-GCM

@@ -106,7 +106,6 @@
 //
 
 export const PROVIDER_ACCOUNTS_MIGRATION_SQL: string = `
--- Owner: | Migration: 0016-provider-accounts.ts (Tier 4 Phase 1)
 
 -- ---------------------------------------------------------------------------
 -- provider_accounts: the node-local registry of accounts this runtime node may

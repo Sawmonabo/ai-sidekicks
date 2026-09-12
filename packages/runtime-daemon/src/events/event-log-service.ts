@@ -315,7 +315,7 @@ export interface EventLogServiceDeps {
    */
   readonly haltSource?: IngestHaltSource;
   /**
-   * PII content-key encryptor (Tier 5 implements). Optional because most
+   * PII content-key encryptor (implemented elsewhere). Optional because most
    * deployments and nearly every test append no PII at all; omitting it makes
    * a PII-carrying append throw rather than silently degrade.
    */

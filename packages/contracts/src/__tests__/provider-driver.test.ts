@@ -3113,7 +3113,7 @@ describe("ArtifactIdSchema — the attachment element brand, homed by the same r
 
   it("is re-exported from the package barrel under its own name", () => {
     // The one home rule this brand has to keep: every consumer — the
-    // `runControl.ts` today, the `artifacts/` at Tier 7 — imports THIS symbol
+    // `runControl.ts` today, the `artifacts/` module — imports THIS symbol
     // rather than declaring a sibling, so a second source of truth for what
     // an artifact id is cannot appear.
     expect(contracts.ArtifactIdSchema).toBe(ArtifactIdSchema);

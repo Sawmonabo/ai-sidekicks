@@ -10,7 +10,7 @@
 //
 // Row 4 (loopback bind by default — daemon).
 //
-// Tier 1 architectural pointer. There is no real `bind()` operation in
+// Architectural pointer. There is no real `bind()` operation in
 // this PR — a later phase ships the `local-ipc-gateway` listener. This file
 // ships the orchestrator pattern + the `assertLoadedForBind()` guard
 // SEAM that Phase 2's gateway is expected to call as the first line of
@@ -20,7 +20,7 @@
 //
 // What this module does NOT do (deferred):
 //   * Open any listener / call any `bind()` — Phase 2.
-//   * The sink is wired by the Phase 2 / Tier 4 path that owns the
+//   * The sink is wired by the Phase 2 path that owns the
 //     actual override-emission sites.
 //   * Re-export `bootstrap` / `assertLoadedForBind` from the package
 //     root (`packages/runtime-daemon/src/index.ts`). Phase 2 / picks up
@@ -42,17 +42,17 @@
 // would duplicate that state in a wrapper without adding runtime
 // enforcement — handle-as-evidence is a TypeScript-only convention,
 // not a runtime guard, and Phase 2's gateway could construct/import
-// one out-of-band. The audit text specifies the throw at the
-// orchestrator surface, not a type-level constraint, and W-007p-1-T1
-// will assert against a callable that materializes that throw. Option A
+// one out-of-band. The throw belongs at the orchestrator surface rather
+// than as a type-level constraint, so the test asserts against a
+// callable that materializes that throw. Option A
 // also lets every future bind path call `assertLoadedForBind()`
 // synchronously without threading a handle through constructors.
 //
 // Trade-off accepted: Phase 2's gateway must remember to call
-// `assertLoadedForBind()` at the top of its bind path. The W-007p-1-T1
-// test (authored) asserts the orchestrator-level throw; gateway-level
+// `assertLoadedForBind()` at the top of its bind path. The test
+// asserts the orchestrator-level throw; gateway-level
 // enforcement (the actual call site) is a Phase 2 review concern. That
-// boundary is correct — Tier 1 ships the seam, Tier 4 widens it.
+// boundary is correct — this ships the seam, a later phase widens it.
 
 // Imports below serve the sanctioned retention-sweeper wiring call at the foot
 // of this file, and nothing else here.
@@ -72,7 +72,7 @@ import { SecureDefaults } from "./secure-defaults.js";
 /**
  * Run the daemon bootstrap sequence.
  *
- * Sequence at Tier 1 is a single step — `SecureDefaults.load(config)` —
+ * The sequence is a single step — `SecureDefaults.load(config)` —
  * which MUST precede any listener `bind()`. Phase 2 will extend this
  * orchestrator with the gateway / registry construction steps; those
  * steps land AFTER `SecureDefaults.load(config)` returns, never before.
@@ -101,25 +101,22 @@ import { SecureDefaults } from "./secure-defaults.js";
  * Option B's handle pattern this module rejected above.
  */
 export function bootstrap(config: SecureDefaultsConfig): void {
-  // Inline citation: the daemon is the worktree-backed execution authority.
   // `SecureDefaults.load` runs FIRST so every listener the daemon subsequently
-  // exposes is gated on the validated bind surface (row 4, loopback-only at
-  // Tier 1).
+  // exposes is gated on the validated bind surface (loopback-only today).
   SecureDefaults.load(config);
 }
 
 /**
  * Phase 2's `local-ipc-gateway` is expected to call this as the
- * first line of its bind path; any future Tier 4 listener (HTTP,
+ * first line of its bind path; any future listener (HTTP,
  * non-loopback, TLS) does the same.
  *
  * Enforces at runtime by checking the `SecureDefaults`
  * module-singleton load state. A bootstrap-order inversion that calls
  * `bind()` before `SecureDefaults.load(config)` completes throws here
- * — this is the orchestrator-throw surface names ("bootstrap
- * orchestrator throws on attempted bind without prior
- * `SecureDefaults.load` completion") and the surface W-007p-1-T1
- * asserts against (authors the test).
+ * — the bootstrap orchestrator throws on an attempted bind without a
+ * prior `SecureDefaults.load` completion, and that is the surface the
+ * test asserts against.
  *
  * Synchronous + side-effect-free on the success path. The throw is a
  * programmer-error guard, not a recoverable failure mode — callers
@@ -127,10 +124,10 @@ export function bootstrap(config: SecureDefaultsConfig): void {
  * `bootstrap(config)` (or `SecureDefaults.load(config)` directly)
  * earlier in the daemon's startup sequence.
  *
- * Tier 1 has NO real `bind()` operation — Phase 2 ships the listener.
- * This guard exists at Tier 1 specifically so the load-before-bind
- * SEAM is testable now (W-007p-1-T1) and consumable by Phase 2 without
- * a re-implementation pass.
+ * There is NO real `bind()` operation yet — Phase 2 ships the listener.
+ * This guard exists specifically so the load-before-bind SEAM is
+ * testable now and consumable by Phase 2 without a re-implementation
+ * pass.
  */
 export function assertLoadedForBind(): void {
   if (!SecureDefaults.isLoaded()) {
@@ -167,12 +164,12 @@ export function assertLoadedForBind(): void {
 //     throws `SqliteError: no such table: run_execution_contexts` straight out of
 //     this call, at wiring time. That is the better failure (it lands at the
 //     composition root, not an hour later in a diagnostic nobody is watching),
-//     but it is a THROW, and the @throws block below names it. The Tier-1
+//     but it is a THROW, and the @throws block below names it. The
 //     `bootstrap()` above could not have delivered even this much: it runs
 //     `SecureDefaults.load` and nothing else, with no migrations step in it.
 //   * "dispose it on shutdown" — DEFERRED. This module has no shutdown surface
 //     to hook: there is no `shutdown()` here and no composition root that owns
-//     one (Phase 2 / Tier 4 bring the listener lifecycle, per the header above).
+//     one (Phase 2 brings the listener lifecycle, per the header above).
 //     The handle is RETURNED for that reason, so the disposal obligation is on
 //     the caller and visible in the type rather than silently unowned. The
 //     interval is `unref`'d as the interim backstop.

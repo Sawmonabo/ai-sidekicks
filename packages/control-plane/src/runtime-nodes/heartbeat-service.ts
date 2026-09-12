@@ -44,7 +44,7 @@
 // Cross-task boundaries (DO NOT CROSS):
 //   * The PERIODIC INVOCATION of `sweepStaleness()` — the Cloudflare Cron wiring
 //     that calls it every `STALENESS_SWEEP_INTERVAL_MS` on the running host —
-//     requires the production Querier (deferred to Tier 5; host.ts's production
+//     requires the production Querier (deferred; host.ts's production
 //     surface throws on Querier use) plus Cloudflare Cron deployment config
 //     (wrangler.toml `[triggers]` + a `scheduled()` Worker export). It is NOT
 //     wired — a scheduler driving the sweep against the throwing placeholder
@@ -72,7 +72,7 @@ import { RuntimeNodeHeartbeatRequestSchema } from "@ai-sidekicks/contracts";
 import type { Querier } from "../sessions/migration-runner.js";
 
 // EXPORTED for the eventual sweep scheduler (the Cloudflare Cron `scheduled()`
-// wiring is Tier-5/deployment-deferred — see the `sweepStaleness()` cross-task
+// wiring is deployment-deferred — see the `sweepStaleness()` cross-task
 // boundary note above) to drive the periodic `sweepStaleness()` invocation. Set
 // to 5s, FINER than the 15s heartbeat cadence so a degraded/offline transition is
 // recorded within one sweep of the threshold crossing — guarantee that a
@@ -95,7 +95,7 @@ const OFFLINE_STATE = "offline";
 
 // The narrow result type of `sweepStaleness`: only the two states the sweep can
 // assign, never `online`. Surfaced for the eventual sweep
-// scheduler/observability (Tier-5/deployment-deferred) and the tests.
+// scheduler/observability (deployment-deferred) and the tests.
 export interface SweptTransition {
   readonly nodeId: string;
   readonly healthState: "degraded" | "offline";
@@ -198,7 +198,7 @@ export class HeartbeatService {
    *   `"degraded" | "offline"` (the sweep never assigns `online`). An empty
    *   array means nothing crossed a threshold (or every stale row was already at
    *   its target). Mapped for the eventual sweep scheduler/observability
-   *   (Tier-5/deployment-deferred).
+   *   (deployment-deferred).
    *
    * Touches NO other table and emits NO durable event (there is no
    * control-plane event log).

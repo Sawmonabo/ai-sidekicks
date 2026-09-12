@@ -73,7 +73,6 @@
 //
 
 export const TRANSCRIPT_CAPABILITY_BACKFILL_MIGRATION_SQL: string = `
--- Owner: | Migration: 0012-transcript-capability-backfill.ts (Tier 4 Phase 3)
 
 -- ---------------------------------------------------------------------------
 -- driver_capabilities: the fourteenth flag's row, for every cached driver.

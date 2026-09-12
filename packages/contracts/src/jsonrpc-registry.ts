@@ -104,12 +104,12 @@ export const METHOD_NAME_FORMAT: RegExp = /^[a-z][a-zA-Z0-9]*(?:\.[a-z][a-zA-Z0-
 // --------------------------------------------------------------------------
 
 /**
- * Per-dispatch context passed to every handler. Tier 1 ships the minimal
+ * Per-dispatch context passed to every handler. This ships the minimal
  * shape that the substrate has the data to populate; downstream phases
  * widen as new handler capabilities (auth principal, telemetry span,
  * cancellation signal) come online.
  *
- * Tier 1 fields:
+ * Fields:
  *   * `transportId` — the per-connection identity assigned by the gateway
  *     (`SupervisionTransport["id"]` in
  *     `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts`). Optional
@@ -162,7 +162,7 @@ export type Handler<P, R> = (params: P, ctx: HandlerContext) => Promise<R>;
 // --------------------------------------------------------------------------
 
 /**
- * The single Tier 1 flag is `mutating`, declared — the substrate uses it
+ * The single flag is `mutating`, declared — the substrate uses it
  * for the version- mismatch gate at `protocol-negotiation.ts`: when
  * `DaemonHelloAck.compatible === false`, the gateway refuses dispatch of
  * any registered method whose `mutating` flag is `true` and allows
@@ -195,7 +195,7 @@ export interface RegisterOptions {
  *      validates the result, and returns the value.
  *
  * The interface is INSTANTIABLE — multiple registries per process are
- * plausible (test isolation, future Tier-4 surfaces). Mirrors the
+ * plausible (test isolation, future transport surfaces). Mirrors the
  * `LocalIpcGateway` instantiable shape (the same rationale).
  */
 export interface MethodRegistry {

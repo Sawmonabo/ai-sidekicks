@@ -28,7 +28,7 @@
 // 2. Translate a logical SpawnRequest whose cwd is the worktree path
 //    via `translateSpawnCwd({ strategy: "cd-prefix", stableParent: <tmp> })`.
 // 3. Spawn it via a real `RustSidecarPtyHost` (the production binary
-//    resolver finds the sidecar via tier 3/4
+//    resolver finds the sidecar via step 3/4
 //    `target/{release,debug}/sidecar.exe`).
 // 4. Run `git worktree remove <worktree-path>` synchronously while
 //    the session is still alive. Assert it exits with code 0
@@ -120,12 +120,12 @@ import type { SpawnRequest, SpawnResponse } from "@ai-sidekicks/contracts";
 
 /**
  * Resolve whether the sidecar binary is available on disk via the
- * production four-tier resolver. Returns `null` (not throws) on the
+ * production four-step resolver. Returns `null` (not throws) on the
  * "binary missing" path so the test can call `ctx.skip()` with a
  * diagnostic instead of either failing or attempting a real spawn that
  * would itself throw `PtyBackendUnavailableError`.
  *
- * The resolver throws `PtyBackendUnavailableError` when all four tiers
+ * The resolver throws `PtyBackendUnavailableError` when all four steps
  * exhaust; we let that throw escape (because the resolver is the
  * production API) and translate it into `null` here at the test boundary.
  */
@@ -296,7 +296,7 @@ describe.runIf(process.platform === "win32")(
       // ---- Spawn through the real RustSidecarPtyHost ---------------------
       //
       // No `binaryPath` override — the production resolver finds the
-      // sidecar binary via the four-tier cascade. Pin 3 says: let the
+      // sidecar binary via the four-step cascade. Pin 3 says: let the
       // production resolver run.
       const host: RustSidecarPtyHost = new RustSidecarPtyHost();
       ctx.host = host;

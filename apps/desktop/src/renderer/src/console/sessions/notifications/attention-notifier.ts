@@ -269,7 +269,7 @@ export class AttentionNotifier {
  *
  * `NotificationOptions` CARRIES NO MEMBER YET, and that is a decision already made
  * elsewhere rather than a gap this surface may close: it is `packages/contracts`'
- * Tier-1 stub for Electron's own `NotificationConstructorOptions`, and its comment
+ * Stub for Electron's own `NotificationConstructorOptions`, and its comment
  * schedules the real shape for the tier that gives that package an `electron` devDep.
  * So the call supplies the only value the contract admits. What a person reads on the
  * banner is the shell's to compose until then; the item's own words are on the centre

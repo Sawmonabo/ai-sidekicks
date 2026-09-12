@@ -89,7 +89,6 @@
 //
 
 export const CONSOLE_PARITY_CAPABILITY_FLAGS_MIGRATION_SQL: string = `
--- Owner: | Migration: 0014-console-parity-capability-flags.ts (Tier 4 Phase 3)
 
 -- ---------------------------------------------------------------------------
 -- driver_capabilities: the seventeen-value capability_flag CHECK. Twelve-step

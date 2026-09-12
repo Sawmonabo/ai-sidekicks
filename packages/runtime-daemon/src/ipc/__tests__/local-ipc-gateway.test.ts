@@ -1,31 +1,29 @@
-// W-007p-2-T2..T6 + T10 — LocalIpcGateway test suite.
+// LocalIpcGateway test suite.
 //
 //   * JSON-RPC 2.0 + LSP-style Content-Length framing; 1 MB max-message-size.
 //   * OS-local default transport (Unix domain socket on Unix-like; named
 //     pipe on Windows).
 //   * Wire- format decision rationale.
 //
-//   * W-007p-2-T2 — Transport: Unix domain socket round-trip
-//   * W-007p-2-T3 — Transport: Windows named pipe round-trip
-//                   (it.skipIf(process.platform !== "win32") — Tier 1
-//                   conservative; the OS-local socket in vitest CI is
-//                   Linux per the matrix).
-//   * W-007p-2-T4 — Transport: gated loopback fallback (Tier 1
+//   * Transport: Unix domain socket round-trip
+//   * Transport: Windows named pipe round-trip
+//                   (it.skipIf(process.platform !== "win32"); the
+//                   OS-local socket in vitest CI is Linux per the
+//                   matrix).
+//   * Transport: gated loopback fallback.
 //                   The `transport.unavailable` envelope code surface
 //                   does not exist at the gateway layer today —
 //                   `SecureDefaults.load` refuses non-loopback at
-//                   config-time with `invalid_bind_address`. Use
-//                   `it.todo` per the task contract authorization for
-//                   absent surfaces; the test ID is preserved so the
-//                   audit trace remains complete.
-//   * W-007p-2-T5 — 1MB max-message-size enforcement.
+//                   config-time with `invalid_bind_address`, so the
+//                   case is `it.todo` until that gate moves.
+//   * 1MB max-message-size enforcement.
 //                   Body > 1MB → connection close + `-32600` error frame. The
 //                   mapping is wired in `jsonrpc-error-mapping.ts`
-//                   (oversized_body → -32600 InvalidRequest Tasks).
-//   * W-007p-2-T6 — Content-Length framing parser correctness:
+//                   (oversized_body → -32600 InvalidRequest).
+//   * Content-Length framing parser correctness:
 //                   single message, multi-message buffer,
 //                   partial-buffer wait, malformed framing.
-//   * W-007p-2-T10 — Handler-thrown error mapping: unhandled
+//   * Handler-thrown error mapping: unhandled
 //                    handler exception → `-32603` with sanitized
 //                    message; no stack/secret leak.
 //
@@ -195,7 +193,7 @@ afterEach(() => {
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T6 — parseFrame / encodeFrame correctness (synchronous)
+// parseFrame / encodeFrame correctness (synchronous)
 // ----------------------------------------------------------------------------
 //
 // These cases exercise the framing parser directly without binding the
@@ -205,10 +203,10 @@ afterEach(() => {
 //   * multi-message buffer
 //   * partial-buffer wait
 //   * malformed framing → connection close (the connection-close branch is
-//     covered in W-007p-2-T5/T10 via the gateway path; here we assert the
+//     covered via the gateway path; here we assert the
 //     parser-throw shape that the gateway converts into the disconnect).
 
-describe("W-007p-2-T6 — Content-Length framing parser correctness", () => {
+describe("Content-Length framing parser correctness", () => {
   it("decodes a single complete frame and reports byte-correct `consumed`", () => {
     const envelope = { jsonrpc: JSONRPC_VERSION, id: 1, method: "x.y", params: {} };
     const frame = encodeFrame(envelope);
@@ -336,10 +334,10 @@ describe("W-007p-2-T6 — Content-Length framing parser correctness", () => {
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T2 — Unix domain socket round-trip
+// Unix domain socket round-trip
 // ----------------------------------------------------------------------------
 
-describe("W-007p-2-T2 — Unix domain socket round-trip", () => {
+describe("Unix domain socket round-trip", () => {
   it("binds, accepts a connection, dispatches a request, and returns the typed result", async () => {
     const socketPath = ephemeralSocketPath("t2");
     bootstrap({
@@ -398,16 +396,15 @@ describe("W-007p-2-T2 — Unix domain socket round-trip", () => {
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T3 — Windows named pipe round-trip
+// Windows named pipe round-trip
 // ----------------------------------------------------------------------------
 //
-// Tier 1's CI matrix is Linux-only the Windows pipe transport surface
-// is verified at Tier 4 once the Windows runner lands. The
-// conservative posture here is `it.skipIf` so the test ID is preserved
-// for audit + the case re-activates automatically when the Windows
+// The CI matrix is Linux-only, so the Windows pipe transport surface is
+// verified once the Windows runner lands. The conservative posture here
+// is `it.skipIf` so the case re-activates automatically when the Windows
 // runner arrives.
 
-describe("W-007p-2-T3 — Windows named pipe round-trip", () => {
+describe("Windows named pipe round-trip", () => {
   it.skipIf(process.platform !== "win32")(
     "binds a named pipe, accepts a connection, dispatches a request, and returns the typed result",
     async () => {
@@ -464,26 +461,24 @@ describe("W-007p-2-T3 — Windows named pipe round-trip", () => {
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T4 — Gated loopback fallback (Tier 1 conservative gate)
+// Gated loopback fallback (conservative gate)
 // ----------------------------------------------------------------------------
 //
-// Attempting a non-loopback bind path at Tier 1 must fail with the
-// `transport.unavailable` wire envelope. Marked `it.todo` per task
-// contract authorization for absent surfaces; the test ID is preserved
-// so Tier 4's widening pass picks up the inflation. (The two-layer
-// envelope mapping itself exists post- so when the gateway-time gate
-// lands at Tier 4 the assertion will project through `mapJsonRpcError`
-// exactly like the `unknown_setting` envelope test in
-// `secure-defaults.test.ts`.)
+// Attempting a non-loopback bind path must fail with the
+// `transport.unavailable` wire envelope. Marked `it.todo` because that
+// surface does not exist at the gateway layer yet. The two-layer envelope
+// mapping itself already exists, so when the gateway-time gate lands the
+// assertion will project through `mapJsonRpcError` exactly like the
+// `unknown_setting` envelope test in `secure-defaults.test.ts`.
 
-describe("W-007p-2-T4 — gated loopback fallback (Tier 1)", () => {
+describe("gated loopback fallback", () => {
   it.todo(
-    "non-loopback bind attempt fails at the gateway with `transport.unavailable` envelope (surface deferred to Tier 4 where the gate fires at gateway-time rather than config-time)",
+    "non-loopback bind attempt fails at the gateway with `transport.unavailable` envelope (surface deferred until the gate fires at gateway-time rather than config-time)",
   );
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T5 — 1MB max-message-size enforcement
+// 1MB max-message-size enforcement
 // ----------------------------------------------------------------------------
 //
 // "Body > 1MB → connection close + `-32600` error frame; subsequent reconnect
@@ -492,7 +487,7 @@ describe("W-007p-2-T4 — gated loopback fallback (Tier 1)", () => {
 // enforced by the gateway's framing-error tear-down path at
 // local-ipc-gateway.ts:858-882.
 
-describe("W-007p-2-T5 — 1MB max-message-size enforcement", () => {
+describe("1MB max-message-size enforcement", () => {
   it("oversized body → connection close + `-32600` InvalidRequest error frame; reconnect succeeds", async () => {
     const socketPath = ephemeralSocketPath("t5");
     bootstrap({
@@ -607,7 +602,7 @@ describe("W-007p-2-T5 — 1MB max-message-size enforcement", () => {
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T10 — Handler-thrown error mapping
+// Handler-thrown error mapping
 // ----------------------------------------------------------------------------
 //
 // The handler throws an Error whose message contains a Unix absolute
@@ -619,7 +614,7 @@ describe("W-007p-2-T5 — 1MB max-message-size enforcement", () => {
 //      contract.
 //   3. NEVER emit `.stack` content on the wire.
 
-describe("W-007p-2-T10 — handler-thrown error mapping", () => {
+describe("handler-thrown error mapping", () => {
   it("unhandled handler exception → `-32603` with sanitized message; no path/stack leak", async () => {
     const socketPath = ephemeralSocketPath("t10");
     bootstrap({
@@ -727,7 +722,7 @@ describe("W-007p-2-T10 — handler-thrown error mapping", () => {
       expect(onConnect).toHaveBeenCalledTimes(1);
       const transportArg = onConnect.mock.calls[0]?.[0];
       expect(transportArg).toBeDefined();
-      // Family is "unix" on Linux Tier 1.
+      // Family is "unix" on Linux.
       if (
         transportArg !== null &&
         typeof transportArg === "object" &&

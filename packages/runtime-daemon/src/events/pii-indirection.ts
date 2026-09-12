@@ -763,7 +763,7 @@ export interface PiiEncryptionRequest {
 
 /**
  * The AEAD seam fills — declared here, injected at the composition root,
- * implemented in `crypto/pii-codec.ts` at Tier 5.
+ * implemented in `crypto/pii-codec.ts`.
  *
  * Returns BARE bytes on purpose; see {@link PiiPayloadCiphertext} for why the
  * brand must not cross this boundary. The implementation owns the wire format

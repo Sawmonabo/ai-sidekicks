@@ -1,7 +1,7 @@
 // The four `timeline.*` method strings against the REAL daemon
 // `MethodRegistry`.
 //
-// The Tier-8 audit's finding was that a timeline operation's SCHEMA NAME
+// The defect was that a timeline operation's SCHEMA NAME
 // resolved while its METHOD STRING did not. Asserting the four names against
 // `METHOD_NAME_FORMAT` alone would not close that — a regex says a name is
 // well-formed, not that the deployed registry accepts it (is the worked case:

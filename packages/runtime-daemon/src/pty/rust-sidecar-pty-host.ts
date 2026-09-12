@@ -246,7 +246,7 @@ export type SidecarSpawnFn = (
 export interface RustSidecarPtyHostDeps {
   /**
    * Resolves the sidecar binary path. Defaults to
-   * `resolveSidecarBinaryPath`, the four-tier resolver.
+   * `resolveSidecarBinaryPath`, the four-step resolver.
    *
    * Tests inject a fixed-string returner (e.g. `() => "/fake/sidecar"`)
    * to keep the supervisor exercise hermetic. The factory's
@@ -359,9 +359,9 @@ export const MAX_CLOSED_SESSION_IDS = 10_000;
 // --------------------------------------------------------------------------
 
 /**
- * Four-tier sidecar binary resolver.
+ * Four-step sidecar binary resolver.
  *
- * Resolution order — first hit wins; later tiers are NOT consulted:
+ * Resolution order — first hit wins; later steps are NOT consulted:
  *
  *   1. Env-var `AIS_PTY_SIDECAR_BIN` (absolute path; trumps everything;
  *      lets developers point at a hand-built binary; CI custom-path
@@ -388,13 +388,13 @@ export const MAX_CLOSED_SESSION_IDS = 10_000;
  *      iteration when a contributor has only run `cargo build` (the
  *      default debug profile is faster to compile but slower to run).
  *
- * On all four exhausted, throws `PtyBackendUnavailableError` per Plan-
- * 024 "Sidecar binary missing on user machine"; the daemon-layer
+ * On all four exhausted, throws `PtyBackendUnavailableError` for the
+ * "sidecar binary missing on this machine" case; the daemon-layer
  * caller (`PtyHostSelector`) converts the throw to a
  * `PtyBackendUnavailable` wire payload that downstream UIs render as
  * the "no PTY backend available" diagnostic banner.
  *
- * **Path-resolution anchor.** Tier 3/4 paths are resolved relative to
+ * **Path-resolution anchor.** Step 3/4 paths are resolved relative to
  * THIS file's location via `import.meta.url`, NOT `process.cwd()`. The
  * file lives at `packages/runtime-daemon/src/pty/rust-sidecar-pty-host.ts`
  * during dev (`vitest`-loaded `src/`) and at
@@ -409,15 +409,15 @@ export const MAX_CLOSED_SESSION_IDS = 10_000;
  * release/sidecar` literally, but — the actual built binary is
  * `sidecar.exe` on Windows. We probe `${name}.exe` on `process.platform
  * === "win32"` and `${name}` elsewhere. Without the suffix the
- * resolver would deterministically miss tiers 2/3/4 on Windows even
+ * resolver would deterministically miss steps 2/3/4 on Windows even
  * when the binary exists on disk — defeats the entire failure-mode
  * mitigation on the platform that needs it most.
  *
  * **Effectful primitives are injectable.** `env`, `nodeRequire`, and
  * `existsSync` are constructor-injected with production defaults
  * (`process.env`, `module.createRequire(import.meta.url)`,
- * `node:fs.existsSync`). Tests pass `vi.fn()` doubles and assert tier
- * ordering by counting calls — when tier 1 hits, the `nodeRequire`
+ * `node:fs.existsSync`). Tests pass `vi.fn()` doubles and assert step
+ * ordering by counting calls — when step 1 hits, the `nodeRequire`
  * mock has zero invocations.
  *
  * Bracket notation on `process.env` is required by this repo's tsconfig
@@ -430,19 +430,19 @@ export const MAX_CLOSED_SESSION_IDS = 10_000;
  * Production callers pass nothing and the resolver wires to real
  * primitives (`process.env`, `module.createRequire(import.meta.url)`,
  * `node:fs.existsSync`). Tests pass mock doubles to drive the
- * four-tier ordering deterministically.
+ * four-step ordering deterministically.
  */
 export interface ResolveSidecarBinaryPathOptions {
   /**
    * Environment-variable provider. Defaults to `process.env`. Tests
    * pass an empty object (or one carrying a stubbed
-   * `AIS_PTY_SIDECAR_BIN`) to drive the tier-1 branch in isolation.
+   * `AIS_PTY_SIDECAR_BIN`) to drive the step-1 branch in isolation.
    */
   readonly env?: NodeJS.ProcessEnv;
   /**
    * Node `require` for `require.resolve` lookups. Defaults to a
    * `createRequire(import.meta.url)`-derived require. Tests inject a
-   * `vi.fn()` returning a fake path or throwing to drive the tier-2
+   * `vi.fn()` returning a fake path or throwing to drive the step-2
    * branch in isolation.
    *
    * Typed as a callable rather than the full `NodeRequire` interface
@@ -453,11 +453,11 @@ export interface ResolveSidecarBinaryPathOptions {
   /**
    * Filesystem-existence probe. Defaults to `node:fs.existsSync`.
    * Tests pass a `vi.fn()` returning true/false per path to drive the
-   * tier-3 / tier-4 branches in isolation.
+   * step-3 / step-4 branches in isolation.
    */
   readonly existsSync?: (path: string) => boolean;
   /**
-   * Override for the workspace release-build path probed by tier 3.
+   * Override for the workspace release-build path probed by step 3.
    * Tests use this to inject deterministic paths instead of relying
    * on the `import.meta.url` arithmetic. Production callers pass
    * nothing and the resolver computes the path via the four-up ascent
@@ -465,7 +465,7 @@ export interface ResolveSidecarBinaryPathOptions {
    */
   readonly releasePath?: string;
   /**
-   * Override for the workspace debug-build path probed by tier 4.
+   * Override for the workspace debug-build path probed by step 4.
    * Same rationale as `releasePath`.
    */
   readonly debugPath?: string;
@@ -479,18 +479,18 @@ export interface ResolveSidecarBinaryPathOptions {
 }
 
 /**
- * Per-tier diagnostic record — captured during resolution and folded
- * into the four-exhausted error message so operators see WHICH tiers
+ * Per-step diagnostic record — captured during resolution and folded
+ * into the four-exhausted error message so operators see WHICH steps
  * were tried and HOW each one failed (not just "binary not found").
  */
-interface TierAttempt {
-  readonly tier: 1 | 2 | 3 | 4;
+interface ResolutionAttempt {
+  readonly step: 1 | 2 | 3 | 4;
   readonly description: string;
   readonly outcome: string;
 }
 
 /**
- * Compute the published-platform-package id for tier 2.
+ * Compute the published-platform-package id for step 2.
  *
  * The spec text reads `/bin/sidecar` literally, but the actual binary
  * file shipped in the platform package on Windows is `sidecar.exe` —
@@ -510,7 +510,7 @@ function publishedPackageIdFor(
 
 /**
  * Append `.exe` on Windows; return as-is elsewhere. Centralized here
- * so the four-tier resolver and any future probe sites use the same
+ * so the four-step resolver and any future probe sites use the same
  * platform suffix logic.
  */
 function platformBinaryName(base: string, platform: NodeJS.Platform): string {
@@ -518,7 +518,7 @@ function platformBinaryName(base: string, platform: NodeJS.Platform): string {
 }
 
 /**
- * Resolve the workspace dev-build path (tier 3 / tier 4) relative to
+ * Resolve the workspace dev-build path (step 3 / step 4) relative to
  * THIS file's location via `import.meta.url`. See the rustdoc on
  * `resolveSidecarBinaryPath` for the four-up ascent rationale.
  *
@@ -551,13 +551,13 @@ export function resolveSidecarBinaryPath(opts?: ResolveSidecarBinaryPathOptions)
   const platform: NodeJS.Platform = opts?.platform ?? process.platform;
   const binaryName: string = platformBinaryName("sidecar", platform);
 
-  const attempts: TierAttempt[] = [];
+  const attempts: ResolutionAttempt[] = [];
 
-  // ---- Tier 1: env-var override -----------------------------------------
+  // ---- Step 1: env-var override -----------------------------------------
   const fromEnv: string | undefined = env["AIS_PTY_SIDECAR_BIN"];
   if (fromEnv === undefined || fromEnv.length === 0) {
     attempts.push({
-      tier: 1,
+      step: 1,
       description: "env-var AIS_PTY_SIDECAR_BIN",
       outcome: "unset",
     });
@@ -566,9 +566,9 @@ export function resolveSidecarBinaryPath(opts?: ResolveSidecarBinaryPathOptions)
     // attempt as a hard failure (not just "miss") because the operator
     // explicitly tried to use this slot and got it wrong; the
     // diagnostic naming the rejected value is more useful than a
-    // silent fall-through to tier 2.
+    // silent fall-through to step 2.
     attempts.push({
-      tier: 1,
+      step: 1,
       description: "env-var AIS_PTY_SIDECAR_BIN",
       outcome: `rejected (relative path; absolute required): ${JSON.stringify(fromEnv)}`,
     });
@@ -581,7 +581,7 @@ export function resolveSidecarBinaryPath(opts?: ResolveSidecarBinaryPathOptions)
     // diagnostic shape as the relative-path branch above so the
     // operator sees the exact value they typed wrong.
     attempts.push({
-      tier: 1,
+      step: 1,
       description: "env-var AIS_PTY_SIDECAR_BIN",
       outcome: `rejected (path does not exist): ${JSON.stringify(fromEnv)}`,
     });
@@ -589,68 +589,68 @@ export function resolveSidecarBinaryPath(opts?: ResolveSidecarBinaryPathOptions)
     return fromEnv;
   }
 
-  // ---- Tier 2: published platform package -------------------------------
+  // ---- Step 2: published platform package -------------------------------
   const arch: string = process.arch;
   const publishedId: string = publishedPackageIdFor(platform, arch, binaryName);
-  // `tier2Cause` is captured for inclusion in `details.cause` on the
+  // `step2Cause` is captured for inclusion in `details.cause` on the
   // four-exhausted throw path (closest production-path miss). It stays
   // `unknown` rather than `Error | undefined` because Node's
   // `require.resolve` is documented to throw `Error`-shaped values but
   // the type system surface returns `unknown` from the catch block; we
   // preserve that shape for downstream consumers.
-  let tier2Cause: unknown;
+  let step2Cause: unknown;
   try {
     const resolved: string = nodeRequire.resolve(publishedId);
     return resolved;
   } catch (err: unknown) {
-    tier2Cause = err;
+    step2Cause = err;
     attempts.push({
-      tier: 2,
+      step: 2,
       description: `require.resolve(${JSON.stringify(publishedId)})`,
       outcome: `threw: ${err instanceof Error ? err.message : String(err)}`,
     });
   }
 
-  // ---- Tier 3: workspace release-build ----------------------------------
+  // ---- Step 3: workspace release-build ----------------------------------
   const releasePath: string = opts?.releasePath ?? workspaceTargetPath("release", binaryName);
   if (existsSync(releasePath)) {
     return releasePath;
   }
   attempts.push({
-    tier: 3,
+    step: 3,
     description: `packages/sidecar-rust-pty/target/release/${binaryName}`,
     outcome: `not found at ${releasePath}`,
   });
 
-  // ---- Tier 4: workspace debug-build ------------------------------------
+  // ---- Step 4: workspace debug-build ------------------------------------
   const debugPath: string = opts?.debugPath ?? workspaceTargetPath("debug", binaryName);
   if (existsSync(debugPath)) {
     return debugPath;
   }
   attempts.push({
-    tier: 4,
+    step: 4,
     description: `packages/sidecar-rust-pty/target/debug/${binaryName}`,
     outcome: `not found at ${debugPath}`,
   });
 
   // ---- Four-exhausted: surface PtyBackendUnavailableError ---------------
   //
-  // Enumerate every tier failure in `details.message`; carry the tier-2
+  // Enumerate every step failure in `details.message`; carry the step-2
   // `require.resolve` error in `details.cause` because that is the
-  // closest production-path miss (tier 1 is a developer-explicit
-  // override; tiers 3/4 are workspace dev paths). The `PtyBackend
+  // closest production-path miss (step 1 is a developer-explicit
+  // override; steps 3/4 are workspace dev paths). The `PtyBackend
   // UnavailableDetails.cause` field is `unknown` per the contract,
   // so consumers MUST render it opaquely.
   const enumerated: string = attempts
-    .map((a) => `  tier ${a.tier} (${a.description}): ${a.outcome}`)
+    .map((a) => `  step ${a.step} (${a.description}): ${a.outcome}`)
     .join("\n");
   const details: PtyBackendUnavailableDetails =
-    tier2Cause !== undefined
-      ? { attemptedBackend: "rust-sidecar", cause: tier2Cause }
+    step2Cause !== undefined
+      ? { attemptedBackend: "rust-sidecar", cause: step2Cause }
       : { attemptedBackend: "rust-sidecar" };
   throw new PtyBackendUnavailableError(
     details,
-    `RustSidecarPtyHost: sidecar binary not found on any of the four resolution tiers ` +
+    `RustSidecarPtyHost: sidecar binary not found on any of the four resolution steps ` +
       `. Attempts:\n${enumerated}\n` +
       `Set AIS_PTY_SIDECAR_BIN=<absolute path> to override, or install the ` +
       `published @ai-sidekicks/pty-sidecar package, or run \`cargo build --release\` ` +
@@ -2121,14 +2121,14 @@ export class RustSidecarPtyHost implements PtyHost {
           //
           // **Preserve the inner error if it's already a
           // `PtyBackendUnavailableError`.** The default resolver
-          // (`resolveSidecarBinaryPath`) emits a tier-enumerated message
-          // and a tier-2 `details.cause` on the four-exhausted path —
+          // (`resolveSidecarBinaryPath`) emits a step-enumerated message
+          // and a step-2 `details.cause` on the four-exhausted path —
           // wrapping that in a NEW outer error with the generic
           // "failed to resolve sidecar binary path" message would bury
           // the operator-grade diagnostic two levels deep in
           // `details.cause.message` + `details.cause.details.cause`.
           // Mirror the `pty-host-selector.ts:251` re-throw guard so the
-          // original tier enumeration surfaces unchanged. Tests +
+          // original step enumeration surfaces unchanged. Tests +
           // ad-hoc resolvers that throw plain `Error` still take the
           // wrap branch (preserving the prior behavior for them).
           if (err instanceof PtyBackendUnavailableError) {
@@ -3410,7 +3410,7 @@ export class RustSidecarPtyHost implements PtyHost {
  * Accepts an optional `binaryPath` for callers that already know the
  * sidecar location (CI custom paths, hand-built binaries, integration
  * tests). When omitted, the default `resolveBinaryPath` deps entry —
- * `resolveSidecarBinaryPath` — runs the four-tier resolution.
+ * `resolveSidecarBinaryPath` — runs the four-step resolution.
  *
  * This factory is the surface `pty-host-selector.ts` calls into.
  * Tests construct `RustSidecarPtyHost` directly (with a full deps

@@ -20,7 +20,7 @@
 //     require a Phase 2 amendment + update.
 //   * Supervision hook surface `{ onConnect(transport): void;
 //     onDisconnect(transport, reason): void;
-//        onError(transport, err): void }` exported for Tier 4 desktop-shell
+//        onError(transport, err): void }` exported for the desktop-shell
 //     supervision consumer.
 //
 // What this module does NOT do (deferred to sibling tasks):
@@ -136,7 +136,7 @@ const HEADER_BODY_SEPARATOR = "\r\n\r\n";
  *
  * `id` is a process-monotonic integer, assigned at `onConnect` time. It is
  * stable for the lifetime of the connection and is the only value
- * supervision consumers (Tier 4 desktop-shell) should key off.
+ * supervision consumers (the desktop-shell) should key off.
  */
 export interface SupervisionTransport {
   readonly id: number;
@@ -167,9 +167,8 @@ export type SupervisionDisconnectReason =
   | "malformed_frame";
 
 /**
- * -remainder (Tier 4) desktop-shell supervision consumer registers
- * these to surface daemon connection lifecycle in the renderer status
- * surface.
+ * The desktop-shell supervision consumer registers these to surface the
+ * daemon connection lifecycle in the renderer status surface.
  *
  * All three callbacks are SYNCHRONOUS — supervision is observation, not
  * mediation. A throwing callback is a programmer error; the gateway
@@ -438,7 +437,7 @@ function extractContentLength(headerText: string): number {
     }
     // Other header names are ignored (forward-compatibility hook).
     // LSP / MCP frame grammars permit `Content-Type` etc.; we don't
-    // enforce them at Tier 1 and don't reject unknown header names.
+    // enforce them and don't reject unknown header names.
   }
   if (declaredLength === null) {
     throw new FramingError(
@@ -666,7 +665,7 @@ function detectFamily(
   }
   // Default: assume Unix domain socket (path-style address that's not a
   // Windows pipe). The "unknown" branch is a catch-all for future
-  // transport families we add at Tier 4.
+  // transport families we add later.
   return "unix";
 }
 
@@ -686,8 +685,8 @@ function detectFamily(
  * Failing-loud at construction time (rather than at first dispatch) makes a misconfigured bootstrap
  * detectable before any listener binds.
  *
- * `hooks` is the OPTIONAL supervision surface — Tier 4 desktop-shell
- * consumer passes them in; Tier 1 callers may omit if they don't need
+ * `hooks` is the OPTIONAL supervision surface — the desktop-shell
+ * consumer passes them in; callers may omit if they don't need
  * lifecycle notifications.
  */
 export interface LocalIpcGatewayOptions {
@@ -702,7 +701,7 @@ export interface LocalIpcGatewayOptions {
  * gateway instances per process are not anticipated for V1, but the
  * instantiable shape lets tests construct an isolated instance per case
  * without a `__resetForTest()` hook proliferation, and it leaves the
- * door open to Tier 4 surfaces (HTTP listener, TLS listener) sharing a
+ * door open to future surfaces (HTTP listener, TLS listener) sharing a
  * single process.
  *
  * Recommendation alternative considered: module-singleton matching
@@ -716,7 +715,7 @@ export interface LocalIpcGatewayOptions {
  * Trade-off accepted: callers must pass the `LocalIpcGateway` instance
  * to dispatch consumers (wires the registry into a specific gateway),
  * where a singleton would let any module call a static dispatch method.
- * The trade is small — Tier 1 has exactly one consumer (the bootstrap
+ * The trade is small — there is exactly one consumer (the bootstrap
  * orchestrator), which can plumb the instance once.
  */
 export class LocalIpcGateway {

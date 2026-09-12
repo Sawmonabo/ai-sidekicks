@@ -14,7 +14,7 @@ export interface KeyRingEntry {
 /**
  * In-memory key ring with rotation semantics.
  *
- * Phase 1 scope: no persistence, no I/O. Tier 5 will load entries from its
+ * Phase 1 scope: no persistence, no I/O. A later phase will load entries from its
  * storage backend and hand them to the constructor.
  *
  * Constructor invariants (design spec):

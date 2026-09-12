@@ -1,17 +1,15 @@
 // Preload bridge contract — the typed `window.sidekicks` surface.
 //
-// At Tier 1 this module ships:
-//   • `SidekicksBridge` — verbatim shape + `readonly` hardening. The
-//     structure matches the spec exactly; this implementation adds
-//     `readonly` modifiers to every capability group and `app` sub-property
-//     for defense-in-depth (prevents a compromised renderer from reassigning
-//     `bridge.daemon = …`).
-//   • Stub type imports for daemon / control-plane / Electron dialog / DOM
-//     WebAuthn types — every Tier-8-or-later type lands here as a deliberate
-//     stub so the bridge shape is reviewable without those plans
-//   • `NotImplementedAtTier1Error` — thrown by every bridge method until the
-//     corresponding Tier 8 IPC handler ships
-//   • `createTier1Bridge()` — factory the preload calls; every method throws
+// This module ships:
+//   • `SidekicksBridge` — the bridge shape plus `readonly` hardening on every
+//     capability group and `app` sub-property, so a compromised renderer
+//     cannot reassign `bridge.daemon = …`.
+//   • Stub type declarations for the daemon, control-plane, Electron dialog,
+//     and DOM WebAuthn surfaces, so the bridge shape is reviewable before
+//     those surfaces exist
+//   • `NotImplementedError` — thrown by every bridge method until the
+//     corresponding IPC handler ships
+//   • `createStubBridge()` — factory the preload calls; every method throws
 //
 // Coverage:
 //   Any future edit that introduces a property name matching /token|dpop|prf|secret/i
@@ -22,12 +20,12 @@
 //     stubs without changing the bridge surface.
 //   • Control-plane types same posture (tRPC procedure brands).
 //   • Electron dialog types (`OpenDialogOptions`, etc.) stubbed locally as
-//     empty interfaces — Tier 8 replaces them with imports from `electron`'s
-//     types once `electron` becomes a `packages/contracts` devDep.
+//     empty interfaces — replaced by imports from `electron`'s types once
+//     `electron` becomes a `packages/contracts` devDep.
 //   • DOM WebAuthn types (`PublicKeyCredentialCreationOptions`, …) stubbed
 //     locally because `tsconfig.node22.json` does NOT include the `dom` lib.
-//     Tier 8 either adds `dom` to the contracts lib list or imports the types
-//     from `@types/webappapis`.
+//     Replacing them means either adding `dom` to the contracts lib list or
+//     importing the types from `@types/webappapis`.
 //
 //   • raw `ipcRenderer` / `ipcMain`
 //   • `require`, `process`, `global`, any Node built-in
@@ -42,66 +40,64 @@ import type { SessionId } from "./session.js";
 // ---------------------------------------------------------------------------
 // Daemon protocol stubs (real types land).
 //
-// The `__plan007_*__` brand markers force every consumer to acknowledge "this
-// is a Tier 1 stub" — when the real discriminated unions land, the brand goes
-// away and existing call sites continue to typecheck because the brand was
-// only a structural marker. This is the canonical pattern for surviving "stub
-// → real type" substitution as a non-breaking change.
+// The `__daemon_*_stub__` brand markers force every consumer to acknowledge
+// that it is holding a stub — when the real discriminated unions land, the
+// brand goes away and existing call sites continue to typecheck because the
+// brand was only a structural marker. This is the canonical pattern for
+// surviving "stub → real type" substitution as a non-breaking change.
 // ---------------------------------------------------------------------------
 
 /**
- * Method name brand (Tier 1 stub). Replaced by the `DaemonMethod`
- * string-literal union when that plan lands. Until then, every
- * `daemon.call(method, …)` call site picks up the brand and the negative
- * type-test still flattens an empty key set under it.
+ * Method name brand (stub). Replaced by the `DaemonMethod` string-literal
+ * union once it exists. Until then, every `daemon.call(method, …)` call site
+ * picks up the brand and the negative type-test still flattens an empty key
+ * set under it.
  */
-export type DaemonMethod = string & { readonly __plan007_daemon_method__: never };
+export type DaemonMethod = string & { readonly __daemon_method_stub__: never };
 
 /**
- * Method-request param shape (Tier 1 stub). Replaced by `DaemonRequest[M]`
- * once method-to-params mapping lands. `unknown` at Tier 1 forces callers to
- * narrow before use.
+ * Method-request param shape (stub). Replaced by `DaemonRequest[M]` once the
+ * method-to-params mapping exists. `unknown` forces callers to narrow before
+ * use.
  */
 export type DaemonParams<M extends DaemonMethod> = M extends DaemonMethod ? unknown : never;
 
 /**
- * Method-response result shape (Tier 1 stub).
+ * Method-response result shape (stub).
  */
 export type DaemonResult<M extends DaemonMethod> = M extends DaemonMethod ? unknown : never;
 
 /**
- * Event name brand (Tier 1 stub). Replaced by the
- * `DaemonEvent` string-literal union.
+ * Event name brand (stub). Replaced by the `DaemonEvent` string-literal union.
  */
-export type DaemonEvent = string & { readonly __plan007_daemon_event__: never };
+export type DaemonEvent = string & { readonly __daemon_event_stub__: never };
 
 /**
- * Event payload shape (Tier 1 stub).
+ * Event payload shape (stub).
  */
 export type DaemonEventPayload<E extends DaemonEvent> = E extends DaemonEvent ? unknown : never;
 
 // ---------------------------------------------------------------------------
-// Control-plane procedure stubs (real types land tRPC surface). Same brand
-// posture as stubs above.
+// Control-plane procedure stubs (the real types come from the tRPC surface).
+// Same brand posture as the stubs above.
 // ---------------------------------------------------------------------------
 
 /**
- * Control-plane tRPC procedure name brand (Tier 1 stub). Replaced by
- * the typed-procedure union derived from `AppRouter` once exposes the
- * full router shape through this package.
+ * Control-plane tRPC procedure name brand (stub). Replaced by the
+ * typed-procedure union derived from `AppRouter` once the full router shape
+ * is exposed through this package.
  */
 export type CpProcedure = string & { readonly __cp_procedure__: never };
 
-/** Control-plane procedure input (Tier 1 stub; real shape comes from tRPC inference). */
+/** Control-plane procedure input (stub; the real shape comes from tRPC inference). */
 export type CpInput<P extends CpProcedure> = P extends CpProcedure ? unknown : never;
 
-/** Control-plane procedure output (Tier 1 stub; real shape comes from tRPC inference). */
+/** Control-plane procedure output (stub; the real shape comes from tRPC inference). */
 export type CpOutput<P extends CpProcedure> = P extends CpProcedure ? unknown : never;
 
 /**
- * Relay subscription event handler (Tier 1 stub). The relay event shape
- * replaces the `unknown` payload once that plan exposes it through this
- * package.
+ * Relay subscription event handler (stub). The relay event shape replaces the
+ * `unknown` payload once it is exposed through this package.
  */
 export type RelayEventHandler = (event: unknown) => void;
 
@@ -114,30 +110,30 @@ export type Unsubscribe = () => void;
 // ---------------------------------------------------------------------------
 // Native-dialog type stubs (Electron's `dialog` module surface). Stubbed
 // locally so `packages/contracts` does NOT take a hard dependency on the
-// `electron` runtime package — Tier 8 swaps these for imports from `electron`
-// once that becomes a contracts devDep (or extracts the type-only shape into
-// a sibling `electron-types.ts` file).
+// `electron` runtime package. They are swapped for imports from `electron`
+// once that becomes a contracts devDep (or the type-only shape is extracted
+// into a sibling `electron-types.ts` file).
 // ---------------------------------------------------------------------------
 
-/** Electron `OpenDialogOptions` shape (Tier 1 stub). */
+/** Electron `OpenDialogOptions` shape (stub). */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface OpenDialogOptions {}
-/** Electron `OpenDialogReturnValue` shape (Tier 1 stub). */
+/** Electron `OpenDialogReturnValue` shape (stub). */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface OpenDialogResult {}
-/** Electron `SaveDialogOptions` shape (Tier 1 stub). */
+/** Electron `SaveDialogOptions` shape (stub). */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface SaveDialogOptions {}
-/** Electron `SaveDialogReturnValue` shape (Tier 1 stub). */
+/** Electron `SaveDialogReturnValue` shape (stub). */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface SaveDialogResult {}
-/** Electron `MessageBoxOptions` shape (Tier 1 stub). */
+/** Electron `MessageBoxOptions` shape (stub). */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface MessageBoxOptions {}
-/** Electron `MessageBoxReturnValue` shape (Tier 1 stub). */
+/** Electron `MessageBoxReturnValue` shape (stub). */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface MessageBoxResult {}
-/** Electron `NotificationConstructorOptions` shape (Tier 1 stub). */
+/** Electron `NotificationConstructorOptions` shape (stub). */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface NotificationOptions {}
 
@@ -155,26 +151,26 @@ export type FilePathRef = string & { readonly __brand: "FilePathRef" };
 // `tsconfig.node22.json` ships `lib: ["es2023"]` (no dom). The DOM WebAuthn
 // types (`PublicKeyCredentialCreationOptions`, `PublicKeyCredentialRequestOptions`,
 // `PublicKeyCredential`) are not in lib.es2023 and cannot be referenced from
-// this package without a config change. Tier 8 either adds `dom` to the
-// contracts lib list (allowed for type-only imports) or pulls in
-// `@types/webappapis`. Until then, stub minimal shapes here.
+// this package without a config change. Lifting that means either adding
+// `dom` to the contracts lib list (allowed for type-only imports) or pulling
+// in `@types/webappapis`. Until then, stub minimal shapes here.
 //
 // `ArrayBuffer` IS in lib.es2023 (it's an ECMAScript global, not a DOM type),
 // so the `deriveKeyMaterial` return type stays as `Promise<ArrayBuffer>`.
 // ---------------------------------------------------------------------------
 
-/** DOM `PublicKeyCredentialCreationOptions` shape (Tier 1 stub). */
+/** DOM `PublicKeyCredentialCreationOptions` shape (stub). */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface PublicKeyCredentialCreationOptions {}
-/** DOM `PublicKeyCredentialRequestOptions` shape (Tier 1 stub). */
+/** DOM `PublicKeyCredentialRequestOptions` shape (stub). */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface PublicKeyCredentialRequestOptions {}
-/** DOM `PublicKeyCredential` shape (Tier 1 stub). */
+/** DOM `PublicKeyCredential` shape (stub). */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface PublicKeyCredential {}
 
 /**
- * Input to `webAuthn.deriveKeyMaterial` (Tier 1 stub).. The salt is the
+ * Input to `webAuthn.deriveKeyMaterial` (stub). The salt is the
  * only renderer-visible input — the derived material returns as an
  * `ArrayBuffer` and never includes the raw PRF output in any other form.
  *
@@ -189,13 +185,12 @@ export interface PrfInput {
 }
 
 /**
- * Auto-update state surfaced to the renderer (Tier 1 stub). Tier 8
- * remainder owns the real shape; at Tier 1 a coarse-grained discriminated
- * union is sufficient for the bridge type to compile. The Tier-1-stub
- * bridge throws on `update.getState()` so the runtime shape is never
- * observed by Tier 1 callers.
+ * Auto-update state surfaced to the renderer (stub). A coarse-grained
+ * discriminated union is sufficient for the bridge type to compile; the stub
+ * bridge throws on `update.getState()` so the runtime shape is never observed
+ * by a caller holding one.
  *
- * names this type on `update.getState` and `update.subscribe` and fixes no arm
+ * `update.getState` and `update.subscribe` name this type and fix no arm
  * shape, so the arms are settled here. The `idle` arm carries the instant of the
  * last completed check because the settings read-out has to say when the answer
  * it is showing was established — an `idle` with no time behind it reads as
@@ -224,7 +219,7 @@ export type UpdateState =
  * request the renderer made; it is the shell reaching a window that could not have
  * asked, because the keystroke that raised it landed somewhere else entirely.
  *
- * IT IS ALSO THE ONE NAMESPACE A TIER-1 BRIDGE CAN SERVE FOR REAL, which is why the
+ * IT IS ALSO THE ONE NAMESPACE A STUB BRIDGE CAN SERVE FOR REAL, which is why the
  * factory below takes it rather than stubbing it: a shell signal needs no daemon, no
  * control plane, and no credential — only the channel the preload is already sitting
  * on. Every other namespace is a round trip to something that does not exist yet.
@@ -245,20 +240,20 @@ export interface ShellSignals {
 }
 
 // ---------------------------------------------------------------------------
-// Error class — thrown by every Tier-1-stub bridge method.
+// Error class — thrown by every stub bridge method.
 // ---------------------------------------------------------------------------
 
 /**
  * Thrown when renderer code calls a `SidekicksBridge` method that is not yet
- * implemented at Tier 1. Every stub method throws this; Tier 8 swaps the
+ * implemented. Every stub method throws this; wiring a namespace swaps the
  * stub for a real IPC dispatch. The `name` field is stable so callers can
- * `if (err.name === "NotImplementedAtTier1Error")` without importing the
+ * `if (err.name === "NotImplementedError")` without importing the
  * class (useful from the renderer where the error bubbles through `await`).
  */
-export class NotImplementedAtTier1Error extends Error {
+export class NotImplementedError extends Error {
   public constructor(method: string) {
-    super(`SidekicksBridge.${method} is not implemented at Tier 1 (stub).`);
-    this.name = "NotImplementedAtTier1Error";
+    super(`SidekicksBridge.${method} is not implemented (stub).`);
+    this.name = "NotImplementedError";
   }
 }
 
@@ -281,7 +276,7 @@ export class NotImplementedAtTier1Error extends Error {
  *
  * Seven capability surfaces:
  *   • `daemon` — JSON-RPC over IPC to the local daemon
- *   • `controlPlane` — tRPC + relay WebSocket to 003/008 control plane
+ *   • `controlPlane` — tRPC + relay WebSocket to the control plane
  *   • `native` — main-process-mediated OS dialogs and OS surfaces
  *   • `webAuthn` — main-process-orchestrated WebAuthn ceremony
  *   • `window` — the shell's auxiliary-window controls
@@ -367,24 +362,23 @@ export interface SidekicksBridge {
 }
 
 // ---------------------------------------------------------------------------
-// Tier-1-stub factory.
+// Stub factory.
 //
-// Every callable method throws `NotImplementedAtTier1Error`. The `app` block
-// returns Tier-1-stub values. Tier 8 replaces this factory with a real
-// implementation that wires each method to its IPC counterpart in
-// `apps/desktop/src/main/`.
+// Every callable method throws `NotImplementedError`, and the `app` block
+// returns placeholder values. The real factory wires each method to its IPC
+// counterpart in `apps/desktop/src/main/`.
 //
 // Decision: `app.platform` and `app.arch` are typed as the V1 supported-OS
 // subset (darwin / linux / win32 + arm64 / x64). `process.platform` and
 // `process.arch` return the broader NodeJS.Platform / NodeJS.Architecture
-// unions; we cast through `as unknown as...` to narrow without runtime
-// validation. At Tier 1 this is acceptable because (a) the bridge stub is
-// never reached in a production runtime — the Tier 8 replacement performs the
-// narrow with a proper check — and (b).
+// unions; we cast through `as unknown as …` to narrow without runtime
+// validation. That is acceptable in a stub because it is never reached in a
+// production runtime — the real implementation performs the narrow with a
+// proper check.
 // ---------------------------------------------------------------------------
 
-function tier1Throw(method: string): never {
-  throw new NotImplementedAtTier1Error(method);
+function stubThrow(method: string): never {
+  throw new NotImplementedError(method);
 }
 
 /**
@@ -396,58 +390,58 @@ function tier1Throw(method: string): never {
  * and it is what makes a forgotten binding a refusal rather than a silence.
  */
 const SHELL_WITHOUT_A_HOST: ShellSignals = {
-  subscribeToComposerFocusRequest: () => tier1Throw("shell.subscribeToComposerFocusRequest"),
+  subscribeToComposerFocusRequest: () => stubThrow("shell.subscribeToComposerFocusRequest"),
 };
 
 /**
  * Factory returning a `SidekicksBridge` whose every round-trip method throws
- * `NotImplementedAtTier1Error`. Called once by the preload script
+ * `NotImplementedError`. Called once by the preload script
  * (`apps/desktop/src/preload/index.ts`) to populate `window.sidekicks`.
  *
- * Tier 8 replaces those methods with real implementations that wire each one to
+ * Wiring a namespace replaces its methods with real implementations bound to
  * the corresponding IPC channel on the main-process side.
  *
  * `shell` IS TAKEN RATHER THAN STUBBED, because it is the one namespace a caller can
- * actually serve at this tier: it needs no daemon, no control plane, and no
- * credential, only the channel the preload is already sitting on.
+ * actually serve without anything else being wired: it needs no daemon, no control
+ * plane, and no credential, only the channel the preload is already sitting on.
  *
  * ITS DEFAULT REFUSES RATHER THAN REPORTING NOTHING, and the difference decides how a
  * preload that forgot to bind it fails. A never-firing default would compile, pass
  * the shape comparison, and answer no shell request ever — a chord that silently does
  * nothing, with no other observable anywhere. Refusing puts that bridge on exactly
  * the footing every other unwired namespace here is already on, so the window that
- * binds the signal raises `NotImplementedAtTier1Error` at its first subscription
+ * binds the signal raises `NotImplementedError` at its first subscription
  * instead of running for a session and losing every ask.
  */
-export function createTier1Bridge(shell: ShellSignals = SHELL_WITHOUT_A_HOST): SidekicksBridge {
+export function createStubBridge(shell: ShellSignals = SHELL_WITHOUT_A_HOST): SidekicksBridge {
   return {
     daemon: {
-      call: () => tier1Throw("daemon.call"),
-      subscribe: () => tier1Throw("daemon.subscribe"),
+      call: () => stubThrow("daemon.call"),
+      subscribe: () => stubThrow("daemon.subscribe"),
     },
     controlPlane: {
-      call: () => tier1Throw("controlPlane.call"),
-      subscribeRelay: () => tier1Throw("controlPlane.subscribeRelay"),
+      call: () => stubThrow("controlPlane.call"),
+      subscribeRelay: () => stubThrow("controlPlane.subscribeRelay"),
     },
     native: {
-      showOpenDialog: () => tier1Throw("native.showOpenDialog"),
-      showSaveDialog: () => tier1Throw("native.showSaveDialog"),
-      showMessageBox: () => tier1Throw("native.showMessageBox"),
-      showNotification: () => tier1Throw("native.showNotification"),
-      openExternal: () => tier1Throw("native.openExternal"),
-      copyToClipboard: () => tier1Throw("native.copyToClipboard"),
-      revealInFileExplorer: () => tier1Throw("native.revealInFileExplorer"),
+      showOpenDialog: () => stubThrow("native.showOpenDialog"),
+      showSaveDialog: () => stubThrow("native.showSaveDialog"),
+      showMessageBox: () => stubThrow("native.showMessageBox"),
+      showNotification: () => stubThrow("native.showNotification"),
+      openExternal: () => stubThrow("native.openExternal"),
+      copyToClipboard: () => stubThrow("native.copyToClipboard"),
+      revealInFileExplorer: () => stubThrow("native.revealInFileExplorer"),
     },
     webAuthn: {
-      createCredential: () => tier1Throw("webAuthn.createCredential"),
-      getAssertion: () => tier1Throw("webAuthn.getAssertion"),
-      deriveKeyMaterial: () => tier1Throw("webAuthn.deriveKeyMaterial"),
+      createCredential: () => stubThrow("webAuthn.createCredential"),
+      getAssertion: () => stubThrow("webAuthn.getAssertion"),
+      deriveKeyMaterial: () => stubThrow("webAuthn.deriveKeyMaterial"),
     },
     // Handed through rather than stubbed: the caller that builds this bridge is the
     // one holding the channel the shell speaks on, so there is nothing here to defer.
     shell,
     // The one namespace the PRELOAD replaces rather than takes from here. Its
-    // main-process handlers ship at Tier 1, so
+    // main-process handlers already ship, so
     // `apps/desktop/src/preload/index.ts` spreads a real `ipcRenderer`
     // implementation over this block. The throwing stub stays because the
     // factory's contract is a TOTAL `SidekicksBridge` — every reader that builds
@@ -455,30 +449,30 @@ export function createTier1Bridge(shell: ShellSignals = SHELL_WITHOUT_A_HOST): S
     // present, and a member present-and-throwing is what a window whose preload
     // did not finish installing actually has.
     window: {
-      detachPane: () => tier1Throw("window.detachPane"),
-      focusAuxiliary: () => tier1Throw("window.focusAuxiliary"),
-      closeAuxiliary: () => tier1Throw("window.closeAuxiliary"),
-      subscribePaneErrors: () => tier1Throw("window.subscribePaneErrors"),
-      subscribePaneReturns: () => tier1Throw("window.subscribePaneReturns"),
+      detachPane: () => stubThrow("window.detachPane"),
+      focusAuxiliary: () => stubThrow("window.focusAuxiliary"),
+      closeAuxiliary: () => stubThrow("window.closeAuxiliary"),
+      subscribePaneErrors: () => stubThrow("window.subscribePaneErrors"),
+      subscribePaneReturns: () => stubThrow("window.subscribePaneReturns"),
     },
     update: {
-      getState: () => tier1Throw("update.getState"),
-      subscribe: () => tier1Throw("update.subscribe"),
-      requestCheck: () => tier1Throw("update.requestCheck"),
-      requestRestart: () => tier1Throw("update.requestRestart"),
+      getState: () => stubThrow("update.getState"),
+      subscribe: () => stubThrow("update.subscribe"),
+      requestCheck: () => stubThrow("update.requestCheck"),
+      requestRestart: () => stubThrow("update.requestRestart"),
     },
     app: {
       version: "0.0.0",
       // V1 supported OS matrix is darwin / linux / win32. `process.platform` may
       // return values outside this set (aix, freebsd, sunos, openbsd, cygwin, haiku,
-      // netbsd, android) which Tier 1 stub does not handle — Tier 8 replacement
-      // validates and surfaces an explicit "unsupported platform" error before
-      // reaching the renderer.
+      // netbsd, android) which this stub does not handle — the real
+      // implementation validates and surfaces an explicit "unsupported platform"
+      // error before reaching the renderer.
       platform: process.platform as unknown as "darwin" | "linux" | "win32",
       // V1 supported arch matrix is arm64 / x64. `process.arch` may return ia32,
       // mips, ppc, etc.; same narrowing posture as `platform`.
       arch: process.arch as unknown as "arm64" | "x64",
-      // Tier 8 replacement reads `app.getLocale()` from the Electron `app` module.
+      // The real implementation reads `app.getLocale()` from the Electron `app` module.
       locale: "en-US",
     },
   };

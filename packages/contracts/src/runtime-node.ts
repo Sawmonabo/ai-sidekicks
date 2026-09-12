@@ -694,14 +694,14 @@ export const RUNTIME_NODE_EVENT_NAMES: readonly RuntimeNodeEventName[] = [
 // integrity wrapper (the `EventEnvelope` schema, BLAKE3 hash chain, dual
 // signature, RFC 8785 JCS serialization) and the registration of these payloads
 // into the discriminated `SessionEventSchema` / `EventType` union in `event.ts`
-// are Tier 4 (see the `RUNTIME_NODE_EVENT_NAMES` block above) — the
+// are daemon-side (see the `RUNTIME_NODE_EVENT_NAMES` block above) — the
 // registration landed there with importing the five schemas below. Only the
 // per-event payload SHAPES live here: this file never registers into
 // `event.ts`'s union; `event.ts` composes these shapes into arms.
 //
 // EXPORTED (const + type alias), unlike `event.ts`'s module-LOCAL
 // `sessionCreatedPayloadSchema` et al.: these have 2+ cross-file consumers, so
-// they clear the export bar — (a) Tier 4 imports each `*PayloadSchema` to
+// they clear the export bar — (a) The daemon imports each `*PayloadSchema` to
 // register it into `SessionEventSchema` (landed:), and (b) the Phase-2 - daemon
 // producers (`node-registry.ts`, `node-capability-service.ts`) import them to
 // `.parse()`-validate the payload at the emission boundary (the `.parse()`
@@ -830,7 +830,7 @@ const buildRuntimeNodeCapabilityBaseShape = () => ({
 //     carried an informal `capabilities[]` array gloss until trued it up to this
 //     record shape (2026-08-03), so spec and schema now agree; the typed source
 //     governed in the interim per typed-source-over-table-gloss.
-//     Forward-compatible: Tier 4 can tighten `unknown` → the canonical
+//     Forward-compatible: A later phase can tighten `unknown` → the canonical
 //     `CapabilityDetails` with no SHAPE change.
 //   • `nodeVersion` = bounded free string, NOT `EventEnvelopeVersion` — it is the
 //     node's software RELEASE version (conventionally full semver, e.g. "1.4.2"),

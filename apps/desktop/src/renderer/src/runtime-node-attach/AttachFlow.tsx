@@ -67,9 +67,9 @@
 //     • the in-directory sibling (NodeRoster's roster read) already routes
 //       through `controlPlane.call(...)`, keeping the whole
 //       runtime-node-attach subtree on ONE bridge surface.
-//   At Tier 1 every bridge method throws `NotImplementedAtTier1Error`
-//   (desktop-bridge.ts:334-336 `tier1Throw`; the `controlPlane.call` stub at
-//   :353), so the REJECTED branch is the production-observable path until the
+//   Every bridge method on the stub throws `NotImplementedError` (the
+//   `stubThrow` helper in `desktop-bridge.ts`, `controlPlane.call` among
+//   them), so the REJECTED branch is the production-observable path until the
 //   real IPC handler is wired. The remaining gap is the bridge WIRING, not the
 //   contract.
 //
@@ -176,7 +176,7 @@ export interface AttachFlowProps {
  * State primitive — a subject-scoped discriminated union (NOT React 19
  * `useTransition`/`useActionState`), matching the shipped
  * `InviteAcceptView`/`SessionBootstrap`/`NodeRoster` precedent: it keeps the
- * renderer consumers structurally consistent and fits the Tier-1 sync-throw
+ * renderer consumers structurally consistent and fits the stub's sync-throw
  * normalization, which needs an explicit `try/catch` around the bridge call. It is
  * the sibling roster's holder rather than that view's older `useState`, for the
  * reason stated at the addressing below: the answer belongs to a (transport, target)
@@ -337,7 +337,7 @@ export function AttachFlow({ sessionId, attachDraft, reads }: AttachFlowProps): 
   }
 
   // Rejected — role="alert" so assistive tech announces the failure; the
-  // envelope renders `name: message` (the Tier-1 `NotImplementedAtTier1Error`
+  // envelope renders `name: message` (the stub's `NotImplementedError`
   // is the production-observable case; a typed wire envelope renders its wire
   // `code` as the name — see `wireRejectionToError`). Unlike the invite flow's
   // TERMINAL rejected branch (retrying a single-use invite token is not safely

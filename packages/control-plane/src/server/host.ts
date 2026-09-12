@@ -13,8 +13,8 @@
 //     directoryService (constructor injection #1). All Phase 1 tests drive this
 //     function.
 //   - `default { fetch }` — the deployable Worker module. Production wiring of
-//     SessionDirectoryService (Hyperdrive / D1 / WorkerPg adapter) is deferred
-//     to Tier 5 the deployable surface throws on Querier use. The dual-gate
+//     SessionDirectoryService (Hyperdrive / D1 / WorkerPg adapter) is deferred,
+//     so the deployable surface throws on Querier use. The dual-gate
 //     intercepts before that throw is reachable in normal flows; the throw is
 //     defense-in-depth for any hypothetical gate bypass.
 //
@@ -43,7 +43,7 @@ import { prefixSseRetry } from "./sse-retry-prefix.js";
 export type ControlPlaneEnv = FeatureFlagEnv & DevEnvironmentEnv;
 
 /**
- * Tier 1 host deps — the union of the session router's `SessionRouterDeps`, the
+ * Host deps — the union of the session router's `SessionRouterDeps`, the
  * runtime-node router's `RuntimeNodeRouterDeps`, and the event-anchor router's
  * `EventAnchorRouterDeps` (the host forwards to ALL THREE sibling routers).
  * Tests inject a pglite-backed directoryService + the two runtime-node services
@@ -122,7 +122,7 @@ export function buildControlPlaneFetchHandler(
 }
 
 // The service production wiring (Hyperdrive binding → Querier adapter) is
-// deferred to -remainder at Tier 5. At Tier 1, the deployable surface
+// deferred. Today the deployable surface
 // composes through `buildControlPlaneFetchHandler` with placeholder services
 // — the directoryService (session procedures) AND the runtime-node
 // attach/heartbeat services, all constructed with the SAME throwing
@@ -130,18 +130,17 @@ export function buildControlPlaneFetchHandler(
 //   - Gate-fail requests (any production deploy without .dev.vars) → 503 (gate refusal).
 //   - Gate-pass requests (only `wrangler dev` with both .dev.vars keys) → 500
 //     from the procedure body's throw. This is acceptable for Phase 1's skeleton
-//     scope: Tier 5 wires the real Querier and procedures stop throwing. The
-//     runtime-node procedures share this Tier-5-deferred behavior — a gate-pass
+//     scope: wiring the real Querier makes the procedures stop throwing. The
+//     runtime-node procedures share this deferred behavior — a gate-pass
 //     request reaching `runtimenode.*` throws on Querier use identically
 //     to the session procedures.
 // Tests bypass this default export and call `buildControlPlaneFetchHandler`
 // directly with a pglite-backed `Querier` so they can exercise the happy path.
 
-function tier5DeferralError(symbol: string): Error {
+function deferredWiringError(symbol: string): Error {
   return new Error(
-    `Tier 1: ${symbol} wiring is deferred to Tier 5; Phase 1 is` +
-      "operator-development-only behind dual-gate." +
-      ".",
+    `${symbol} wiring is deferred; this build is operator-development-only ` +
+      "behind the dual gate.",
   );
 }
 
@@ -149,18 +148,18 @@ function tier5DeferralError(symbol: string): Error {
 // TypeScript treats it nominally — a structural-shape literal can't satisfy
 // the type without an `as unknown as` double-cast. Instead of casting (which
 // would silently mask any future surface drift on the class), construct the
-// real class with a throwing `Querier` adapter. Production wiring at Tier 5
+// real class with a throwing `Querier` adapter. Production wiring
 // replaces this adapter with a Hyperdrive-backed Pool; until then the gates
 // intercept any traffic before this querier is reached.
 const productionPlaceholderQuerier: Querier = {
   query() {
-    throw tier5DeferralError("Querier.query (Hyperdrive binding pending)");
+    throw deferredWiringError("Querier.query (Hyperdrive binding pending)");
   },
   exec() {
-    throw tier5DeferralError("Querier.exec (Hyperdrive binding pending)");
+    throw deferredWiringError("Querier.exec (Hyperdrive binding pending)");
   },
   transaction() {
-    throw tier5DeferralError("Querier.transaction (Hyperdrive binding pending)");
+    throw deferredWiringError("Querier.transaction (Hyperdrive binding pending)");
   },
 };
 
@@ -174,7 +173,7 @@ const productionPlaceholderDirectoryService = new SessionDirectoryService(
 // Construct the real classes with the throwing `productionPlaceholderQuerier`;
 // the gates intercept traffic before the querier is reached, and a gate-pass
 // request reaching a runtime-node procedure throws on Querier use (→ 500),
-// matching the session procedures until Tier 5 wires the real Querier.
+// matching the session procedures until the real Querier is wired.
 const productionPlaceholderAttachService = new AttachService(productionPlaceholderQuerier);
 const productionPlaceholderHeartbeatService = new HeartbeatService(productionPlaceholderQuerier);
 
@@ -182,7 +181,7 @@ const productionPlaceholderHeartbeatService = new HeartbeatService(productionPla
 // nominal-type reasoning applies: construct the real class with the throwing
 // querier rather than casting a structural stub. A gate-pass request reaching
 // `eventanchor.upload` throws on Querier use (→ 500), matching every sibling
-// procedure until Tier 5 wires the real Querier.
+// procedure until the real Querier is wired.
 const productionPlaceholderAnchorStore = new EventLogAnchorStore(productionPlaceholderQuerier);
 
 const productionFetchHandler = buildControlPlaneFetchHandler({
@@ -191,13 +190,13 @@ const productionFetchHandler = buildControlPlaneFetchHandler({
   heartbeatService: productionPlaceholderHeartbeatService,
   anchorStore: productionPlaceholderAnchorStore,
   resolveCurrentUserId: () => {
-    throw tier5DeferralError("resolveCurrentUserId (PASETO auth)");
+    throw deferredWiringError("resolveCurrentUserId (PASETO auth)");
   },
   generateSessionId: () => {
-    throw tier5DeferralError("generateSessionId (UUID v7)");
+    throw deferredWiringError("generateSessionId (UUID v7)");
   },
   eventStreamProvider: () => {
-    throw tier5DeferralError("eventStreamProvider (event log)");
+    throw deferredWiringError("eventStreamProvider (event log)");
   },
 });
 

@@ -10,7 +10,7 @@
 // hands the registry the refusal itself, no store can be initialised, and a bound
 // stream would be retained forever and projected never.
 
-import { createTier1Bridge } from "@ai-sidekicks/contracts";
+import { createStubBridge } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -76,10 +76,10 @@ describe("useSessionStoreRegistry — the window's registry and the binder that 
     // The other arm, over the REAL live bridge rather than a registry constructed
     // by hand: the composition root has to resolve the read off what the bridge
     // says it serves, and the live bridge serves nothing. Binding here would call
-    // `daemon.subscribe` on a Tier-1 bridge, which throws — so "bind and find out"
+    // `daemon.subscribe` on a stub bridge, which throws — so "bind and find out"
     // is not a fallback, it is a crash inside a mount effect.
     const observed: Observation[] = [];
-    const bridge = createLiveBridge(createTier1Bridge());
+    const bridge = createLiveBridge(createStubBridge());
     render(
       <SidekicksBridgeProvider bridge={bridge}>
         <SessionProbe

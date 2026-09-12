@@ -353,7 +353,7 @@ class WrappedRegistry implements MethodRegistry {
     //          dispatch will throw `RegistryDispatchError("method_not_
     //          found")` which surfaces the canonical -32601. Refusing
     //          here would mask the not-found error as a version-mismatch
-    //          error — Acceptance test W-007p-2-T7 would fail.
+    //          error — the acceptance test would fail.
     //        * `false` (registered read-only) → pass through; read-only
     //          methods are always allowed.
     //        * `true` (registered mutating) → consult negotiation state
@@ -428,7 +428,7 @@ class WrappedRegistry implements MethodRegistry {
  *     after `wrap()` returns and before the gateway starts listening.
  *
  * SupervisionHooks composition note:
- *   The gateway's `SupervisionHooks` slot is single-consumer (Tier 4
+ *   The gateway's `SupervisionHooks` slot is single-consumer (the
  *   desktop-shell). The negotiator therefore EXPOSES `cleanupTransport`
  *   for the bootstrap to compose into a future combined hook (the
  *   bootstrap's `onDisconnect` calls both the desktop-shell hook AND
@@ -604,7 +604,7 @@ export class ProtocolNegotiator {
    * Drop the per-connection state for a closed transport. MUST be called
    * by the bootstrap orchestrator from whichever supervision hook
    * composes the gateway's `onDisconnect`. The gateway's hook slot is
-   * single-consumer (Tier 4 desktop-shell), so the bootstrap composes
+   * single-consumer (the desktop-shell), so the bootstrap composes
    * a combined hook that calls both this method and the desktop-shell
    * hook.
    *

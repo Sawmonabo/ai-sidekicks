@@ -138,7 +138,7 @@ function refuseAuxiliaryWindow(
 /**
  * One shell call, settled.
  *
- * The `try` wraps the CALL as well as the await, because the contract's Tier-1 stub
+ * The `try` wraps the CALL as well as the await, because the contract's stub
  * throws synchronously — a window whose preload did not install the real namespace
  * never reaches a promise at all, and a bare `await` on the result would throw out of
  * this function rather than answering.

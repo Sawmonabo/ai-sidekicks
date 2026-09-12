@@ -76,7 +76,7 @@ import { HeartbeatService } from "./heartbeat-service.js";
 // satisfy the type). `attachService` backs attach / capabilityupdate / detach /
 // roster; `heartbeatService` backs heartbeat.
 //
-// AUTH POSTURE (Tier 1 structural parity with `session.join`):
+// AUTH POSTURE (structural parity with `session.join`):
 //   The `attach` procedure resolves the acting user from `ctx` via
 //   `resolveCurrentUserId` and REFUSES (tRPC `UNAUTHORIZED`) an attach
 //   claimed on behalf of a different user — it does not trust the
@@ -84,27 +84,27 @@ import { HeartbeatService } from "./heartbeat-service.js";
 //   `session.join`'s self-check (session-router.factory.ts), which resolves the
 //   current user from `ctx` and rejects non-self joins.
 //
-//   DEFERRED to Tier 5 (the same track session.join defers its authorization to):
+//   DEFERRED (the same track `session.join` defers its authorization to):
 //     - Full active-session-membership verification — that the acting
 //       user is a member of `input.sessionId` ("a user with
 //       active session membership"). session.join likewise self-checks now and
-//       defers its membership/invite authorization to Tier 5.
+//       defers its authorization to a later phase.
 //     - Node-ownership verification for the `nodeId`-only procedures: heartbeat /
 //       capabilityupdate / detach carry NO user, so authorizing them means
 //       resolving the node's owner and checking the authenticated caller owns it.
 //   A membership/ownership check keyed on an unauthenticated caller is theater
 //   until PASETO auth exists — the production `resolveCurrentUserId`
-//   currently throws `tier5DeferralError` (host.ts), so the gates intercept all
-//   prod traffic before any such check could run. Tier 5 wires PASETO-derived
+//   currently throws `deferredWiringError` (host.ts), so the gates intercept all
+//   prod traffic before any such check could run. A later phase wires PASETO-derived
 //   auth.
 export interface RuntimeNodeRouterDeps {
   readonly attachService: AttachService;
   readonly heartbeatService: HeartbeatService;
   /**
-   * Tier 1 stub principal resolver — returns the userId the acting
-   * caller resolves to (same type + role as `SessionRouterDeps`). The `attach`
-   * procedure self-checks `input.userId` against this. Tier 5 wires
-   * PASETO ctx-derived auth.
+   * Stub principal resolver — returns the userId the acting caller resolves
+   * to (same type + role as `SessionRouterDeps`). The `attach` procedure
+   * self-checks `input.userId` against this. A later phase wires PASETO
+   * ctx-derived auth.
    */
   readonly resolveCurrentUserId: (ctx: SessionRouterContext) => UserId;
 }
@@ -168,12 +168,12 @@ export function createRuntimeNodeRouter(deps: RuntimeNodeRouterDeps): RuntimeNod
         .input(RuntimeNodeAttachRequestSchema)
         .output(RuntimeNodeAttachResponseSchema)
         .mutation(async ({ input, ctx }) => {
-          // Self-check (Tier 1 parity with session.join): resolve the acting
+          // Self-check (parity with session.join): resolve the acting
           // user from `ctx` and refuse an attach claimed on behalf of a
           // different user. We do NOT trust caller-supplied
           // `input.userId` as the sole authority. Plain `TRPCError`
           // (UNAUTHORIZED) — no `aisError` envelope, same as session.join.
-          // Full membership/node-ownership authorization is Tier-5-deferred
+          // Full membership/node-ownership authorization is deferred
           // (see RuntimeNodeRouterDeps doc above).
           const current = deps.resolveCurrentUserId(ctx);
           if (input.userId !== current) {

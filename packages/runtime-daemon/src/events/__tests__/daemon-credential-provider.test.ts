@@ -14,7 +14,7 @@
 // asserted here by capturing both and comparing them, which is the only place
 // it is observable.
 //
-// The interface's implementation is Tier-5-deferred (PASETO auth), so what is
+// The interface's implementation is deferred (PASETO auth), so what is
 // testable today is exactly: the refusing stub refuses with a diagnostic that
 // names the deferral, the consumer-side guard refuses a bearer or proofless
 // credential, and the transport's htm/htu agree with its own request.
@@ -30,7 +30,7 @@ import {
   AUTHORIZATION_HEADER_NAME,
   DPOP_AUTHORIZATION_SCHEME,
   DPOP_PROOF_HEADER_NAME,
-  Tier5DeferredDaemonCredentialProvider,
+  DeferredDaemonCredentialProvider,
   type DaemonCredentialAttempt,
   type DaemonCredentialMaterial,
   type DaemonCredentialProvider,
@@ -89,15 +89,15 @@ function okResponse(stored: boolean): Response {
 }
 
 // ----------------------------------------------------------------------------
-// The Tier-5 refusing stub
+// The Refusing stub
 // ----------------------------------------------------------------------------
 
-describe("Tier5DeferredDaemonCredentialProvider", () => {
+describe("DeferredDaemonCredentialProvider", () => {
   it("refuses every mint rather than returning empty headers", async () => {
     // A no-op provider returning `{}` would let the uploader issue an
     // unauthenticated request, and the operator would then debug a generic
     // control-plane 401 instead of the actual cause.
-    const provider = new Tier5DeferredDaemonCredentialProvider();
+    const provider = new DeferredDaemonCredentialProvider();
     await expect(
       provider.mintForAttempt({
         sessionId: SESSION_ID,
@@ -105,11 +105,11 @@ describe("Tier5DeferredDaemonCredentialProvider", () => {
         htm: "POST",
         htu: `${ENDPOINT}/eventanchor.upload`,
       }),
-    ).rejects.toThrow(/deferred to Tier 5/);
+    ).rejects.toThrow(/deferred/);
   });
 
   it("names the deferral, the plan obligation, and the attempt in the diagnostic", async () => {
-    const provider = new Tier5DeferredDaemonCredentialProvider();
+    const provider = new DeferredDaemonCredentialProvider();
     const rejection = await provider
       .mintForAttempt({
         sessionId: SESSION_ID,

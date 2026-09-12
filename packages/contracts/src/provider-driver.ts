@@ -125,8 +125,8 @@ export type RunId = string & { readonly __brand: "RunId" };
 // run id becomes a `RunId`.
 //
 // Homed here rather than in the run-control contract for a STRUCTURAL reason, not
-// a stylistic one: this file is the brand's lowest-tier consumer (Tier 4), and
-// the `runControl.ts` (Tier 5) / the approval surface (Tier 6) import it UPWARD.
+// a stylistic one: this file is the brand's lowest-level consumer, and
+// `runControl.ts` / the approval surface import it UPWARD.
 // Authoring it in either of those would make this file's own SDK seam import
 // backwards across tiers — forbidden by the build order, not merely undesirable.
 // Those higher-tier modules consume this symbol rather than declaring a sibling;
@@ -147,9 +147,9 @@ export const RunIdSchema: z.ZodType<RunId, RunId> = brandedUuidIdSchema<RunId>("
 // the same rule that homes `RunId` above — a cross-cutting symbol is declared in
 // the contract file of its LOWEST-TIER consumer and imported upward, never
 // re-invented — and this file is that consumer: `SteerPayload.attachments` below
-// is the earliest-shipping (Tier 4) member typed `ArtifactId[]`. `runControl.ts`
-// (Tier 5) imports it for the `steer` arm of `InterventionRequestPayload`, and
-// `artifacts/` (Tier 7) imports it at Task 1 rather than restating it — a second
+// is the earliest-shipping member typed `ArtifactId[]`. `runControl.ts`
+// imports it for the `steer` arm of `InterventionRequestPayload`, and
+// `artifacts/` imports it rather than restating it — a second
 // branded UUID declaration anywhere would be a second source of truth for what an
 // artifact id is, and the two would drift the first time either grew a
 // constraint.
@@ -834,7 +834,7 @@ export type CapabilityDetectionSource = "static" | "probed";
 // --------------------------------------------------------------------------
 //
 // Widens this three-member union to FOUR. `rollback` is content (campaign B2)
-// landing here because this file is the enum's co-located home; the Tier-5
+// landing here because this file is the enum's co-located home; the run-control
 // orchestration imports the widened union, and its Phase 1 machine-gates on
 // `{ plan: 005, phase: 1 }`, so no consumer precedes the widening.
 export type InterventionType = "steer" | "interrupt" | "cancel" | "rollback";

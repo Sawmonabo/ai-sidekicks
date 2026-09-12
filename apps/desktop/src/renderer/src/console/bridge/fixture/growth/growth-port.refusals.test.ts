@@ -34,7 +34,7 @@ import type { ConsoleScenario } from "../../scenario/runtime/vocabulary.js";
 import { FLAGSHIP_SCENARIO } from "../../scenario/flagship/flagship.js";
 import { CONSOLE_SCENARIOS } from "../../scenario/index.js";
 import { LEDGER_SCENARIO } from "../../scenario/ledger/ledger.js";
-import { createTier1Bridge, EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
+import { createStubBridge, EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
 
 /**
  * Names a scenario must NOT state a viewer under — the spellings that are not the
@@ -90,7 +90,7 @@ describe("the fixture's identity read — answered from the field, refused witho
   });
 
   it("keeps that answer out of the live bridge, which still has no wire for it", async () => {
-    const bridge = createLiveBridge(createTier1Bridge());
+    const bridge = createLiveBridge(createStubBridge());
 
     const outcome = await bridge.growth.callerUserRead({
       sessionId: FLAGSHIP_SCENARIO.sessionId,
@@ -186,7 +186,7 @@ describe("the fixture's registry reads — refusing on a stated premise", () => 
   });
 
   it("refuses every unserved one under both bridges, each naming the row that owes its wire", async () => {
-    const liveBridge = createLiveBridge(createTier1Bridge());
+    const liveBridge = createLiveBridge(createStubBridge());
     const port = fixturePort();
     const rows = ["callback-tool-registry-read", "sidekick-definition-registry"];
     const served = new Set<string>(FIXTURE_SERVED_GROWTH_OPERATION_IDS);

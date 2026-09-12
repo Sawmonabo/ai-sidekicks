@@ -202,8 +202,7 @@ export interface WorkflowDefinitionReadResult {
  * One immutable version body, as `workflow.versionRead` answers.
  *
  * Every member below is required, which is the shape's own age rather than a choice:
- * it was minted at the Tier-8 audit, so the additive-optional rule for
- * already-published shapes does not bind it. That completeness is what makes export
+ * the additive-optional rule for already-published shapes does not bind it. That completeness is what makes export
  * possible at all — the canonical file form is a client-side serialization of exactly
  * this reply, and a body missing a member could not reproduce the canonical bytes or
  * the content hash they hash to.

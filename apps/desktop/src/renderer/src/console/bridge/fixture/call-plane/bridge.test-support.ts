@@ -271,7 +271,7 @@ export function withCapturedStream(bridge: ConsoleBridge, streamName: string): S
  * case proving a surface came back after a refused open really did drive a bridge.
  *
  * `open` receives the pass-through so a case can refuse the first attempt and hold
- * the next, which is the shape the shipped Tier-1 preload puts a console in: every
+ * the next, which is the shape the shipped stub preload puts a console in: every
  * daemon method throws until a build with a real one is installed.
  */
 export function withDaemonSubscribe(

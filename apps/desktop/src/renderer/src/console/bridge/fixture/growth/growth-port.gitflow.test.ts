@@ -28,7 +28,7 @@ import {
   IMPLEMENTER_WORKTREE_ID,
 } from "../../scenario/repos/repos-fixture-data.js";
 import { createLiveBridge } from "../../live-bridge.js";
-import { createTier1Bridge } from "@ai-sidekicks/contracts";
+import { createStubBridge } from "@ai-sidekicks/contracts";
 
 /**
  * Names a member that would only appear if a scenario stated a branch.
@@ -149,7 +149,7 @@ describe("the fixture's gitflow reads — one answers from the script, the other
       expect(scripted.value.baseBranch).toBe("develop");
     }
 
-    const live = await createLiveBridge(createTier1Bridge()).growth.gitflowBranchContextRead({
+    const live = await createLiveBridge(createStubBridge()).growth.gitflowBranchContextRead({
       workspaceId: "workspace-1",
       worktreeId: "worktree-1",
     });
@@ -259,7 +259,7 @@ describe("the fixture's gitflow reads — one answers from the script, the other
   });
 
   it("refuses the PR preparation under both bridges, no daemon standing behind it", async () => {
-    const liveBridge = createLiveBridge(createTier1Bridge());
+    const liveBridge = createLiveBridge(createStubBridge());
     const request = { branchContextId: "branch-context-1", targetBranch: "develop" };
 
     for (const outcome of [

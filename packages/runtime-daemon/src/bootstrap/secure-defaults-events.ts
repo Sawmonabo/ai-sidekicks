@@ -23,7 +23,7 @@
 //   * Format the override into a stdout banner. Banner content belongs to the
 //     banner consumer.
 //   * Validate the payload shape. The inline types below are the
-//     compile-time contract; Tier 1 trusts the in-process caller. A
+//     compile-time contract; the substrate trusts the in-process caller. A
 //     future Zod-schema validation step can layer on top.
 
 // --------------------------------------------------------------------------
@@ -39,7 +39,7 @@
  * for the single-integer behaviors (rows 2, 5, 6, 8, 9 carry no sub-row). When
  * present it is typed as `string` rather than narrowed to `"7a" | "7b"` because
  * schema names rows 2, 5, 6, 8, 9 in the same breath — pre-narrowing the type
- * would lock it to a Tier-1 assumption that excludes the broader override
+ * would lock it to an assumption that excludes the broader override
  * surface. Tightening (if appropriate) is owed to the taxonomy registration.
  *
  * `behavior` is the integer override identity (1–10) per that schema;
@@ -64,10 +64,10 @@ export interface SecurityDefaultOverrideEvent {
 
 /**
  * Synchronous because the override emission sites (config-validation
- * paths inside `SecureDefaults` and downstream Tier-4 override
+ * paths inside `SecureDefaults` and downstream override
  * surfaces) are themselves synchronous; introducing a Promise here
  * would force every override site through an `await` without buying
- * anything Tier 1 needs. When lands an async persistence path, the sink
+ * anything needed here. If an async persistence path lands, the sink
  * contract widens; downstream callers do not change because the
  * emit-once semantic is preserved.
  *
@@ -96,7 +96,7 @@ export type SecurityDefaultOverrideSink = (event: SecurityDefaultOverrideEvent) 
 // Alternative considered: function-pair `setSink(sink)` +
 // `emitSecurityDefaultOverride(sink, event)` with caller-supplied
 // sink. The override emission sites would need to know the sink
-// reference, forcing every Tier-4 override surface to import-and-pass
+// reference, forcing every override surface to import-and-pass
 // the sink. The class form moves that knowledge into a single
 // module-singleton install step.
 //
@@ -193,7 +193,7 @@ export class SecureDefaultOverrideEmitter {
   /**
    * True iff `emit` has been called at least once with the supplied
    * `behavior` integer for the current process. Exposed primarily for
-   * test introspection (W-007p-1-T5 asserts dedupe semantics) and as
+   * test introspection (the dedupe-semantics test asserts it) and as
    * a defensive check the orchestrator can use to prove an override
    * has fired. Production callers SHOULD NOT branch behavior on this
    * predicate — emit's idempotency is the contract.
@@ -205,7 +205,7 @@ export class SecureDefaultOverrideEmitter {
   /**
    * Test-only reset hook. Vitest shares a single Node process across
    * cases; without this hook, tests that assert dedupe behavior
-   * (W-007p-1-T5) would inherit `emittedBehaviors` and `installedSink`
+   * (its test) would inherit `emittedBehaviors` and `installedSink`
    * state from any earlier test. Clears BOTH slots — leaving the
    * sink installed across cases would let the previous test's sink
    * (often a closure over a captured array) receive subsequent test

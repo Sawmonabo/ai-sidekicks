@@ -17,7 +17,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { NotImplementedAtTier1Error } from "@ai-sidekicks/contracts";
+import { NotImplementedError } from "@ai-sidekicks/contracts";
 
 import { AttachFlow } from "../AttachFlow.js";
 import type { RuntimeNodeAttachDraft } from "../attach-request.js";
@@ -145,11 +145,11 @@ describe("AttachFlow — the request it sends and how it settles", () => {
     });
 
     it("catches a bridge method that throws synchronously", async () => {
-      // The Tier-1 bridge stub throws `NotImplementedAtTier1Error` SYNCHRONOUSLY
+      // The stub bridge throws `NotImplementedError` SYNCHRONOUSLY
       // rather than returning a rejected promise; the view must land in its
       // error state instead of letting the throw escape the click handler.
       const controlPlaneCall = vi.fn(() => {
-        throw new NotImplementedAtTier1Error("controlPlane.call");
+        throw new NotImplementedError("controlPlane.call");
       });
       installMockBridge(controlPlaneCall);
 
@@ -159,7 +159,7 @@ describe("AttachFlow — the request it sends and how it settles", () => {
       const errorSection = await screen.findByRole("alert", {
         name: "runtime-node-attach-error",
       });
-      expect(errorSection.textContent).toContain("NotImplementedAtTier1Error");
+      expect(errorSection.textContent).toContain("NotImplementedError");
     });
 
     it("renders a non-object rejection through the string fallback", async () => {

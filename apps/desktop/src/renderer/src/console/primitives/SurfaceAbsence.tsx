@@ -18,7 +18,7 @@
 //
 // IN `primitives/` RATHER THAN IN `frame/`, WHICH IS WHERE ITS FIRST PRODUCER PUT IT.
 // It was authored beside the route surface because that was its only caller, and the
-// absorbed Tier-1 mounts then had to reach it from below — an upward edge no
+// absorbed pre-console mounts then had to reach it from below — an upward edge no
 // arrangement of those mounts could write legally, since a view family cannot reach
 // into `frame/` and cannot reach `frame/index.ts` either: that door re-exports
 // `ConsoleRoot`, which composes every view family through `families.ts`, so the edge

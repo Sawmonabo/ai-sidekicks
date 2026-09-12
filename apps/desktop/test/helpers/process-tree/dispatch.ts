@@ -1,6 +1,6 @@
 // Killing a spawned Electron tree, once, for every harness that spawns one.
 //
-// Two harnesses spawn Electron — the Tier-1 smoke probe in `electron-probe.ts`
+// Two harnesses spawn Electron — the smoke probe in `electron-probe.ts`
 // and the console launcher behind `test/console/bounded-cleanup.ts` — and each
 // grew its own copy of the same platform facts. They had already diverged:
 // only one of them read `taskkill`'s exit status, so the other reported a kill it

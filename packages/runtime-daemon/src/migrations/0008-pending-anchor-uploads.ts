@@ -84,8 +84,7 @@
 // `events/merkle-anchor-service.ts` (the sole writer).
 
 export const PENDING_ANCHOR_UPLOADS_MIGRATION_SQL: string = `
--- Owner: | Migration: 0008-pending-anchor-uploads.ts (Tier 4 Phase 3) Durable partition-tolerance
--- queue for Merkle anchors awaiting control-plane upload. Unflushed anchors survive daemon restart
+-- Durable partition-tolerance queue for Merkle anchors awaiting control-plane upload. Unflushed anchors survive daemon restart
 -- without re-signing. The (session_id, node_id, start_sequence, end_sequence) UNIQUE constraint
 -- makes anchorRange() force-fire path (consumed compactor's anchor-before-compaction protocol)
 -- idempotent against re-entry of an identical range (the key dedups genuine re-fires only —

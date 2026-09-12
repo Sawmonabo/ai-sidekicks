@@ -20,29 +20,29 @@ export {
 // the runtime-node router closes over, parallel to `SessionDirectoryService`
 // above. Consumed by the client-sdk integration fixtures (which construct
 // throwing-querier instances for the never-reached posture) and by future
-// Tier-5 production wiring of the runtime-node host.
+// production wiring of the runtime-node host.
 export { AttachService } from "./runtime-nodes/attach-service.js";
 export { HeartbeatService } from "./runtime-nodes/heartbeat-service.js";
 // The anchor store the `eventanchor.upload` procedure closes over, exported for
 // the same reason the two runtime-node services above are: `ControlPlaneDeps`
 // requires it, so every out-of-package constructor of
 // `buildControlPlaneFetchHandler` (the client-sdk integration fixtures, future
-// Tier-5 production wiring) must be able to construct one, and the class is
+// production wiring) must be able to construct one, and the class is
 // nominal — a structural stub cannot stand in for it.
 export { EventLogAnchorStore } from "./event-anchors/anchor-store.js";
 export { applyMigrations, type Querier } from "./sessions/migration-runner.js";
 export { INITIAL_MIGRATION_SQL } from "./migrations/0001-initial.js";
 
 // The handler factory is the integration boundary unblock test drives
-// against, and the type slots are the deps + env shape future Tier 5 wiring
+// against, and the type slots are the deps + env shape future production wiring
 // will satisfy.
 //
 // `ControlPlaneHandlerOptions` is exported even though no Phase 1 test or
-// production caller imports it from this barrel — Tier 5 production wiring
+// production caller imports it from this barrel — production wiring
 // (-remainder) will pass a non-default `requestIdGenerator` for OTel
 // trace-context propagation and a non-default `refusalLogger` to route
 // gate-refusal lines to the structured-logging sink. Pruning now would
-// force re-export when Tier 5 lands; labeling here keeps the public surface
+// force re-export when that wiring lands; labeling here keeps the public surface
 // stable across the deferral boundary.
 export {
   buildControlPlaneFetchHandler,

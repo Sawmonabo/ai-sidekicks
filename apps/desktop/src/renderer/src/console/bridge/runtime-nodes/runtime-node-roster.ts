@@ -205,7 +205,7 @@ export interface RuntimeNodePresenceSubscribed {
  * because both of the alternatives are failures the console has already named. A
  * throw is what `frame/session/session-lifecycle.ts` calls "a crash inside a mount effect
  * rather than a refusal a surface can render" — and it is reachable, since the
- * preload's Tier-1 `daemon.subscribe` throws synchronously. A no-op handle is
+ * preload's stub `daemon.subscribe` throws synchronously. A no-op handle is
  * worse: the surface would believe it is live, never re-read, and go quietly stale,
  * which is the one failure a live roster exists to prevent.
  */

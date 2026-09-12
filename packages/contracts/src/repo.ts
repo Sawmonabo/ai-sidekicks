@@ -6,7 +6,7 @@
 // This module owns `ExecutionMode`, `WorkspaceState`, `RepoMountState`,
 // `VcsType`, `RepoMountHealth`, the branded `RepoMountId` / `WorkspaceId`,
 // and `RepoWorkspaceLifecyclePayload`. the `worktree.ts` MUST import them —
-// never redefine — because ships first within Tier 6.
+// never redefine — because it ships first.
 //
 // IMPORT DIRECTION IS ONE-WAY — this module imports NOTHING from `./event.js`.
 // `event.ts` imports `RepoWorkspaceLifecyclePayloadSchema` from here to

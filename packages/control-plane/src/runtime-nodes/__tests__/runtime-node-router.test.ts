@@ -189,7 +189,7 @@ async function buildHarness() {
   const router = createRuntimeNodeRouter({
     attachService: new AttachService(querier),
     heartbeatService: new HeartbeatService(querier),
-    // Tier-1 stub: the ctx-current user is USER_ID — the same
+    // Stub: the ctx-current user is USER_ID — the same
     // user every happy-path / catch-arm test passes as
     // `input.userId`, so the attach self-check passes through to the
     // service. The self-check refusal test below uses OTHER_USER_ID to
@@ -257,7 +257,7 @@ describe("runtime-node router — happy-path mounting", () => {
 // ----------------------------------------------------------------------------
 // Attach self-check — the acting user is resolved from `ctx`, and an
 // attach claimed on behalf of a DIFFERENT user is refused UNAUTHORIZED
-// before the backing service is ever invoked. Tier-1 structural parity with
+// before the backing service is ever invoked. Structural parity with
 // session.join (don't trust caller-supplied identity as the sole authority).
 // ----------------------------------------------------------------------------
 

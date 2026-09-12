@@ -14,7 +14,7 @@
 // together.
 //
 // WHY THE OUTCOME RIDES THE RESOLUTION OF A METHOD TYPED `PublicKeyCredential`.
-// The shipped bridge carries the Tier-1 three-method stub, whose
+// The shipped bridge carries the three-method stub, whose
 // `PublicKeyCredential` is an EMPTY interface — it asserts nothing about the value,
 // by its own declaration in `packages/contracts/src/desktop-bridge.ts`. WHO produces
 // the verdict and WHAT it may carry are already settled; what the later narrowing to
@@ -24,7 +24,7 @@
 // `sign-in/ceremony-adapter.ts` alone.
 //
 // A RESOLUTION THE READER DOES NOT RECOGNISE IS `unavailable`, NEVER `authenticated`.
-// The Tier-1 preload throws from every method and the fixture refuses a scenario
+// The stub preload throws from every method and the fixture refuses a scenario
 // that scripts no ceremony, so "this build has no ceremony" is the ordinary state
 // and it renders as the _not checked_ kind of nothing. Treating an unreadable
 // resolution as success would be this console asserting an identity nothing
@@ -136,7 +136,7 @@ export interface DeviceGrantHandoff {
  * What a ceremony answered. Closed; every arm renders something.
  *
  * `unavailable` is this console's arm rather than the corpus's, and it is the one a
- * build without a ceremony reaches: the Tier-1 preload throws, and a fixture whose
+ * build without a ceremony reaches: the stub preload throws, and a fixture whose
  * scenario scripts nothing refuses. It carries the refusal verbatim so the surface
  * renders the daemon's — or the fixture's — own sentence rather than a paraphrase.
  */
@@ -158,7 +158,7 @@ export type WebAuthnCeremonyOutcome =
 /**
  * The arms a PRODUCER can send — everything but this console's own `unavailable`.
  *
- * `unavailable` is a reading of a build that has no ceremony (the Tier-1 preload
+ * `unavailable` is a reading of a build that has no ceremony (the stub preload
  * throws; a fixture whose scenario scripts none refuses), so nothing across the
  * bridge ever composes one. Excluding it here is what makes that structural: a
  * scenario cannot script it, the encoder cannot build it, and the only module that

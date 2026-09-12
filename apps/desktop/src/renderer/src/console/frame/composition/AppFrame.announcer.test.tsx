@@ -187,7 +187,7 @@ describe("AppFrame — the announcer runs on the window's clock", () => {
   });
 
   it("negative control: a live window's announcement clears on wall time", () => {
-    // The other arm of the same seam, over the REAL live bridge — `createTier1Bridge`
+    // The other arm of the same seam, over the REAL live bridge — `createStubBridge`
     // is the object the preload exposes. Without this the case above would be
     // satisfied by an announcer that had simply stopped clearing at all, and the
     // frozen-clock claim would say nothing about which clock is read.

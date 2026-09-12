@@ -157,7 +157,7 @@ export interface CleanupOutcome {
  * The terminator every real launch uses, over the one shared implementation.
  *
  * A thin binding rather than a body: the platform facts live in
- * `test/helpers/process-tree/`, shared with the Tier-1 smoke probe, because
+ * `test/helpers/process-tree/`, shared with the smoke probe, because
  * two copies of them had already disagreed about whether `taskkill`'s exit
  * status counts. `BoundedCleanup` still takes the seam as a constructor
  * argument — a terminator that really killed something would signal a whole

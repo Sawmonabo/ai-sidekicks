@@ -23,9 +23,8 @@
 // WHERE THE ROWS COME FROM. Each row is a subscription the corpus registers:
 //
 //   • `session.subscribe` — the replay-then-tail stream of the WHOLE session
-//     (`docs/architecture/contracts/api-payload-contracts.md`, the Tier-1
-//     long-lived `LocalSubscriptionConsumer<EventEnvelope>` row). Every kind the
-//     session emits reaches it.
+//     (one long-lived `LocalSubscriptionConsumer<EventEnvelope>` row). Every
+//     kind the session emits reaches it.
 //   • `run.subscribeState` — streams `RunStateChangeEvent | RunRolledBackEvent`.
 //   • `run.subscribeQueue` — streams the `QueueItemSummary` projection.
 //   • `presence.subscribe` — the session's Awareness room, which is the one row here

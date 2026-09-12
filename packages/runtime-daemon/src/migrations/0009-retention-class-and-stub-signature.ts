@@ -90,9 +90,6 @@
 //
 
 export const RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL: string = `
--- Owner: | Migration: 0009-retention-class-and-stub-signature.ts (Tier 4 Phase
--- 3)
-
 -- The typed retention discriminator. NULL = live row (per-row chain-verified);
 -- 'audit_stub' = compacted (anchor + stub_signature verified). Column-level
 -- CHECK closes the domain; deliberately NULL-permitting so every pre-migration

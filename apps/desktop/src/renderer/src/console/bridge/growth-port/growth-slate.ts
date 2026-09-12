@@ -160,7 +160,7 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   // contract already names would put a wire on the slate that has nothing to land.
   //
   // The residual is narrower and belongs to that package rather than to this one: its
-  // `SaveDialogOptions` and `SaveDialogResult` are Tier-1 stubs declaring no member, so
+  // `SaveDialogOptions` and `SaveDialogResult` are stubs declaring no member, so
   // a caller can neither suggest a filename nor read back the path a person chose. That
   // is a shape to fill in where it is declared, not a wire to register here, and it is
   // recorded at the row it would otherwise be minted against so the next reader does

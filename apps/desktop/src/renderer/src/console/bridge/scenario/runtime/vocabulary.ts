@@ -189,7 +189,7 @@ export interface ConsoleScenario {
    * not been asked, so the fixture refuses the ceremony exactly as it refuses every
    * other native capability it cannot stand in for, and the sign-in surface renders
    * the "not checked" absence. That is the honest state of a build with no ceremony,
-   * and it is also the state the shipped Tier-1 preload is in.
+   * and it is also the state the shipped stub preload is in.
    *
    * A SCENARIO MEMBER RATHER THAN A `replies` ROW because `reply-walk.ts` admits a
    * reply keyed only on a registered daemon method or a growth operation id, and the

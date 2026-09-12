@@ -91,7 +91,7 @@ export interface ConsoleBridge {
    * Answered by both bridges through their own `daemon.subscribe`, so the rule
    * about which registered `runtime_node.*` names a presence subscription carries
    * is written once and read by both. It ANSWERS rather than throws: the preload's
-   * Tier-1 `daemon.subscribe` throws synchronously, and a seam that let that escape
+   * Stub `daemon.subscribe` throws synchronously, and a seam that let that escape
    * would crash inside the mount effect that opened the surface.
    */
   readonly runtimeNodePresenceSubscribe: RuntimeNodePresenceSubscribe;

@@ -5,7 +5,7 @@
 // were answered in two different shapes. A settled join carried the session it joined
 // and the surface acted on it: it told the node's directory its list had moved and it
 // navigated. A settled START carried nothing, because the component that performs the
-// create is a shipped Tier-1 probe with no caller: it created from its own mount
+// create is a pre-console probe with no caller: it created from its own mount
 // effect and handed the settlement to nobody, so the surface counted PRESSES and the
 // session it had just made had a name no console surface could learn. This is the
 // other half of that pair, and it exists so both acts settle the same way.

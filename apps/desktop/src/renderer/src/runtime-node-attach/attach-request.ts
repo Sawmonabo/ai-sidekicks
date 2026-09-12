@@ -4,7 +4,7 @@
 // composes a registered mutation, issues it, and turns whatever comes back into a
 // settled view state; the other side decides when to ask and what to draw. Everything
 // here is total over its arguments and touches no React, so the cases that matter —
-// the prop winning over a stale draft key, the Tier-1 synchronous throw, a typed
+// the prop winning over a stale draft key, the stub's synchronous throw, a typed
 // refusal envelope, a rejection that is not an object — are one call each rather than
 // a mounted component and a stubbed bridge.
 //
@@ -213,7 +213,7 @@ export function attachmentTargetKeyOf(
  * Issue the attach mutation for this target and settle it into a view state.
  *
  * `async` rather than a bare call chain for the reason the sync-throw note below
- * gives: `await` inside this function funnels the Tier-1 SYNCHRONOUS throw and a
+ * gives: `await` inside this function funnels the stub's SYNCHRONOUS throw and a
  * future asynchronous rejection into the same `catch`, so both reach the caller as a
  * `rejected` state rather than as an escaping error with the view pinned `pending`.
  *
@@ -226,15 +226,15 @@ export async function settleAttachRequest(
   attachDraft: RuntimeNodeAttachDraft,
   reads: RuntimeNodeAttachReads = installedBridgeAttachReads,
 ): Promise<AttachViewState> {
-  // Sync-throw normalization for the Tier-1 stub-contract gap, on the
+  // Sync-throw normalization for the stub-contract gap, on the
   // SessionBootstrap precedent (SessionBootstrap.tsx:69-101). The contract
-  // `controlPlane.call` returns a Promise, but the Tier-1 stub throws SYNCHRONOUSLY
-  // (`() => tier1Throw("controlPlane.call")`, desktop-bridge.ts:353). A
+  // `controlPlane.call` returns a Promise, but the stub throws SYNCHRONOUSLY
+  // (`() => stubThrow("controlPlane.call")` in `desktop-bridge.ts`). A
   // bare `reads.attachNode(...).then(...).catch(...)` would evaluate the
   // call first; the sync throw would escape this handler before `.then` is
   // reached — an uncaught error with the view pinned `pending`. The async
   // IIFE lets `await` funnel the sync throw AND a future async rejection
-  // into the same `catch`, so the Tier-1 `NotImplementedAtTier1Error` lands
+  // into the same `catch`, so the stub's `NotImplementedError` lands
   // in the rejected branch RENDERED — never an unhandled rejection, never a
   // crash. A SUBSTITUTED seam is covered by the same funnel and by nothing
   // else: this arm is where a host's synchronous throw settles too.

@@ -104,7 +104,7 @@ export function withRecordedStreamSinks(
 /**
  * A bridge whose named subscription throws in the caller's own frame.
  *
- * The shipped Tier-1 preload does exactly this when no daemon is attached, so the
+ * The shipped stub preload does exactly this when no daemon is attached, so the
  * throw is the transport's real failure mode rather than an invented one: a surface
  * opens inside an effect commit, and a throw there takes the whole tree down unless
  * the surface catches it.

@@ -98,7 +98,7 @@ export function subscribeNodeDaemon(
  * deliberately not fixed from one caller's vantage. Widening the contract type here
  * would be that premature narrowing; widening the CONSOLE's own wrapper is not, and
  * it is what makes the day the channel lands a one-line change inside this function
- * rather than an audit of every feed. The shipped preload is a Tier-1 stub that
+ * rather than an audit of every feed. The shipped preload is a stub that
  * throws on every method, so no live subscription exists to leak across today.
  *
  * WHY HOLDING IT IS SAFE UNDER THE ONE BRIDGE THAT ANSWERS. The fixture is the only

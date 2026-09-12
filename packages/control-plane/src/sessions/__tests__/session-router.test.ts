@@ -75,7 +75,7 @@ function isPGlite(handle: PGlite | Transaction): handle is PGlite {
 // Test fixtures
 // ---------------------------------------------------------------------------
 //
-// Two user ids — OWNER (the "current user" Tier 1 stub returns) and
+// Two user ids — OWNER (the "current user" stub returns) and
 // SECOND (a different user used to model cross-user joins).
 // Both ids are RFC-9562-conformant UUID v7 fixtures (the schema accepts any
 // RFC 9562 UUID; daemon-minted ids are out of scope for the router tests).
@@ -199,7 +199,7 @@ describe("T5 / session.read — end-to-end tRPC roundtrip via pglite", () => {
     // surfaces the just-bound owner). Verifying config round-trip here
     // proves the snapshot persisted the create-time payload.
     expect(response.session.config).toEqual({ topic: "round-trip" });
-    // Tier 1 placeholder cursors are deterministic strings authored by the
+    // Placeholder cursors are deterministic strings authored by the
     // service; their exact values are PR #4 and aren't re-asserted here.
     // We just verify the field is present.
     expect(typeof response.timelineCursors.latest).toBe("string");

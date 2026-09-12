@@ -735,7 +735,7 @@ describe("VersionFloorExceededErrorSchema (C5: VERSION_FLOOR_EXCEEDED typed-cont
 // Backstops the 5 daemon-reachable per-event PAYLOAD shapes authored: `registered`,
 // `online`, `offline`, `capability_declared`, `capability_updated`. These validate the
 // `EventEnvelope.payload` CONTENTS only — the integrity envelope + discriminated- union
-// registration are Tier 4.
+// registration are daemon-side.
 //   • each schema `.parse()`-es a fully-valid payload and round-trips
 //   • a missing required field, an unknown extra key (`.strict()`), and a
 //     wrong-type field each reject

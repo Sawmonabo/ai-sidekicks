@@ -199,7 +199,7 @@ const filesystemPathSchema: z.ZodString = z
 export interface QueueItemCreateRequest {
   sessionId: SessionId;
   channelId?: ChannelId | undefined;
-  // Repo-bound run binding (run setup data; absent = non-repo run) — Tier-6
+  // Repo-bound run binding (run setup data; absent = non-repo run) — repo-bound
   // audit.
   workspaceId?: WorkspaceId | undefined;
   priority?: number | undefined;

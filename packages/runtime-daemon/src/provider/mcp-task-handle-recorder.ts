@@ -45,7 +45,7 @@
 // other service that takes a `Database`, and not one of them has a production
 // construction site either. They are all owed by the same composition root
 // `bootstrap/index.ts` says does not exist yet ("no composition root that owns
-// one — Phase 2 / Tier 4 bring the listener lifecycle"). That directory is
+// one — Phase 2 brings the listener lifecycle"). That directory is
 // additionally single-owner and the dependency map's `index.ts` is not among
 // them. Constructing this recorder there would be an unsanctioned edit wiring a
 // sink that nothing can call.

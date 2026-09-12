@@ -53,7 +53,7 @@
 //
 // STARTING A SESSION IS AN ACT, NEVER A SIDE EFFECT OF LOOKING AT THE LIST
 //
-// `session.create` and `session.join` are live now, and one shipped Tier-1
+// `session.create` and `session.join` are live now, and one pre-console
 // component already calls them — from its MOUNT EFFECT. Mounting that component
 // with the surface would mean every navigation to Settings and back created a
 // session, because the route lifecycle remounts the slot. A session is a durable
@@ -63,7 +63,7 @@
 // count keys the mount: a second press remounts and therefore starts a second
 // session, where a boolean would leave the first mount in place and make the
 // control silently inert after its first use. The probe still performs the create —
-// the console absorbs the three shipped Tier-1 components and re-authors none of
+// the console absorbs the three pre-console components and re-authors none of
 // them, and `renderAbsorbedSessionProbe` carries the fixture guard, so this file
 // never has to know that the probe reads the installed bridge directly.
 //

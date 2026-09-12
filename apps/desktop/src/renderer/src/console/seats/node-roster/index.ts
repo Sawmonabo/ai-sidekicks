@@ -1,4 +1,4 @@
-// The node-roster sub-module's door: the three seams the absorbed Tier-1 surfaces take.
+// The node-roster sub-module's door: the three seams the absorbed pre-console surfaces take.
 //
 // `surface/absorbed-surfaces.ts` composes the shipped runtime-node mounts and is the
 // one sibling that reads this directory; it takes `nodeAttachDraftFor` and

@@ -580,7 +580,7 @@ export interface MerkleAnchorServiceDeps {
   readonly signingKeySource: DaemonSigningKeySource;
   /**
    * Optional control-plane transport. ABSENT means anchors queue and never
-   * flush, which is the correct behaviour before Tier 5 wires a credential
+   * flush, which is the correct behaviour before a credential provider is wired
    * provider — and is indistinguishable, by design, from an indefinite
    * partition.
    */

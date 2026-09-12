@@ -11,7 +11,7 @@
 //
 // Coverage shape:
 //   • Accepts: names whose every segment starts lowercase, with all-lowercase
-//     OR camelCase segments — the Tier-1 `session.*` surface, the doc's
+//     OR camelCase segments — the `session.*` surface, the doc's
 //     permitted `settings.effectiveRead` / `driver.listCapabilities` per-plan
 //     camelCase-tail strings (010/012/016), and since the 2026-09-05 root
 //     widening the camelCase-ROOTED `providerAccount.*` verbs plus the
@@ -29,7 +29,7 @@ import { METHOD_NAME_FORMAT } from "../jsonrpc-registry.js";
 
 describe("METHOD_NAME_FORMAT — canonical JSON-RPC method-name format", () => {
   const ACCEPTED = [
-    // Tier-1 `session.*` surface (all-lowercase segments).
+    // The `session.*` surface (all-lowercase segments).
     "session.create",
     "session.read",
     "session.subscribe",

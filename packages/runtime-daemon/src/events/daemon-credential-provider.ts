@@ -1,18 +1,18 @@
 // The daemon's outbound-credential seam for control-plane calls.
 //
-// DECLARED HERE, IMPLEMENTED AT TIER 5. This module ships an INTERFACE and a
+// DECLARED HERE, IMPLEMENTED LATER. This module ships an INTERFACE and a
 // refusing stub; it ships no credential minting. The reason is the same one
 // `signing-key-source.ts`'s `DaemonSigningKeySealer` states for its own
 // boundary, and it is a corpus fact rather than a preference: the daemon has no
 // PASETO signing identity yet. needs anchors uploaded, but the key that would
 // sign a daemon's PASETO v4.public token, the key's custody, and the control
-// plane's verification of it are the (PASETO auth) and land at Tier 5. Minting
-// a token here would mean inventing a claim set and a signing key that Tier 5
+// plane's verification of it are the (PASETO auth) and land later. Minting
+// a token here would mean inventing a claim set and a signing key that a real provider
 // then has to honour or break.
 //
 // Declaring the interface NOW is not premature either: it is what lets the
 // uploader be written and reviewed against a real call shape instead of a
-// TODO, and what lets the composition root wire a real provider at Tier 5
+// TODO, and what lets the composition root wire a real provider later
 // without touching this file's consumers. hoists this declaration for exactly
 // that reason — Phase 3 precedes Phase 4, and Phase 3 is where the first
 // consumer lands.
@@ -125,7 +125,7 @@ export interface DaemonCredentialAttempt {
  * A MAP, NOT A TOKEN, and that is the load-bearing choice. DPoP needs two
  * headers that agree with each other and with the request; returning a token
  * string would leave the caller to assemble them and to re-derive the scheme
- * name at every call site. Returning the finished map means a Tier-5 provider
+ * name at every call site. Returning the finished map means a real provider
  * can also add headers this module never anticipated (a `DPoP-Nonce` echo per
  * RFC 9449 section 8, say) without a signature change.
  */
@@ -163,11 +163,11 @@ export interface DaemonCredentialProvider {
  * anchors correctly; it simply never flushes, exactly as it would during an
  * indefinite partition.
  */
-export class Tier5DeferredDaemonCredentialProvider implements DaemonCredentialProvider {
+export class DeferredDaemonCredentialProvider implements DaemonCredentialProvider {
   mintForAttempt(attempt: DaemonCredentialAttempt): Promise<DaemonCredentialMaterial> {
     return Promise.reject(
       new Error(
-        `DaemonCredentialProvider.mintForAttempt is deferred to Tier 5 (PASETO auth;` +
+        `DaemonCredentialProvider.mintForAttempt is deferred (PASETO auth;` +
           `no daemon PASETO signing identity exists yet, so no` +
           `${DPOP_AUTHORIZATION_SCHEME}-bound token can be minted for ${attempt.htm} ${attempt.htu} ` +
           `(session ${attempt.sessionId}, node ${attempt.nodeId}). The anchor remains durably ` +

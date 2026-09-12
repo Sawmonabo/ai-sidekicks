@@ -111,7 +111,7 @@ import { SessionEventBinder } from "./session-event-binder.js";
  *     read and whose binder both pointed at a transport nothing was serving.
  *   • **The plumbing disposed itself.** The remount arm, for the same component
  *     instance — React's StrictMode double-mount is the one that does it today, and
- *     the Tier-8 opt-in is named in `main.tsx`. The cleanup has already disposed the
+ *     the opt-in is named in `main.tsx`. The cleanup has already disposed the
  *     registry by then and a disposed registry refuses every open, so the second
  *     mount publishes a fresh plumbing rather than keeping a corpse. It cannot be a
  *     render-phase comparison, because the disposal happens in an effect's cleanup

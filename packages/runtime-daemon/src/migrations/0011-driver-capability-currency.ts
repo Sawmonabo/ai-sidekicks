@@ -195,7 +195,6 @@
 //
 
 export const DRIVER_CAPABILITY_CURRENCY_MIGRATION_SQL: string = `
--- Owner: | Migration: 0011-driver-capability-currency.ts (Tier 4 Phase 1)
 
 -- ---------------------------------------------------------------------------
 -- driver_capabilities: the fourteen-value capability_flag CHECK. Twelve-step

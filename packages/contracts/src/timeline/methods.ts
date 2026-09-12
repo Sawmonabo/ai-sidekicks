@@ -10,7 +10,7 @@
 // Why the strings are bound to schemas rather than just declared
 // ----------------------------------------------------------------------------
 //
-// The Tier-8 audit's finding was not that the timeline shapes were missing —
+// The defect was not that the timeline shapes were missing —
 // they were in the canonical doc — but that nothing said WHICH WIRE METHOD
 // carried each one, so an operation's schema name resolved while its method
 // string did not. Declaring four bare constants would close half of that: the

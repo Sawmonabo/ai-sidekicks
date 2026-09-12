@@ -66,7 +66,7 @@
 // DaemonSigningKeySealer}), for a reason that is a corpus fact rather than a
 // preference: no byte format for `daemon_signing_keys.sealed_private_key` is
 // specified anywhere. specifies the MASTER key's own custody (the OS-keystore
-// tier-1 ladder, the KEK derivation, the 98-byte envelope) and specifies the
+// keystore ladder, the KEK derivation, the 98-byte envelope) and specifies the
 // wrap for `user_keys.encrypted_key_blob` (XChaCha20-Poly1305, AAD
 // `user_id || "ais.master-wrap.v1" || key_version`) — neither covers this
 // column. Inventing a third format here would pre-commit every later reader of
@@ -75,12 +75,12 @@
 // the same seam already uses twice: the `PiiEncryptor` (interface here,
 // implementation) and the injected `RollbackAttributionSource`.
 //
-// That obligation is REGISTERED, not merely described: binds Tier 5 to ship
+// That obligation is REGISTERED, not merely described: binds a later phase to ship
 // the implementation AND to specify this column's byte format, and carries the
 // `sessionId` AAD binding as an obligation there — this interface, having
 // fixed no format, can ask for that binding but cannot require it.
 //
-// That keeps the module self-contained at Tier 5 with no tier inversion — the
+// That keeps the module self-contained with no dependency inversion — the
 // property the `daemon_signing_keys` row requires — and it keeps
 // `@napi-rs/keyring` OUT of this module's import graph. That second effect is
 // load-bearing on its own: the keyring binding is a native module, so importing
@@ -279,7 +279,7 @@ interface DaemonSigningKeyRow {
  *
  * NAMED FOR THE CUSTODY MODEL IT COMPOSES OVER, NOT FOR CODE IT CONTAINS. The
  * "OsKeystoreSealed" prefix is row's own name for this class and describes
- * where the sealing master key comes from — the OS-keystore tier-1 rung of
+ * where the sealing master key comes from — the OS-keystore rung of
  * reached through the sealer the composition root injects. This class holds NO
  * keystore code: no `@napi-rs/keyring` import, no backend probe, no AEAD, no
  * master key. Read the header's "What is NOT here" note before adding any.
@@ -355,7 +355,7 @@ export class OsKeystoreSealedDaemonSigningKeySource implements DaemonSigningKeyS
       // THE SEALER IS AN INJECTED SEAM AND ITS DECLARED RETURN TYPE IS A CLAIM
       // NOTHING HERE CHECKED — the stance `pii-indirection.ts` takes toward its
       // own encryptor result, for a worse failure. This boundary is: owns the
-      // implementation at Tier 5, this module does not import it, and that
+      // implementation lives elsewhere, this module does not import it, and that
       // registration contemplates a stub in the interim.
       //
       // AN UNGUARDED BAD RESULT IS NOT RECOVERABLE, WHICH IS WHAT SETS IT APART

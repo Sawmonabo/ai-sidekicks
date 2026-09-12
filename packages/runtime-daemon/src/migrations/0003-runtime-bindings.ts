@@ -72,7 +72,7 @@
 // INSERTs its version-3 row.
 
 export const RUNTIME_BINDINGS_MIGRATION_SQL: string = `
--- Owner: | Extended by: Provider-output defense-in-depth CHECKs:
+-- Provider-output defense-in-depth CHECKs:
 -- contract_version and resume_handle are provider-declared strings persisted at
 -- the write seam. The 4096/64 length literals are the canonical bounds that
 -- write-path guard reuses, so the two layers stay consistent.

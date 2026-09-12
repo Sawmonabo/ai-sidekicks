@@ -274,7 +274,7 @@ describe("push-driven read — a subscription that cannot be opened", () => {
   it("settles failed with the thrower's own words when subscribe throws synchronously", async () => {
     const clock = new ManualClock();
     const read = vi.fn(async () => "value");
-    // The installed Tier-1 preload bridge throws exactly this way from every daemon
+    // The installed stub preload bridge throws exactly this way from every daemon
     // method, and the presence roster's subscribe is that call.
     const model = new PushDrivenRead<string>({
       clock,

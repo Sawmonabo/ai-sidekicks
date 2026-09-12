@@ -7,7 +7,7 @@
 // readers are `src/renderer/src/App.tsx` and the tiers that mount a whole console.
 // A family that needs a frame symbol takes the hoist instead, which is where the
 // window command registry, the rail table and chords, the node's session directory,
-// the absorbed Tier-1 mounts, `SurfaceAbsence` and `SurfaceErrorBoundary` went.
+// the absorbed pre-console mounts, `SurfaceAbsence` and `SurfaceErrorBoundary` went.
 //
 // Import order matters here in exactly one way: `frame.css` is imported by this
 // barrel rather than by each component, so the sheet lands once per bundle and its

@@ -19,7 +19,7 @@
 //   4. **No stale reply wins.** The scheduler serializes: a read requested while one
 //      is in flight becomes the NEXT read rather than a parallel one, so two replies
 //      never race and no sequence counter is needed to drop the loser. The shipped
-//      Tier-1 roster needs one because it calls the bridge directly; routing through
+//      The pre-console roster needs one because it calls the bridge directly; routing through
 //      the chokepoint is what retires it.
 //   5. **No flicker.** A refresh replaces the value in place and never returns a
 //      loaded surface to its loading shape, because a roster that blinked on every
@@ -42,7 +42,7 @@
 // subscribe first, so a `subscribe` that throws SYNCHRONOUSLY throws out of the open
 // — which runs from a mount effect, so the throw lands in React's commit phase and
 // takes the surface down instead of producing the model's own `failed` state. Not
-// hypothetical: the installed Tier-1 preload bridge implements every daemon method
+// hypothetical: the installed stub preload bridge implements every daemon method
 // by throwing, so the presence roster's subscribe is exactly this call under a live
 // window. So the open catches it and settles `failed` carrying the thrower's own
 // words — and requests no read, because a value fetched behind a subscription that
@@ -54,7 +54,7 @@
 // rather than after it, made a refused open permanent: every later open returned at the
 // guard, `refresh()` went on requesting reads behind a subscription nothing had ever
 // taken, and the surface stayed `failed` for the life of the window — under the shipped
-// Tier-1 preload, whose subscribe throws, that is the ordinary path and not the unlucky
+// stub preload, whose subscribe throws, that is the ordinary path and not the unlucky
 // one. So a trigger — repair, focus, reconnect, a person asking again — re-attempts the
 // open, and one that succeeds clears the refusal rather than leaving `failed` beside a
 // live subscription. `#opening` is the single flight: an attempt already running is not

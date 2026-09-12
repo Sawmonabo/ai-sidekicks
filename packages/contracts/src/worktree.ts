@@ -247,7 +247,7 @@ export const WorktreeLifecyclePayloadSchema: z.ZodType<WorktreeLifecyclePayload>
 // (mutation), `repo.ephemeralCloneDispose` (mutation), `repo.worktreeRetire`
 // (mutation), `repo.worktreeStatusRead` (query) — the seven methods, in the
 // ratified declaration order. They ride the SAME `repo.*` namespace as the six
-// rather than a new `worktree` root: the Tier-1 ratified namespace-root
+// rather than a new `worktree` root: the ratified namespace-root
 // enumeration admits `repo`, and mounts, workspaces, worktrees, and clones are
 // one repo aggregate (sibling symmetry — `repo.executionModeCapabilitiesRead`
 // ↔ `repo.executionModeSelect`).

@@ -10,7 +10,7 @@
 // THE DEFECT, IN THREE LINES. `start()` marked the model started BEFORE the subscribe
 // attempt; the refusal arm settled `failed` and returned without clearing that mark;
 // and `refresh()` could take no subscription of its own, so with none held it did
-// nothing at all. So on the shipped Tier-1 preload — where every daemon method throws
+// nothing at all. So on the shipped stub preload — where every daemon method throws
 // — the first open refused and every repair, focus, reconnect, and press afterwards
 // was a guaranteed no-op, for the life of the window.
 //

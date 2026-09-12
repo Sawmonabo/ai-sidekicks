@@ -8,7 +8,7 @@
 //
 // TWO BRAND CASTS, AND WHY THEY ARE HERE. `CpProcedure` and `DaemonEvent` are
 // `never`-shaped brands that no string literal is assignable to, so
-// every caller in this repository casts — the three shipped Tier-1 components and
+// every caller in this repository casts — the three pre-console components and
 // `seats/read/wire-access.ts` each carry one. This module is the `bridge/` family's single
 // copy, and it narrows rather than erases: the procedure NAME and the event NAME stay
 // `string` (the genuinely untypeable half) while the request is pinned to the

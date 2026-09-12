@@ -171,7 +171,7 @@ describe("the updater reading — a feed that was not reached", () => {
   });
 
   it("names the READ when the state call throws on its invocation, and keeps the subscription", () => {
-    // The shipped Tier-1 bridge implements every updater method as a synchronous
+    // The shipped stub bridge implements every updater method as a synchronous
     // throw, so this is the live shape rather than a contrived one: `getState()`
     // fails before it ever returns a promise. Under one `try` around both calls it
     // was reported as `updater-subscribe-failed` — naming a subscription that had in

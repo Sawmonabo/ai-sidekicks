@@ -2,7 +2,7 @@
 //
 // The suite beside this one drives the five rules a push-driven read holds while its
 // subscription is up. These cases are about the state that reaches every one of them
-// first: the open itself, which the shipped Tier-1 preload refuses on every call,
+// first: the open itself, which the shipped stub preload refuses on every call,
 // because that build implements each daemon method by throwing. Under the shape this
 // replaced, that refusal was terminal for the life of the window — the model marked
 // itself started BEFORE the attempt, so every later open returned at the guard and

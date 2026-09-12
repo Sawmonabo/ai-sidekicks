@@ -51,7 +51,7 @@
 // The `ReasoningSurfaceReadRequest` principal: no wire member, by design
 // ----------------------------------------------------------------------------
 //
-// The Tier-8 plan-readiness audit left this request's authorization
+// The plan-readiness review left this request's authorization
 // principal recorded as unshaped; it is shaped here as the decision that it
 // carries none.
 //
@@ -521,7 +521,7 @@ export const ReasoningEntrySchema: z.ZodType<ReasoningEntry> = z
  * The prior shape was `available: boolean` with two free optionals, which
  * serialized the available / unavailable / compacted / policy-redacted cases
  * IDENTICALLY and left the distinguish-the-cases requirement unrepresentable.
- * The Tier-8 audit's Codex round replaced it in place rather than
+ * It was replaced in place rather than
  * compatibility-extending it: the shape predated that PR as canonical-doc text
  * only, with no shipped emitter or parser, so the deployed-skew rules — which
  * guard from the first shipped parser onward — impose no legacy boolean arm.

@@ -1,4 +1,4 @@
-// W-007p-2-T11 — StreamingPrimitive test suite.
+// StreamingPrimitive test suite.
 //
 //   * Local IPC supports bidirectional streaming notifications; the wire
 //     envelope is the same `Content-Length`-framed JSON-RPC envelope.
@@ -9,7 +9,7 @@
 //     gateway sends the frame. Validation failure throws
 //     `StreamingValidationError` (programmer error).
 //
-//   * W-007p-2-T11 — `LocalSubscriptionProducer<T>` round-trip + cancel
+//   * `LocalSubscriptionProducer<T>` round-trip + cancel
 //                    cleanup. Initial response carries
 //                    `subscriptionId`; N notifications correlate;
 //                    cancel cleans up server resources; transport
@@ -64,10 +64,10 @@ function makeFixture(): PrimitiveFixture {
 }
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T11 — round-trip + cancel cleanup
+// round-trip + cancel cleanup
 // ----------------------------------------------------------------------------
 
-describe("W-007p-2-T11 — LocalSubscriptionProducer round-trip + cancel cleanup", () => {
+describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
   it("createSubscription returns a subscriptionId; subsequent next(value) emits a `$/subscription/notify` frame", () => {
     const { primitive, send } = makeFixture();
     const sub = primitive.createSubscription<{ tick: number }>(

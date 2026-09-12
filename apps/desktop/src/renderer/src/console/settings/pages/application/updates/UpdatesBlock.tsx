@@ -7,7 +7,7 @@
 // THE FIVE ARMS ARE THE WIRE'S, AND THE SIXTH STATE IS NOT AN ARM
 //
 // `UpdateState` is a registered union on the preload contract and this file renders
-// exactly its five members. A bridge that cannot answer at all — the shipped Tier-1
+// exactly its five members. A bridge that cannot answer at all — the shipped stub
 // stub throws, and the fixture has no updater behind it — is a different fact: the
 // feed was not reached, nothing failed, and rendering that as `error` would put a
 // message on screen that no updater ever wrote. It takes the quiet informational
@@ -132,7 +132,7 @@ export function UpdatesBlock(props: {
   // written once rather than duplicated per button.
   //
   // THE INVOCATION IS INSIDE THE BOUNDARY, and that is the whole point of the
-  // `await`. The shipped Tier-1 bridge implements every updater method as a
+  // `await`. The shipped stub bridge implements every updater method as a
   // synchronous `throw`, while the fixture's refusals arrive as rejected promises —
   // so a shape that attached a handler to the RETURNED promise would catch the
   // fixture and let the release build's throw escape the React event handler, with

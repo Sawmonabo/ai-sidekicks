@@ -97,7 +97,7 @@ import { SessionNotFoundError } from "./session-errors.js";
  *     the body either. → `-32700 ParseError`.
  *   * `"oversized_body"` — declared `Content-Length` exceeded `MAX_MESSAGE_BYTES`.
  *     The framing parser successfully read the header but refuses to read the body.
- *     Tasks + W-007p-2-T5, this is structurally an "Invalid Request" (the request
+ *     this is structurally an "Invalid Request" (the request
  *     envelope itself is malformed-by-being-too-large, not malformed-as-JSON). →
  *     `-32600 InvalidRequest` per JSON-RPC section 5.1 ("The JSON sent is not a
  *     valid Request object").

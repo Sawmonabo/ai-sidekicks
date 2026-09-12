@@ -108,7 +108,7 @@ CREATE TABLE ephemeral_clones (
 CREATE INDEX idx_ephemeral_clones_workspace ON ephemeral_clones(workspace_id);
 CREATE INDEX idx_ephemeral_clones_sweep ON ephemeral_clones(state, expires_at);  -- cleanup-tick scan
 
--- Owner: | Extended by: Polymorphic root carrier (Tier-6 audit): worktree-mode rows reference the
+-- Polymorphic root carrier: worktree-mode rows reference the
 -- worktree, ephemeral-clone rows the clone, branch-mode rows neither (the main checkout carries no
 -- root row).
 CREATE TABLE branch_contexts (
@@ -144,7 +144,7 @@ CREATE TABLE run_execution_contexts (
   branch_context_id  TEXT REFERENCES branch_contexts(id),
   created_at         TEXT NOT NULL,
   released_at        TEXT,
-  -- Mode-conditional identity (Tier-6 audit): the mode names exactly which root id is
+  -- Mode-conditional identity: the mode names exactly which root id is
   -- present, and every writable mode carries its branch context; read-only carries
   -- none of the three.
   CHECK (

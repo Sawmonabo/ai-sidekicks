@@ -1,6 +1,6 @@
 // SecureDefaults — daemon bootstrap configuration + enforcement layer.
 //
-// This is the substrate Tier 1 ships for daemon-side secure defaults. It
+// This is the substrate this package ships for daemon-side secure defaults. It
 // runs as the FIRST step of daemon bootstrap, before any listener binds.
 // Downstream daemon modules (gateway, banner, supervision) consume
 // `effectiveSettings()` to discover the validated non-secret view of the
@@ -16,16 +16,15 @@
 // Canonical source: this file. no-mirror disposition, the
 // `SecureDefaults` config + effective-settings shape is canonical in
 // code does not maintain a doc-side mirror. The interfaces below are
-// the authoritative contract for the Tier 1 loopback-bind validation
-// surface -remainder widens the surface (Tier 4) by extending the
-// schema additively.
+// the authoritative contract for the loopback-bind validation
+// surface; a later phase widens it by extending the schema additively.
 //
 // What this module does NOT do (deferred):
 //   * Port-availability or interface-reachability probing (a listener
 //     concern; deferred to Phase 2 wire substrate).
 //   * Override-event emission — owned by `secure-defaults-events.ts`.
-//   * Tier-4-scope validation (TLS mode, non-loopback bind, first-run
-//     keys policy). At Tier 1 those keys are refused with
+//   * extended-scope validation (TLS mode, non-loopback bind, first-run
+//     keys policy). Those keys are refused with
 //     `unknown_setting`.
 
 // --------------------------------------------------------------------------
@@ -33,22 +32,22 @@
 // --------------------------------------------------------------------------
 
 /**
- * The fields cover the bind paths Tier 1 actually exposes (loopback
+ * The fields cover the bind paths actually exposed (loopback
  * OS-local socket + banner format); any other key is refused with
  * `unknown_setting`.
  */
 export interface SecureDefaultsConfig {
   /**
-   * Loopback bind address for the daemon. Tier 1 accepts only the
+   * Loopback bind address for the daemon. Only the
    * loopback set: `127.0.0.1`, `::1`, `localhost`. Non-loopback values
-   * are refused (Tier 4 widens this surface).
+   * are refused (a later phase widens this surface).
    */
   readonly bindAddress: string;
 
   /**
    * Optional TCP port. When omitted, the daemon listener picks a port
-   * (the Tier 1 OS-local socket path may not need a port at all; the
-   * field is preserved as optional so Tier 4's HTTP-listener consumer
+   * (the OS-local socket path may not need a port at all; the
+   * field is preserved as optional so a future HTTP-listener consumer
    * can populate it without a contract-shape amendment).
    */
   readonly bindPort?: number;
@@ -71,8 +70,8 @@ export interface SecureDefaultsConfig {
 /**
  * Effective-settings view returned by `effectiveSettings()`. Mirrors
  * `SecureDefaultsConfig` minus any future secret-bearing fields. At
- * Tier 1 the two shapes are structurally identical because no input
- * field carries a secret; the type is preserved separately so Tier 4
+ * Today the two shapes are structurally identical because no input
+ * field carries a secret; the type is preserved separately so a later phase
  * can widen `SecureDefaultsConfig` with secret-bearing fields
  * without leaking them through this view.
  */
@@ -84,15 +83,14 @@ export interface SecureDefaultsEffectiveSettings {
 }
 
 // --------------------------------------------------------------------------
-// Allowlists (closed set; widens with bind surface at Tier 4)
+// Allowlists (closed set; widens with the bind surface)
 // --------------------------------------------------------------------------
 
 // The KNOWN_KEYS set is the load-bearing enforcement surface for the
-// refuse-unknown-keys clause. A denylist of the three named Tier-4-scope
+// refuse-unknown-keys clause. A denylist of the three named extended-scope
 // keys (`tlsMode`, `firstRunKeysPolicy`, `nonLoopbackHost`) would silently
-// accept any future Tier-4 key added before the corpus catches up; the
-// closed allowlist forces every new key through a Tier-1-explicit
-// extension here.
+// accept any future extended-scope key added before the corpus catches up; the
+// closed allowlist forces every new key through an explicit extension here.
 const KNOWN_KEYS: ReadonlySet<string> = new Set<string>([
   "bindAddress",
   "bindPort",
@@ -100,8 +98,8 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set<string>([
   "bannerFormat",
 ]);
 
-// Tier 1 scope: loopback-only. Non-loopback (`0.0.0.0`, public addresses,
-// hostnames) is refused. Tier 4 widens this set when TLS + non-loopback
+// Scope: loopback-only. Non-loopback (`0.0.0.0`, public addresses,
+// hostnames) is refused. A later phase widens this set when TLS + non-loopback
 // bind paths land (-remainder).
 const LOOPBACK_BIND_ADDRESSES: ReadonlySet<string> = new Set<string>([
   "127.0.0.1",
@@ -173,7 +171,7 @@ export class SecureDefaults {
 
   /**
    * Validate the configuration and persist the effective view for
-   * downstream consumers. Synchronous — Tier 1 has no I/O (port-bind
+   * downstream consumers. Synchronous — there is no I/O (port-bind
    * probes are a listener concern).
    *
    * Idempotency: calling `load()` a second time replaces the previously
@@ -215,7 +213,7 @@ export class SecureDefaults {
   /**
    * Test-only reset hook. Vitest shares a single Node process across
    * cases; without this hook, tests that assert pre-load behavior
-   * (W-007p-1-T1) would inherit state from any earlier test that
+   * (its test) would inherit state from any earlier test that
    * called `load()`. NOT for production use — there is no daemon-
    * runtime caller for this method.
    */
@@ -237,7 +235,7 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
     );
   }
 
-  // Walk the actual input keys (not the typed shape) so Tier-4-scope
+  // Walk the actual input keys (not the typed shape) so extended-scope
   // keys riding through a JS escape hatch are still caught at runtime.
   // The double cast through `unknown` is intentional:
   // `SecureDefaultsConfig` has no index signature, so a direct cast to
@@ -250,7 +248,7 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
     if (!KNOWN_KEYS.has(key)) {
       throw new SecureDefaultsValidationError(
         "unknown_setting",
-        `SecureDefaults.load: unknown setting "${key}" — Tier 1 validation surface accepts only ${listKeys(KNOWN_KEYS)}`,
+        `SecureDefaults.load: unknown setting "${key}" — the validation surface accepts only ${listKeys(KNOWN_KEYS)}`,
         { setting: key, value: (config as unknown as Record<string, unknown>)[key] },
       );
     }
@@ -292,7 +290,7 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
   if (!LOOPBACK_BIND_ADDRESSES.has(bindAddress)) {
     throw new SecureDefaultsValidationError(
       "invalid_bind_address",
-      `SecureDefaults.load: bindAddress "${bindAddress}" is not in the Tier 1 loopback set ${listKeys(LOOPBACK_BIND_ADDRESSES)} — non-loopback bind paths widen at Tier 4`,
+      `SecureDefaults.load: bindAddress "${bindAddress}" is not in the loopback set ${listKeys(LOOPBACK_BIND_ADDRESSES)} — non-loopback bind paths are not supported yet`,
       { setting: "bindAddress", value: bindAddress },
     );
   }

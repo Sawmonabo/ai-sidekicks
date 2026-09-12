@@ -50,7 +50,7 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
   });
 
   it("routes a bridge that THROWS to the same sink as one that rejects", async () => {
-    // The shipped Tier-1 bridge implements every method as a synchronous `throw`,
+    // The shipped stub bridge implements every method as a synchronous `throw`,
     // and the fixture refuses by returning a rejected promise, so the two arms fail
     // differently and must land on one line. This is the negative control for a
     // boundary attached to the returned promise: under that shape the throw escapes

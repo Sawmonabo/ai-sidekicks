@@ -2,9 +2,9 @@
 //
 // Today this file does one thing: expose a typed `SidekicksBridge` on
 // `window.sidekicks` via Electron's `contextBridge.exposeInMainWorld`. The
-// bridge object is produced by `createTier1Bridge()` from
+// bridge object is produced by `createStubBridge()` from
 // `@ai-sidekicks/contracts`; every round-trip method on it throws
-// `NotImplementedAtTier1Error` until the real IPC handlers are wired against
+// `NotImplementedError` until the real IPC handlers are wired against
 // this same surface.
 //
 // TWO NAMESPACES ARE ALREADY WIRED, and each is wired the way its direction
@@ -48,7 +48,7 @@ import { contextBridge, ipcRenderer } from "electron";
 
 import {
   AUXILIARY_WINDOW_CHANNELS,
-  createTier1Bridge,
+  createStubBridge,
   type AuxiliaryWindowControls,
   type AuxiliaryWindowDetachRequest,
   type AuxiliaryWindowHandle,
@@ -91,6 +91,6 @@ const auxiliaryWindowControls: AuxiliaryWindowControls = {
 };
 
 contextBridge.exposeInMainWorld("sidekicks", {
-  ...createTier1Bridge(createShellSignals(ipcRenderer)),
+  ...createStubBridge(createShellSignals(ipcRenderer)),
   window: auxiliaryWindowControls,
 });

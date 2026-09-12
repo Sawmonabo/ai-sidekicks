@@ -8,7 +8,7 @@
 // WHY ONE MODULE AND NOT THREE BLOCKS. The renderer is compiled in three
 // places — `electron.vite.config.ts` builds it, every console Vitest tier
 // resolves it, and the root `renderer` project compiles console source for the
-// Tier-1 components that reach it — and an icon that resolved in one and not in
+// Pre-console components that reach it — and an icon that resolved in one and not in
 // another would fail at import with a specifier no reader could place. Worse,
 // three copies of the stroke contract would drift silently: a face is legible
 // at any weight, so nothing goes red when one of the three is edited and the

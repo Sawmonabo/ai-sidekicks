@@ -5,7 +5,7 @@
 // the one namespace that is SERVED rather than stubbed: `apps/desktop/src/main/`
 // registers handlers for these channels and the preload replaces the throwing stub
 // with a real `ipcRenderer` implementation, so this file is read by main, by preload,
-// and by the renderer, while the rest of that module is a Tier-1 declaration nobody
+// and by the renderer, while the rest of that module is a declaration nobody
 // implements yet. Keeping it here means a shell change touches a file about the shell.
 //
 // AND IN THIS PACKAGE RATHER THAN IN `apps/desktop/src/shared/`, because the preload

@@ -36,7 +36,7 @@ function descriptor(
 describe("surface registry — the module-scope door", () => {
   it("claims a slot on the process-wide registry", () => {
     // `timeline` deliberately: the composition root claims `sessions`,
-    // `workspace`, and `agent-console` for the shipped Tier-1 families at import
+    // `workspace`, and `agent-console` for the pre-console families at import
     // time, and this case is about the door rather than about who got there
     // first.
     try {

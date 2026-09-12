@@ -1,4 +1,4 @@
-// W-007p-2-T1 + T8 — ProtocolNegotiator test suite.
+// ProtocolNegotiator test suite.
 //
 //   * "Local IPC must support protocol version negotiation before
 //     mutating operations are accepted."
@@ -15,14 +15,14 @@
 //     schema-validates-before-dispatch path (registered with
 //     `DaemonHelloSchema` / `DaemonHelloAckSchema`).
 //
-//   * W-007p-2-T1 — Handshake + version-negotiation compatibility.
+//   * Handshake + version-negotiation compatibility.
 //                   `DaemonHello` / `DaemonHelloAck` exchange yields
 //                   `compatible: true` when intersection is non-empty;
 //                   yields `compatible: false` with `reason:
 //                   version.floor_exceeded` (client too old) or
 //                   `version.ceiling_exceeded` (client too new) when
 //                   intersection is empty.
-//   * W-007p-2-T8 — Mutating-op gate when `DaemonHelloAck.compatible
+//   * Mutating-op gate when `DaemonHelloAck.compatible
 //                   === false`. Read methods pass through; mutating
 //                   methods refused per the registry's `mutating:
 //                   boolean` flag.
@@ -76,10 +76,10 @@ function makeFixture(): NegotiatorFixture {
 }
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T1 — Handshake + version-negotiation compatibility
+// Handshake + version-negotiation compatibility
 // ----------------------------------------------------------------------------
 
-describe("W-007p-2-T1 — handshake + version-negotiation compatibility", () => {
+describe("handshake + version-negotiation compatibility", () => {
   it("compatible handshake (intersection non-empty) → `compatible: true` + max-of-intersection", async () => {
     const { gated } = makeFixture();
     const params: DaemonHello = {
@@ -202,10 +202,10 @@ describe("W-007p-2-T1 — handshake + version-negotiation compatibility", () => 
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T8 — Mutating-op gate
+// Mutating-op gate
 // ----------------------------------------------------------------------------
 
-describe("W-007p-2-T8 — mutating-op gate when version-mismatch", () => {
+describe("mutating-op gate when version-mismatch", () => {
   it("read methods pass through in `pre` state (no handshake yet)", async () => {
     const { raw, gated } = makeFixture();
     const handler: Handler<unknown, { ok: true }> = async () => ({ ok: true });

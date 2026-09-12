@@ -101,7 +101,7 @@
 // states that compaction "runs as a background daemon task during idle periods.
 // It never runs during active runs." That is a property of WHEN `tick()` is
 // invoked, and this module deliberately does not invent a run-state seam to
-// enforce it: no run-state source exists in this package at Tier 4, and
+// enforce it: no run-state source exists in this package yet, and
 // declaring one here would be a premature interface that run registry would
 // then have to displace. The idle scheduler that owns `tick()` owns the
 // precondition.

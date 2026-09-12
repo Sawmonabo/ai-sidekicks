@@ -64,7 +64,7 @@
 //
 // `seats/surface/absorbed-surfaces.ts` is the one module here that BUILDS elements, and every
 // component it builds is owned by a renderer subtree outside the console: the three
-// shipped Tier-1 families the console absorbed by import. That is not a sibling's
+// pre-console families the console absorbed by import. That is not a sibling's
 // body — it is a component with no owner left to mount it, handed to whichever
 // console surface absorbed it. Three view families reach for one of those mounts, so
 // the mounts sit here for exactly the reason every other seat does.
@@ -97,7 +97,7 @@ import "./sidebar-section-list.css";
 // reader is `families.test.ts`. `registerConsoleSurface` — the module-scope door a
 // plan-owned subtree mounting into the console would call — has no caller outside this
 // family yet; the family that lands the first one adds the line in its own diff. And
-// `ConsoleSurfaceDescriptor` joined them when the last shipped Tier-1 slot claim was
+// `ConsoleSurfaceDescriptor` joined them when the last pre-console slot claim was
 // retired: every surviving registrar hands `register` an object literal or a
 // `ConsoleSurfaceRegistration` row and names the descriptor type nowhere, so the line
 // had only a test harness left reading it, and that harness takes the declaring module.
@@ -515,7 +515,7 @@ export {
 // methods and parses both directions, so no seat casts a call any more.
 export { subscribeDaemonEvent } from "./read/wire-access.js";
 
-// The mounts for the two shipped Tier-1 families the console absorbed, one of them
+// The mounts for the two pre-console families the console absorbed, one of them
 // carrying the bridge-source guard that decides whether it may be mounted at all, and
 // that guard's own condition beside them: a surface that single-flights the act one of
 // these mounts performs reads the condition to decide whether there is an act to

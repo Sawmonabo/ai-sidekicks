@@ -71,7 +71,6 @@
 // Invariant `PII_USER_ID_PAYLOAD_KEY` in `events/pii-indirection.ts`.
 
 export const PII_USER_ID_MIGRATION_SQL: string = `
--- Owner: | Migration: 0007-pii-user-id.ts (Tier 4 Phase 3)
 
 -- The durable PII owner stamp: byte-equal to the user id the codec
 -- signs into payload under PII_USER_ID_PAYLOAD_KEY, written by the same

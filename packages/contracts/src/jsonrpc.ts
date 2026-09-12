@@ -183,7 +183,7 @@ export function isJsonRpcIdWithinBound(candidate: unknown): boolean {
  * (proposed primary)
  * + `params.supportedProtocols` (full set), validated INSIDE the
  *
- * Tier 1 surface only registers `daemon.hello`; Tier-4 health-check methods
+ * The surface only registers `daemon.hello`; health-check methods
  * ("except health checks") will extend this set when those methods are
  * implemented. Adding a method here is a deliberate, documented exemption —
  * every entry MUST cite which envelope-level violation invariant it is shifting
@@ -332,7 +332,7 @@ export interface JsonRpcErrorData {
  * (`packages/runtime-daemon/src/ipc/jsonrpc-error-mapping.ts`) and SDK-side
  * decoding (`packages/client-sdk/src/transport/jsonRpcClient.ts`) share
  * one canonical declaration. Both packages depend on
- * `@ai-sidekicks/contracts` per the Tier 1 dependency direction (clients
+ * `@ai-sidekicks/contracts` per the dependency direction (clients
  * depend on contracts; never on the daemon).
  *
  *   * `-32700 ParseError` — Invalid JSON received by the server.

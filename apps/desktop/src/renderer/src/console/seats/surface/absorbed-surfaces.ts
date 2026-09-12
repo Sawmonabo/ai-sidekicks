@@ -1,4 +1,4 @@
-// The shipped Tier-1 families the console absorbed, and the guard one of them uses.
+// The pre-console families the console absorbed, and the guard one of them uses.
 //
 // Four families shipped before the console existed and were rendered by the
 // renderer root directly: the session probe, the user roster, the runtime-node

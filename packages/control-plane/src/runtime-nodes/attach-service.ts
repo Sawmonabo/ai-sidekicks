@@ -119,7 +119,7 @@
 //     `updateCapabilities` — it re-derives the verdict at WRITE time and throws
 //     exception when a below-floor node attempts the capability WRITE.
 //   * `runtime_node.*` durable event emission (`runtime_node.registered` /
-//     `.online` / `.offline`) — Tier 4 wiring. This service mutates the row
+//     `.online` / `.offline`) — wired later. This service mutates the row
 //     only; it emits no event (so detach's `reason` is dropped — the durable
 //     `runtime_node.offline` audit event is V1.1-gated).
 //   * The `revoked` trust-revocation producer — the AUTHORITY / admin path that writes

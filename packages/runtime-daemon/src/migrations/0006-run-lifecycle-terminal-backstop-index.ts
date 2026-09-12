@@ -79,9 +79,6 @@
 //
 
 export const RUN_LIFECYCLE_TERMINAL_BACKSTOP_MIGRATION_SQL: string = `
--- Owner: | Migration: 0006-run-lifecycle-terminal-backstop-index.ts (Tier 4
--- Phase 3)
-
 -- At most ONE terminal event per (runId, runVersion). PARTIAL so only terminal
 -- run_lifecycle rows are indexed; keyed on json_extract because run identity
 -- lives in the JSON payload, not in a column.

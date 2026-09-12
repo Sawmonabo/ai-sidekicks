@@ -47,7 +47,7 @@ import { iconCompilationPlugin } from "./icon-compilation.js";
 // its reach.
 pinScreenshotTierUpdateMode();
 
-/** Every console tier that runs under Vitest, in tier order, before the shared plugins. */
+/** Every console tier that runs under Vitest, in the order they run, before the shared plugins. */
 const CONSOLE_TIERS: readonly TestProjectInlineConfiguration[] = [
   {
     // Tier: unit. Store transitions, projection arms, exhaustiveness, the

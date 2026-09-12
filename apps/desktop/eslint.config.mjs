@@ -18,7 +18,7 @@
 // the renderer's constraints. Scope is narrowed by the `files` selectors on the
 // override blocks below.
 //
-// Tier-1 ban list (this task): `electron`, the `node:*` protocol family,
+// Ban list: `electron`, the `node:*` protocol family,
 // the bare-specifier Node built-ins (`fs`, `child_process`, `net`, `os`,
 // `path`, `process`), and relative-path escapes into `**/main/**` /
 // `**/preload/**`. The extended ban list (`keytar`, `@napi-rs/keyring`,
@@ -618,7 +618,7 @@ export default [
   // directly, and be exactly the per-surface parser this gate claims to reject,
   // with no lint error anywhere. The ban is therefore on the NAME as well as on the
   // package: a console module outside `bridge/**` may import types and non-schema
-  // values from contracts (`SESSION_EVENT_CATEGORY_BY_TYPE`, `createTier1Bridge`,
+  // values from contracts (`SESSION_EVENT_CATEGORY_BY_TYPE`, `createStubBridge`,
   // `MAIN_CHANNEL_NAME`) and no binding whose name ends in `Schema`.
   //
   // WHY THE IMPORT AND NOT THE CALL. A `.parse(` / `.safeParse(` selector was the

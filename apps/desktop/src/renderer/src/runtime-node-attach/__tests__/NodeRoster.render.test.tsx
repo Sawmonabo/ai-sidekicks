@@ -28,7 +28,7 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
-import { NotImplementedAtTier1Error, VERSION_FLOOR_EXCEEDED_CODE } from "@ai-sidekicks/contracts";
+import { NotImplementedError, VERSION_FLOOR_EXCEEDED_CODE } from "@ai-sidekicks/contracts";
 import type {
   RuntimeNodeRosterEntry,
   RuntimeNodeRosterResponse,
@@ -212,19 +212,19 @@ describe("NodeRoster", () => {
     });
 
     it("renders the error state when the seam's subscribe throws synchronously", async () => {
-      // A host with no live channel throws here for the same reason the Tier-1 bridge
+      // A host with no live channel throws here for the same reason the stub bridge
       // stub does. The view must degrade to its error state rather than letting the
       // throw escape the effect — and, since subscribe runs first, the roster read is
       // never issued, so nothing paints a snapshot with no channel behind it.
       const seam = createDrivenSeam({
         readRoster: async () => await Promise.resolve(FIRST_SNAPSHOT),
-        subscribeThrows: new NotImplementedAtTier1Error("daemon.subscribe"),
+        subscribeThrows: new NotImplementedError("daemon.subscribe"),
       });
 
       render(<NodeRoster sessionId={FIRST_SESSION_ID} reads={seam.reads} />);
 
       const errorSection = await screen.findByRole("alert", { name: "node-roster-error" });
-      expect(errorSection.textContent).toContain("NotImplementedAtTier1Error");
+      expect(errorSection.textContent).toContain("NotImplementedError");
       expect(seam.readRoster).not.toHaveBeenCalled();
     });
   });

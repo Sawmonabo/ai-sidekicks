@@ -183,7 +183,7 @@ export default defineConfig({
         },
       },
       {
-        // Resolve workspace *value* imports (e.g. `NotImplementedAtTier1Error`
+        // Resolve workspace *value* imports (e.g. `NotImplementedError`
         // from @ai-sidekicks/contracts in SessionBootstrap.test.tsx) to TS source,
         // not stale dist/, via the provider's `@ai-sidekicks/source` export
         // condition. happy-dom is Vite's *client* environment → the knob is
@@ -193,7 +193,7 @@ export default defineConfig({
         // (The node `main` smoke project imports contracts type-only → erased →
         // needs none. The `main-unit` project above DOES need them — see its
         // own block.)
-        // A Tier-1 renderer component consumes the console's subject-scoped holder —
+        // A pre-console renderer component consumes the console's subject-scoped holder —
         // `runtime-node-attach/NodeRoster.tsx` holds its roster per session and per
         // transport — and that holder reaches the console's `core` door, which
         // carries the tripwire module's fixture branch. So this project compiles
@@ -202,7 +202,7 @@ export default defineConfig({
         // without it the bare identifier is a ReferenceError at import time. `false`,
         // matching the release bundle, so the branch is statically dead.
         define: { __SIDEKICKS_CONSOLE_FIXTURES__: "false" },
-        // And the console's icon resolver for the same reason: a Tier-1
+        // And the console's icon resolver for the same reason: a pre-console
         // component that reaches a console door reaches the glyph primitive
         // with it, so this project compiles `~icons/*` specifiers even though
         // it runs no console test.

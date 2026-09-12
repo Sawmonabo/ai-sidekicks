@@ -187,7 +187,7 @@ export default {
       comment:
         "A renderer subtree OUTSIDE the console deep-imported a console module. Every layering " +
         "rule here is `from`-scoped to `console/`, so an importer that lives beside the console " +
-        "rather than inside it matches none of them — which is how a Tier-1 subtree came to hold " +
+        "rather than inside it matches none of them — which is how a renderer subtree came to hold " +
         "`console/store/subject-scoped/subject-scoped-state.js` while three gates reported clean " +
         "and the door the symbol is published from could have been deleted without one of them " +
         "noticing. " +
@@ -202,7 +202,7 @@ export default {
         "hoisting is no answer either, because the symbol is test-only and has no home below " +
         "the family whose fixture it drives. Measured on the composer family: six such " +
         "modules, thirteen edges, five door lines, seven census findings when the names were " +
-        "published. The rule was written against a production defect (a Tier-1 subtree holding " +
+        "published. The rule was written against a production defect (a renderer subtree holding " +
         "`subject-scoped-state.js`) and its silence about test support was an omission rather " +
         "than a decision; production modules outside the console are still held to the door, " +
         "which is the claim that matters.",

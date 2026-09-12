@@ -92,7 +92,7 @@ export interface SessionSubscribeOptions {
 
 /**
  * Canonical session-operation names shared by both transports. On the daemon path
- * these route to `JSON-RPC` `method` field (Tier 1 Ratified). On the
+ * these route to `JSON-RPC` `method` field (ratified). On the
  * control-plane path the same names route to the per-procedure tRPC URL segment
  * (the control-plane router mounts `session.create` / `session.read` /
  * `session.join` / `session.subscribe` at `${endpoint}/${name}`). Centralizing

@@ -1,4 +1,4 @@
-// The shipped Tier-1 families a console surface absorbed, and the seam one is handed.
+// The pre-console families a console surface absorbed, and the seam one is handed.
 //
 // TWO of the four families reach the screen through a console-authored surface
 // rather than through a slot of their own, so this file covers the mounts those

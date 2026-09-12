@@ -13,7 +13,7 @@
 //     floor and renders a number's worth of nothing. The retry bound rides the same
 //     envelope and is lost with it.
 //   • **A rejection naming NO code takes one this console registers**, never the JS
-//     class name of whatever was thrown. `NotImplementedAtTier1Error` is a
+//     class name of whatever was thrown. `NotImplementedError` is a
 //     constructor, not a wire code: no contract registers it and no search finds it.
 //   • **A live reply is PARSED before it is served.** The registered schema is
 //     `.strict()`, and the fixture frames are already checked against it; a live
@@ -25,7 +25,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  createTier1Bridge,
+  createStubBridge,
   type SessionId,
   type SidekicksBridge,
   type Unsubscribe,
@@ -55,11 +55,11 @@ const RETRY_AFTER_SECONDS = 30;
  * A control plane whose one procedure rejects with the value the case supplies.
  *
  * The rejection is a PARAMETER, because every claim here is about what the seam does
- * with a shape it did not choose. `createTier1Bridge` supplies the rest of the
+ * with a shape it did not choose. `createStubBridge` supplies the rest of the
  * surface, so the stand-in is the shape the preload really installs.
  */
 function bridgeRejectingWith(rejection: unknown): SidekicksBridge {
-  const base = createTier1Bridge();
+  const base = createStubBridge();
   return {
     ...base,
     controlPlane: {
@@ -73,7 +73,7 @@ function bridgeRejectingWith(rejection: unknown): SidekicksBridge {
 
 /** A control plane that resolves the supplied value, unparsed by the stand-in. */
 function bridgeServing(reply: unknown): SidekicksBridge {
-  const base = createTier1Bridge();
+  const base = createStubBridge();
   return {
     ...base,
     controlPlane: { ...base.controlPlane, call: async (): Promise<unknown> => reply },
@@ -130,9 +130,9 @@ describe("the live roster read's refusals", () => {
   });
 
   it("gives a code-less rejection this seam's own registered code", async () => {
-    // The Tier-1 preload throws a class carrying no `code` at all, which is the
+    // The stub preload throws a class carrying no `code` at all, which is the
     // production-observable path until the IPC handler lands.
-    const outcome = await readRuntimeNodeRosterOverControlPlane(createTier1Bridge(), {
+    const outcome = await readRuntimeNodeRosterOverControlPlane(createStubBridge(), {
       sessionId: SESSION_ID,
     });
 
@@ -207,7 +207,7 @@ function bridgeSubscribing(options: {
   const taken: string[] = [];
   const released: string[] = [];
   const handlersByEventName = new Map<string, (payload: unknown) => void>();
-  const base = createTier1Bridge();
+  const base = createStubBridge();
   const bridge = {
     ...base,
     daemon: {
@@ -299,7 +299,7 @@ describe("the live presence subscription", () => {
     return (async (): Promise<void> => {
       raised.add(
         refusalOf(
-          await readRuntimeNodeRosterOverControlPlane(createTier1Bridge(), {
+          await readRuntimeNodeRosterOverControlPlane(createStubBridge(), {
             sessionId: SESSION_ID,
           }),
         ).code,

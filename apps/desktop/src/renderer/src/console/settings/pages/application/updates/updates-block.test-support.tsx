@@ -64,7 +64,7 @@ export function bridgeReporting(
   });
 }
 
-/** A bridge whose updater cannot be reached at all — the shipped Tier-1 posture. */
+/** A bridge whose updater cannot be reached at all — the shipped stub's posture. */
 export function bridgeWithNoUpdater(): ConsoleBridge {
   return bridgeWithUpdater({
     getState: () => Promise.reject(new Error("update.getState is not implemented")),

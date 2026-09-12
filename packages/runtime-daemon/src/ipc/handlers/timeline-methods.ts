@@ -13,7 +13,7 @@
 // `MethodRegistry.register` takes the method NAME and its two schemas as
 // independent arguments, so nothing stops a caller from registering
 // `timeline.childRunExpand` against the reasoning-surface schemas: it
-// typechecks, boots, and answers the wrong shape on the wire. The Tier-8 audit
+// typechecks, boots, and answers the wrong shape on the wire. The review
 // finding this task closes is exactly that class — the schemas resolved while
 // the method strings did not — so binding them back together loosely would
 // re-open it on the daemon side.

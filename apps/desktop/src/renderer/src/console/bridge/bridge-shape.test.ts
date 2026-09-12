@@ -30,7 +30,7 @@
 // reachable on the port BOTH bridges expose, and that every row a ledger entry
 // names resolves to a row object rather than throwing.
 
-import { createTier1Bridge, type SidekicksBridge } from "@ai-sidekicks/contracts";
+import { createStubBridge, type SidekicksBridge } from "@ai-sidekicks/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -80,7 +80,7 @@ afterEach(() => {
 
 describe("the fixture bridge is shape-identical to the live bridge", () => {
   it("exposes the same namespaces and the same members in each", () => {
-    const live = resolveLiveBridgeFrom(createTier1Bridge());
+    const live = resolveLiveBridgeFrom(createStubBridge());
     expect(live, "the preload-shaped bridge was refused by the probe").toBeDefined();
     if (live === undefined) {
       return;
@@ -94,7 +94,7 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
     // enumeration that read nothing at all — would compare equal and pass. The
     // namespace table is keyed by `keyof SidekicksBridge`, so this is the point
     // where the runtime reading is tied back to the contract.
-    const live = resolveLiveBridgeFrom(createTier1Bridge());
+    const live = resolveLiveBridgeFrom(createStubBridge());
     const fixture = fixtureBridge();
     const expected = [...SIDEKICKS_BRIDGE_NAMESPACES].sort();
 
@@ -120,7 +120,7 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
     // a fixture that answered every call but one. Perturbed on a constructed
     // bridge and compared through the SAME function the positive test uses, so a
     // comparison that had quietly become a tautology is caught here.
-    const perturbed = createTier1Bridge();
+    const perturbed = createStubBridge();
     Reflect.deleteProperty(perturbed.native, "revealInFileExplorer");
     const live = resolveLiveBridgeFrom(perturbed);
     expect(live).toBeDefined();
@@ -135,7 +135,7 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
 
   it("negative control: rejects a bridge carrying an extra namespace", () => {
     const perturbed: SidekicksBridge & { readonly telemetry?: unknown } = {
-      ...createTier1Bridge(),
+      ...createStubBridge(),
       telemetry: { report: () => undefined },
     };
     const live = resolveLiveBridgeFrom(perturbed);
@@ -152,7 +152,7 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
   it("negative control: rejects a member whose type changed under it", () => {
     // A method replaced by a plausible-looking value is the shape a half-installed
     // preload actually arrives in, and a name-only comparison would call it equal.
-    const perturbed = createTier1Bridge();
+    const perturbed = createStubBridge();
     Reflect.set(perturbed.app, "version", 0);
     const live = resolveLiveBridgeFrom(perturbed);
     expect(live).toBeDefined();
@@ -182,7 +182,7 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
     // which is true of an array — so a namespace that arrived as one passed, and the
     // console went on to call methods on it. The reading is `core/isWireRecord` now,
     // which rejects an array, and this is what fails if that is written by hand again.
-    const installed = createTier1Bridge();
+    const installed = createStubBridge();
     const [firstNamespace] = SIDEKICKS_BRIDGE_NAMESPACES;
     expect(firstNamespace).toBeDefined();
     const arrayValued = { ...installed, [firstNamespace ?? "daemon"]: [] };
@@ -199,7 +199,7 @@ describe("the growth ledger's live status is checked against the slate", () => {
     // The manifest carries a `liveStatus` per operation. A status for an operation
     // no bridge exposes is a claim about a method that does not exist — the ledger
     // would go on reporting "fixture-only" for a wire no surface could ever call.
-    const live = resolveLiveBridgeFrom(createTier1Bridge());
+    const live = resolveLiveBridgeFrom(createStubBridge());
     const fixture = fixtureBridge();
     expect(live).toBeDefined();
 

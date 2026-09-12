@@ -2,7 +2,7 @@
 //
 // WHY IT IS ONE MODULE. The credential flow fixes the ceremony's eventual shape —
 // `webAuthn.signIn()`, taking no argument, answering a `WebAuthnCeremonyOutcome` — and
-// the bridge this build ships carries the Tier-1 three-method stub instead
+// the bridge this build ships carries the three-method stub instead
 // (`createCredential`, `getAssertion`, `deriveKeyMaterial`, declared in
 // `packages/contracts/src/desktop-bridge.ts`). Narrowing that surface is the contracts
 // package's work, not this console's, so every line that knows which methods exist
@@ -107,7 +107,7 @@ export class SignInCeremony {
    * Run one ceremony call and read its answer, whichever way it settles.
    *
    * FAIL-CLOSED IN BOTH DIRECTIONS. A resolution the reader does not recognise is
-   * `unavailable` and never `authenticated` — the Tier-1 preload throws and a fixture
+   * `unavailable` and never `authenticated` — the stub preload throws and a fixture
    * with no scripted host refuses, so "this build has no ceremony" is the ordinary
    * case, and reading an unrecognised value as success would put a person in front of
    * a signed-in console on the strength of nothing. A rejection is `unavailable` too,

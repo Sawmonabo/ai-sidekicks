@@ -69,7 +69,6 @@
 //
 
 export const QUEUE_AND_INTERVENTIONS_MIGRATION_SQL: string = `
--- Owner: | Migration: 0015-queue-and-interventions.ts (Tier 5 Phase 1)
 
 -- ---------------------------------------------------------------------------
 -- queue_items: the durable admission queue.

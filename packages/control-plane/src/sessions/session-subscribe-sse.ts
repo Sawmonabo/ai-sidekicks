@@ -34,7 +34,7 @@ export const SSE_RETRY_HINT_MS = 5_000;
 
 /**
  * Phase 1 tests inject a synthetic provider that yields a finite
- * sequence of `tracked(cursor, event)` envelopes; Tier 5 wires event log
+ * sequence of `tracked(cursor, event)` envelopes; A later phase wires event log
  * (sequenced via `EventCursor`).
  *
  * Returns an `AsyncIterable` so the procedure body can `yield*` directly

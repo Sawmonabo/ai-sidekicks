@@ -50,8 +50,7 @@
 // INSERTs its version-5 row.
 
 export const DAEMON_SIGNING_KEYS_MIGRATION_SQL: string = `
--- Owner: | Migration: 0005-daemon-signing-keys.ts (Tier 4 Phase 2) Per-session
--- daemon Ed25519 signing keypair. Private key is sealed via the OS keystore
+-- Per-session daemon Ed25519 signing keypair. Private key is sealed via the OS keystore
 -- master key (@napi-rs/keyring v1.2.0 — Keychain
 -- kSecAttrAccessibleWhenUnlockedThisDeviceOnly on macOS / CRED_TYPE_GENERIC
 -- CRED_PERSIST_LOCAL_MACHINE on Windows / Secret Service via libsecret +

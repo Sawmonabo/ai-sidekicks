@@ -221,7 +221,7 @@ export type NegotiationIncompatibleReason =
  *     specific failure mode (floor/ceiling/repeated-handshake) per the
  *     canonical dotted-namespace strings.
  *   * `serverCapabilities` — opaque tag list mirroring the client's
- *     `capabilities`. Phase 3 handlers populate; Tier 1 substrate emits an
+ *     `capabilities`. Phase 3 handlers populate; the substrate emits an
  *     empty array if no capabilities are advertised.
  *   * `daemonSupportedProtocols` — the daemon's full supported-version
  *     list, surfaced to the client when `compatible: false` so the client

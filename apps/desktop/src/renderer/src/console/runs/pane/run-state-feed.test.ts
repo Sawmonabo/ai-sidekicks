@@ -90,7 +90,7 @@ describe("an empty read completes", () => {
   });
 });
 
-/** The refusal the shipped Tier-1 preload raises when a stream is opened: a throw. */
+/** The refusal the shipped stub preload raises when a stream is opened: a throw. */
 const TIER_ONE_STUB_REFUSAL = { code: "bridge.not_wired", message: "no daemon is attached" };
 
 /** The shipped fixture with its run-state subscription refusing to open. */

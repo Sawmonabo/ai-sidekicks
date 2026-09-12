@@ -125,7 +125,7 @@ export function registerConsoleFamilies(
   frameBindings: FrameBindingRegistry,
   pinnedRegions: PinnedPaneRegionRegistry,
 ): void {
-  // NO SHIPPED TIER-1 FAMILY CLAIMS A SLOT OF ITS OWN ANY MORE. Two of them are
+  // NO PRE-CONSOLE FAMILY CLAIMS A SLOT OF ITS OWN ANY MORE. Two of them are
   // absorbed by the console surfaces that mount them, through the helpers
   // `seats/surface/absorbed-surfaces.ts` publishes, so they reach the screen inside a
   // console-authored surface rather than beside one. The shipped user roster

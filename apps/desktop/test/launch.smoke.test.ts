@@ -219,7 +219,7 @@ describe("desktop shell substrate boot", () => {
 
       // Invariant 2: `window.sidekicks` is defined on the renderer.
       // Per the preload (`apps/desktop/src/preload/index.ts` line 32),
-      // `contextBridge.exposeInMainWorld("sidekicks", createTier1Bridge())`
+      // `contextBridge.exposeInMainWorld("sidekicks", createStubBridge())`
       // runs on every preload load. If `contextIsolation`, `sandbox`, or
       // the preload path is misconfigured, this would be `"undefined"`.
       expect(probe.probe.sidekicks).toBe("object");

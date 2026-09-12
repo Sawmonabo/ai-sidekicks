@@ -167,8 +167,8 @@ export const SESSION_CONTENT_WRAP_INFO = "ais.session-content-wrap.v1";
  * An INJECTED interface with no production implementation in this package —
  * the `DaemonSigningKeySealer` shape, for the same reason: the custody ladder
  * (`@napi-rs/keyring`, Keychain / Credential Manager / Secret Service) is the
- * at Tier 5, and importing it here would pull a native binding into the append
- * path's consumers and invert the tier order. This module holds the FORMAT and
+ * elsewhere, and importing it here would pull a native binding into the append
+ * path's consumers and invert the dependency direction. This module holds the FORMAT and
  * the table; the key's provenance stays behind this seam.
  *
  * Asynchronous because a read can block on a human — see the module header.

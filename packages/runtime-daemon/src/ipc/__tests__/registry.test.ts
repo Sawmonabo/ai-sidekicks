@@ -1,4 +1,4 @@
-// W-007p-2-T7 + T9 — MethodRegistryImpl test suite.
+// MethodRegistryImpl test suite.
 //
 // Invariants verified here (canonical text):
 //   * Duplicate method-name registration MUST be rejected at
@@ -13,11 +13,11 @@
 //     canonical) ∪ `METHOD_NAME_LSP_REGEX` (daemon-local LSP-style
 //     `$/`-prefixed; separate follow-up).
 //
-//   * W-007p-2-T7 — Method-not-found namespace-isolation. Invoking an
+//   * Method-not-found namespace-isolation. Invoking an
 //                   `not.registered`) returns
 //                   `RegistryDispatchError("method_not_found")` which
 //                   maps to JSON-RPC `-32601`.
-//   * W-007p-2-T9 — Schema-validates-before-dispatch. Malformed payload
+//   * Schema-validates-before-dispatch. Malformed payload
 //                   throws `RegistryDispatchError("invalid_params")`
 //                   (mapping to JSON-RPC `-32602`); handler is NEVER
 //                   invoked.
@@ -57,7 +57,7 @@ const directCtx: HandlerContext = {};
 // ----------------------------------------------------------------------------
 // ----------------------------------------------------------------------------
 
-describe("W-007p-2-T9 — schema validates before dispatch", () => {
+describe("schema validates before dispatch", () => {
   it("malformed params throw `invalid_params`; handler is NEVER invoked", async () => {
     const registry = new MethodRegistryImpl();
     const handler = vi.fn<(p: unknown, c: HandlerContext) => Promise<unknown>>(async () => ({
@@ -143,10 +143,10 @@ describe("W-007p-2-T9 — schema validates before dispatch", () => {
 });
 
 // ----------------------------------------------------------------------------
-// W-007p-2-T7 — method-not-found namespace isolation
+// method-not-found namespace isolation
 // ----------------------------------------------------------------------------
 
-describe("W-007p-2-T7 — method-not-found namespace isolation", () => {
+describe("method-not-found namespace isolation", () => {
   it("dispatching an unregistered method throws `method_not_found` and never falls through", async () => {
     const registry = new MethodRegistryImpl();
     // Register a different method so the registry isn't empty.
@@ -354,7 +354,7 @@ describe("method-name format validation", () => {
   });
 
   // The deployed registry regex must accept the camelCase-tailed method
-  // strings the Tier-6/7 namespace plans register. Before the tail- class fix
+  // strings later namespace surfaces register. Before the tail- class fix
   // (`[a-z0-9]` → `[a-zA-Z0-9]`), every one threw
   // `RegistryRegistrationError("invalid_method_name")` at daemon boot,
   // blocking 010/012/016 Phase 3 registrations. Each pairs a lowercase root

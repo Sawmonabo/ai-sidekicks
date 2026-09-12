@@ -231,7 +231,7 @@ describe("ResourceLimitExceededErrorSchema (C4: resource.limit_exceeded shape)",
 // Throwers: PtyHostSelector (sidecar binary missing AND fallback also
 // unavailable; env-var coerces to unknown backend), RustSidecarPtyHost
 // (5-failures-per-60s crash budget exhausted), resolveSidecarBinaryPath
-// (all 4 resolution tiers exhausted). "Sidecar binary missing on user
+// (all 4 resolution steps exhausted). "Sidecar binary missing on user
 // machine".
 //
 // Coverage shape:

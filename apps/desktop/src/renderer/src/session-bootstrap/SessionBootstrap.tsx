@@ -121,9 +121,9 @@ export function SessionBootstrap(props: SessionBootstrapProps): React.JSX.Elemen
 
     // Sync-throw normalization for the stub-contract gap: the
     // contract `daemon.call` returns `Promise<DaemonResult<M>>`, but the
-    // placeholder stub (`createTier1Bridge` in
+    // placeholder stub (`createStubBridge` in
     // `packages/contracts/src/desktop-bridge.ts`) violates that by throwing
-    // synchronously — `() => tier1Throw("daemon.call")`. A bare
+    // synchronously — `() => stubThrow("daemon.call")`. A bare
     // `daemonCall(...).then(...).catch(...)` would evaluate `daemonCall(...)`
     // first; the sync throw would propagate OUT before `.then` is reached,
     // escape this `useEffect` callback (React 18+ does NOT catch errors
@@ -147,8 +147,8 @@ export function SessionBootstrap(props: SessionBootstrapProps): React.JSX.Elemen
       } catch (bridgeError: unknown) {
         if (cancelled) return;
         // Placeholder-bridge production branch: every stub bridge method throws
-        // `NotImplementedAtTier1Error` (see
-        // `packages/contracts/src/desktop-bridge.ts` `createTier1Bridge`). We
+        // `NotImplementedError` (see
+        // `packages/contracts/src/desktop-bridge.ts` `createStubBridge`). We
         // do not narrow on instanceof — any `Error` shape is rendered the
         // same way; the contract is "render the error envelope," not
         // "render a specific error class". Non-Error rejections (string,

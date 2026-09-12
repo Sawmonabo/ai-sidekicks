@@ -176,7 +176,7 @@ export function abandonedReadRefusal(method: string): ConsoleRefusal {
  * same key. A caller never names a schema, so a caller never names the wrong one.
  *
  * `async` and total. An `async` function's synchronous throw is already a
- * rejection, which matters against the bridge that actually ships: the Tier-1
+ * rejection, which matters against the bridge that actually ships: the stub
  * preload stub throws from every method in the caller's own frame, so a non-`async`
  * wrapper would put that throw outside the promise and past every `.catch` the
  * console has.

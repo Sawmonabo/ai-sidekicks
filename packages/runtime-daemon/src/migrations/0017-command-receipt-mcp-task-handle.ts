@@ -77,7 +77,6 @@
 //
 
 export const COMMAND_RECEIPT_MCP_TASK_HANDLE_MIGRATION_SQL: string = `
--- Owner: | Migration: 0017-command-receipt-mcp-task-handle.ts (Tier 4 Phase 5)
 
 -- Receiver-generated MCP Tasks taskId for a task-augmented MCP call, taken from
 -- the CreateTaskResult acceptance response. NULL until the receiver accepts: a

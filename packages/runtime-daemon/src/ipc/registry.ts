@@ -227,7 +227,7 @@ interface RegistryEntry {
  * Runtime realization of the `MethodRegistry` interface. Instantiable —
  * the bootstrap orchestrator constructs ONE registry instance and wires
  * it into `LocalIpcGateway`'s dispatch path. Multiple registries per
- * process are plausible (test isolation, future Tier-4 surfaces); the
+ * process are plausible (test isolation, future transport surfaces); the
  * instantiable shape mirrors `LocalIpcGateway`'s same decision.
  *
  * Recommendation: instantiable class, internal `Map<string, RegistryEntry>`.
@@ -238,7 +238,7 @@ interface RegistryEntry {
  *   registry contract and tests need a `__resetForTest()` hook that the
  *   capability domain doesn't naturally have.
  * Trade-off accepted: the bootstrap orchestrator must plumb the registry
- *   instance to dispatch consumers. Tier 1 has exactly one consumer (the
+ *   instance to dispatch consumers. there is exactly one consumer (the
  *   gateway), which makes the plumbing trivial.
  */
 export class MethodRegistryImpl implements MethodRegistry {

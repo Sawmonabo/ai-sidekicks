@@ -57,7 +57,7 @@
 //     the task scope strictly additive (the task contract's "out of scope:
 //     local-ipc-gateway.ts modification" directive).
 //   Trade-off accepted: the bootstrap orchestrator must plumb the per-
-//     transport write path into the streaming primitive. Tier 1 has
+//     transport write path into the streaming primitive. There is
 //     exactly one consumer (the orchestrator), which makes the plumbing
 //     a one-line lambda.
 //

@@ -186,7 +186,7 @@ describe("0001-initial migration shape", () => {
     expect(byName.get("row_hash")?.notnull).toBe(1);
     expect(byName.get("daemon_signature")?.notnull).toBe(1);
 
-    // Forward-decl: PII payload column ships at Tier 1 with
+    // Forward-decl: PII payload column ships with
     // crypto-shred semantics. Nullable per same block (writes NULL for
     // every V1 event — no V1 SessionEvent variant carries PII).
     expect(byName.has("pii_payload")).toBe(true);
