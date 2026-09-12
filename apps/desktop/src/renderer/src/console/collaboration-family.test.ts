@@ -2,11 +2,10 @@
 //
 // This is the one place the four subtrees are visible as one family, so it is the
 // place to assert the property the seat board depends on: three distinct slots,
-// three distinct owners, one claimed event kind, the frame-lifetime binding one of
-// them keeps, and no reach for a module-scope singleton. A family that registered
-// globally would leave a test's own registry empty while still "working" in a running
-// window, which is exactly the failure the registry-as-parameter signature exists to
-// prevent.
+// three distinct owners, the frame-lifetime binding one of them keeps, and no reach
+// for a module-scope singleton. A family that registered globally would leave a
+// test's own registry empty while still "working" in a running window, which is
+// exactly the failure the registry-as-parameter signature exists to prevent.
 
 import { describe, expect, it } from "vitest";
 
@@ -57,11 +56,11 @@ describe("collaboration family — composition", () => {
     // the board handed in comes back filled.
     const { surfaces, sections, projectors, bindings } = ownedBoards();
     registerCollaborationFamily(surfaces, sections, projectors, bindings, standInComposition);
-    // Three, not two: the `agents` section is this family's as well, and its body
+    // Two, not one: the `agents` section is this family's as well, and its body
     // lives in the agents subtree rather than in `collaboration/` because a body
     // belongs to the family whose vocabulary it renders. The ids come back in the
     // seat's own declared order rather than in registration order.
-    expect(sections.registeredSectionIds()).toStrictEqual(["channels", "agents", "members"]);
+    expect(sections.registeredSectionIds()).toStrictEqual(["channels", "agents"]);
   });
 
   it("claims each one under an owner of its own", () => {
@@ -105,22 +104,13 @@ describe("collaboration family — composition", () => {
     expect(surfaces.registeredSlots()).toStrictEqual(afterFirst);
   });
 
-  it("folds all five membership kinds, so the store's membership state stays live", () => {
-    // The admission fold is what lets this family read a person's handle, membership
-    // identifier and role once instead of reaching the wire for a fact the store
-    // already had. The four transitions are the other half, and the half that decides
-    // whether a membership is still one the session can address: without them a
-    // revoked member stays a direct-channel candidate and a roster row forever,
-    // because nothing else in the window ever hears that the membership ended.
+  it("claims no event kind, so the projector board it is handed comes back empty", () => {
+    // The board is still a parameter because the composition root hands the same one
+    // to every family, and this family no longer folds an event kind of its own. A
+    // claim appearing here is a subtree registering a fold nothing in this file names.
     const { surfaces, sections, projectors, bindings } = ownedBoards();
     registerCollaborationFamily(surfaces, sections, projectors, bindings, standInComposition);
-    expect(Object.keys(projectors.snapshot())).toStrictEqual([
-      "membership.created",
-      "membership.role_changed",
-      "membership.suspended",
-      "membership.revoked",
-      "membership.reactivated",
-    ]);
+    expect(Object.keys(projectors.snapshot())).toStrictEqual([]);
   });
 
   it("passes the frame-binding board down rather than dropping it", () => {

@@ -42,8 +42,7 @@ export function describeShippedChord(shippedChord: string | undefined): string {
 /**
  * One row: what runs, on what keys, in what scope, and how to change it.
  *
- * Both controls carry the command's own name in their accessible label, the way
- * `collaboration/members/MembershipActionsMenu.tsx` names the membership its row acts on. A
+ * Both controls carry the command's own name in their accessible label. A
  * list of rows whose buttons are all called "Rebind" is a list somebody reading it
  * through a screen reader cannot navigate; the visible word stays inside the label,
  * so the spoken name still contains the one a person would say out loud.

@@ -106,12 +106,10 @@ export {
 // missing: a walkthrough that trapped focus and left the whole route surface reachable
 // behind it.
 //
-// The act and the act-taking hook are published beside the store-bound one because the
-// third caller cannot use that one: the window overlay seat hands its body acts and
-// never a store, and `seats/slots/window-overlay-seat.ts` types that prop from here.
+// The act is published beside the store-bound hook because a caller that holds no
+// store still has to claim the surface.
 export {
   modalSurfaceClaimFor,
-  useModalSurfaceClaim,
   useModalSurfaceLifetime,
   type ModalSurfaceClaimAct,
 } from "./shell/modal-surface-lifetime.js";
@@ -168,12 +166,10 @@ export {
   shellBlocksAreEqual,
   shellMutationBlock,
 } from "./shell/shell-mutation-block.js";
-// The refusal a block becomes, and the predicate that recognises one. Both leave the
-// family because both producers of a blocked dispatch are VIEW families and siblings
-// cannot reach each other: the invitation mint settles one, and so does the ledger's
-// ask answer. The origin string itself stays inside — it is the seam these two names
-// exist to keep from being spelled twice.
-export { isShellBlockRefusal, shellBlockRefusal } from "./shell/shell-mutation-block.js";
+// The refusal a block becomes. It leaves the family because the producer of a blocked
+// dispatch is a VIEW family and siblings cannot reach each other: the ledger's ask
+// answer settles one. The origin string itself stays inside.
+export { shellBlockRefusal } from "./shell/shell-mutation-block.js";
 export type { MutatingDaemonMethod, ShellMutationBlock } from "./shell/shell-mutation-block.js";
 // `useShellBlockFor` is the subscribed per-method reading every dispatching surface
 // draws its disabled state and its reason from — one hook rather than the same three

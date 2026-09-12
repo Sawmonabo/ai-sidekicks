@@ -1,21 +1,20 @@
 // The screenshot tier for the collaboration family: the two destinations it owns,
-// and the three surfaces inside a session it fills a seat with.
+// and the surfaces inside a session it fills a seat with.
 //
-// `Spec-023 §Console Test Tiers` names a screenshot tier "per component and per
-// scheme", and this family is split across both halves of that sentence. Two of
-// its surfaces are whole destinations the frame mounts — the all-sessions list and
-// the settings frame — so those are captured THROUGH `ConsoleRoot` at the address a
-// person types, which is the only way to pin the composition rather than the
-// component: the rail beside it, the surface's own width, and the scheme the frame
-// stamped are all part of what a reviewer is looking at.
+// The tier is "per component and per scheme", and this family is split across both
+// halves of that sentence. Two of its surfaces are whole destinations the frame
+// mounts — the all-sessions list and the settings frame — so those are captured
+// THROUGH `ConsoleRoot` at the address a person types, which is the only way to pin
+// the composition rather than the component: the rail beside it, the surface's own
+// width, and the scheme the frame stamped are all part of what a reviewer is
+// looking at.
 //
-// The other three — the channel list, the roster, and the sent-invite ledger — are
-// sidebar sections. Their host is another family's workspace surface, which has not
-// landed, so mounting them through the frame today would capture the frame's
-// reserved-slot absence and call it a channel list. They are captured as components
-// instead, which is the other half of the same sentence, and each is driven by the
-// same loaded state its own unit test drives it with rather than by a shape written
-// for a picture.
+// The channel list is a sidebar section. Its host is another family's workspace
+// surface, which has not landed, so mounting it through the frame today would
+// capture the frame's reserved-slot absence and call it a channel list. It is
+// captured as a component instead, which is the other half of the same sentence,
+// and it is driven by the same loaded state its own unit test drives it with rather
+// than by a shape written for a picture.
 //
 // The family stylesheet is imported through the family's own door, for its side
 // effect. A component mounted without it renders unstyled and the capture would pin
@@ -56,9 +55,6 @@ import {
 import { ActivityIndicatorRegistry } from "../../../src/renderer/src/console/collaboration/activity-model.js";
 import { ChannelList } from "../../../src/renderer/src/console/collaboration/channels/ChannelList.js";
 import { loaded as channelDirectory } from "../../../src/renderer/src/console/collaboration/channels/channels.test-support.js";
-import { rosterRowsFrom } from "../../../src/renderer/src/console/collaboration/members/presence-model.js";
-import { Roster } from "../../../src/renderer/src/console/collaboration/members/Roster.js";
-import { SentInvites } from "../../../src/renderer/src/console/collaboration/invites/SentInvites.js";
 import { NotificationCenter } from "../../../src/renderer/src/console/sessions/notifications/NotificationCenter.js";
 import { AttentionPlane } from "../../../src/renderer/src/console/sessions/notifications/attention-plane.js";
 import { RuntimeNodesPage } from "../../../src/renderer/src/console/settings/pages/runtime-nodes/RuntimeNodesPage.js";
@@ -69,18 +65,8 @@ import { RuntimeNodesPage } from "../../../src/renderer/src/console/settings/pag
 import { consoleTestUiStateStore } from "../../../src/renderer/src/console/settings/settings-page-mount.test-support.js";
 import type { SettingsPageContext } from "../../../src/renderer/src/console/settings/settings-page-registry.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
-import { ParticipantHueAllocator } from "../../../src/renderer/src/console/tokens/index.js";
-import {
-  COLLABORATION_INSTANT_MILLISECONDS,
-  LABELS,
-  ROSTER_AXES_DISAGREE_MS,
-  channel,
-  participant,
-} from "../surfaces/collaboration-fixtures.js";
-import {
-  FrameStore,
-  UNREPORTED_SHELL_STATE,
-} from "../../../src/renderer/src/console/store/index.js";
+import { LABELS, ROSTER_AXES_DISAGREE_MS, channel } from "../surfaces/collaboration-fixtures.js";
+import { UNREPORTED_SHELL_STATE } from "../../../src/renderer/src/console/store/index.js";
 
 beforeEach(() => {
   document.location.hash = "";
@@ -162,77 +148,6 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
     await captureSettled(
       requireCapturedElement(container, ".meridian-channels"),
       "collaboration-channels-light",
-    );
-  });
-
-  it("renders the roster with presence, each row in its own hue", async () => {
-    await emulateSystemScheme("light");
-    const allocator = new ParticipantHueAllocator();
-    const participants = [
-      participant("participant-sawyer", "online"),
-      participant("participant-priya", "idle"),
-      participant("participant-implementer", "offline"),
-    ];
-    const { container } = await renderSettled(
-      <Roster
-        state={{
-          kind: "loaded",
-          value: { participants, readAtMilliseconds: COLLABORATION_INSTANT_MILLISECONDS },
-        }}
-        rows={rosterRowsFrom(
-          participants,
-          (participantId) => allocator.assignmentFor(participantId),
-          "participant-sawyer",
-        )}
-        nowMilliseconds={COLLABORATION_INSTANT_MILLISECONDS}
-        labels={LABELS}
-        composingChannelFor={(participantId) =>
-          participantId === "participant-priya" ? "review" : undefined
-        }
-        roleFor={(participantId) =>
-          participantId === "participant-sawyer" ? "owner" : "collaborator"
-        }
-        holding={{ kind: "held", participantId: "participant-priya" }}
-        openDetailParticipantId="participant-priya"
-        detailState={{
-          kind: "loaded",
-          value: {
-            participantId: "participant-priya",
-            aggregateState: "idle",
-            devices: [
-              { deviceId: "device-desk", state: "idle", lastSeen: "2026-01-01T09:59:30.000Z" },
-            ],
-          },
-        }}
-        onToggleDetail={() => undefined}
-        isLastKnown={false}
-        onReopen={() => undefined}
-      />,
-    );
-
-    await captureSettled(
-      requireCapturedElement(container, ".meridian-roster"),
-      "collaboration-roster-light",
-    );
-  });
-
-  it("renders the sent-invite ledger over the fixture's own read", async () => {
-    // The real fixture bridge and the family's own scenario, because this component
-    // performs its own read: handing it a hand-written state would capture a ledger
-    // nobody's build produces, and the fixture serves `invitesList` from exactly the
-    // scenario the two destinations above are captured under.
-    await emulateSystemScheme("light");
-    const { container } = await renderSettled(
-      <SentInvites
-        bridge={createFixtureBridge({ scenario: COLLABORATION_SCENARIO })}
-        sessionId={COLLABORATION_SCENARIO.sessionId}
-        frameStore={new FrameStore()}
-      />,
-    );
-
-    await captureSettled(
-      requireCapturedElement(container, ".meridian-invites"),
-      "collaboration-invites-light",
     );
   });
 

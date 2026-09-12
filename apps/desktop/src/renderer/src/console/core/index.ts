@@ -87,7 +87,6 @@ export {
   COMPOSING_NAMED_CAP,
   COMPOSING_PUBLISH_INTERVAL_MS,
   COMPOSING_RECEIVED_STALE_MS,
-  SETTLED_INVITE_VISIBLE_CAP,
 } from "./constants/collaboration-caps.js";
 export {
   DIFF_FILE_LIST_SCROLL_THRESHOLD,
@@ -98,11 +97,6 @@ export {
   INLINE_DIFF_CARD_HEIGHT_CAP_PX,
 } from "./constants/diff-caps.js";
 export { SCENARIO_PENDING_REPLY_CAP, SCENARIO_TICK_MS } from "./constants/fixture-caps.js";
-export {
-  PENDING_INVITE_DEFERRED_PLACE_MAX,
-  PENDING_INVITE_QUEUE_MAX,
-  PENDING_INVITE_RETAINED_REFUSAL_MAX,
-} from "./constants/invite-caps.js";
 export {
   ANSI_SPAN_RENDER_CAP,
   CODE_HIGHLIGHT_SOURCE_BYTE_CAP,
@@ -226,7 +220,6 @@ export { SCENARIO_FIXTURE_GLOBAL, SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "./f
 export {
   compareInstants,
   MILLISECONDS_PER_DAY,
-  MILLISECONDS_PER_HOUR,
   MILLISECONDS_PER_MINUTE,
   parseInstant,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */

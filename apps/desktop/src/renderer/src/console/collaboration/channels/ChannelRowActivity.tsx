@@ -3,7 +3,7 @@ import {
   type ActivityIndicatorRegistry,
   type ChannelActivityLabels,
 } from "../activity-model.js";
-import { TypingActivity } from "../members/TypingActivity.js";
+import { TypingActivity } from "./TypingActivity.js";
 
 /**
  * The row's live indicator, subscribed rather than read once.

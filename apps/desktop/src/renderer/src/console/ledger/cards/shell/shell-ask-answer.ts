@@ -57,8 +57,8 @@ import { ASK_ANSWER_UNSENT, type DriverAskDelivery } from "../bodies/index.js";
 /**
  * The wire method an answer travels, named once.
  *
- * The `satisfies` IS the binding, on `collaboration/invites/create-invite-act.ts`'
- * precedent: `store/shell/shell-mutation-block.ts` is the console's registration of what a
+ * The `satisfies` IS the binding:
+ * `store/shell/shell-mutation-block.ts` is the console's registration of what a
  * supervisor's condition closes, so an answer that ever left that tuple stops
  * compiling here rather than quietly going back to being dispatchable through a
  * stopped shell.

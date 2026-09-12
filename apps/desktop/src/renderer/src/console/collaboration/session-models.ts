@@ -1,14 +1,13 @@
 // One session's collaboration models, and who owns their lifetime.
 //
-// TWO SIDEBAR SECTIONS SHARE ONE SET. The channel list and the roster are filled
-// independently — the sidebar renders each through its own seat — but they read
-// one session's channels, one session's presence, and one set of live indicators.
-// Building a set per section would put two `ActivityIndicatorRegistry` instances
-// behind one session, which is the second source of truth this console does not
-// permit anywhere else and would not permit here either.
+// ONE SET PER SESSION, HELD APART FROM THE SECTION THAT READS IT. The channel list
+// reads one session's channels and one set of live indicators, and both own a
+// subscription. Building a set per mount would put two `ActivityIndicatorRegistry`
+// instances behind one session, which is the second source of truth this console
+// does not permit anywhere else and would not permit here either.
 //
 // SO THE HOLDER IS THE OWNER, AND IT IS AN INSTANCE, NOT A SINGLETON. The family's
-// registrar constructs exactly one and both section descriptors close over it. A
+// registrar constructs exactly one and the section descriptor closes over it. A
 // module-level holder would be shared by every window that loaded this module, and
 // an auxiliary window's sidebar is a different sidebar.
 //
@@ -22,8 +21,8 @@
 // a set opens subscriptions and arms schedulers, which React's render phase may
 // abandon or replay — a discarded pass would leave a live subscription behind with
 // no committed cleanup to release it, and a replayed one would dispose the models a
-// committed section is still reading. So the holder hands out a lease, both section
-// bodies take one from a mount effect through {@link useSessionModels}, and the set
+// committed section is still reading. So the holder hands out a lease, a section
+// body takes one from a mount effect through {@link useSessionModels}, and the set
 // is disposed when the LAST lease is given back. Counting rather than trusting one
 // caller is what makes a collapsed section and a torn-down window the same code
 // path.
@@ -31,8 +30,8 @@
 // COLLAPSING A SECTION STILL DOES NOT RELEASE THE MODELS. The sidebar keeps every
 // section body mounted and tells each one whether it is open, so a collapsed section
 // holds its lease and its read stays current; the two release points are the session
-// switch — where the sibling's lease moves to the new session's set — and the
-// window's teardown, where both leases go back at once.
+// switch — where the lease moves to the new session's set — and the window's
+// teardown, where it goes back.
 //
 // THE CLOCK COMES FROM THE BRIDGE, NOT FROM THE PLATFORM. Under the fixture the
 // scenario's frozen clock is the only clock the renderer reads, so every deadline
@@ -48,13 +47,8 @@ import { isCurrentSessionSubject, type SessionSubject } from "../seats/index.js"
 import { ActivityIndicatorRegistry, type ChannelActivityLabels } from "./activity-model.js";
 import { createActivityFeed, type ActivityFeed } from "./activity-feed.js";
 import { createChannelDirectory, type ChannelDirectory } from "./channels/channel-model.js";
-import { createPresenceRoster, type PresenceRoster } from "./members/presence-model.js";
-import {
-  createTerminalControlHolder,
-  type TerminalControlHolderRead,
-} from "./members/terminal-control-holder.js";
 
-/** Everything one session's collaboration surfaces read from. */
+/** Everything one session's collaboration surface reads from. */
 export interface CollaborationSessionModels {
   /**
    * The exact bridge and store this set was built for.
@@ -77,16 +71,6 @@ export interface CollaborationSessionModels {
    */
   readonly activityFeed: ActivityFeed;
   readonly channelDirectory: ChannelDirectory;
-  readonly presenceRoster: PresenceRoster;
-  /**
-   * Who holds the session's one shared-terminal write lease.
-   *
-   * Held here rather than by the members section for the reason every read in this set
-   * is: it is session-scoped and it is push-driven, so it owns a subscription and a
-   * scheduler, and both belong to whatever owns the session — never to a render body
-   * React may abandon or replay.
-   */
-  readonly terminalControlHolder: TerminalControlHolderRead;
   readonly labels: ChannelActivityLabels;
 }
 
@@ -112,8 +96,8 @@ export interface CollaborationModelsLease {
 /**
  * The one owner of a session's collaboration models.
  *
- * Constructed by `registerCollaborationSections` and captured by both section
- * descriptors. Every model it builds is started here — subscription first, then the
+ * Constructed by `registerCollaborationSections` and captured by the section
+ * descriptor. Every model it builds is started here — subscription first, then the
  * read — so a section body never starts one, and {@link useSessionModels} is the one
  * caller, from a mount effect.
  */
@@ -154,8 +138,6 @@ export class CollaborationSessionModelHolder {
     this.dispose();
     const built = buildSessionModels(bridge, sessionStore);
     built.channelDirectory.start();
-    built.presenceRoster.start();
-    built.terminalControlHolder.start();
     built.activityFeed.start();
     this.#current = built;
     this.#outstandingLeaseCount = 1;
@@ -171,8 +153,6 @@ export class CollaborationSessionModelHolder {
       return;
     }
     held.channelDirectory.dispose();
-    held.presenceRoster.dispose();
-    held.terminalControlHolder.dispose();
     // The feed before the registry it writes into: a settlement landing between the
     // two would note an indicator on a registry that had already released its timers.
     held.activityFeed.dispose();
@@ -183,9 +163,8 @@ export class CollaborationSessionModelHolder {
    * One lease over one set, keyed on the set's own identity.
    *
    * The identity check is what makes a stale release harmless: React runs a section
-   * body's cleanup after the sibling that switched sessions has already replaced the
-   * held set, and a counter decremented by that cleanup would take the NEW session's
-   * set down with it.
+   * body's cleanup after a switch has already replaced the held set, and a counter
+   * decremented by that cleanup would take the NEW session's set down with it.
    */
   #leaseOn(models: CollaborationSessionModels): CollaborationModelsLease {
     let isReleased = false;
@@ -220,14 +199,14 @@ export class CollaborationSessionModelHolder {
  * its models, so the held set is still the PREVIOUS session's. That frame is now
  * rendered as absent rather than as the previous session's models — the check below
  * hands out a set only while it belongs to the subject it was asked about. Without it
- * the sections spent a committed frame drawing one session's channels and members
- * under another session's context, and a control pressed on that frame would have
- * carried the old session's channel id through the new session's seat.
+ * the section spent a committed frame drawing one session's channels under another
+ * session's context, and a control pressed on that frame would have carried the old
+ * session's channel id through the new session's seat.
  *
  * THE SUBJECT IS THE PAIR AND NOT THE SESSION ID, which is what this check used to
  * compare. A window handed a replacement bridge or a rebuilt store for the SAME
  * session passed that comparison on the first committed render after the
- * replacement, and the sections drew reads bound to the transport and the projection
+ * replacement, and the section drew reads bound to the transport and the projection
  * that had just been retired. `seats/session-subject.ts` owns the predicate, shared
  * with the agents family's holder, which carried the same guard with the same defect.
  *
@@ -236,7 +215,7 @@ export class CollaborationSessionModelHolder {
  *
  * Strict mode's double mount is idempotent by the lease count rather than by a guard:
  * the second cleanup takes the count to zero and disposes, and the second effect
- * builds a fresh set — so exactly one set is live once the pair has settled.
+ * builds a fresh set — so exactly one set is live once it has settled.
  */
 export function useSessionModels(
   holder: CollaborationSessionModelHolder,
@@ -258,8 +237,8 @@ export function useSessionModels(
 /**
  * Resolve a participant and a run to words, against the session's own projection.
  *
- * The activity fields carry ids and no names, and presence carries a participant id
- * and no name either, so this is the one place either becomes readable. It reads the
+ * The activity fields carry ids and no names, so this is the one place one becomes
+ * readable. It reads the
  * store's projection at call time rather than holding a copy, and falls back to the
  * wire id — which is a string an operator can act on — rather than to a blank or to
  * a composed placeholder that would read as a name nobody chose.
@@ -306,8 +285,6 @@ function buildSessionModels(
     activity,
     activityFeed: createActivityFeed({ bridge, sessionStore, clock, registry: activity }),
     channelDirectory: createChannelDirectory({ bridge, sessionStore, clock }),
-    presenceRoster: createPresenceRoster({ bridge, sessionStore, clock }),
-    terminalControlHolder: createTerminalControlHolder({ bridge, sessionStore, clock }),
     labels: sessionProjectionLabels(sessionStore),
   };
 }

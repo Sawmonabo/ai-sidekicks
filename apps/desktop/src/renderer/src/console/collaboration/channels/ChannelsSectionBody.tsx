@@ -7,7 +7,6 @@ import {
 } from "../../seats/index.js";
 import { useSessionDegraded, useSessionPartition } from "../../store/index.js";
 import { ChannelList } from "./ChannelList.js";
-import { liveMembershipParticipantIds } from "../members/members-model.js";
 import { type CollaborationSessionModels } from "../session-models.js";
 
 /**
@@ -36,17 +35,13 @@ export function ChannelsSectionBody(props: {
   // state without that read settling moved the flag and re-rendered nothing.
   const isCatchingUp = useSessionDegraded(context.sessionStore);
   const participantEntities = useSessionPartition(sessionStore, "participant");
-  // WHO IS STILL IN THIS SESSION, not who has ever been projected into it. The
-  // partition's keys are every participant the log has named, including the ones whose
-  // membership the log has since said ended — and a direct channel opened against one
-  // of those can only be refused, so the picker would be offering an act with a known
-  // answer. The membership fold is what makes the difference readable and
-  // `members/members-model.ts` owns the predicate, so the two collaboration surfaces
-  // that ask who is in the session take one answer rather than each deriving their own.
-  const participantIds = useMemo(
-    () => liveMembershipParticipantIds(participantEntities),
-    [participantEntities],
-  );
+  // WHO THIS SESSION HAS PROJECTED, which is every participant the log has named.
+  // Nothing narrows it further: no projector in this console writes a membership
+  // state onto a participant entity, so a filter for the ones whose membership has
+  // ended would be a predicate with no producer behind it — it would read as a
+  // guarantee the log cannot make. Eligibility for the act the picker below offers
+  // is the daemon's answer and arrives as a refusal.
+  const participantIds = useMemo(() => Object.keys(participantEntities), [participantEntities]);
   // WHICH PARTICIPANT THIS WINDOW IS, through the console's one composition of that
   // question rather than a second implementation of it. The IDENTITY arm and not the
   // role-chained one: nothing on this surface gates on a role, because eligibility for

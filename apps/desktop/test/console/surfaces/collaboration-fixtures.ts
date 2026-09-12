@@ -2,8 +2,7 @@
 //
 // The accessibility tier and the screenshot tier are two tiers asking two questions
 // of one family, and they held byte-identical copies of this whole block: the same
-// two builders, the same labels, the same disagreement tick, the same embedded
-// `lastSeen`, and the same frozen instant spelled `Date.parse` in both.
+// builders, the same labels, and the same disagreement tick.
 //
 // One of those divergences fails loudly and the other does not. Give
 // `ChannelListResponseChannel` a required member and the tier whose copy was not
@@ -16,22 +15,9 @@
 // `console-harness.tsx` in role, one directory down so a tier reads which family a
 // module belongs to from its name rather than from its contents.
 
-import type {
-  ChannelListResponseChannel,
-  PresenceReadResponseParticipant,
-} from "@ai-sidekicks/contracts";
+import type { ChannelListResponseChannel } from "@ai-sidekicks/contracts";
 
 import type { ChannelActivityLabels } from "../../../src/renderer/src/console/collaboration/activity-model.js";
-import { frozenStartMilliseconds } from "../../../src/renderer/src/console/core/frozen-instant.test-support.js";
-
-/**
- * The instant every relative stamp in this family's tiers is measured against.
- *
- * Read through the console's own instant reader rather than `Date.parse`, which
- * answers a number for a day that does not exist and would leave a captured "last
- * seen" figure describing an elapsed time nobody chose.
- */
-export const COLLABORATION_INSTANT_MILLISECONDS: number = frozenStartMilliseconds();
 
 /**
  * The tick this family's scenario has its two machine-health axes disagree at.
@@ -61,23 +47,5 @@ export function channel(
     name,
     state,
     participantCount: 4,
-  };
-}
-
-/**
- * One roster participant, last seen half a minute before the frozen instant.
- *
- * The gap is part of the fixture: it is what makes the row's relative age a figure
- * rather than a dash, so a tier that moved the instant without moving this stamp
- * would be measuring a different elapsed time from its sibling.
- */
-export function participant(
-  participantId: string,
-  state: PresenceReadResponseParticipant["state"],
-): PresenceReadResponseParticipant {
-  return {
-    participantId: participantId as PresenceReadResponseParticipant["participantId"],
-    state,
-    lastSeen: "2026-01-01T09:59:30.000Z",
   };
 }

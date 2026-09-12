@@ -9,11 +9,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { DaemonEvent, DaemonMethod, EventEnvelope } from "@ai-sidekicks/contracts";
+import type {
+  DaemonEvent,
+  DaemonMethod,
+  EventEnvelope,
+  PresenceState,
+} from "@ai-sidekicks/contracts";
 
 import { parseInstant } from "../../../core/index.js";
-import { projectMembershipCreated } from "../../../collaboration/members/membership-projector.js";
-import { PRESENCE_STATE_RENDER_ORDER } from "../../../collaboration/members/presence-model.js";
 import { createFixtureBridge } from "../../fixture/call-plane/bridge.js";
 import { readConsoleSessionEvent } from "../../daemon/session-event-payload.js";
 import { SESSION_EVENT_STREAM } from "../../daemon/session-event-streams.js";
@@ -21,6 +24,20 @@ import { COLLABORATION_SENT_INVITES } from "./replies.js";
 import { COLLABORATION_SCENARIO } from "./collaboration.js";
 import { CHANNEL_HANDOFF, PARTICIPANT_YOU } from "./identifiers.js";
 import type { ConsoleBridge } from "../../console-bridge.js";
+
+/**
+ * The presence states the wire declares, exhaustive by construction.
+ *
+ * A `Record` keyed by the contract's own union rather than a list written out here:
+ * a fifth state added to the wire fails this file to compile instead of leaving a
+ * case that reads as though it covered every state while covering four of five.
+ */
+const WIRE_PRESENCE_STATES: Readonly<Record<PresenceState, true>> = {
+  online: true,
+  idle: true,
+  reconnecting: true,
+  offline: true,
+};
 
 /** Past every beat this room plays, so an advance leaves nothing due. */
 const PAST_EVERY_BEAT_MS = 10_000;
@@ -62,18 +79,22 @@ async function channelStateOf(bridge: ConsoleBridge, channelId: string): Promise
 }
 
 describe("the collaboration scenario", () => {
-  it("covers every presence state the roster renders, once its moves have played", async () => {
+  it("covers every presence state the wire declares, once its moves have played", async () => {
     // Read PAST every beat, because the read is now a function of the clock: the four
     // states are what this room ENDS in, and a case that read at tick zero would be
     // asserting the room's opening — where everybody is `online` and three of the four
-    // renderings are correctly unreachable. The transition itself is driven in
+    // states are correctly unreachable. The transition itself is driven in
     // `collaboration/presence-timeline.test.ts`, which is where that schedule lives.
+    //
+    // Against the CONTRACT's closed four rather than a console module's copy of them:
+    // the claim is about what this room plays, and the wire is what decides which
+    // states there are to play.
     const { bridge, advance } = room();
 
     advance(PAST_EVERY_BEAT_MS);
 
     const covered = new Set(await presenceStatesFrom(bridge));
-    expect([...covered].sort()).toStrictEqual([...PRESENCE_STATE_RENDER_ORDER].sort());
+    expect([...covered].sort()).toStrictEqual(Object.keys(WIRE_PRESENCE_STATES).sort());
   });
 
   it("names a viewer the session actually joins", () => {
@@ -114,17 +135,13 @@ describe("the collaboration scenario", () => {
     const admissions = delivered.filter((frame) => frame.type === "membership.created");
     const owner = admissions.find((frame) => frame.payload["participantId"] === PARTICIPANT_YOU);
     // Through the console's own decode boundary, which is what turns the wire's
-    // envelope into the record a projector reads. A case that hand-built that record
-    // would pass over the seam where a fixture teaching the wrong shape shows up.
+    // envelope into the record a reader takes the handle off. A case that hand-built
+    // that record would pass over the seam where a fixture teaching the wrong shape
+    // shows up.
     const decoded = owner === undefined ? undefined : readConsoleSessionEvent(owner);
-    const projected = decoded === undefined ? [] : projectMembershipCreated(decoded);
 
-    const [upsert] = projected;
     expect(admissions).toHaveLength(COLLABORATION_SCENARIO.participantIdsInJoinOrder.length);
-    expect(upsert?.operation).toBe("upsert");
-    expect(upsert?.operation === "upsert" ? upsert.entity.body?.["name"] : undefined).toBe(
-      "sawyer",
-    );
+    expect(decoded?.payload?.["identityHandle"]).toBe("sawyer");
   });
 
   it("negative control: nobody outside the roster is admitted by a beat this room plays", () => {

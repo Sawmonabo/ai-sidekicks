@@ -255,17 +255,3 @@ const SHELL_BLOCK_ORIGIN = "shell";
 export function shellBlockRefusal(block: ShellMutationBlock): ConsoleRefusal {
   return refuse(SHELL_BLOCK_ORIGIN, block.code, block.detail);
 }
-
-/**
- * Whether a refusal is a shell block — the one reason the window already says.
- *
- * The predicate travels with the producer above for the reason the invitation mint
- * first wrote it down: a consumer that decides whether to RETAIN such a refusal is
- * answering a question about the store's own condition, and the store clears that
- * condition when the runtime comes back while a retained copy would not follow. Two
- * spellings of the origin — one at the producer, one at the consumer — is that seam
- * split across two modules.
- */
-export function isShellBlockRefusal(refusal: ConsoleRefusal): boolean {
-  return refusal.origin === SHELL_BLOCK_ORIGIN;
-}

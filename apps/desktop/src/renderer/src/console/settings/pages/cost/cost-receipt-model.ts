@@ -37,8 +37,8 @@ import { formatCount } from "../../../primitives/index.js";
 /**
  * What one `orchestrationCostReceiptRead` call answers.
  *
- * Derived off the port rather than restated, on `collaboration/invites/SentInvites.tsx`'s
- * rule: the bridge door exports the bridge and not the port's vocabulary, and a
+ * Derived off the port rather than restated: the bridge door exports the bridge and
+ * not the port's vocabulary, and a
  * hand-written copy of a reply shape is a second declaration nothing checks against
  * the first.
  */

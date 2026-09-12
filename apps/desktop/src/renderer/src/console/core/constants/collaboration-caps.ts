@@ -1,5 +1,5 @@
-// The collaboration family's bounds: the composing indicator's three durations, the
-// concurrent composers named before the line folds, and the settled invitations shown.
+// The collaboration family's bounds: the composing indicator's three durations and the
+// concurrent composers named before the line folds.
 //
 // The first three are ONE decision — a receiver's deadline and the two publisher windows
 // stated against it — so a reader who moves any of them sees the other two.
@@ -53,14 +53,3 @@ export const COMPOSING_IDLE_STOP_MS = 3_000;
  * fourth composer is the fact that the room is busy.
  */
 export const COMPOSING_NAMED_CAP = 3;
-
-/**
- * Settled invitations the sent-invite ledger renders inside its one disclosure.
- *
- * Sixteen. The fold exists because accepted, expired, and revoked rows are history
- * rather than work, and history that outgrows one screenful stops being scannable
- * and becomes a log — which is the timeline's job, not this section's. A sender who
- * needs more than this is asking a question the ledger cannot answer, because no
- * invite read carries a cursor to page with.
- */
-export const SETTLED_INVITE_VISIBLE_CAP = 16;

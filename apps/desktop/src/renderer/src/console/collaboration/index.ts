@@ -1,10 +1,10 @@
 // The collaboration subtree's door.
 //
-// Channels, the roster, invites, and members — the sidebar sections this subtree
-// fills — plus the four stylesheets they render through, imported here and nowhere
-// else so a section can never reach a screen without them and the bundler sees one
-// edge into each sheet. Each sub-family carries its own sheet; `collaboration.css`
-// holds what two of them share and the live line the family draws itself.
+// Channels — the sidebar section this subtree fills — plus the two stylesheets it
+// renders through, imported here and nowhere else so a section can never reach a
+// screen without them and the bundler sees one edge into each sheet. The channels
+// sub-family carries its own sheets; `collaboration.css` holds the shell the section
+// takes and the live line the family draws itself.
 //
 // WHAT IS NOT HERE
 //
@@ -17,9 +17,5 @@
 import "./collaboration.css";
 import "./channels/channels.css";
 import "./channels/create-channel.css";
-import "./invites/invites.css";
-import "./members/members.css";
 
 export { registerCollaborationSections } from "./sections.js";
-export { registerCollaborationProjectors } from "./members/membership-projector.js";
-export { registerInviteLifecycleOverlay } from "./invites/invite-overlay-registration.js";

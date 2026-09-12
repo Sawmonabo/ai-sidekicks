@@ -1,11 +1,11 @@
 // The accessibility tier for the collaboration family.
 //
-// `Spec-023 §Console Test Tiers` names axe-core over every surface in both schemes,
-// and this family owns five of them: two destinations the frame mounts — the
-// all-sessions list and the settings frame — and three sidebar surfaces whose host
-// has not landed, so they are exercised as components. The rule set, the violation
-// formatting, and the planted negative control all come from `axe-run.ts`; a family
-// running its own tags would report clean against a different standard.
+// The tier names axe-core over every surface in both schemes, and this family owns
+// the destinations the frame mounts — the all-sessions list and the settings frame —
+// plus the sidebar surfaces whose host has not landed, which are exercised as
+// components. The rule set, the violation formatting, and the planted negative
+// control all come from `axe-run.ts`; a family running its own tags would report
+// clean against a different standard.
 //
 // BOTH SCHEMES, DELIBERATELY, ON THE DESTINATIONS
 //
@@ -56,9 +56,6 @@ import {
 import { ActivityIndicatorRegistry } from "../../../src/renderer/src/console/collaboration/activity-model.js";
 import { ChannelList } from "../../../src/renderer/src/console/collaboration/channels/ChannelList.js";
 import { loaded as channelDirectory } from "../../../src/renderer/src/console/collaboration/channels/channels.test-support.js";
-import { rosterRowsFrom } from "../../../src/renderer/src/console/collaboration/members/presence-model.js";
-import { Roster } from "../../../src/renderer/src/console/collaboration/members/Roster.js";
-import { SentInvites } from "../../../src/renderer/src/console/collaboration/invites/SentInvites.js";
 import { NotificationCenter } from "../../../src/renderer/src/console/sessions/notifications/NotificationCenter.js";
 import { AttentionPlane } from "../../../src/renderer/src/console/sessions/notifications/attention-plane.js";
 import { RuntimeNodesPage } from "../../../src/renderer/src/console/settings/pages/runtime-nodes/RuntimeNodesPage.js";
@@ -69,18 +66,8 @@ import { RuntimeNodesPage } from "../../../src/renderer/src/console/settings/pag
 import { consoleTestUiStateStore } from "../../../src/renderer/src/console/settings/settings-page-mount.test-support.js";
 import type { SettingsPageContext } from "../../../src/renderer/src/console/settings/settings-page-registry.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
-import { ParticipantHueAllocator } from "../../../src/renderer/src/console/tokens/index.js";
-import {
-  COLLABORATION_INSTANT_MILLISECONDS,
-  LABELS,
-  ROSTER_AXES_DISAGREE_MS,
-  channel,
-  participant,
-} from "../surfaces/collaboration-fixtures.js";
-import {
-  FrameStore,
-  UNREPORTED_SHELL_STATE,
-} from "../../../src/renderer/src/console/store/index.js";
+import { LABELS, ROSTER_AXES_DISAGREE_MS, channel } from "../surfaces/collaboration-fixtures.js";
+import { UNREPORTED_SHELL_STATE } from "../../../src/renderer/src/console/store/index.js";
 
 /** Every destination this family owns, by the address a person types. */
 const FAMILY_DESTINATIONS: readonly { readonly label: string; readonly hash: string }[] = [
@@ -132,65 +119,6 @@ describe("accessibility — the surfaces this family fills a seat with", () => {
         labels={LABELS}
         isCatchingUp={false}
         onReopen={() => undefined}
-      />,
-    );
-
-    expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
-  });
-
-  it("has no axe violation in the roster", async () => {
-    const allocator = new ParticipantHueAllocator();
-    const participants = [
-      participant("participant-sawyer", "online"),
-      participant("participant-priya", "idle"),
-      participant("participant-implementer", "offline"),
-    ];
-    const { container } = await renderSettled(
-      <Roster
-        state={{
-          kind: "loaded",
-          value: { participants, readAtMilliseconds: COLLABORATION_INSTANT_MILLISECONDS },
-        }}
-        rows={rosterRowsFrom(
-          participants,
-          (participantId) => allocator.assignmentFor(participantId),
-          "participant-sawyer",
-        )}
-        nowMilliseconds={COLLABORATION_INSTANT_MILLISECONDS}
-        labels={LABELS}
-        composingChannelFor={(participantId) =>
-          participantId === "participant-priya" ? "review" : undefined
-        }
-        roleFor={(participantId) =>
-          participantId === "participant-sawyer" ? "owner" : "collaborator"
-        }
-        holding={{ kind: "held", participantId: "participant-priya" }}
-        openDetailParticipantId="participant-priya"
-        detailState={{
-          kind: "loaded",
-          value: {
-            participantId: "participant-priya",
-            aggregateState: "idle",
-            devices: [
-              { deviceId: "device-desk", state: "idle", lastSeen: "2026-01-01T09:59:30.000Z" },
-            ],
-          },
-        }}
-        onToggleDetail={() => undefined}
-        isLastKnown={false}
-        onReopen={() => undefined}
-      />,
-    );
-
-    expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
-  });
-
-  it("has no axe violation in the sent-invite ledger", async () => {
-    const { container } = await renderSettled(
-      <SentInvites
-        bridge={createFixtureBridge({ scenario: COLLABORATION_SCENARIO })}
-        sessionId={COLLABORATION_SCENARIO.sessionId}
-        frameStore={new FrameStore()}
       />,
     );
 
