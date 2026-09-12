@@ -10,9 +10,6 @@
 //   * Spec-001 §AC3 — Replay-from-cursor: events arrive in monotonically
 //     increasing sequence; reconnect resumes after the consumer-tracked
 //     cursor. `subscribe()` accepts `afterCursor` on both transports.
-//   * Spec-001 §AC4 — A second client `SessionJoin` against an existing
-//     session sees the existing event history (no fork). `join()` +
-//     subsequent `subscribe()` below.
 //   * Spec-001 §AC6 — Recovery from snapshot — a reconnect after a lost
 //     stream restores from the daemon/control-plane authoritative
 //     projection (NOT from the client's local cache). `subscribe()` issues
@@ -50,8 +47,6 @@ import type {
   SessionCreateResponse,
   SessionEvent,
   SessionId,
-  SessionJoinRequest,
-  SessionJoinResponse,
   SessionReadRequest,
   SessionReadResponse,
 } from "@ai-sidekicks/contracts";
@@ -62,8 +57,6 @@ import {
   SessionCreateRequestSchema,
   SessionCreateResponseSchema,
   SessionEventSchema,
-  SessionJoinRequestSchema,
-  SessionJoinResponseSchema,
   SessionReadRequestSchema,
   SessionReadResponseSchema,
 } from "@ai-sidekicks/contracts";
@@ -120,7 +113,6 @@ export interface SessionSubscribeOptions {
  */
 const SESSION_METHOD_CREATE = "session.create";
 const SESSION_METHOD_READ = "session.read";
-const SESSION_METHOD_JOIN = "session.join";
 const SESSION_METHOD_SUBSCRIBE = "session.subscribe";
 
 /**
@@ -130,14 +122,13 @@ const SESSION_METHOD_SUBSCRIBE = "session.subscribe";
 const CHANNEL_METHOD_LIST = "channel.list";
 
 /**
- * Common consumer-side surface for the four V1 session methods. Both
+ * Common consumer-side surface for the shared session methods. Both
  * `createDaemonSessionClient` and `createControlPlaneSessionClient` return
  * an object satisfying this interface.
  */
 export interface SessionClient {
   create(request: SessionCreateRequest): Promise<SessionCreateResponse>;
   read(request: SessionReadRequest): Promise<SessionReadResponse>;
-  join(request: SessionJoinRequest): Promise<SessionJoinResponse>;
   subscribe(options: SessionSubscribeOptions): AsyncIterable<SessionEventEnvelope>;
 }
 
@@ -190,13 +181,6 @@ export function createDaemonSessionClient(client: JsonRpcClient): DaemonSessionC
         request,
         SessionReadRequestSchema,
         SessionReadResponseSchema,
-      ),
-    join: (request) =>
-      client.call(
-        SESSION_METHOD_JOIN,
-        request,
-        SessionJoinRequestSchema,
-        SessionJoinResponseSchema,
       ),
     subscribe: (options) => daemonSubscribe(client, options),
     listChannels: (request) =>
@@ -414,17 +398,6 @@ export function createControlPlaneSessionClient(
         ),
       );
       return parseTrpcResult(response, SessionReadResponseSchema);
-    },
-    join: async (request) => {
-      const validated = SessionJoinRequestSchema.parse(request);
-      const response = await opts.fetcher(
-        new Request(trpcUrl(SESSION_METHOD_JOIN), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(validated),
-        }),
-      );
-      return parseTrpcResult(response, SessionJoinResponseSchema);
     },
     subscribe: (options) => controlPlaneSubscribe(opts.fetcher, trpcUrl, options),
   };

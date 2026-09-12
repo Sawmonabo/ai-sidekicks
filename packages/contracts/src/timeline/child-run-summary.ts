@@ -1,13 +1,6 @@
-// Plan-013 T1.2 — `ChildRunSummary`, the summarized child-run projection a
-// timeline row carries and `timeline.childRunExpand` expands.
-//
-// PROVENANCE. The canonical shape is
-// `docs/architecture/contracts/api-payload-contracts.md` §"Plan-013 — Live
-// Timeline Visibility And Reasoning Surfaces"; the behavior it serves is
-// `Spec-013 §Timeline Entry Types` and `Spec-013 §Default Behavior`
-// ("child-run activity defaults to summarized rows with explicit expansion").
-// This module APPLIES both; it decides neither. Adding, removing, or renaming
-// a member is a doc edit first.
+// `ChildRunSummary`, the summarized child-run projection a timeline row
+// carries and `timeline.childRunExpand` expands. Child-run activity defaults
+// to summarized rows with explicit expansion.
 //
 // WHY THIS MODULE IS THE SUBDIRECTORY'S LEAF. `child-run-summary.ts` imports
 // nothing from its siblings, `row.ts` imports it, `operations.ts` imports
@@ -17,37 +10,31 @@
 // is documented in the `repo.ts` header). The one-way chain is what keeps that
 // unreachable.
 //
-// THE INCOMPLETENESS MARKER. `Spec-013 §Fallback Behavior` says a child-run
-// detail fetch that fails leaves "the summary row visible and marked
-// incomplete rather than disappearing". The Tier-8 plan-readiness audit (§6
-// node NS-20) recorded that marker as unshaped in the canonical contract doc;
-// it is shaped here and in that doc together.
+// THE INCOMPLETENESS MARKER. A child-run detail fetch that fails leaves the
+// summary row visible and marked incomplete rather than disappearing.
 //
 // WHY A DISCRIMINATED MEMBER AND NOT A BOOLEAN. A bare `incomplete: true` says
 // that something is missing without saying what, which leaves a consumer no
 // basis to decide between retrying, waiting, and giving up — and those are the
 // three different right answers for the three causes below. The member is also
 // REQUIRED rather than optional: an absent marker would be a third state
-// meaning "probably fine", and the spec's rule is that incompleteness is
+// meaning "probably fine", and the rule is that incompleteness is
 // STATED. Before this member the only signal was a low `eventCount`, which is
 // indistinguishable from a child run that genuinely did little.
 //
 // THE CAUSE SET IS CLOSED AND BORROWED, NOT INVENTED. Each member is a term
-// the corpus already owns, so this surface adds no vocabulary:
-//   * `detail_fetch_failed` — `Spec-013 §Fallback Behavior`'s own naming of
-//     the condition ("if a child-run detail fetch fails"). Transient.
-//   * `pending_backfill` — `Spec-008 §Required Behavior`'s coverage-state
-//     term, reused verbatim. It is the same condition at a narrower scope: one
-//     child run's rows rather than the session's whole history. That section
-//     defines its outstanding-source arm as transient, clearing when the peer
+// this codebase already owns, so this surface adds no vocabulary:
+//   * `detail_fetch_failed` — a child-run detail fetch failed. Transient.
+//   * `pending_backfill` — the history-coverage term, reused verbatim. It is
+//     the same condition at a narrower scope: one child run's rows rather
+//     than the session's whole history. Transient, clearing when the peer
 //     serves.
 //   * `compacted` — already the shipped vocabulary on this subdirectory's own
 //     `ReasoningSurfaceReadResponse` availability arm and on
 //     `HydratedContentUnavailableReason`. Terminal; no retry recovers it.
 // Deliberately NOT reused: `session.history_backfill_unavailable` (a
-// response-level error code, which `Spec-008 §Required Behavior` rules out by
-// name — the joiner's coverage state "is `pending_backfill`, never this
-// code"), `NodeState`'s `offline` (a node lifecycle state, the INPUT to
+// response-level error code — a coverage state is `pending_backfill`, never
+// this code), `NodeState`'s `offline` (a node lifecycle state, the INPUT to
 // `pending_backfill` rather than a synonym), and `RepoMountHealth`'s
 // `unreachable` (scoped to filesystem mounts, and its own module warns against
 // overloading that word across axes).
@@ -112,13 +99,12 @@ export const CHILD_RUN_INCOMPLETE_CAUSES: readonly ChildRunIncompleteCause[] = O
 ] as const);
 
 /**
- * The summarized child-run projection (`Spec-013 §Timeline Entry Types`).
+ * The summarized child-run projection.
  *
- * `producingNodeId` is optional because `Spec-013 §State And Data
- * Implications` requires provenance to "parent run and producing runtime
- * node" and a child run projected before its producing node is resolved has
- * no honest value to put there — an absent member says so, where a fabricated
- * one would not.
+ * `producingNodeId` is optional because provenance runs to the parent run and
+ * the producing runtime node, and a child run projected before its producing
+ * node is resolved has no honest value to put there — an absent member says
+ * so, where a fabricated one would not.
  */
 export interface ChildRunSummary {
   runId: RunId;
@@ -142,7 +128,7 @@ export interface ChildRunSummary {
  *
  * NO RUN IS ITS OWN PARENT. `runId === parentRunId` makes the run-lineage
  * graph cyclic, and every consumer of that graph walks it: the renderer nests
- * a child row under its parent, `Spec-016`'s one-layer nesting rule is checked
+ * a child row under its parent, the one-layer nesting rule is checked
  * against the chain, and cost attribution sums along it. A self-parenting row
  * turns each of those walks into a non-terminating loop, so it is refused at
  * the parse boundary rather than defended against separately at every walk.

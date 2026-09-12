@@ -32,7 +32,6 @@ import {
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001";
-const MEMBERSHIP_ID = "770e8400-e29b-41d4-a716-446655440002";
 const CHANNEL_ID = "880e8400-e29b-41d4-a716-446655440003";
 const RUN_ID = "990e8400-e29b-41d4-a716-446655440004";
 const VERSION = "1.0";
@@ -73,24 +72,6 @@ const buildSessionCreated = () => ({
     sessionId: SESSION_ID,
     config: { resourceLimits: { sessions: 10 } },
     metadata: { source: "cli" },
-  },
-});
-
-const buildMembershipCreated = () => ({
-  id: "evt-0002",
-  sessionId: SESSION_ID,
-  sequence: 1,
-  occurredAt: "2026-01-22T19:14:36.000Z",
-  category: "membership_change" as const,
-  type: "membership.created" as const,
-  actor: PARTICIPANT_ID,
-  correlationId: "req-001",
-  version: VERSION,
-  payload: {
-    membershipId: MEMBERSHIP_ID,
-    participantId: PARTICIPANT_ID,
-    role: "owner",
-    identityHandle: "alice",
   },
 });
 
@@ -215,7 +196,7 @@ describe("DriverEvent — the driver slice of the census (Plan-005 T4.4)", () =>
   });
 
   it("DriverEventSchema REFUSES a schema-valid non-driver session event", () => {
-    const nonDriver = buildMembershipCreated();
+    const nonDriver = buildChannelCreated();
     // Premise first: without this the refusal below could be any parse
     // failure at all, and the test would pass on a malformed fixture.
     expect(SessionEventSchema.safeParse(nonDriver).success).toBe(true);
@@ -234,11 +215,7 @@ describe("DriverEvent — the driver slice of the census (Plan-005 T4.4)", () =>
     // — including the daemon's own streaming primitive, which validates with
     // it precisely so a non-driver value is DROPPED by the handler's filter
     // rather than killing the subscription.
-    const nonDriverEvents = [
-      buildSessionCreated(),
-      buildMembershipCreated(),
-      buildChannelCreated(),
-    ];
+    const nonDriverEvents = [buildSessionCreated(), buildChannelCreated()];
     for (const event of nonDriverEvents) {
       expect(SessionEventSchema.safeParse(event).success).toBe(true);
       expect(DriverEventSchema.safeParse(event).success).toBe(false);

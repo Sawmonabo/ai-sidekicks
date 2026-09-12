@@ -28,17 +28,11 @@
 // re-raise, so a thrown refusal leaves `runtime_node_attachments` byte-for-byte
 // unchanged (the no-mutation property the T3.2 conflict/revoked tests assert).
 //
-// Refs: Plan-003 §Invariants I-003-1 (admit below-floor read-only, write-refuse
-// with typed VERSION_FLOOR_EXCEEDED, never eject) / I-003-2 (cannot drive
-// registering -> online) / I-003-5 (single active attachment) + T3.2 (P9
-// conflict / P10 revoked) + T3.4 (version-floor write-refusal) + T3.9
-// (capability-update conflict); docs/architecture/contracts/error-contracts.md
-// §Runtime Node + §Version; ADR-018 §Decision #4 (version-floor write-refusal);
-// `@ai-sidekicks/contracts` `RUNTIME_NODE_ATTACH_CONFLICT_CODE` /
-// `RUNTIME_NODE_ATTACH_REVOKED_CODE` /
-// `RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE` / `VERSION_FLOOR_EXCEEDED_CODE`;
-// `../ais-wire-exception.ts` (the base) + `sessions/errors.ts` (the
-// session-domain sibling subclass).
+// See `@ai-sidekicks/contracts` for the wire codes
+// (`RUNTIME_NODE_ATTACH_CONFLICT_CODE` / `RUNTIME_NODE_ATTACH_REVOKED_CODE` /
+// `RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE` /
+// `VERSION_FLOOR_EXCEEDED_CODE`) and `../ais-wire-exception.ts` for the
+// base.
 
 import {
   RUNTIME_NODE_ATTACH_CONFLICT_CODE,

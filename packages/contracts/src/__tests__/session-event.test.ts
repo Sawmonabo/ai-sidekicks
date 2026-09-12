@@ -7,7 +7,7 @@
 // projection as the projector applied at append time).
 //
 // Coverage shape:
-//   • For each V1 variant (session.created, membership.created, channel.created):
+//   • For each V1 variant (session.created, channel.created):
 //       - parse a wire-shaped fixture, JSON-serialize it, JSON-parse it,
 //         re-parse through the schema — assert deep equality with the input
 //   • Discriminator dispatch is correct (parsed.type narrows the payload)
@@ -34,8 +34,7 @@
 //
 // Plan-006 T1.2 extends coverage with the SessionEventType census +
 // SESSION_EVENT_CATEGORY_BY_TYPE registry suite at the end of this file:
-// Spec-006 §Event Type Summary at the post-B18 census (156 types across 20
-// categories — T1.2 registered 141/19 and T1.10 closed the B18 delta),
+// the census (147 types across 20 categories),
 // invariants I-006-1-01 (category/type bijection) and
 // I-006-1-02 (event-type-string immutability). Plan-006 T1.3 adds the
 // EventEnvelopeSchema canonical-carrier suite after it: the 11-member
@@ -153,7 +152,6 @@ import { CHANNEL_NAME_MAX_LEN } from "../session.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001";
-const MEMBERSHIP_ID = "770e8400-e29b-41d4-a716-446655440002";
 const CHANNEL_ID = "880e8400-e29b-41d4-a716-446655440003";
 const VERSION = "1.0";
 
@@ -173,24 +171,6 @@ const buildSessionCreated = () => ({
   },
 });
 
-const buildMembershipCreated = () => ({
-  id: "evt-0002",
-  sessionId: SESSION_ID,
-  sequence: 1,
-  occurredAt: "2026-01-22T19:14:36.000Z",
-  category: "membership_change" as const,
-  type: "membership.created" as const,
-  actor: PARTICIPANT_ID,
-  correlationId: "req-001",
-  version: VERSION,
-  payload: {
-    membershipId: MEMBERSHIP_ID,
-    participantId: PARTICIPANT_ID,
-    role: "owner",
-    identityHandle: "alice",
-  },
-});
-
 const buildChannelCreated = () => ({
   id: "evt-0003",
   sessionId: SESSION_ID,
@@ -207,20 +187,15 @@ const buildChannelCreated = () => ({
 });
 
 describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
-  it("registers exactly the payload-variant roster (Plan-001 three + Plan-009 six + Plan-010 five + Plan-006 six + Plan-003 five + Plan-006 five)", () => {
-    // The SCHEMA-registered subset (30), not the 156-type census. It grew by
-    // the six Plan-009 repo/workspace variants (CP-009-4), the five Plan-010
-    // worktree variants (CP-010-5), the six Plan-006 audit-integrity /
-    // event-maintenance variants (T1.11), the five Plan-003
-    // `runtime_node.*` variants (T1.12 — CP-003-1 leg (a)), and the five
-    // Plan-006 body-bearing assistant / tool variants (T3.6); each group's
-    // round-trip and payload coverage lives in the suite that owns its
-    // contract (repo.test.ts / worktree.test.ts / runtime-node.test.ts for the
-    // payload shapes, and the T1.11 + T1.12 + T3.6 suites at the end of this
-    // file, Plan-006 owning this module and the union registration).
+  it("registers exactly the payload-variant roster", () => {
+    // The SCHEMA-registered subset (29), not the 147-type census. Each
+    // group's round-trip and payload coverage lives in the suite that owns
+    // its contract (repo.test.ts / worktree.test.ts / runtime-node.test.ts
+    // for the payload shapes, and the audit-integrity / event-maintenance,
+    // `runtime_node.*`, and body-bearing assistant / tool suites at the end
+    // of this file).
     expect(SESSION_EVENT_TYPES).toEqual([
       "session.created",
-      "membership.created",
       "channel.created",
       "repo.attached",
       "repo.detached",
@@ -254,7 +229,6 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
 
   it.each([
     ["session.created", buildSessionCreated],
-    ["membership.created", buildMembershipCreated],
     ["channel.created", buildChannelCreated],
   ] as const)("round-trips %s through JSON without loss", (label, build) => {
     const original = build();
@@ -289,12 +263,12 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
   });
 
   it("rejects payload smuggling across discriminator branches", () => {
-    // session.created envelope but with a membership.created payload shape.
+    // session.created envelope but with a channel.created payload shape.
     // Because each variant uses `.strict()` the wrong-shape payload must
     // be rejected (no silent reinterpretation).
     const sessionCreated = buildSessionCreated();
-    const membershipCreated = buildMembershipCreated();
-    const broken = { ...sessionCreated, payload: membershipCreated.payload };
+    const channelCreated = buildChannelCreated();
+    const broken = { ...sessionCreated, payload: channelCreated.payload };
     const result = SessionEventSchema.safeParse(broken);
     expect(result.success).toBe(false);
   });
@@ -346,7 +320,6 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
 
   it.each([
     ["session.created", buildSessionCreated, "session_lifecycle"],
-    ["membership.created", buildMembershipCreated, "membership_change"],
     ["channel.created", buildChannelCreated, "session_lifecycle"],
   ] as const)("emits the canonical category %s -> %s", (label, build, expected) => {
     // Round-trip parse pin: each variant carries its declared canonical
@@ -697,10 +670,8 @@ describe("compareEventEnvelopeVersion", () => {
 // Plan-006 T1.2 — SessionEventType census + category registry.
 // --------------------------------------------------------------------------
 //
-// Backstops Spec-006 §Event Type Summary at its full post-B18 census (156
-// types across 20 categories — T1.2 registered the 141/19 baseline, T1.10
-// closed the 2026-07-22 B18 delta of fifteen literals and the
-// `mcp_governance` category) plus the two Phase-1 invariants:
+// Backstops the full census (147 types across 20 categories) plus the two
+// invariants:
 //   • I-006-1-01 — category/type bijection: SESSION_EVENT_CATEGORY_BY_TYPE
 //     covers every registered type exactly once, its values span exactly
 //     the 20 canonical categories (every category non-empty), and the 20
@@ -720,7 +691,7 @@ describe("compareEventEnvelopeVersion", () => {
 //     the per-category counts below, which move ONLY on the five B18 rows).
 // Assertions are exact-set style wherever set equality is feasible (the
 // hardened idiom of the EventCategorySchema pin above), with the
-// AC-verbatim size assertions (size === 156, 20 distinct categories)
+// exact size assertions (size === 147, 20 distinct categories)
 // alongside.
 
 // Expected census, transcribed from Spec-006 §Event Type Summary aggregated
@@ -731,7 +702,7 @@ describe("compareEventEnvelopeVersion", () => {
 // message 0→1); usage_telemetry 5→8; mcp_governance 0→5 (the category is
 // B18's own). Every OTHER row is B18-untouched at its T1.2 value — that
 // invariance is what makes the widening auditable as additive rather than a
-// reshuffle. Rows sum to 156 (asserted below), mirroring the census table's
+// reshuffle. Rows sum to 147 (asserted below), mirroring the census table's
 // Total row.
 const CENSUS_BASELINE: ReadonlyArray<
   readonly [EventCategory, readonly SessionEventType[], number]
@@ -741,7 +712,7 @@ const CENSUS_BASELINE: ReadonlyArray<
   ["tool_activity", TOOL_ACTIVITY_EVENT_TYPES, 7],
   ["interactive_request", INTERACTIVE_REQUEST_EVENT_TYPES, 16],
   ["artifact_publication", ARTIFACT_PUBLICATION_EVENT_TYPES, 6],
-  ["membership_change", MEMBERSHIP_CHANGE_EVENT_TYPES, 13],
+  ["membership_change", MEMBERSHIP_CHANGE_EVENT_TYPES, 4],
   ["session_lifecycle", SESSION_LIFECYCLE_EVENT_TYPES, 31],
   ["approval_flow", APPROVAL_FLOW_EVENT_TYPES, 8],
   ["usage_telemetry", USAGE_TELEMETRY_EVENT_TYPES, 8],
@@ -758,19 +729,16 @@ const CENSUS_BASELINE: ReadonlyArray<
   ["mcp_governance", MCP_GOVERNANCE_EVENT_TYPES, 5],
 ];
 
-// The fifteen literals the 2026-07-22 Spec-006 B18 amendment minted, each
-// with the category it registered under. T1.10 INVERTED what this fixture
-// pins, exactly as its predecessor comment required: it held plain strings
-// asserted ABSENT from the census (the 141/19 baseline's forward boundary);
-// it now holds census members asserted PRESENT under a named category.
+// The fifteen most recently minted literals, each with the category it
+// registered under — census members asserted PRESENT under a named category.
 //
 // The element type is load-bearing, not decoration. `SessionEventType` is
 // the census union itself, so a literal that failed to register — or that a
-// later edit renames, which I-006-1-02 forbids — is a COMPILE error under
-// `tsc -p tsconfig.test.json` (the package's `typecheck` leg; vitest strips
-// types and would not catch it). The runtime assertions below pin the
-// category half and the 141 + 15 = 156 arithmetic.
-const B18_MINTED_TYPES: ReadonlyArray<readonly [SessionEventType, EventCategory]> = [
+// later edit renames, which the immutability rule forbids — is a COMPILE
+// error under `tsc -p tsconfig.test.json` (the package's `typecheck` leg;
+// vitest strips types and would not catch it). The runtime assertions below
+// pin the category half and the 132 + 15 = 147 arithmetic.
+const LATE_MINTED_TYPES: ReadonlyArray<readonly [SessionEventType, EventCategory]> = [
   ["session.provider_status", "session_lifecycle"],
   ["session.notice", "session_lifecycle"],
   ["session.renamed", "session_lifecycle"],
@@ -789,8 +757,8 @@ const B18_MINTED_TYPES: ReadonlyArray<readonly [SessionEventType, EventCategory]
 ];
 
 describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry (T1.2)", () => {
-  it("registers exactly 156 types across exactly 20 distinct categories (I-006-1-01 sizes)", () => {
-    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size).toBe(156);
+  it("registers exactly 147 types across exactly 20 distinct categories", () => {
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size).toBe(147);
     expect(new Set(SESSION_EVENT_CATEGORY_BY_TYPE.values()).size).toBe(20);
   });
 
@@ -803,12 +771,12 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry (T1.
     expect(registryCategories).toEqual([...schemaInternals.options].sort());
   });
 
-  it("census table is complete: 20 rows, one per category, counts summing to 156", () => {
+  it("census table is complete: 20 rows, one per category, counts summing to 147", () => {
     const tableCategories = CENSUS_BASELINE.map(([category]) => category);
     expect(tableCategories).toHaveLength(20);
     expect(new Set(tableCategories).size).toBe(20);
     const total = CENSUS_BASELINE.reduce((sum, [, , expectedCount]) => sum + expectedCount, 0);
-    expect(total).toBe(156);
+    expect(total).toBe(147);
   });
 
   it.each(CENSUS_BASELINE)(
@@ -833,31 +801,21 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry (T1.
 
   it("the 20 per-category arrays partition the registry key set exactly", () => {
     const aggregated = CENSUS_BASELINE.flatMap(([, categoryTypes]) => [...categoryTypes]);
-    expect(aggregated).toHaveLength(156);
-    expect(new Set(aggregated).size).toBe(156);
+    expect(aggregated).toHaveLength(147);
+    expect(new Set(aggregated).size).toBe(147);
     expect([...aggregated].sort()).toEqual([...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].sort());
   });
 
-  it("keeps the three Plan-001 wire literals unrenamed with unchanged categories (I-006-1-02)", () => {
+  it("keeps the two founding wire literals unrenamed with unchanged categories", () => {
     expect(SESSION_EVENT_CATEGORY_BY_TYPE.get("session.created")).toBe("session_lifecycle");
-    expect(SESSION_EVENT_CATEGORY_BY_TYPE.get("membership.created")).toBe("membership_change");
     expect(SESSION_EVENT_CATEGORY_BY_TYPE.get("channel.created")).toBe("session_lifecycle");
-    // The census widening is additive-only, and the SCHEMA-registered
-    // payload subset grows ONLY through each emitting plan's
-    // union-registration seam — the three Plan-001 variants, the six
-    // Plan-009 repo/workspace variants (CP-009-4), the five Plan-010
-    // worktree variants (CP-010-5), the six Plan-006 audit-integrity /
-    // event-maintenance variants (T1.11, emitted by the plan that owns
-    // event.ts), the five Plan-003 `runtime_node.*` variants (T1.12 —
-    // CP-003-1 leg (a), the payload shapes authored in runtime-node.ts), and
-    // the five Plan-006 body-bearing assistant / tool variants (T3.6) —
-    // whose type strings were all already census-registered by T1.2 before
-    // their payloads landed. The loop below is the bind that matters: every
-    // registered variant must be a census member, so a variant registered
-    // under an unregistered literal fails here.
+    // The SCHEMA-registered payload subset grows ONLY through the
+    // union-registration seam, and every one of those type strings is
+    // already a census member. The loop below is the bind that matters:
+    // every registered variant must be a census member, so a variant
+    // registered under an unregistered literal fails here.
     expect(SESSION_EVENT_TYPES).toEqual([
       "session.created",
-      "membership.created",
       "channel.created",
       "repo.attached",
       "repo.detached",
@@ -916,41 +874,35 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry (T1.
     },
   );
 
-  it("the census minus the B18 fifteen is exactly the 141-type T1.2 baseline", () => {
-    // Completeness self-check for the B18_MINTED_TYPES fixture (the same
-    // row-sum bind CENSUS_BASELINE gets above), re-formed for the post-flip
-    // state: the pre-B18 arithmetic was `141 registered + 15 absent = 156`;
-    // now that all fifteen ARE registered it runs the other way, `156 − 15
-    // = 141`, pinning the delta's SIZE so the widening cannot be over- or
-    // under-counted. A dropped or duplicated fixture entry fails here
-    // instead of leaving 14 passing per-literal pins.
-    expect(B18_MINTED_TYPES).toHaveLength(15);
-    expect(new Set(B18_MINTED_TYPES.map(([eventType]) => eventType)).size).toBe(15);
-    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size - B18_MINTED_TYPES.length).toBe(141);
-    // Removing the fifteen leaves exactly 141 keys — the T1.2 baseline
-    // SIZE. This is a cardinality bind, not an identity one: a rename
-    // edited in both the record and its per-category array would still
-    // land on 141. Additive-only (I-006-1-02) is pinned by name elsewhere
-    // — the three Plan-001 literals and the ten prefix-mismatch rows below,
-    // plus CENSUS_BASELINE's per-category counts, where only the five
-    // B18-touched rows moved.
-    const minted = new Set<string>(B18_MINTED_TYPES.map(([eventType]) => eventType));
+  it("the census minus the fifteen late-minted literals is exactly 132 types", () => {
+    // Completeness self-check for the LATE_MINTED_TYPES fixture (the same
+    // row-sum bind CENSUS_BASELINE gets above): `147 − 15 = 132`, pinning
+    // the delta's SIZE so the widening cannot be over- or under-counted. A
+    // dropped or duplicated fixture entry fails here instead of leaving 14
+    // passing per-literal pins.
+    expect(LATE_MINTED_TYPES).toHaveLength(15);
+    expect(new Set(LATE_MINTED_TYPES.map(([eventType]) => eventType)).size).toBe(15);
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size - LATE_MINTED_TYPES.length).toBe(132);
+    // Removing the fifteen leaves exactly 132 keys. This is a cardinality
+    // bind, not an identity one: a rename edited in both the record and its
+    // per-category array would still land on 132. Additive-only growth is
+    // pinned by name elsewhere — the two founding literals and the ten
+    // prefix-mismatch rows below, plus CENSUS_BASELINE's per-category
+    // counts.
+    const minted = new Set<string>(LATE_MINTED_TYPES.map(([eventType]) => eventType));
     const remaining = [...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].filter(
       (eventType) => !minted.has(eventType),
     );
-    expect(remaining).toHaveLength(141);
+    expect(remaining).toHaveLength(132);
   });
 
-  it.each([...B18_MINTED_TYPES])(
-    "B18-minted literal %s is registered under %s (T1.10 census closure)",
+  it.each([...LATE_MINTED_TYPES])(
+    "late-minted literal %s is registered under %s",
     (mintedType, expectedCategory) => {
-      // The inversion of this suite's pre-flip pins: each of the fifteen
-      // was asserted ABSENT from the 141-type baseline; each is now
-      // asserted PRESENT under the category Spec-006 §Event Type Summary
-      // assigns it. One `.get()` proves both halves — an unregistered
-      // literal returns `undefined`, and a literal registered under the
-      // wrong category returns the wrong value. (The element type already
-      // proved registration at COMPILE time; this adds the category.)
+      // One `.get()` proves both halves — an unregistered literal returns
+      // `undefined`, and a literal registered under the wrong category
+      // returns the wrong value. (The element type already proved
+      // registration at COMPILE time; this adds the category.)
       expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(mintedType)).toBe(expectedCategory);
     },
   );
@@ -1308,7 +1260,6 @@ describe("EventEnvelopeSchema — canonical carrier (T1.3)", () => {
 
   it.each([
     ["session.created", buildSessionCreated],
-    ["membership.created", buildMembershipCreated],
     ["channel.created", buildChannelCreated],
   ] as const)(
     "every SessionEvent is an EventEnvelope: %s parses through the carrier",

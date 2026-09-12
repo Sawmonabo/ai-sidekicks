@@ -1,23 +1,16 @@
-// Plan-002 Phase 1 T1.3 — presence contract schema tests.
+// Presence contract schema tests.
 //
-// Backstops the C4 acceptance criterion (Plan-002 §C4, `Spec-002 §Interfaces And Contracts`):
-// `PresenceHeartbeat` payload carries the 5 required metadata fields
-// `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`
-// per the canonical wire form at
-// `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)` merged with the `Spec-002 §Default Behavior` metadata
-// requirement.
+// Backstops the `PresenceHeartbeat` payload: 2 outer fields
+// `{deviceId, activityState}` plus the 5 required metadata fields
+// `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`.
 //
 // Test surface enumerated (the "what" each block pins):
 //   * PresenceStateSchema wire-form pin — exactly the 4 canonical literals
-//     `{online, idle, reconnecting, offline}` per `Spec-002 §Required Behavior` and
-//     `docs/architecture/contracts/api-payload-contracts.md §Shared Enums`. `"away"` / `"busy"` rejected.
-//   * JoinModeSchema wire-form pin — exactly the 3 canonical SPACED literals
-//     `{viewer, collaborator, runtime contributor}` per
-//     `docs/architecture/contracts/api-payload-contracts.md §Shared Enums`. snake_case `"runtime_contributor"` rejected.
-//   * PresenceHeartbeatSchema happy path — all 3 outer + 5 metadata fields
-//     parse cleanly. C4 backstop.
-//   * PresenceHeartbeatSchema required-field guards — outer 3 each required
-//     (participantId, deviceId, activityState); ALL 5 metadata fields each
+//     `{online, idle, reconnecting, offline}`. `"away"` / `"busy"` rejected.
+//   * PresenceHeartbeatSchema happy path — all 2 outer + 5 metadata fields
+//     parse cleanly.
+//   * PresenceHeartbeatSchema required-field guards — outer 2 each required
+//     (deviceId, activityState); ALL 5 metadata fields each
 //     required-key-at-parse (deviceType, focusedSessionId, focusedChannelId,
 //     lastActivityAt, appVisible). focusedSessionId and focusedChannelId
 //     additionally accept explicit `null` as their value (.nullable() shape);
@@ -27,7 +20,8 @@
 //   * PresenceUpdateSchema happy path — `{sessionId, awarenessState}` with
 //     real Uint8Array parses; non-Uint8Array (string, plain array,
 //     ArrayBuffer) rejected. Node `Buffer` (subclass) accepted.
-//   * PresenceReadRequestSchema + PresenceReadResponseSchema happy paths.
+//   * PresenceReadRequestSchema + PresenceReadResponseSchema happy paths —
+//     the read reply is the one user's DEVICE list, not a roster of people.
 //   * UUID composability — branded UUID guards reject malformed strings on
 //     every UUID-typed field.
 //
@@ -38,28 +32,25 @@ import {
   ChannelIdSchema,
   DEVICE_ID_MAX_LEN,
   DEVICE_TYPE_MAX_LEN,
-  JoinModeSchema,
-  ParticipantIdSchema,
   PresenceHeartbeatSchema,
   PresenceReadRequestSchema,
   PresenceReadResponseSchema,
   PresenceStateSchema,
   PresenceUpdateSchema,
   SessionIdSchema,
-  type JoinMode,
   type PresenceState,
 } from "../presence.js";
 
 // Real RFC 9562 UUIDs (mix of v4 and v7). `RFC_9562_TEXT_FORM` validates the version
 // nibble + variant bits in canonical positions; mismatch is rejected at the
 // branded-id schema layer.
-const PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440003";
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const CHANNEL_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f02";
-const SECOND_PARTICIPANT_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f03";
 
 const DEVICE_ID = "device-7c4a-9b1c-1b7c";
+const SECOND_DEVICE_ID = "device-9b1c-1b7c-7c4a";
 const DEVICE_TYPE = "desktop";
+const SECOND_DEVICE_TYPE = "mobile";
 const LAST_ACTIVITY_AT = "2026-05-22T14:30:00.000Z";
 const LAST_SEEN = "2026-05-22T14:29:45.000Z";
 
@@ -68,7 +59,6 @@ const LAST_SEEN = "2026-05-22T14:29:45.000Z";
 // The schema (not the type system) is the unit under test, so feeding raw
 // wire data is the natural test surface.
 const buildHeartbeatPayload = () => ({
-  participantId: PARTICIPANT_ID,
   deviceId: DEVICE_ID,
   activityState: "online" as PresenceState,
   metadata: {
@@ -84,15 +74,11 @@ const buildHeartbeatPayload = () => ({
 // Re-exports from session.ts — branded UUID guards
 // =============================================================================
 //
-// Anti-cosmetic: a typo in the `export { ParticipantIdSchema, ... }` line
+// Anti-cosmetic: a typo in the `export { SessionIdSchema, ... }` line
 // would otherwise only surface as a downstream consumer typecheck failure
 // at PR review time.
 
-describe("ParticipantIdSchema / SessionIdSchema / ChannelIdSchema (re-exported from session.ts)", () => {
-  it("ParticipantIdSchema parses a valid UUID", () => {
-    expect(ParticipantIdSchema.parse(PARTICIPANT_ID)).toBe(PARTICIPANT_ID);
-  });
-
+describe("SessionIdSchema / ChannelIdSchema (re-exported from session.ts)", () => {
   it("SessionIdSchema parses a valid UUID", () => {
     expect(SessionIdSchema.parse(SESSION_ID)).toBe(SESSION_ID);
   });
@@ -102,7 +88,6 @@ describe("ParticipantIdSchema / SessionIdSchema / ChannelIdSchema (re-exported f
   });
 
   it.each([
-    ["ParticipantIdSchema", ParticipantIdSchema],
     ["SessionIdSchema", SessionIdSchema],
     ["ChannelIdSchema", ChannelIdSchema],
   ])("%s rejects malformed UUID", (_label, schema) => {
@@ -111,12 +96,11 @@ describe("ParticipantIdSchema / SessionIdSchema / ChannelIdSchema (re-exported f
 });
 
 // =============================================================================
-// PresenceStateSchema — canonical lifecycle enum (`docs/architecture/contracts/api-payload-contracts.md §Shared Enums`)
+// PresenceStateSchema — canonical lifecycle enum
 // =============================================================================
 //
-// `Spec-002 §Required Behavior` + `docs/architecture/contracts/api-payload-contracts.md §Shared Enums` bind the wire form to
-// EXACTLY four lowercase literals. Adding `"away"` / `"busy"` is a contract
-// break requiring the spec edit FIRST per doc-first ordering.
+// The wire form is EXACTLY four lowercase literals. Adding `"away"` /
+// `"busy"` is a contract break.
 
 describe("PresenceStateSchema (wire form is exactly {online, idle, reconnecting, offline})", () => {
   const EXPECTED_STATES = ["online", "idle", "reconnecting", "offline"] as const;
@@ -144,93 +128,34 @@ describe("PresenceStateSchema (wire form is exactly {online, idle, reconnecting,
 });
 
 // =============================================================================
-// JoinModeSchema — canonical enum (`docs/architecture/contracts/api-payload-contracts.md §Shared Enums`)
+// PresenceHeartbeatSchema
 // =============================================================================
 //
-// `Spec-002 §Required Behavior` + `docs/architecture/contracts/api-payload-contracts.md §Shared Enums` bind the wire form to
-// EXACTLY three SPACED literals. Editing the space in "runtime contributor"
-// to underscore or camelCase is a contract break.
-
-describe("JoinModeSchema (canonical wire form is SPACED 'runtime contributor')", () => {
-  const EXPECTED_MODES = ["viewer", "collaborator", "runtime contributor"] as const;
-
-  it("enumerates exactly three canonical modes (no more, no less)", () => {
-    const schemaInternals = JoinModeSchema as unknown as { options: readonly string[] };
-    expect(schemaInternals.options).toHaveLength(3);
-    expect([...schemaInternals.options].sort()).toEqual([...EXPECTED_MODES].sort());
-  });
-
-  it.each(EXPECTED_MODES)("accepts canonical mode: %s", (mode) => {
-    expect(JoinModeSchema.safeParse(mode).success).toBe(true);
-  });
-
-  it("accepts the SPACED 'runtime contributor' form (the space is load-bearing)", () => {
-    const parsed = JoinModeSchema.parse("runtime contributor");
-    expect(parsed).toBe("runtime contributor");
-  });
-
-  it("rejects snake_case 'runtime_contributor' (contract break — wire is SPACED)", () => {
-    expect(JoinModeSchema.safeParse("runtime_contributor").success).toBe(false);
-  });
-
-  it("rejects camelCase 'runtimeContributor' (contract break — wire is SPACED)", () => {
-    expect(JoinModeSchema.safeParse("runtimeContributor").success).toBe(false);
-  });
-
-  it("rejects 'owner' (owner is a MembershipRole, not a JoinMode)", () => {
-    expect(JoinModeSchema.safeParse("owner").success).toBe(false);
-  });
-
-  it.each([
-    ["unknown mode", "admin"],
-    ["empty string", ""],
-    ["null", null],
-    ["number", 1],
-  ])("rejects non-canonical value: %s", (_label, value) => {
-    expect(JoinModeSchema.safeParse(value).success).toBe(false);
-  });
-
-  it("compile-time pin — JoinMode type matches the schema's runtime set", () => {
-    // If JoinMode ever drifts from the schema, this assignment fails to
-    // typecheck. The TYPE assertion is the load-bearing piece.
-    const modes: JoinMode[] = ["viewer", "collaborator", "runtime contributor"];
-    expect(modes).toHaveLength(3);
-  });
-});
-
-// =============================================================================
-// C4 — PresenceHeartbeatSchema (`Spec-002 §Default Behavior` + `Spec-002 §Interfaces And Contracts`)
-// =============================================================================
-//
-// Canonical wire form merges two governance sources:
-//   * `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)` — 3 outer fields
-//     `{participantId, deviceId, activityState}`
-//   * `Spec-002 §Default Behavior` + `Spec-002 §Interfaces And Contracts` — 5 REQUIRED metadata fields
+// Canonical wire form:
+//   * 2 outer fields `{deviceId, activityState}`
+//   * 5 REQUIRED metadata fields
 //     `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`
 //
 // All 5 metadata keys MUST be present at parse time. `focusedSessionId` and
 // `focusedChannelId` are nullable (the value may be `null` when the user is
-// not focused on a session/channel) — the KEYS are always present per
-// `Spec-002 §Default Behavior` ("must include at minimum") and `Spec-002 §Interfaces And Contracts` (canonical 5-field
-// list). The no-focus case is serialized as `null` on the wire; an absent
-// key is REJECTED. `undefined` is also rejected to pin against future drift
-// to `.nullish()` (which would re-admit the absent-key shape the schema
-// explicitly rejects — `Spec-002 §Default Behavior` binds the FIELD SET, the floor, so the
-// nullable-on-no-focus encoding is the spec-faithful interpretation).
+// not focused on a session/channel) — the KEYS are always present. The
+// no-focus case is serialized as `null` on the wire; an absent key is
+// REJECTED. `undefined` is also rejected to pin against future drift to
+// `.nullish()`, which would re-admit the absent-key shape the schema
+// explicitly rejects.
 //
 // `deviceId` and `metadata.deviceType` compose `wireFreeFormString` (NUL-byte
 // rejection / whitespace-only rejection) per the package wire-trust-boundary
 // convention. Explicit NUL-byte regression tests live near the boundary
 // checks below.
 
-describe("PresenceHeartbeatSchema (C4: 5 metadata fields per `Spec-002 §Interfaces And Contracts`)", () => {
+describe("PresenceHeartbeatSchema (2 outer + 5 metadata fields)", () => {
   // ----------------------------------------------------------------------
   // Happy paths
   // ----------------------------------------------------------------------
 
-  it("accepts a fully-populated heartbeat (all 3 outer + all 5 metadata fields)", () => {
+  it("accepts a fully-populated heartbeat (both outer + all 5 metadata fields)", () => {
     const parsed = PresenceHeartbeatSchema.parse(buildHeartbeatPayload());
-    expect(parsed.participantId).toBe(PARTICIPANT_ID);
     expect(parsed.deviceId).toBe(DEVICE_ID);
     expect(parsed.activityState).toBe("online");
     expect(parsed.metadata.deviceType).toBe(DEVICE_TYPE);
@@ -257,10 +182,10 @@ describe("PresenceHeartbeatSchema (C4: 5 metadata fields per `Spec-002 §Interfa
   });
 
   // ----------------------------------------------------------------------
-  // Outer fields are all REQUIRED — `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`.
+  // Outer fields are all REQUIRED.
   // ----------------------------------------------------------------------
 
-  it.each(["participantId", "deviceId", "activityState"] as const)(
+  it.each(["deviceId", "activityState"] as const)(
     "rejects heartbeat missing required outer field: %s",
     (field) => {
       const valid = buildHeartbeatPayload();
@@ -276,7 +201,7 @@ describe("PresenceHeartbeatSchema (C4: 5 metadata fields per `Spec-002 §Interfa
   );
 
   // ----------------------------------------------------------------------
-  // Metadata fields — ALL 5 keys REQUIRED at parse time per `Spec-002 §Default Behavior` + `Spec-002 §Interfaces And Contracts`.
+  // Metadata fields — ALL 5 keys REQUIRED at parse time.
   // focusedSessionId / focusedChannelId additionally accept explicit null
   // as their value (nullable shape); absent key and `undefined` value are
   // both REJECTED.
@@ -289,7 +214,7 @@ describe("PresenceHeartbeatSchema (C4: 5 metadata fields per `Spec-002 §Interfa
     "lastActivityAt",
     "appVisible",
   ] as const)(
-    "rejects heartbeat with metadata field KEY ABSENT: %s (all 5 keys required per Spec-002 §Default Behavior + §Interfaces And Contracts)",
+    "rejects heartbeat with metadata field KEY ABSENT: %s (all 5 keys required)",
     (field) => {
       const valid = buildHeartbeatPayload();
       const brokenMetadata = { ...valid.metadata } as Record<string, unknown>;
@@ -347,7 +272,7 @@ describe("PresenceHeartbeatSchema (C4: 5 metadata fields per `Spec-002 §Interfa
   it("rejects heartbeat with focusedSessionId: undefined (.nullable() admits null but NOT undefined)", () => {
     // Pin against future drift to `.nullish()` — that shape would re-admit
     // the absent-key case (zod treats `undefined` as "absent" semantically),
-    // which the schema explicitly rejects per the `Spec-002 §Default Behavior` field-set floor.
+    // which the schema explicitly rejects.
     const valid = buildHeartbeatPayload();
     const broken = {
       ...valid,
@@ -379,9 +304,9 @@ describe("PresenceHeartbeatSchema (C4: 5 metadata fields per `Spec-002 §Interfa
   // Field-level type guards — ID composability, ISO datetime, boolean shape
   // ----------------------------------------------------------------------
 
-  it("rejects heartbeat with malformed participantId (UUID guard composes)", () => {
+  it("rejects heartbeat carrying a participantId (no participant axis survives)", () => {
     const valid = buildHeartbeatPayload();
-    const broken = { ...valid, participantId: "not-a-uuid" };
+    const broken = { ...valid, participantId: "660e8400-e29b-41d4-a716-446655440003" };
     expect(PresenceHeartbeatSchema.safeParse(broken).success).toBe(false);
   });
 
@@ -532,14 +457,19 @@ describe("PresenceHeartbeatSchema (C4: 5 metadata fields per `Spec-002 §Interfa
   });
 
   // ----------------------------------------------------------------------
-  // Composability spot-check — UUID v7 + alternate participant
+  // Composability spot-check — a second device of the same user
   // ----------------------------------------------------------------------
 
-  it("accepts heartbeat with a UUID v7 participantId (daemon-emitted IDs are sortable v7)", () => {
+  it("accepts a heartbeat from a second device of the same user", () => {
     const valid = buildHeartbeatPayload();
-    const payload = { ...valid, participantId: SECOND_PARTICIPANT_ID };
+    const payload = {
+      ...valid,
+      deviceId: SECOND_DEVICE_ID,
+      metadata: { ...valid.metadata, deviceType: SECOND_DEVICE_TYPE },
+    };
     const parsed = PresenceHeartbeatSchema.parse(payload);
-    expect(parsed.participantId).toBe(SECOND_PARTICIPANT_ID);
+    expect(parsed.deviceId).toBe(SECOND_DEVICE_ID);
+    expect(parsed.metadata.deviceType).toBe(SECOND_DEVICE_TYPE);
   });
 });
 
@@ -547,7 +477,7 @@ describe("PresenceHeartbeatSchema (C4: 5 metadata fields per `Spec-002 §Interfa
 // PresenceUpdateSchema — JSON-RPC local IPC daemon → client push
 // =============================================================================
 //
-// Exact wire shape (`docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`):
+// Exact wire shape:
 //   `{sessionId: SessionId, awarenessState: Uint8Array}`
 
 describe("PresenceUpdateSchema (JSON-RPC local IPC, daemon → client push)", () => {
@@ -644,121 +574,107 @@ describe("PresenceReadRequestSchema (JSON-RPC local IPC, client → daemon query
 });
 
 // =============================================================================
-// PresenceReadResponseSchema — participant projection array
+// PresenceReadResponseSchema — device projection array
 // =============================================================================
 //
-// Wire shape (`docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`):
-//   `{participants: Array<{participantId, state: PresenceState, lastSeen: string}>}`
+// Wire shape:
+//   `{devices: Array<{deviceId, deviceType, appVisible, state, lastSeen}>}`
+//
+// Every element is one DEVICE of the one user — there is no participant axis.
 
-describe("PresenceReadResponseSchema (participant projection per `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3`))", () => {
-  it("accepts a response with one participant", () => {
-    const payload = {
-      participants: [
-        { participantId: PARTICIPANT_ID, state: "online" as PresenceState, lastSeen: LAST_SEEN },
-      ],
-    };
-    const parsed = PresenceReadResponseSchema.parse(payload);
-    expect(parsed.participants).toHaveLength(1);
-    expect(parsed.participants[0]?.participantId).toBe(PARTICIPANT_ID);
-    expect(parsed.participants[0]?.state).toBe("online");
-    expect(parsed.participants[0]?.lastSeen).toBe(LAST_SEEN);
+const buildDeviceEntry = () => ({
+  deviceId: DEVICE_ID,
+  deviceType: DEVICE_TYPE,
+  appVisible: true,
+  state: "online" as PresenceState,
+  lastSeen: LAST_SEEN,
+});
+
+describe("PresenceReadResponseSchema (device projection)", () => {
+  it("accepts a response with one device", () => {
+    const parsed = PresenceReadResponseSchema.parse({ devices: [buildDeviceEntry()] });
+    expect(parsed.devices).toHaveLength(1);
+    expect(parsed.devices[0]?.deviceId).toBe(DEVICE_ID);
+    expect(parsed.devices[0]?.deviceType).toBe(DEVICE_TYPE);
+    expect(parsed.devices[0]?.appVisible).toBe(true);
+    expect(parsed.devices[0]?.state).toBe("online");
+    expect(parsed.devices[0]?.lastSeen).toBe(LAST_SEEN);
   });
 
-  it("accepts an empty participants array (no one online)", () => {
-    const parsed = PresenceReadResponseSchema.parse({ participants: [] });
-    expect(parsed.participants).toEqual([]);
+  it("accepts an empty devices array (no device online)", () => {
+    const parsed = PresenceReadResponseSchema.parse({ devices: [] });
+    expect(parsed.devices).toEqual([]);
   });
 
-  it("accepts a response with multiple participants in different states", () => {
+  it("accepts several devices of the same user in different states", () => {
     const payload = {
-      participants: [
-        { participantId: PARTICIPANT_ID, state: "online" as PresenceState, lastSeen: LAST_SEEN },
+      devices: [
+        buildDeviceEntry(),
         {
-          participantId: SECOND_PARTICIPANT_ID,
+          deviceId: SECOND_DEVICE_ID,
+          deviceType: SECOND_DEVICE_TYPE,
+          appVisible: false,
           state: "reconnecting" as PresenceState,
           lastSeen: LAST_SEEN,
         },
       ],
     };
     const parsed = PresenceReadResponseSchema.parse(payload);
-    expect(parsed.participants).toHaveLength(2);
+    expect(parsed.devices).toHaveLength(2);
   });
 
-  it("rejects participant missing participantId", () => {
-    const broken = {
-      participants: [{ state: "online", lastSeen: LAST_SEEN }],
-    };
-    expect(PresenceReadResponseSchema.safeParse(broken).success).toBe(false);
+  it.each(["deviceId", "deviceType", "appVisible", "state", "lastSeen"] as const)(
+    "rejects a device element missing required field: %s",
+    (field) => {
+      const broken = { ...buildDeviceEntry() } as Record<string, unknown>;
+      delete broken[field];
+      expect(PresenceReadResponseSchema.safeParse({ devices: [broken] }).success).toBe(false);
+    },
+  );
+
+  it("rejects a device element with a whitespace-only deviceId (wireFreeFormString guard)", () => {
+    const broken = { ...buildDeviceEntry(), deviceId: "   " };
+    expect(PresenceReadResponseSchema.safeParse({ devices: [broken] }).success).toBe(false);
   });
 
-  it("rejects participant missing state", () => {
-    const broken = {
-      participants: [{ participantId: PARTICIPANT_ID, lastSeen: LAST_SEEN }],
-    };
-    expect(PresenceReadResponseSchema.safeParse(broken).success).toBe(false);
+  it("rejects a device element with a NUL byte in deviceType (wireFreeFormString guard)", () => {
+    const broken = { ...buildDeviceEntry(), deviceType: "desk\u0000top" };
+    expect(PresenceReadResponseSchema.safeParse({ devices: [broken] }).success).toBe(false);
   });
 
-  it("rejects participant missing lastSeen", () => {
-    const broken = {
-      participants: [{ participantId: PARTICIPANT_ID, state: "online" }],
-    };
-    expect(PresenceReadResponseSchema.safeParse(broken).success).toBe(false);
+  it("rejects a device element with a non-boolean appVisible", () => {
+    const broken = { ...buildDeviceEntry(), appVisible: "yes" };
+    expect(PresenceReadResponseSchema.safeParse({ devices: [broken] }).success).toBe(false);
   });
 
-  it("rejects participant with malformed participantId (UUID guard composes)", () => {
-    const broken = {
-      participants: [{ participantId: "not-a-uuid", state: "online", lastSeen: LAST_SEEN }],
-    };
-    expect(PresenceReadResponseSchema.safeParse(broken).success).toBe(false);
+  it("rejects a device element with unknown state (composes from PresenceStateSchema)", () => {
+    const broken = { ...buildDeviceEntry(), state: "away" };
+    expect(PresenceReadResponseSchema.safeParse({ devices: [broken] }).success).toBe(false);
   });
 
-  it("rejects participant with unknown state (composes from PresenceStateSchema)", () => {
-    const broken = {
-      participants: [{ participantId: PARTICIPANT_ID, state: "away", lastSeen: LAST_SEEN }],
-    };
-    expect(PresenceReadResponseSchema.safeParse(broken).success).toBe(false);
-  });
-
-  it("rejects participant with non-ISO lastSeen", () => {
-    const broken = {
-      participants: [{ participantId: PARTICIPANT_ID, state: "online", lastSeen: "an hour ago" }],
-    };
-    expect(PresenceReadResponseSchema.safeParse(broken).success).toBe(false);
+  it("rejects a device element with non-ISO lastSeen", () => {
+    const broken = { ...buildDeviceEntry(), lastSeen: "an hour ago" };
+    expect(PresenceReadResponseSchema.safeParse({ devices: [broken] }).success).toBe(false);
   });
 
   it("accepts lastSeen with numeric offset (RFC 3339 §5.6)", () => {
     const payload = {
-      participants: [
-        {
-          participantId: PARTICIPANT_ID,
-          state: "online" as PresenceState,
-          lastSeen: "2026-05-22T08:29:45-04:00",
-        },
-      ],
+      devices: [{ ...buildDeviceEntry(), lastSeen: "2026-05-22T08:29:45-04:00" }],
     };
     expect(PresenceReadResponseSchema.safeParse(payload).success).toBe(true);
   });
 
-  it("rejects response missing participants field", () => {
+  it("rejects response missing the devices field", () => {
     expect(PresenceReadResponseSchema.safeParse({}).success).toBe(false);
   });
 
   it("rejects extraneous keys at top level (.strict() guard)", () => {
-    const broken = { participants: [], unexpected: "field" };
+    const broken = { devices: [], unexpected: "field" };
     expect(PresenceReadResponseSchema.safeParse(broken).success).toBe(false);
   });
 
-  it("rejects extraneous keys within a participant element (.strict() guard)", () => {
-    const broken = {
-      participants: [
-        {
-          participantId: PARTICIPANT_ID,
-          state: "online",
-          lastSeen: LAST_SEEN,
-          unexpected: "field",
-        },
-      ],
-    };
-    expect(PresenceReadResponseSchema.safeParse(broken).success).toBe(false);
+  it("rejects extraneous keys within a device element (.strict() guard)", () => {
+    const broken = { ...buildDeviceEntry(), participantId: "leak" };
+    expect(PresenceReadResponseSchema.safeParse({ devices: [broken] }).success).toBe(false);
   });
 });

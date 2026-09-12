@@ -74,8 +74,7 @@
 // opened no store, recorded no origin, and navigated nowhere, and the new session
 // stayed absent from the all-sessions list until the window came down. The probe
 // takes one additive, optional `onCreated` now, and `acts/session-start.ts` is what
-// a settled create reaches — beside `onJoined`, doing the same four things a settled
-// join does, for the act next door.
+// a settled create reaches.
 //
 // AND THE COMPOSED DRAFT REACHES THE SAME ACT, through the seat its two families meet
 // on. It had the same defect for the same reason from the other side: a completed send
@@ -245,17 +244,6 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
             return;
           }
           setStartRequestCount((previous) => previous + 1);
-        }}
-        onJoined={(sessionId) => {
-          // A SETTLED join and never the press. The node's directory now answers a
-          // session it did not answer a moment ago, and this window's binding read that
-          // list once for the whole window — so without this the joined session is
-          // absent from the all-sessions list until the window comes down. The act has
-          // already settled and carries the session it joined, which is what makes this
-          // a read of something that HAPPENED rather than a guess put beside a call
-          // still in flight.
-          recheckSessionDirectory();
-          openSession(sessionId);
         }}
         blockedReason={actBlock.act.sentence}
         startBlockedReason={actBlock.startBlockedSentence}

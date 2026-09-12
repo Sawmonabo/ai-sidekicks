@@ -1,19 +1,16 @@
-// The three ways work arrives here, in one bar.
+// The two ways work arrives here, in one bar.
 //
-// `Spec-023 §Console Design (Meridian)` §All-sessions list puts starting a session on
-// this screen. There are three ways in and they are not equals: starting one is the
-// primary act and stays a button; joining one somebody else is in is the second and
-// sits beside it, disclosed rather than open, because a two-field form permanently
-// open beside a button reads as the thing you are meant to fill in; importing a
-// provider thread is the third and lives in the create menu, which is where an act
-// that is a variant of "start something" belongs.
+// The all-sessions list puts starting a session on this screen. There are two ways in
+// and they are not equals: starting one is the primary act and stays a button;
+// importing a provider thread is the second and lives in the create menu, which is
+// where an act that is a variant of "start something" belongs.
 //
-// WHY DISCLOSURE AND NOT A SECOND PANEL. Both secondary acts are forms, and both are
-// rare. Open, they cost the screen its answer to "what am I in the middle of" — the
-// one question this destination exists to answer in one look.
+// WHY DISCLOSURE AND NOT A SECOND PANEL. The secondary act is a form, and it is rare.
+// Open, it costs the screen its answer to "what am I in the middle of" — the one
+// question this destination exists to answer in one look.
 //
 // THE BLOCKED CAUSE TRAVELS DOWN AND IS NEVER RE-DERIVED. When the list is reading
-// stale state, creating and joining are refused with a NAMED cause, composed once in
+// stale state, creating is refused with a NAMED cause, composed once in
 // `session-list-degradation.ts` from the store's own worst degraded cause. Each
 // control renders it rather than deciding for itself whether it is allowed — a
 // renderer that recomputed eligibility would be a second source of truth for a fact
@@ -37,12 +34,12 @@ import { useState } from "react";
 import { Menu } from "@base-ui/react/menu";
 
 import { AutoPinSetting } from "./AutoPinSetting.js";
-// The two disclosed bodies arrive through their MOUNTS and never by name: each is
-// absent from the tree until a press, so each is a chunk of its own rather than code
-// every session downloads. `act-body-mounts.ts` holds the two loaders; a static import
-// of either component here would put it back on the initial graph, because a symbol
-// reachable both statically and dynamically is assigned to the STATIC chunk.
-import { joinSessionFormMount, providerImportPanelMount } from "./act-body-mounts.js";
+// The disclosed body arrives through its MOUNT and never by name: it is absent from
+// the tree until a press, so it is a chunk of its own rather than code every session
+// downloads. `act-body-mounts.ts` holds the loader; a static import of the component
+// here would put it back on the initial graph, because a symbol reachable both
+// statically and dynamically is assigned to the STATIC chunk.
+import { providerImportPanelMount } from "./act-body-mounts.js";
 import { useProviderImport } from "./provider-import-model.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { OverlayMenuPopup } from "../../primitives/index.js";
@@ -53,9 +50,7 @@ export interface SessionActsProps {
   readonly preferences: SessionPreferenceBinding;
   /** Start a session. The press the absorbed probe is keyed on. */
   readonly onStart: () => void;
-  /** Where a settled join goes. */
-  readonly onJoined: (sessionId: string) => void;
-  /** Why creating and joining are refused right now, or `undefined` where they are not. */
+  /** Why creating is refused right now, or `undefined` where it is not. */
   readonly blockedReason?: string | undefined;
   /**
    * Why STARTING alone is refused, where the other two acts are still open.
@@ -64,14 +59,14 @@ export interface SessionActsProps {
    * audiences. `blockedReason` is a fact about the window — it cannot reach the
    * runtime, or it is reading stale state — and it closes every act on this bar.
    * This one is a fact about the START act itself, and the only act it may close: a
-   * create already running is no reason at all to refuse a join, and folding the two
-   * would disable a form for a call it has nothing to do with.
+   * create already running is no reason at all to refuse an import, and folding the
+   * two would disable a form for a call it has nothing to do with.
    */
   readonly startBlockedReason?: string | undefined;
 }
 
-/** Which secondary act is disclosed. One at a time — two open forms is two primaries. */
-type DisclosedAct = "none" | "join" | "import";
+/** Whether the secondary act is disclosed. */
+type DisclosedAct = "none" | "import";
 
 /**
  * Why the disclosure will not move while an import is being read.
@@ -84,7 +79,7 @@ const IMPORT_UNDERWAY_DISCLOSURE_SENTENCE =
   "An import is being read. This panel is the only place this window reports it, so it stays until the reading ends.";
 
 export function SessionActs(props: SessionActsProps): React.JSX.Element {
-  const { bridge, preferences, onStart, onJoined, blockedReason } = props;
+  const { bridge, preferences, onStart, blockedReason } = props;
   const [disclosed, setDisclosed] = useState<DisclosedAct>("none");
   const providerImport = useProviderImport(bridge.growth);
   // The window's cause first, because it is the stronger fact and the one that says
@@ -110,18 +105,6 @@ export function SessionActs(props: SessionActsProps): React.JSX.Element {
         >
           Start a session
         </button>
-        <button
-          type="button"
-          className="meridian-session-acts__secondary"
-          aria-expanded={disclosed === "join"}
-          disabled={disclosureBlockedReason !== undefined}
-          title={disclosureBlockedReason}
-          onClick={() => {
-            setDisclosed((current) => (current === "join" ? "none" : "join"));
-          }}
-        >
-          Join a session
-        </button>
         <Menu.Root>
           <Menu.Trigger
             className="meridian-session-acts__menu-trigger"
@@ -140,8 +123,10 @@ export function SessionActs(props: SessionActsProps): React.JSX.Element {
           >
             <Menu.Item
               className="meridian-session-acts__menu-item"
+              disabled={disclosureBlockedReason !== undefined}
+              title={disclosureBlockedReason}
               onClick={() => {
-                setDisclosed("import");
+                setDisclosed((current) => (current === "import" ? "none" : "import"));
               }}
             >
               Import a provider session
@@ -168,9 +153,6 @@ export function SessionActs(props: SessionActsProps): React.JSX.Element {
           body renders is the board's decision — the settled module where a chunk has
           already landed, the reserved region where it has not — and this bar's job is
           to say which props it takes. */}
-      {disclosed === "join"
-        ? joinSessionFormMount.render({ bridge, onJoined, blockedReason })
-        : null}
       {disclosed === "import"
         ? providerImportPanelMount.render({ model: providerImport, blockedReason })
         : null}

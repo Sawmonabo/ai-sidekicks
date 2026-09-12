@@ -1,10 +1,9 @@
-// The three ways in, driven against the scenario that scripts all of them.
+// The ways in, driven against the scenario that scripts them.
 //
 // Every case here runs on the real fixture bridge playing `bring-your-history`, which
-// is what makes them worth having: a stub could answer anything, and what these
-// assert is that the SCENARIO reaches each arm — the join that lands, the join that
-// refuses, the import that runs to its terminal frame, and the import the node holds
-// no reader for. Ratified rule 8 for this lane is exactly that claim.
+// is what makes them worth having: a stub could answer anything, and what these assert
+// is that the SCENARIO reaches each arm — the import that runs to its terminal frame,
+// and the import the node holds no reader for.
 //
 // AND THE IMPORT CASE ADVANCES THE SCENARIO CLOCK, because the fixture paces that
 // feed against it: each progress reading is held until the frozen clock reaches the
@@ -20,10 +19,8 @@
 // menu is what a person does and is the same two presses either way.
 //
 // AND THAT PANEL ARRIVES ON ITS OWN CHUNK, so reaching it is asynchronous now. The wait
-// is `openImportDisclosure`'s — the one function both suites press through — rather than
-// this file's, for the reason that helper was hoisted at all. The join cases below mount
-// the form DIRECTLY, which is a different claim and needs no loader: what they drive is
-// the form, not the bar that discloses it.
+// is `openImportDisclosure`'s — the one function every case presses through — rather
+// than this file's, for the reason that helper was hoisted at all.
 
 import { act, render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -32,7 +29,6 @@ import {
   BRING_YOUR_HISTORY_SCENARIO,
   PROVIDER_SESSION_IMPORT_PROGRESS_FRAMES,
 } from "../../bridge/scenario/bring-your-history.js";
-import { JoinSessionForm } from "./JoinSessionForm.js";
 import { SessionActs } from "./SessionActs.js";
 import { openImportDisclosure, QUIET_PREFERENCES } from "./session-acts.test-support.js";
 import {
@@ -42,13 +38,6 @@ import {
 } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { settle } from "../../core/settle.test-support.js";
 import type { ConsoleBridge, GrowthImportProgress } from "../../bridge/index.js";
-
-/** The session the scenario plays — the one identifier its join answers for. */
-const JOINABLE_SESSION_ID = BRING_YOUR_HISTORY_SCENARIO.sessionId;
-
-function bridge(): ConsoleBridge {
-  return fixtureBridgeWithGrowth(BRING_YOUR_HISTORY_SCENARIO, {});
-}
 
 /** Type into one of a form's fields, the way a person does. */
 function fill(container: HTMLElement, labelText: string, value: string): void {
@@ -66,30 +55,6 @@ function fill(container: HTMLElement, labelText: string, value: string): void {
   });
 }
 
-function submit(container: HTMLElement): void {
-  const form = container.querySelector("form");
-  act(() => {
-    form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-  });
-}
-
-/**
- * Press the control twice before the disabled state commits.
- *
- * BOTH DISPATCHES INSIDE ONE `act`, which is what makes this the race rather than two
- * presses: React batches the running transition until the block ends, so the second
- * event reaches the handler the FIRST render produced — the one whose control is still
- * enabled. Two `submit` calls would flush in between and the second would find the
- * disabled form, which is a different case and not the one that bites.
- */
-function submitTwiceInOneTick(container: HTMLElement): void {
-  const form = container.querySelector("form");
-  act(() => {
-    form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-    form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-  });
-}
-
 /** The refusal code the surface rendered, or `undefined` where it rendered none. */
 function refusalCode(container: HTMLElement): string | undefined {
   // The code rides the wire-figure span inside the refusal, which is the markup
@@ -100,154 +65,10 @@ function refusalCode(container: HTMLElement): string | undefined {
   );
 }
 
-describe("joining a session", () => {
-  it("will not put a join with a field still empty, and says which", () => {
-    const { container } = render(<JoinSessionForm bridge={bridge()} onJoined={() => undefined} />);
-
-    const button = container.querySelector("button");
-    expect(button?.disabled).toBe(true);
-    expect(container.textContent).toContain("Both the session and the handle are needed.");
-  });
-
-  it("navigates to the session the daemon answered with", async () => {
-    const joined: string[] = [];
-    const { container } = render(
-      <JoinSessionForm
-        bridge={bridge()}
-        onJoined={(sessionId) => {
-          joined.push(sessionId);
-        }}
-      />,
-    );
-
-    fill(container, "Session", JOINABLE_SESSION_ID);
-    fill(container, "Your handle", "sam");
-    submit(container);
-
-    await waitFor(() => {
-      expect(joined).toStrictEqual([JOINABLE_SESSION_ID]);
-    });
-  });
-
-  it("renders the daemon's own refusal for an identifier that resolves to nothing", async () => {
-    const joined: string[] = [];
-    const { container } = render(
-      <JoinSessionForm
-        bridge={bridge()}
-        onJoined={(sessionId) => {
-          joined.push(sessionId);
-        }}
-      />,
-    );
-
-    fill(container, "Session", "019b78c9-0a80-7b31-9c40-4f0a0b6d9999");
-    fill(container, "Your handle", "sam");
-    submit(container);
-
-    await waitFor(() => {
-      expect(refusalCode(container)).toBe("session.not_found");
-    });
-    // And it did NOT navigate. A form that both refused and navigated would put a
-    // person in a session the daemon just said does not exist.
-    expect(joined).toStrictEqual([]);
-  });
-
-  it("does not navigate when the form went away before the join settled", async () => {
-    const joined: string[] = [];
-    const { container, unmount } = render(
-      <JoinSessionForm
-        bridge={bridge()}
-        onJoined={(sessionId) => {
-          joined.push(sessionId);
-        }}
-      />,
-    );
-
-    fill(container, "Session", JOINABLE_SESSION_ID);
-    fill(container, "Your handle", "sam");
-    submit(container);
-    // The whole window the defect lives in, and it is reached by ORDERING rather than
-    // by a scripted delay: nothing has awaited since the press, so the reply's
-    // continuation cannot have run, and the form is torn down underneath it.
-    unmount();
-    await settle();
-
-    // A settlement that navigated here would drag a person who had left this
-    // destination into a workspace they are no longer asking for.
-    expect(joined).toStrictEqual([]);
-  });
-
-  it("navigates when the same join settles under a form still on screen — the control", async () => {
-    const joined: string[] = [];
-    const { container } = render(
-      <JoinSessionForm
-        bridge={bridge()}
-        onJoined={(sessionId) => {
-          joined.push(sessionId);
-        }}
-      />,
-    );
-
-    fill(container, "Session", JOINABLE_SESSION_ID);
-    fill(container, "Your handle", "sam");
-    submit(container);
-    await settle();
-
-    // Which is what makes the case above a claim about the unmount rather than about
-    // a join that never settled at all.
-    expect(joined).toStrictEqual([JOINABLE_SESSION_ID]);
-  });
-
-  it("navigates once when two presses race the disabled state", async () => {
-    // THE DEFECT: the second press superseded the first press's navigation claim
-    // before the act told it a join was already running. The second continuation read
-    // the act as `running` and navigated nowhere, and the first — the one whose join
-    // actually landed — could no longer settle a claim something else had taken. A
-    // person was left durably joined to a session, on a form that said nothing, with
-    // neither the navigation nor the directory refresh `onJoined` carries.
-    const joined: string[] = [];
-    const { container } = render(
-      <JoinSessionForm
-        bridge={bridge()}
-        onJoined={(sessionId) => {
-          joined.push(sessionId);
-        }}
-      />,
-    );
-
-    fill(container, "Session", JOINABLE_SESSION_ID);
-    fill(container, "Your handle", "sam");
-    submitTwiceInOneTick(container);
-    await settle();
-
-    // Exactly one, and it is the join that was admitted: the second press took no
-    // claim, put no call, and settled nothing.
-    expect(joined).toStrictEqual([JOINABLE_SESSION_ID]);
-  });
-
-  it("offers nothing while the list is degraded, and names the cause", () => {
-    const { container } = render(
-      <JoinSessionForm
-        bridge={bridge()}
-        onJoined={() => undefined}
-        blockedReason="Not while the session stream closed."
-      />,
-    );
-
-    expect(container.querySelector("button")?.disabled).toBe(true);
-    expect(container.textContent).toContain("Not while the session stream closed.");
-  });
-});
-
 /** Mount the acts bar and disclose the import, the way somebody reaches it. */
 async function renderImport(actsBridge: ConsoleBridge): Promise<HTMLElement> {
   const { container } = render(
-    <SessionActs
-      bridge={actsBridge}
-      preferences={QUIET_PREFERENCES}
-      onStart={() => undefined}
-      onJoined={() => undefined}
-    />,
+    <SessionActs bridge={actsBridge} preferences={QUIET_PREFERENCES} onStart={() => undefined} />,
   );
   await openImportDisclosure(container);
   return container;

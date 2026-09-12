@@ -80,7 +80,6 @@ import * as contracts from "../index.js";
 // form.
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
-const PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440003";
 const CHANNEL_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f02";
 const LAST_ACTIVITY_AT = "2026-05-22T14:30:00.000Z";
 const LAST_SEEN = "2026-05-22T14:29:45.000Z";
@@ -88,7 +87,6 @@ const DEVICE_ID = "device-7c4a-9b1c-1b7c";
 const DEVICE_TYPE = "desktop";
 
 const buildValidPresenceHeartbeat = () => ({
-  participantId: PARTICIPANT_ID,
   deviceId: DEVICE_ID,
   activityState: "online" as PresenceState,
   metadata: {
@@ -110,9 +108,11 @@ const buildValidPresenceReadRequest = () => ({
 });
 
 const buildValidPresenceReadResponse = () => ({
-  participants: [
+  devices: [
     {
-      participantId: PARTICIPANT_ID,
+      deviceId: DEVICE_ID,
+      deviceType: DEVICE_TYPE,
+      appVisible: true,
       state: "online" as PresenceState,
       lastSeen: LAST_SEEN,
     },
@@ -296,7 +296,6 @@ describe("export inventory — required schemas re-exported from @ai-sidekicks/c
     ["PresenceReadRequestSchema", contracts.PresenceReadRequestSchema],
     ["PresenceReadResponseSchema", contracts.PresenceReadResponseSchema],
     ["PresenceStateSchema", contracts.PresenceStateSchema],
-    ["JoinModeSchema", contracts.JoinModeSchema],
     // channels.ts
     ["ChannelListRequestSchema", contracts.ChannelListRequestSchema],
     ["ChannelListResponseSchema", contracts.ChannelListResponseSchema],

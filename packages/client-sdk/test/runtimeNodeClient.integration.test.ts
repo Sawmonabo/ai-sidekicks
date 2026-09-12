@@ -403,12 +403,9 @@ function buildRuntimeNodeDeps(
     // REAL — the attach self-check compares this against `request.participantId`
     // and throws UNAUTHORIZED on mismatch, so it MUST equal the seeded participant.
     resolveCurrentParticipantId: (): ParticipantId => currentParticipantId,
-    // Never reached on the runtime-node path (session-create / join only).
+    // Never reached on the runtime-node path (session-create only).
     generateSessionId: (): SessionId => {
       throw NEVER_REACHED("generateSessionId");
-    },
-    resolveIdentityHandle: (): ParticipantId => {
-      throw NEVER_REACHED("resolveIdentityHandle");
     },
     // Never reached — runtime-node has no subscribe (SSE) procedure.
     eventStreamProvider: () => {

@@ -61,7 +61,7 @@ import type {
   JsonRpcRequest,
   JsonRpcResponseEnvelope,
   ListProviderCommandsRequest,
-  MembershipId,
+  ChannelId,
   ParticipantId,
   ProviderCommandListResult,
   RunId,
@@ -553,7 +553,7 @@ describe("DriverClient — the ratified client-facing surface (Plan-005 §Phase 
 //
 // It is here for the incorrect pairing, which is the shape of the finding it
 // closes: a daemon whose filter regressed, or a peer on a version that widened
-// the stream, otherwise hands this client an approval or membership row that
+// the stream, otherwise hands this client an approval or channel row that
 // parses cleanly against the full `SessionEvent` union and reaches a consumer
 // typed to expect neither. The scripted daemon below is exactly that daemon —
 // it pushes a frame no correct producer would send, and the assertion is that
@@ -563,7 +563,7 @@ describe("DriverClient — the ratified client-facing surface (Plan-005 §Phase 
 const TEST_SUBSCRIPTION_ID = "00000000-0000-4000-8000-000000000003";
 const TEST_SESSION_ID = "00000000-0000-4000-8000-000000000004" as SessionId;
 const TEST_PARTICIPANT_ID = "00000000-0000-4000-8000-000000000005" as ParticipantId;
-const TEST_MEMBERSHIP_ID = "00000000-0000-4000-8000-000000000006" as MembershipId;
+const TEST_CHANNEL_ID = "00000000-0000-4000-8000-000000000006" as ChannelId;
 
 /**
  * The envelope version, branded at the fixture rather than at each use. The
@@ -600,15 +600,13 @@ function buildNonDriverEvent(): SessionEvent {
     sessionId: TEST_SESSION_ID,
     sequence: 2,
     occurredAt: "2026-01-22T19:14:36.000Z",
-    category: "membership_change",
-    type: "membership.created",
+    category: "session_lifecycle",
+    type: "channel.created",
     actor: TEST_PARTICIPANT_ID,
     version: EVENT_VERSION,
     payload: {
-      membershipId: TEST_MEMBERSHIP_ID,
-      participantId: TEST_PARTICIPANT_ID,
-      role: "owner",
-      identityHandle: "alice",
+      channelId: TEST_CHANNEL_ID,
+      name: "main",
     },
   };
 }

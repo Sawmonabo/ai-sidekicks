@@ -56,8 +56,6 @@ import type {
   RunResumeRequest,
   SessionCreateRequest,
   SessionCreateResponse,
-  SessionJoinRequest,
-  SessionJoinResponse,
   TimelineReadRequest,
   TimelineReadResponse,
   WorkspaceExecutionModeCapabilitiesReadRequest,
@@ -254,10 +252,6 @@ export interface ConsoleDaemonMethodContract {
   readonly "session.create": {
     readonly request: SessionCreateRequest;
     readonly response: SessionCreateResponse;
-  };
-  readonly "session.join": {
-    readonly request: SessionJoinRequest;
-    readonly response: SessionJoinResponse;
   };
   readonly "channel.list": {
     readonly request: ChannelListRequest;

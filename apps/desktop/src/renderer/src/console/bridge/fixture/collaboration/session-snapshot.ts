@@ -58,12 +58,11 @@
 // the members are exactly the ids `membershipRoleByParticipantId` names, and an id in
 // the join order with no entry contributes nothing rather than an empty row.
 //
-// NOTHING IS INVENTED ONTO THE ROW EITHER. `MembershipSummary` registers a membership
-// id and a `MembershipState` beside the role, and a scenario states neither, so
-// neither is here: a `state: "active"` supplied by this module would be a default
-// presented as a reading, which is the one thing the fixture must not do.
+// NOTHING IS INVENTED ONTO THE ROW EITHER. A scenario states a role and nothing else,
+// so a `state: "active"` supplied by this module would be a default presented as a
+// reading, which is the one thing the fixture must not do.
 
-import type { MembershipSummary } from "@ai-sidekicks/contracts";
+import type { MembershipRole } from "@ai-sidekicks/contracts";
 
 import { scriptedSessionReadMember } from "./scripted-session-read.js";
 import type { ConsoleScenario } from "../../scenario/runtime/index.js";
@@ -109,7 +108,7 @@ export function fixtureSessionSnapshot(
 type SnapshotEntity = SessionSnapshot["entities"][number];
 
 /** The body a participant row carries its role on, spelled as the wire spells it. */
-type ParticipantEntityBody = Pick<MembershipSummary, "role">;
+type ParticipantEntityBody = Readonly<Record<"role", MembershipRole>>;
 
 /**
  * The position the fixture's read answers at. See the header for why it is the bottom

@@ -1,10 +1,8 @@
-// Channel contracts — request/response payload for Plan-002 Phase 1's
-// `ChannelList` read-only projection. Implements the C5 acceptance criterion
-// (Plan-002 §C5, `Spec-002 §Interfaces And Contracts`): the JSON-RPC client surface for reading
-// the channels in a session, as a strict-shaped projection.
+// Channel contracts — request/response payload for the `ChannelList` read-only
+// projection: the JSON-RPC client surface for reading the channels in a
+// session, as a strict-shaped projection.
 //
-// Canonical wire form lives in
-// `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`:
+// The canonical wire form:
 //
 //   interface ChannelListRequest {
 //     sessionId: SessionId;
@@ -19,34 +17,31 @@
 //     }>;
 //   }
 //
-// Cross-plan ownership (intentional re-exports, NOT redeclarations):
+// Cross-module ownership (intentional re-exports, NOT redeclarations):
 //
 //   `ChannelState`, `ChannelStateSchema`, `CHANNEL_NAME_MAX_LEN`, `ChannelId`,
 //   `ChannelIdSchema`, `SessionId`, `SessionIdSchema` all live in
-//   `./session.js` (Plan-001 Phase 2 ownership per cross-plan-dependencies.md
-//   §2). This file re-exports them so that consumers can `import { ... } from
-//   "@ai-sidekicks/contracts"` and pull the full ChannelList surface in one
-//   shot, without ownership trespass. session.ts remains the single source of
+//   `./session.js`. This file re-exports them so that consumers can
+//   `import { ... } from "@ai-sidekicks/contracts"` and pull the full
+//   ChannelList surface in one shot. session.ts remains the single source of
 //   truth — adding new wrapper schemas here would create a divergent surface
 //   that consumers would have to choose between.
 //
 // Why `name?` is optional and what it encodes:
 //
-//   `Spec-002 §Interfaces And Contracts` explicitly writes `name?: string` (the `?` is verbatim).
-//   The bootstrap "main" channel itself is NOT born from a `ChannelCreated`
-//   event — it is a projected structural invariant, derived deterministically
-//   from the session (id = `deriveMainChannelId(sessionId)`, channel-id.ts),
-//   and the projector always labels it "main" (never unnamed). The `name?`
-//   optionality exists for Plan-016 *user* channels, which DO flow through the
-//   `ChannelCreated` event payload (`channelCreatedPayloadSchema` in event.ts —
-//   `name: wireFreeFormString(...).optional()`) and may legitimately have no friendly
-//   label; for those, the wire signal for "this channel has no display name" is
-//   KEY ABSENT (not `name: ""` and not `name: null`). This matches the
-//   `ChannelSummary` shape on the
-//   `SessionCreateResponse` projection (session.ts:265-269). Producers MUST
-//   omit the key when no name is set; consumers MUST handle the absent-key
-//   case in UI rendering ("Default channel" / "Main" / similar UI fallback,
-//   owned by the renderer, not contracted here).
+//   The bootstrap "main" channel is NOT born from a `ChannelCreated` event —
+//   it is a projected structural invariant, derived deterministically from the
+//   session (id = `deriveMainChannelId(sessionId)`, channel-id.ts), and the
+//   projector always labels it "main" (never unnamed). The `name?` optionality
+//   exists for user channels, which DO flow through the `ChannelCreated` event
+//   payload (`channelCreatedPayloadSchema` in event.ts —
+//   `name: wireFreeFormString(...).optional()`) and may legitimately have no
+//   friendly label; for those, the wire signal for "this channel has no display
+//   name" is KEY ABSENT (not `name: ""` and not `name: null`). This matches the
+//   `ChannelSummary` shape in session.ts. Producers MUST omit the key when no
+//   name is set; consumers MUST handle the absent-key case in UI rendering
+//   ("Default channel" / "Main" / similar UI fallback, owned by the renderer,
+//   not contracted here).
 //
 // Why `participantCount: number` is integer + non-negative:
 //
@@ -67,9 +62,9 @@
 //       Zod v3 (where `z.number()` admitted `NaN` and required `.finite()`
 //       to reject `±Infinity`); maintainers carrying a Zod v3 mental model
 //       repeatedly mis-attribute the rejection to `.int()` or `.finite()`.
-//       Two independent code reviewers fell into this trap on the T1.4
-//       round — the truth is `z.number()` is the load-bearing guard for
-//       non-finite-number rejection in Zod v4.
+//       Two independent code reviewers fell into this trap — the truth is
+//       `z.number()` is the load-bearing guard for non-finite-number
+//       rejection in Zod v4.
 //     * `.int()` is defense-in-depth — it rejects non-integer floats like
 //       `1.5`, AND would catch any non-finite that hypothetically slipped
 //       past `z.number()` (NaN/Infinity are not integers).
@@ -85,27 +80,17 @@
 //
 // No channel creation contracts here:
 //
-//   The DAG task title and `Spec-002 §Interfaces And Contracts` verbatim ("Channel creation is
-//   handled by Plan-016") foreclose `ChannelCreate` / `ChannelMute` /
-//   `ChannelArchive` / similar mutation surfaces in this file. Plan-016
-//   (multi-agent-channels-and-orchestration) owns the channel-mutation
-//   wire contracts; adding any mutation shape here would be a cross-plan
-//   ownership trespass. The anti-leakage assertion in T1.6
-//   (`anti-leakage.test.ts`) backstops this boundary at the export-set
-//   level.
+//   This file is the READ surface. `ChannelCreate` / `ChannelMute` /
+//   `ChannelArchive` and similar mutation shapes belong to the
+//   channel-mutation surface, not here; the anti-leakage assertion in
+//   `anti-leakage.test.ts` backstops this boundary at the export-set level.
 //
 // `isolatedDeclarations: true` (from tsconfig.base.json) forbids inferred
 // types on exported declarations — every NEW exported schema in this file
 // is explicitly annotated with `z.ZodType<T, T>` (the double-T shape
-// required for Standard-Schema-V1 input inference in tRPC v11 per
-// ADR-014). The existing single-T `ChannelStateSchema` re-exported from
-// session.ts composes inside the double-T outer schemas without issue.
-//
-// Refs: `Spec-002 §Interfaces And Contracts`, Plan-002 §Phase 1 (C5),
-// `docs/architecture/contracts/api-payload-contracts.md §Shared Enums` (`ChannelState`)
-// + `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`
-// (`ChannelList` request/response), ADR-001 (session-as-primary-domain-object),
-// ADR-014 (tRPC v11 / Standard Schema V1), ADR-022 (toolchain — Zod 4.x).
+// required for Standard-Schema-V1 input inference in tRPC v11). The existing
+// single-T `ChannelStateSchema` re-exported from session.ts composes inside
+// the double-T outer schemas without issue.
 import { z } from "zod";
 
 import {
@@ -125,8 +110,8 @@ import {
 //
 // Consumers wiring up channel-list flows should `import { ... } from
 // "@ai-sidekicks/contracts"` and get all the related symbols in one shot.
-// session.ts remains the single source of truth (Plan-001 Phase 2 ownership);
-// this file does NOT re-declare any of these symbols.
+// session.ts remains the single source of truth; this file does NOT re-declare
+// any of these symbols.
 //
 // Type-only re-exports MUST use `export type { ... }` (the `isolatedModules`
 // + `verbatimModuleSyntax` posture from tsconfig.base.json forbids erased
@@ -141,7 +126,7 @@ export {
 } from "./session.js";
 
 // --------------------------------------------------------------------------
-// C5 — ChannelListRequest (`Spec-002 §Interfaces And Contracts` + `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`)
+// ChannelListRequest
 // --------------------------------------------------------------------------
 //
 // Exact wire shape:
@@ -149,16 +134,15 @@ export {
 //
 // Mirror of `SessionReadRequest` / `PresenceReadRequest` — a single
 // `sessionId` field scoping the read-only projection to one session. The
-// per-channel projection visibility (which channels the calling participant
-// may see) is enforced by the service layer (Plan-016 / Plan-002 Phase 2
-// authorization), NOT by the wire schema.
+// per-channel projection visibility is enforced by the service layer, NOT by
+// the wire schema.
 
 export interface ChannelListRequest {
   sessionId: SessionId;
 }
 // `z.ZodType<T, T>` — see SessionCreateRequestSchema in session.ts for
 // rationale (preserves Standard-Schema-V1 input inference for tRPC v11
-// consumers per ADR-014).
+// consumers).
 export const ChannelListRequestSchema: z.ZodType<ChannelListRequest, ChannelListRequest> = z
   .object({
     sessionId: SessionIdSchema,
@@ -169,8 +153,7 @@ export const ChannelListRequestSchema: z.ZodType<ChannelListRequest, ChannelList
 // ChannelListResponseChannel — per-element projection shape
 // --------------------------------------------------------------------------
 //
-// One element per channel visible to the calling participant. Wire shape
-// (`docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`):
+// One element per visible channel. Wire shape:
 //   `{id: ChannelId, name?: string, state: ChannelState, participantCount: number}`
 //
 // `name` is OPTIONAL — see file header for the bootstrap-unnamed-channel
@@ -192,7 +175,7 @@ export interface ChannelListResponseChannel {
 }
 // `z.ZodType<T, T>` — see SessionCreateRequestSchema in session.ts for
 // rationale (preserves Standard-Schema-V1 input inference for tRPC v11
-// consumers per ADR-014).
+// consumers).
 //
 // The `as unknown as z.ZodType<T, T>` cast bridges the underlying
 // `z.ZodObject<...>` shape (whose `_input.state` resolves to `unknown`
@@ -237,7 +220,7 @@ export const ChannelListResponseChannelSchema: z.ZodType<
 // ChannelListResponse — outer projection envelope
 // --------------------------------------------------------------------------
 //
-// Exact wire shape (`docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`):
+// Exact wire shape:
 //   `{channels: Array<ChannelListResponseChannel>}`
 //
 // Empty list is valid — a session with no visible channels (or a session
@@ -253,7 +236,7 @@ export interface ChannelListResponse {
 }
 // `z.ZodType<T, T>` — see SessionCreateRequestSchema in session.ts for
 // rationale (preserves Standard-Schema-V1 input inference for tRPC v11
-// consumers per ADR-014).
+// consumers).
 export const ChannelListResponseSchema: z.ZodType<ChannelListResponse, ChannelListResponse> = z
   .object({
     channels: z.array(ChannelListResponseChannelSchema),

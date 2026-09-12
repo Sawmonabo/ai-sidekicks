@@ -1,93 +1,38 @@
-// Presence contracts — request/response payloads for Plan-002 Phase 1 presence
-// surfaces (heartbeat ingestion, JSON-RPC update push, JSON-RPC read).
+// Presence contracts — request/response payloads for the presence surfaces
+// (heartbeat ingestion, JSON-RPC update push, JSON-RPC read, JSON-RPC
+// subscribe).
 //
-// These shapes implement the C4 acceptance criterion (Plan-002 §C4,
-// `Spec-002 §Interfaces And Contracts`): `PresenceHeartbeat` carries the 5 required metadata fields
-// `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`.
+// Presence describes the ONE user's linked DEVICES, never a roster of people.
+// Every shape below is keyed on `deviceId`: a heartbeat reports one device's
+// liveness, and a read projects the set of devices currently bound to a
+// session.
 //
-// Canonical wire forms live in
-// `docs/architecture/contracts/api-payload-contracts.md`:
-//   * §Shared Enums     — `PresenceState = "online" | "idle" | "reconnecting" | "offline"`
-//                         and `JoinMode = "viewer" | "collaborator" | "runtime contributor"`
-//   * §Tier 2: Plan-002 — `PresenceHeartbeatRequest {participantId, deviceId, activityState}`
-//                         (response: 204 No Content, fire-and-forget);
-//                         `PresenceUpdateParams {sessionId, awarenessState: Uint8Array}`
-//                         (JSON-RPC, local IPC, daemon → client push);
-//                         `PresenceReadParams {sessionId}` + `PresenceReadResult {participants}`
-//                         (JSON-RPC, local IPC)
+// `PresenceState` is the canonical device-liveness enum. The heartbeat carries
+// the five metadata fields a device reports about itself
+// (`{deviceType, focusedSessionId, focusedChannelId, lastActivityAt,
+// appVisible}`).
 //
-// Wire-doc reconciliation — `PresenceHeartbeat` outer + metadata:
+// Presence is in-memory only: these schemas are for WIRE TRANSIT ONLY and MUST
+// NOT be persisted to SQLite or Postgres. The register service garbage-collects
+// device state on disconnect.
 //
-//   `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`
-//   originally showed ONLY the outer 3 fields
-//   `{participantId, deviceId, activityState}`. `Spec-002 §Default Behavior` + `Spec-002 §Interfaces And Contracts`
-//   mandate 5 ADDITIONAL metadata fields the heartbeat MUST carry:
-//   `{deviceType, focusedSessionId, focusedChannelId, lastActivityAt, appVisible}`.
-//
-//   We merge both: the 3 outer wire-doc fields plus a nested
-//   `metadata` sub-object holding the 5 Spec-002 fields. ALL 5 metadata fields
-//   are REQUIRED — the keys are always present in the payload per `Spec-002 §Default Behavior`
-//   ("must include at minimum") and `Spec-002 §Interfaces And Contracts` (canonical 5-field list).
-//   `focusedSessionId` and `focusedChannelId` accept explicit `null` (NOT
-//   undefined, NOT absent) so heartbeats can fire when no session/channel is
-//   focused without omitting the wire key. The no-focus case is serialized as
-//   `null` on the wire, preserving the "5 keys always present" floor.
-//
-//   The canonical wire doc has since been aligned: its
-//   `PresenceHeartbeatRequest` (under the §Tier 2 heading cited above) now
-//   carries the nested `metadata` sub-object this note originally
-//   recommended — 5 required keys, `focusedSessionId` and `focusedChannelId`
-//   nullable on the value branch — matching this file.
-//
-// Canonical `JoinMode` home:
-//
-//   This file owns the canonical `JoinMode` declaration. The enum has no
-//   remaining wire consumer now that the invite surface is gone; it is
-//   retained here only until the presence surface itself is reshaped
-//   around devices rather than people.
-//
-// Naming convention — Request/Response vs Params/Result:
-//
-//   The api-payload-contracts.md JSON-RPC sections use
-//   `PresenceUpdateParams` / `PresenceReadParams` / `PresenceReadResult`
-//   (the conventional JSON-RPC naming). The wider @ai-sidekicks/contracts
-//   package convention is `XxxRequest` / `XxxResponse` (per session.ts).
-//   This file follows the package convention for consistency with
-//   `SessionReadRequest`, `SessionJoinRequest`, etc.; the surface names
-//   differ from the canonical doc's JSON-RPC labels but the WIRE SHAPES
-//   are identical.
-//
-// I-002-3 reminder — presence is in-memory only:
-//
-//   `Plan-002 §Invariants` row I-002-3 and `Spec-002 §State And Data Implications` declare
-//   presence state (Yjs Awareness CRDT) MUST live in memory only and MUST
-//   be garbage-collected on disconnect. These schemas are for WIRE TRANSIT
-//   ONLY; they MUST NOT be persisted to SQLite or Postgres. P10 in
-//   Plan-002 (T2.5) is the migration-shape regression test that pins the
-//   ephemeral invariant on the storage side.
+// Naming convention — Request/Response vs Params/Result: this package's
+// convention is `XxxRequest` / `XxxResponse` (per session.ts), which this file
+// follows for consistency with `SessionReadRequest` et al.
 //
 // `isolatedDeclarations: true` (from tsconfig.base.json) forbids inferred
 // types on exported declarations — every exported schema is explicitly
 // annotated with `z.ZodType<T, T>` (the double-T shape required for
-// Standard-Schema-V1 input inference in tRPC v11 per ADR-014). Schemas are
+// Standard-Schema-V1 input inference in tRPC v11). Schemas are
 // non-transforming, so pre-validation Input ≡ post-validation Output ≡ T.
-//
-// Refs: `Spec-002 §Required Behavior`, `Spec-002 §Default Behavior`,
-// `Spec-002 §Interfaces And Contracts`, `Spec-002 §State And Data Implications`;
-// Plan-002 §Phase 1 (C4) + §Invariants I-002-3;
-// `docs/architecture/contracts/api-payload-contracts.md §Shared Enums`
-// + `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`;
-// ADR-014 (tRPC v11 / Standard Schema V1), ADR-022 (toolchain — Zod 4.x).
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import {
   ChannelIdSchema,
-  ParticipantIdSchema,
   SessionIdSchema,
   wireFreeFormString,
   type ChannelId,
-  type ParticipantId,
   type SessionId,
 } from "./session.js";
 
@@ -97,23 +42,22 @@ import {
 //
 // Consumers wiring up presence flows should `import { ... } from
 // "@ai-sidekicks/contracts"` and get all the related symbols in one shot.
-// session.ts remains the single source of truth (Plan-001 Phase 2 ownership);
-// this file does NOT re-declare any of these symbols.
+// session.ts remains the single source of truth; this file does NOT re-declare
+// any of these symbols.
 //
 // Type-only re-exports MUST use `export type { ... }` (the `isolatedModules`
 // + `verbatimModuleSyntax` posture from tsconfig.base.json forbids erased
 // re-exports on the runtime form).
 
-export type { ChannelId, ParticipantId, SessionId } from "./session.js";
-export { ChannelIdSchema, ParticipantIdSchema, SessionIdSchema } from "./session.js";
+export type { ChannelId, SessionId } from "./session.js";
+export { ChannelIdSchema, SessionIdSchema } from "./session.js";
 
 // --------------------------------------------------------------------------
-// PresenceState — canonical lifecycle enum (`docs/architecture/contracts/api-payload-contracts.md §Shared Enums`)
+// PresenceState — canonical device-liveness enum
 // --------------------------------------------------------------------------
 //
-// Exactly 4 states per `Spec-002 §Required Behavior` + `docs/architecture/contracts/api-payload-contracts.md §Shared Enums`.
-// Adding `"away"` / `"busy"` / `"focused"` here is a contract break and
-// requires the spec edit FIRST per AGENTS.md "doc-first ordering".
+// Exactly 4 states. Adding `"away"` / `"busy"` / `"focused"` here is a
+// contract break.
 
 export type PresenceState = "online" | "idle" | "reconnecting" | "offline";
 export const PresenceStateSchema: z.ZodType<PresenceState, PresenceState> = z.enum([
@@ -124,42 +68,19 @@ export const PresenceStateSchema: z.ZodType<PresenceState, PresenceState> = z.en
 ]);
 
 // --------------------------------------------------------------------------
-// JoinMode — canonical enum
-// --------------------------------------------------------------------------
-//
-// This file owns the canonical declaration. No wire shape consumes it any
-// more; it survives only until the presence surface is reshaped.
-//
-// "runtime contributor" includes the SPACE — preserved verbatim from the
-// canonical enum. Editing to "runtime_contributor" / "runtimeContributor"
-// is a contract break and requires the spec edit FIRST.
-//
-// Why double-T: the double-T annotation preserves Standard-Schema-V1 input
-// inference for any tRPC v11 consumer that composes this enum into a
-// request schema.
-
-export type JoinMode = "viewer" | "collaborator" | "runtime contributor";
-export const JoinModeSchema: z.ZodType<JoinMode, JoinMode> = z.enum([
-  "viewer",
-  "collaborator",
-  "runtime contributor",
-]);
-
-// --------------------------------------------------------------------------
 // Defense-in-depth length caps
 // --------------------------------------------------------------------------
 //
 // `DEVICE_ID_MAX_LEN` — opaque client-supplied device identifier (UUID-like
 // or platform-specific token, e.g. iOS deviceID / Windows machine GUID).
 // 256 chars is generous slack for any reasonable format; the framework
-// body-size cap (owned by Plan-004/005) is the authoritative limit.
+// body-size cap is the authoritative limit.
 //
 // `DEVICE_TYPE_MAX_LEN` — short categorical string ("desktop", "mobile",
-// "cli", "ios", etc.). 64 chars matches `IDENTITY_HANDLE_MAX_LEN` order.
+// "cli", "ios", etc.).
 //
-// Both caps are composed with `wireFreeFormString` at the schema layer (see
-// the `PresenceHeartbeatSchema` definition below), which layers on the
-// canonical wire-trust-boundary guards from session.ts:118: `.min(1)`,
+// Both caps are composed with `wireFreeFormString` at the schema layer, which
+// layers on the canonical wire-trust-boundary guards from session.ts: `.min(1)`,
 // NUL-byte rejection (OpenTelemetry log-injection guard), and whitespace-
 // only rejection. The fields are wire input from cross-process / cross-node
 // callers — even though clients EMIT these values (rather than humans
@@ -170,51 +91,41 @@ export const DEVICE_ID_MAX_LEN = 256;
 export const DEVICE_TYPE_MAX_LEN = 64;
 
 // --------------------------------------------------------------------------
-// C4 — PresenceHeartbeat (`Spec-002 §Default Behavior` + `Spec-002 §Interfaces And Contracts`;
-//      `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)` merged with Spec-002 metadata fields)
+// PresenceHeartbeat — one device reporting its own liveness
 // --------------------------------------------------------------------------
 //
-// Wire shape merges two governance sources:
+// Outer fields (2 required): `{deviceId, activityState}`.
 //
-//   1. `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)` outer fields (3 required):
-//      `{participantId: ParticipantId, deviceId: string, activityState: PresenceState}`
+// Metadata sub-object (all 5 REQUIRED; 2 nullable):
+//   `metadata: {
+//     deviceType: string;                       // required
+//     focusedSessionId: SessionId | null;       // REQUIRED key, nullable value
+//     focusedChannelId: ChannelId | null;       // REQUIRED key, nullable value
+//     lastActivityAt: string;                   // required, ISO 8601 timestamp
+//     appVisible: boolean;                      // required
+//   }`
 //
-//   2. `Spec-002 §Default Behavior` + `Spec-002 §Interfaces And Contracts` metadata sub-object (all 5 REQUIRED; 2 nullable):
-//      `metadata: {
-//        deviceType: string;                       // required
-//        focusedSessionId: SessionId | null;       // REQUIRED key, nullable value
-//        focusedChannelId: ChannelId | null;       // REQUIRED key, nullable value
-//        lastActivityAt: string;                   // required, ISO 8601 timestamp
-//        appVisible: boolean;                      // required
-//      }`
-//
-// All 3 outer fields and ALL 5 metadata fields are REQUIRED at parse time —
+// Both outer fields and ALL 5 metadata fields are REQUIRED at parse time —
 // the keys MUST be present in every heartbeat payload. The two nullable
 // metadata fields (`focusedSessionId`, `focusedChannelId`) encode the no-
 // focus case as serialized `null` (the key is present with value `null`),
 // NOT as an absent key. Heartbeats fire on the daemon-bound transport
-// regardless of whether the user is currently focused on a session or
-// channel; the no-focus case ships `null` and the schema accepts it.
+// regardless of whether the device is currently focused on a session or
+// channel.
 //
-// Why nullable, not optional: `Spec-002 §Default Behavior` ("must include at minimum:
-// deviceType, focusedSessionId, focusedChannelId, lastActivityAt,
-// appVisible") and `Spec-002 §Interfaces And Contracts` (canonical 5-field list) bind the FIELD SET
-// — the floor, not "candidate fields some of which may be absent". The
-// `.nullable()` shape preserves "5 keys always present" while admitting
-// the no-focus runtime case. `.optional()` would let producers omit the
-// key entirely, violating the spec floor; `.nullish()` would re-admit the
-// absent-key case under a different name — explicitly NOT used here.
+// Why nullable, not optional: the FIELD SET is the floor. The `.nullable()`
+// shape preserves "5 keys always present" while admitting the no-focus
+// runtime case. `.optional()` would let producers omit the key entirely;
+// `.nullish()` would re-admit the absent-key case under a different name —
+// explicitly NOT used here.
 //
 // `.strict()` on the outer object AND the nested metadata object rejects
-// unknown keys at parse time, surfacing schema drift early. Matches the
-// convention used by every other request schema in this package (see
-// `SessionCreateRequest`).
+// unknown keys at parse time, surfacing schema drift early.
 //
 // `lastActivityAt` follows the session.ts ISO 8601 convention (RFC 3339
 // §5.6 — accepts both Z-suffixed UTC and numeric offsets like "+00:00").
 
 export interface PresenceHeartbeat {
-  participantId: ParticipantId;
   deviceId: string;
   activityState: PresenceState;
   metadata: {
@@ -230,7 +141,6 @@ export interface PresenceHeartbeat {
 // Standard-Schema-V1 input inference for tRPC v11 consumers).
 export const PresenceHeartbeatSchema: z.ZodType<PresenceHeartbeat, PresenceHeartbeat> = z
   .object({
-    participantId: ParticipantIdSchema,
     deviceId: wireFreeFormString(DEVICE_ID_MAX_LEN, "PresenceHeartbeat.deviceId"),
     activityState: PresenceStateSchema,
     metadata: z
@@ -252,13 +162,12 @@ export const PresenceHeartbeatSchema: z.ZodType<PresenceHeartbeat, PresenceHeart
 // PresenceUpdate — JSON-RPC local IPC, daemon → client push
 // --------------------------------------------------------------------------
 //
-// Exact wire shape (`docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`):
-//   `{sessionId: SessionId, awarenessState: Uint8Array}`
+// Wire shape: `{sessionId: SessionId, awarenessState: Uint8Array}`
 //
 // `awarenessState` is the serialized Yjs Awareness CRDT (binary format
 // owned by `y-protocols/awareness`). At the contract layer we accept any
 // `Uint8Array` instance — the CRDT-format validity check belongs to the
-// Plan-002 Phase 3 presence service consumer, not the wire schema.
+// presence service consumer, not the wire schema.
 //
 // Note on `Buffer`: Node's `Buffer extends Uint8Array`, so `z.instanceof(Uint8Array)`
 // accepts `Buffer` instances. This is intentional — daemon-side producers
@@ -267,8 +176,7 @@ export const PresenceHeartbeatSchema: z.ZodType<PresenceHeartbeat, PresenceHeart
 //
 // One-way push — no Request/Response split. The daemon initiates each
 // `PresenceUpdate` notification independently; there is no client-side
-// response payload (the JSON-RPC framing handles ack at the substrate
-// layer per Plan-007-partial).
+// response payload (the JSON-RPC framing handles ack at the substrate layer).
 
 export interface PresenceUpdate {
   sessionId: SessionId;
@@ -288,16 +196,17 @@ export const PresenceUpdateSchema: z.ZodType<PresenceUpdate, PresenceUpdate> = z
 // PresenceRead — JSON-RPC local IPC, client → daemon query
 // --------------------------------------------------------------------------
 //
-// Request shape (`docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`):
-//   `{sessionId: SessionId}`
+// Request shape:  `{sessionId: SessionId}`
+// Response shape: `{devices: Array<{deviceId, deviceType, appVisible, state,
+//                 lastSeen}>}`
 //
-// Response shape (`docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`):
-//   `{participants: Array<{participantId: ParticipantId, state: PresenceState, lastSeen: string}>}`
+// The reply enumerates the one user's DEVICES bound to the session. There is
+// no participant axis: every device belongs to the same user.
 //
 // `lastSeen` follows the same ISO 8601 wire convention as `lastActivityAt`
 // on `PresenceHeartbeat.metadata` (RFC 3339 §5.6 — accepts Z-suffixed UTC
-// and numeric offsets). Plan-002 Phase 3 service code (CP-002-1) is the
-// authority on canonical normalization at projection time.
+// and numeric offsets). The presence register service is the authority on
+// canonical normalization at projection time.
 
 export interface PresenceReadRequest {
   sessionId: SessionId;
@@ -311,25 +220,29 @@ export const PresenceReadRequestSchema: z.ZodType<PresenceReadRequest, PresenceR
   })
   .strict();
 
-export interface PresenceReadResponseParticipant {
-  participantId: ParticipantId;
+export interface PresenceReadResponseDevice {
+  deviceId: string;
+  deviceType: string;
+  appVisible: boolean;
   state: PresenceState;
   lastSeen: string;
 }
 
 export interface PresenceReadResponse {
-  participants: PresenceReadResponseParticipant[];
+  devices: PresenceReadResponseDevice[];
 }
 
-// Per-participant projection element — `.strict()` rejects unknown keys at
-// parse time, surfacing schema drift early. Used inline by
+// Per-device projection element — `.strict()` rejects unknown keys at parse
+// time, surfacing schema drift early. Used inline by
 // `PresenceReadResponseSchema` below.
-const PresenceReadResponseParticipantSchema: z.ZodType<
-  PresenceReadResponseParticipant,
-  PresenceReadResponseParticipant
+const PresenceReadResponseDeviceSchema: z.ZodType<
+  PresenceReadResponseDevice,
+  PresenceReadResponseDevice
 > = z
   .object({
-    participantId: ParticipantIdSchema,
+    deviceId: wireFreeFormString(DEVICE_ID_MAX_LEN, "PresenceReadResponseDevice.deviceId"),
+    deviceType: wireFreeFormString(DEVICE_TYPE_MAX_LEN, "PresenceReadResponseDevice.deviceType"),
+    appVisible: z.boolean(),
     state: PresenceStateSchema,
     lastSeen: z.iso.datetime({ offset: true }),
   })
@@ -337,7 +250,7 @@ const PresenceReadResponseParticipantSchema: z.ZodType<
 
 export const PresenceReadResponseSchema: z.ZodType<PresenceReadResponse, PresenceReadResponse> = z
   .object({
-    participants: z.array(PresenceReadResponseParticipantSchema),
+    devices: z.array(PresenceReadResponseDeviceSchema),
   })
   .strict();
 
@@ -346,15 +259,9 @@ export const PresenceReadResponseSchema: z.ZodType<PresenceReadResponse, Presenc
 // --------------------------------------------------------------------------
 //
 // `presence.subscribe` is the streaming subscribe-init surface for the
-// daemon → client presence push (`Spec-002 §Interfaces And Contracts`;
-// `Spec-007 §Wire Format` streaming subscribe primitive). The
-// handler returns a `{subscriptionId}` ack synchronously; live Yjs Awareness
-// CRDT deltas then flow as `$/subscription/notify` frames carrying
-// `PresenceUpdate` values.
-//
-// Plan-002 owns the `presence.*` namespace wire contract (Plan-002 §Phase 3,
-// CP-002-2). Per BL-102 no-mirror disposition, `api-payload-contracts.md`
-// does not maintain a doc-side mirror of this code-side typed surface.
+// daemon → client presence push. The handler returns a `{subscriptionId}` ack
+// synchronously; live Yjs Awareness CRDT deltas then flow as
+// `$/subscription/notify` frames carrying `PresenceUpdate` values.
 
 /**
  * The `presence.subscribe` request — carries only `{sessionId}`.
@@ -366,19 +273,17 @@ export const PresenceReadResponseSchema: z.ZodType<PresenceReadResponse, Presenc
  *
  * Carries NO replay cursors — unlike `SessionSubscribeRequest`, which carries
  * `afterCursor` / `lastEventId` for durable event-log replay. Presence pushes
- * live in-memory CRDT state (Plan-002 §Invariants I-002-3: presence is
- * in-memory only); there is no durable cursor to replay, so the request stays
- * minimal.
+ * live in-memory CRDT state; there is no durable cursor to replay, so the
+ * request stays minimal.
  */
 export interface PresenceSubscribeRequest {
   sessionId: SessionId;
 }
 
-// Double-T per this file's uniform annotation convention (header lines 73-77;
-// cf. `PresenceReadRequestSchema`). Note: `presence.subscribe` is a
-// runtime-daemon local-IPC JSON-RPC method today, NOT a tRPC procedure — the
-// double-T is for file-wide annotation uniformity, not a live tRPC-input
-// requirement.
+// Double-T per this file's uniform annotation convention (cf.
+// `PresenceReadRequestSchema`). Note: `presence.subscribe` is a runtime-daemon
+// local-IPC JSON-RPC method today, NOT a tRPC procedure — the double-T is for
+// file-wide annotation uniformity, not a live tRPC-input requirement.
 export const PresenceSubscribeRequestSchema: z.ZodType<
   PresenceSubscribeRequest,
   PresenceSubscribeRequest
@@ -398,8 +303,8 @@ export const PresenceSubscribeRequestSchema: z.ZodType<
  * `presence.subscribe` its own wire contract and symmetry with the session
  * surface. If presence's ack ever diverges, this seam becomes
  * `export interface PresenceSubscribeResponse extends SubscribeAckResponse { … }`
- * plus its own schema — localized here, zero consumer churn, and additive per
- * ADR-018 §Decision #1 (MINOR widening, the `subscriptionId` floor preserved).
+ * plus its own schema — localized here, zero consumer churn, and additive (a
+ * MINOR widening, the `subscriptionId` floor preserved).
  */
 export type PresenceSubscribeResponse = SubscribeAckResponse;
 

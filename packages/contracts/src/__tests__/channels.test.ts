@@ -1,14 +1,12 @@
-// Plan-002 Phase 1 T1.4 — `channels.ts` schema tests.
+// `channels.ts` schema tests.
 //
-// Backstops the C5 acceptance criterion (Plan-002 §C5, `Spec-002 §Interfaces And Contracts`):
-// `ChannelList` request/response shape parses the read-only projection of
-// channels in a session per the canonical wire form at
-// `docs/architecture/contracts/api-payload-contracts.md §Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)`.
+// Backstops the `ChannelList` request/response shape: the read-only
+// projection of the channels in a session.
 //
 // Test surface enumerated (the "what" each block pins):
 //   * ChannelStateSchema wire-form pin — exactly the 3 canonical lowercase
-//     literals `{active, muted, archived}` per `Spec-002 §Interfaces And Contracts` (referenced
-//     in the `state: ChannelState` field) + `docs/architecture/contracts/api-payload-contracts.md §Shared Enums`.
+//     literals `{active, muted, archived}` (referenced in the
+//     `state: ChannelState` field).
 //     `"deleted"` / `"pending"` rejected (drift defense).
 //   * Re-exports — `ChannelIdSchema`, `SessionIdSchema`, `ChannelStateSchema`
 //     branded UUID + enum guards round-trip from session.ts (anti-cosmetic
@@ -85,13 +83,11 @@ describe("ChannelIdSchema / SessionIdSchema (re-exported from session.ts)", () =
 
 // =============================================================================
 // ChannelStateSchema — canonical lifecycle enum
-// (`docs/architecture/contracts/api-payload-contracts.md §Shared Enums` — re-exported from session.ts:189-190)
+// (re-exported from session.ts)
 // =============================================================================
 //
-// `Spec-002 §Interfaces And Contracts` + `docs/architecture/contracts/api-payload-contracts.md §Shared Enums` bind the wire form to
-// EXACTLY three lowercase literals. Adding `"deleted"` / `"pending"` /
-// `"draft"` here is a contract break requiring the spec edit FIRST per
-// doc-first ordering.
+// The wire form is EXACTLY three lowercase literals. Adding `"deleted"` /
+// `"pending"` / `"draft"` here is a contract break.
 
 describe("ChannelStateSchema (wire form is exactly {active, muted, archived})", () => {
   const EXPECTED_STATES = ["active", "muted", "archived"] as const;
@@ -124,13 +120,13 @@ describe("ChannelStateSchema (wire form is exactly {active, muted, archived})", 
 });
 
 // =============================================================================
-// C5 — ChannelListRequestSchema (`Spec-002 §Interfaces And Contracts`)
+// ChannelListRequestSchema
 // =============================================================================
 //
-// `Spec-002 §Interfaces And Contracts` verbatim: "Request: `{sessionId: SessionId}`". Single
-// required field; .strict() rejects unknown keys at the outer envelope.
+// Request: `{sessionId: SessionId}`. Single required field; .strict()
+// rejects unknown keys at the outer envelope.
 
-describe("ChannelListRequestSchema (C5: sessionId-only request per `Spec-002 §Interfaces And Contracts`)", () => {
+describe("ChannelListRequestSchema (sessionId-only request)", () => {
   it("accepts a request with sessionId only", () => {
     const parsed = ChannelListRequestSchema.parse({ sessionId: SESSION_ID });
     expect(parsed.sessionId).toBe(SESSION_ID);
@@ -160,18 +156,18 @@ describe("ChannelListRequestSchema (C5: sessionId-only request per `Spec-002 §I
 });
 
 // =============================================================================
-// C5 — ChannelListResponseChannelSchema (per-element projection)
+// ChannelListResponseChannelSchema (per-element projection)
 // =============================================================================
 //
-// `Spec-002 §Interfaces And Contracts` verbatim: "Response: `{channels: Array<{id: ChannelId,
-// name?: string, state: ChannelState, participantCount: number}>}`". This
-// describe block exercises the per-element shape; the next describe block
-// covers the outer envelope.
+// Response: `{channels: Array<{id: ChannelId, name?: string,
+// state: ChannelState, participantCount: number}>}`. This describe block
+// exercises the per-element shape; the next describe block covers the
+// outer envelope.
 //
 // Per-element invariants:
 //   * `id`, `state`, `participantCount` are REQUIRED at parse time.
-//   * `name` is OPTIONAL (the `?` is verbatim per `Spec-002 §Interfaces And Contracts`) — the
-//     bootstrap default channel may have no friendly label; the wire
+//   * `name` is OPTIONAL — the bootstrap default channel may have no
+//     friendly label; the wire
 //     signal for "no name" is KEY ABSENT.
 //   * `participantCount` is non-negative integer (`.int().nonnegative()`
 //     enforces both guards; the canonical wire-form gloss `number` is
@@ -355,15 +351,14 @@ describe("ChannelListResponseChannelSchema (per-element projection)", () => {
 });
 
 // =============================================================================
-// C5 — ChannelListResponseSchema (outer envelope)
+// ChannelListResponseSchema (outer envelope)
 // =============================================================================
 //
-// `Spec-002 §Interfaces And Contracts` verbatim: "Response: `{channels: Array<...>}`". Outer
-// envelope: single `channels` field (array). Empty list is valid (the
-// service may return zero visible channels per authorization). `.strict()`
-// rejects unknown top-level keys.
+// Response: `{channels: Array<...>}`. Outer envelope: single `channels`
+// field (array). Empty list is valid (a session may have zero channels).
+// `.strict()` rejects unknown top-level keys.
 
-describe("ChannelListResponseSchema (C5: outer envelope per `Spec-002 §Interfaces And Contracts`)", () => {
+describe("ChannelListResponseSchema (outer envelope)", () => {
   it("accepts an empty channels list (zero visible channels)", () => {
     const parsed = ChannelListResponseSchema.parse({ channels: [] });
     expect(parsed.channels).toEqual([]);

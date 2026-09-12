@@ -27,7 +27,6 @@
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { openJoinDisclosure } from "./acts/session-acts.test-support.js";
 import { contextWith, storeHolding } from "./session-surface.context.test-support.js";
 import { listAbsenceKinds, renderSurface, settle } from "./session-surface.test-support.js";
 import {
@@ -321,24 +320,6 @@ describe("while the shell cannot be written to", () => {
     expect(container.textContent ?? "").toContain(
       blockDetailFor({ kind: "offline", attemptLimit: 5, lastError: undefined }),
     );
-  });
-
-  it("closes the join form on the same cause", async () => {
-    const { container } = renderSurface(
-      contextWith({ shellConnection: { kind: "version-incompatible" } }),
-    );
-    await settle();
-    // The form arrives on its own chunk — `acts/join-session-form-body.ts` states why —
-    // so it is resolved through the MOUNT the acts bar itself renders before the press
-    // that discloses it. One home for the wait rather than a per-spec race, and the
-    // home is `acts/session-acts.test-support.ts`: the press below draws the settled
-    // body and never the reserved region, and no later spec can reach this act by a
-    // route that skips the load.
-    await openJoinDisclosure(container);
-
-    const join = container.querySelector<HTMLButtonElement>(".meridian-session-join__submit");
-    expect(join?.disabled).toBe(true);
-    expect(container.textContent ?? "").toContain(blockDetailFor({ kind: "version-incompatible" }));
   });
 
   it("blocks a deliberate shutdown too, and says so as a shutdown", async () => {

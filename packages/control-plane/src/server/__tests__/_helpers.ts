@@ -60,9 +60,6 @@ export function makeRefusalAssertingDeps(): ControlPlaneDeps {
     generateSessionId: () => {
       throw REFUSAL_VIOLATION("generateSessionId");
     },
-    resolveIdentityHandle: () => {
-      throw REFUSAL_VIOLATION("resolveIdentityHandle");
-    },
     eventStreamProvider: () => {
       throw REFUSAL_VIOLATION("eventStreamProvider");
     },
@@ -73,7 +70,6 @@ export interface PassThroughDepsConfig {
   readonly querier: Querier;
   readonly currentParticipantId: ParticipantId;
   readonly nextSessionId: SessionId;
-  readonly identityResolver?: SessionRouterDeps["resolveIdentityHandle"];
   readonly eventStreamProvider?: SessionRouterDeps["eventStreamProvider"];
 }
 
@@ -89,9 +85,6 @@ export function makePassThroughDeps(config: PassThroughDepsConfig): ControlPlane
     anchorStore: new EventLogAnchorStore(config.querier),
     resolveCurrentParticipantId: () => config.currentParticipantId,
     generateSessionId: () => config.nextSessionId,
-    // Default Tier-1 self-resolver: identityHandle is the wire-encoded
-    // ParticipantId. Tests can override to model unauthenticated cases.
-    resolveIdentityHandle: config.identityResolver ?? ((handle) => handle as ParticipantId),
     // Default: no events. T7-T9 override with synthetic streams.
     eventStreamProvider:
       config.eventStreamProvider ??

@@ -95,8 +95,6 @@ import {
   RunResumeRequestSchema,
   SessionCreateRequestSchema,
   SessionCreateResponseSchema,
-  SessionJoinRequestSchema,
-  SessionJoinResponseSchema,
   TimelineReadRequestSchema,
   TimelineReadResponseSchema,
   WorkspaceExecutionModeCapabilitiesReadRequestSchema,
@@ -307,7 +305,6 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
     SessionCreateResponseSchema,
     "record",
   ),
-  "session.join": bindDaemonMethod(SessionJoinRequestSchema, SessionJoinResponseSchema, "record"),
   "channel.list": bindDaemonMethod(ChannelListRequestSchema, ChannelListResponseSchema, "read"),
   "presence.read": bindDaemonMethod(PresenceReadRequestSchema, PresenceReadResponseSchema, "read"),
   "timeline.childRunExpand": bindDaemonMethod(

@@ -18,23 +18,18 @@
 // per @trpc/server v11's source — TOptions falls back to the constraint
 // default when create() is called without arguments.
 //
-// `errorFormatter` extension (Plan-001 AC8): the formatter projects typed
-// exceptions thrown inside procedure handlers onto a stable
+// `errorFormatter` extension: the formatter projects typed exceptions thrown
+// inside procedure handlers onto a stable
 // `shape.data.aisError = { code, message, details? }` envelope so downstream
-// SDK consumers (Plan-005) can branch on the canonical wire code. The formatter
-// matches a SINGLE `instanceof AisWireException` (`../ais-wire-exception.ts`) —
-// the cross-domain base — so EVERY subclass projects uniformly: the
-// session-domain `ResourceLimitExceededException` (`./errors.ts`) and the
+// SDK consumers can branch on the canonical wire code. The formatter matches a
+// SINGLE `instanceof AisWireException` (`../ais-wire-exception.ts`) — the
+// cross-domain base — so EVERY subclass projects uniformly: today the
 // runtime-node-domain refusals (`../runtime-nodes/errors.ts` — the attach /
 // revoked / capability-update conflicts + the version-floor write-refusal).
 // A detail-carrying subclass emits `{code, message, details}`; a
 // code+message-only subclass (`details === undefined`) emits `{code, message}`.
 // New typed exceptions join by extending `AisWireException` — no formatter
 // change needed (the base `instanceof` already matches them).
-//
-// Refs: docs/decisions/014-trpc-control-plane-api.md, Spec-001 §Limit
-// Enforcement, error-contracts.md §Runtime Node + §Version,
-// ../ais-wire-exception.ts (the single match-type this formatter projects).
 
 import { initTRPC, type TRPCRootObject, type TRPCRuntimeConfigOptions } from "@trpc/server";
 
@@ -48,10 +43,10 @@ export interface SessionRouterContext {
 
 // Wire-projected envelope appended to `shape.data` when a procedure throws
 // a typed control-plane exception (any `AisWireException` subclass). `details`
-// is OPTIONAL: a detail-carrying exception (`ResourceLimitExceededException`)
-// projects its concrete `AisWireErrorDetails`, while a code+message-only
-// exception (the runtime-node refusals + the version-floor write-refusal)
-// omits the key entirely. Keep this shape mirrored against the canonical
+// is OPTIONAL: a detail-carrying exception projects its concrete
+// `AisWireErrorDetails`, while a code+message-only exception (the runtime-node
+// refusals + the version-floor write-refusal) omits the key entirely. Keep
+// this shape mirrored against the canonical
 // `ErrorResponse` envelope (`details` optional) so a `tsc` diff catches
 // upstream contract drift at PR review.
 export interface SessionRouterAisError {

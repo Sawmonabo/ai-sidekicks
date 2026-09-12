@@ -3,9 +3,8 @@
 // V1 subset of payload variants of the canonical EventEnvelope shape
 // per docs/architecture/contracts/api-payload-contracts.md § Tier 4 Plan-006.
 //
-// Plan-001 PR #2 ships only the three event types its vertical slice needs:
+// The two original event types the session vertical slice needs:
 //   • session.created    — emitted on `SessionCreate` admit
-//   • membership.created  — emitted on `SessionJoin` admit
 //   • channel.created    — emitted when a session's main channel materializes
 //
 // Plan-009 T1.1 adds six more through the union-registration seam (CP-009-4):
@@ -37,26 +36,21 @@
 // string. Adding a new variant later is additive per ADR-018 §Decision #8
 // (new event types allowed under a MINOR version bump). The taxonomy from
 // Spec-006 §Event Type Enumeration is registered below at the post-B18
-// census (Plan-006 T1.2, closed by T1.10): `SessionEventType` (156 literals),
+// census (Plan-006 T1.2, closed by T1.10): `SessionEventType` (147 literals),
 // the per-category `*_EVENT_TYPES` arrays, and `SESSION_EVENT_CATEGORY_BY_TYPE`
 // (20 categories). Payload variants remain intentionally a strict subset, and
 // each is owned by its EMITTING plan: sixteen reach `SessionEventSchema` from
 // another plan's file through the cross-plan union-registration seam (CP-009-4
 // / CP-010-5 / CP-003-1, the CP-012-2 / CP-016-3 class), eleven are authored
 // in this file because Plan-006 emits them and owns it (six at T1.11, five at
-// T3.6), and the three
-// Plan-001 originals below (`session.created`, `membership.created`,
-// `channel.created`) have been authored here since PR #2. In all three cases
-// census membership is type registration, not payload support.
+// T3.6), and the two session originals below (`session.created`,
+// `channel.created`) have been authored here from the start. In all three
+// cases census membership is type registration, not payload support.
 //
-// All three Plan-001 wire strings are registered in Spec-006 §Event Type
-// Enumeration: `session.created` and `channel.created` under
-// `session_lifecycle`; `membership.created` under `membership_change`
-// (registered 2026-05-01 via BL-105 closure). The
+// Both original wire strings register under `session_lifecycle`. The
 // `<category>.<verb>` namespace convention is governed by Spec-006
 // §Canonical Serialization Rules; the resource-lifecycle naming
-// (`<resource>.created`) parallels `session.created` / `channel.created`
-// / `invite.created`.
+// (`<resource>.created`) parallels `session.created` / `channel.created`.
 //
 // Versioning: `version` is an `EventEnvelopeVersion` — a semver
 // `"MAJOR.MINOR"` STRING per ADR-018 §Decision #1. It is NEVER numeric on
@@ -105,15 +99,10 @@ import {
 import {
   CHANNEL_NAME_MAX_LEN,
   ChannelIdSchema,
-  IdentityHandleSchema,
-  MembershipIdSchema,
-  MembershipRoleSchema,
   ParticipantIdSchema,
   SessionIdSchema,
   wireFreeFormString,
   type ChannelId,
-  type MembershipId,
-  type MembershipRole,
   type ParticipantId,
   type SessionId,
 } from "./session.js";
@@ -309,11 +298,6 @@ export function compareEventEnvelopeVersion(
 //     envelopes. 8 KiB is well above any human-readable error string but
 //     still bounded. Defined in error.ts (co-located with the error
 //     envelope schema that consumes it).
-//   • IDENTITY_HANDLE_MAX_LEN (64)     — display handles (Plan-018 owns the
-//     canonical grammar; this is a wire-layer ceiling). Defined in session.ts
-//     so it can be co-located with `SessionJoinRequestSchema`; the underlying
-//     `IdentityHandleSchema` is re-imported here for the membership.created
-//     payload so the validation chain stays single-sourced.
 //   • CHANNEL_NAME_MAX_LEN (128)       — channel display labels (UI-visible).
 //     Defined in session.ts (co-located with `ChannelSummarySchema`); re-
 //     imported here for the channel.created payload.
@@ -321,7 +305,7 @@ export function compareEventEnvelopeVersion(
 //     labels (e.g. "concurrent runs per session"). Defined in error.ts.
 //
 // Free-form string fields (id / actor / correlationId / causationId / message
-// / details.resource / identityHandle / channel name) all consume the
+// / details.resource / channel name) all consume the
 // `wireFreeFormString(maxLen, label)` helper from session.ts, which applies
 // the length bounds AND a whitespace-only rejection AND a NUL-byte rejection.
 // The trust boundary lives at the wire layer because the daemon accepts
@@ -737,8 +721,8 @@ export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
 // `tool.result`, `tool.error` — which are the first payloads in this union to
 // carry `runId` and therefore the first to meet the admission rule. Every
 // other branch stays unwrapped, and the reasoning that keeps them so is
-// unchanged: `SessionEventSchema` carries the three Plan-001 variants
-// (`session.created`, `membership.created`, `channel.created`), the six
+// unchanged: `SessionEventSchema` carries the two session variants
+// (`session.created`, `channel.created`), the six
 // Plan-009 `repo.*` / `workspace.*` variants (CP-009-4), the five Plan-010
 // `worktree.*` variants (CP-010-5), the six Plan-006 `audit_integrity` /
 // `event_maintenance` variants (T1.11), and the five Plan-003 `runtime_node.*`
@@ -1142,21 +1126,6 @@ const sessionCreatedPayloadSchema = z
   })
   .strict();
 
-const membershipCreatedPayloadSchema = z
-  .object({
-    membershipId: MembershipIdSchema,
-    participantId: ParticipantIdSchema,
-    role: MembershipRoleSchema,
-    // `identityHandle` validation is single-sourced via session.ts's
-    // `IdentityHandleSchema` so future tightening at one site applies
-    // consistently here AND in `SessionJoinRequestSchema`. See session.ts
-    // for the rationale (length cap + whitespace + NUL guards; Plan-018
-    // owns the canonical handle grammar).
-    identityHandle: IdentityHandleSchema,
-    ...buildPiiIndirectionDescriptorShape(),
-  })
-  .strict();
-
 const channelCreatedPayloadSchema = z
   .object({
     channelId: ChannelIdSchema,
@@ -1176,8 +1145,7 @@ const channelCreatedPayloadSchema = z
 //
 // Payload mirrors the session-bootstrap projection: the new session id
 // (redundant with the envelope's `sessionId`, kept for projector convenience)
-// plus the resolved config + metadata. The owner participant is conveyed via
-// the membership.created event that follows.
+// plus the resolved config + metadata.
 
 // Variant interfaces extend the canonical EventEnvelope, narrowing the
 // tolerant `type` / `category` / `payload` members to the variant's
@@ -1203,29 +1171,6 @@ export const SessionCreatedEventSchema: z.ZodType<SessionCreatedEvent> = z
     type: z.literal("session.created"),
     category: z.literal("session_lifecycle"),
     payload: sessionCreatedPayloadSchema,
-  })
-  .strict();
-
-// --------------------------------------------------------------------------
-// membership.created — emitted when a participant is admitted to a session.
-// --------------------------------------------------------------------------
-
-export interface MembershipCreatedEvent extends EventEnvelope {
-  type: "membership.created";
-  category: "membership_change";
-  payload: PiiIndirectionDescriptor & {
-    membershipId: MembershipId;
-    participantId: ParticipantId;
-    role: MembershipRole;
-    identityHandle: string;
-  };
-}
-export const MembershipCreatedEventSchema: z.ZodType<MembershipCreatedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("membership.created"),
-    category: z.literal("membership_change"),
-    payload: membershipCreatedPayloadSchema,
   })
   .strict();
 
@@ -1261,7 +1206,7 @@ export const ChannelCreatedEventSchema: z.ZodType<ChannelCreatedEvent> = z
 // `SESSION_EVENT_CATEGORY_BY_TYPE`, Plan-006 T1.2); what lands here is their
 // PAYLOAD VARIANTS, which is what moves a type from a registered name the
 // tolerant carrier accepts to one the strict layer can interpret. The census
-// is untouched — still 156 types across 20 categories.
+// is untouched — still 147 types across 20 categories.
 //
 // ONE SHARED PAYLOAD SCHEMA. Spec-006 gives the whole eleven-member family a
 // single payload shape, so all six compose the same
@@ -1406,7 +1351,7 @@ export const WorkspaceArchivedEventSchema: z.ZodType<WorkspaceArchivedEvent> = z
 // `Spec-006 §Repo, Workspace, and Worktree Lifecycle (session_lifecycle)`.
 // All five type strings were ALREADY in the census (`SessionEventType` +
 // `SESSION_EVENT_CATEGORY_BY_TYPE`, Plan-006 T1.2); what lands here is their
-// PAYLOAD VARIANTS. The census is untouched — still 156 types across 20
+// PAYLOAD VARIANTS. The census is untouched — still 147 types across 20
 // categories.
 //
 // SAME FAMILY, OWN VOCABULARY. These five complete the eleven-member family
@@ -1529,7 +1474,7 @@ export const WorktreeRetiredEventSchema: z.ZodType<WorktreeRetiredEvent> = z
 // and `Spec-006 §Event Maintenance (event_maintenance)`. All six type strings
 // were ALREADY in the census (`SessionEventType` +
 // `SESSION_EVENT_CATEGORY_BY_TYPE`, Plan-006 T1.2); what lands here is their
-// PAYLOAD VARIANTS. The census is untouched — still 156 types across 20
+// PAYLOAD VARIANTS. The census is untouched — still 147 types across 20
 // categories.
 //
 // SELF-AUTHORED, NOT IMPORTED. The eleven registrants above import their
@@ -2288,7 +2233,7 @@ export const EventShreddedEventSchema: z.ZodType<EventShreddedEvent> = z
 // `Spec-006 §Runtime Node Lifecycle (runtime_node_lifecycle)`. All five type
 // strings were ALREADY in the census (`SessionEventType` +
 // `SESSION_EVENT_CATEGORY_BY_TYPE`, Plan-006 T1.2); what lands here is their
-// PAYLOAD VARIANTS. The census is untouched — still 156 types across 20
+// PAYLOAD VARIANTS. The census is untouched — still 147 types across 20
 // categories.
 //
 // CP-003-1 LEG (a), discharged. Plan-003 authors the payload SHAPES in
@@ -2807,7 +2752,6 @@ export interface HydratedSessionEvent {
 
 export type SessionEvent =
   | SessionCreatedEvent
-  | MembershipCreatedEvent
   | ChannelCreatedEvent
   | RepoAttachedEvent
   | RepoDetachedEvent
@@ -2843,14 +2787,6 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       type: z.literal("session.created"),
       category: z.literal("session_lifecycle"),
       payload: sessionCreatedPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("membership.created"),
-      category: z.literal("membership_change"),
-      payload: membershipCreatedPayloadSchema,
     })
     .strict(),
   z
@@ -3127,11 +3063,11 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
 //
 // Every wire `type` string registered below comes from Spec-006 §Event Type
 // Enumeration. `Spec-006 §Event Type Summary` reads 158 types across 20
-// categories; this union deliberately registers the post-B18 156 until
+// categories; this union deliberately registers the post-B18 147 until
 // Plan-016 T1.13 widens it by two under CP-016-3 (`agent.provider_switched`
 // and `agent.provider_switch_failed`, 2026-08-26 D-016-26) — the
 // registry-leads-code lag that spec records in the same row. Every count
-// below is therefore code truth at 156, not a restatement of the spec
+// below is therefore code truth at 147, not a restatement of the spec
 // census. The fifteen minted by the 2026-07-22
 // B18 amendment — three provider-surface `session.*`, three forward,
 // non-state `run.*`, three `usage.*`, `user.message`, and the five `mcp.*`
@@ -3139,18 +3075,18 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
 //
 // Two Plan-006 §Invariants govern this block:
 //   • I-006-1-01 — category/type bijection: every type belongs to exactly
-//     one category, `SESSION_EVENT_CATEGORY_BY_TYPE` covers all 156 types,
+//     one category, `SESSION_EVENT_CATEGORY_BY_TYPE` covers all 147 types,
 //     and its values span all 20 shipped categories. The type-level leg is
 //     the `satisfies Record<SessionEventType, EventCategory>` totality
 //     check below (missing, unknown, or duplicate keys are compile
-//     errors); the runtime leg (size === 156, 20 distinct categories,
+//     errors); the runtime leg (size === 147, 20 distinct categories,
 //     per-category partition) lives in __tests__/session-event.test.ts.
 //   • I-006-1-02 — event-type-string immutability: type strings are
 //     immutable wire identifiers (`Spec-006 §Canonical Serialization Rules`;
 //     ADR-018 §Decision #8 — MINOR bumps are additive-only), so renaming a
-//     registered literal is forbidden. The three Plan-001 literals
-//     (`session.created`, `membership.created`, `channel.created`) are
-//     byte-identical to their Phase-2 registration.
+//     registered literal is forbidden. The two session literals
+//     (`session.created`, `channel.created`) are byte-identical to their
+//     original registration.
 //
 // Blocks are grouped by category in `EventCategory` declaration order;
 // within a block, types follow Spec-006 §Event Type Enumeration document
@@ -3222,17 +3158,7 @@ export type SessionEventType =
   | "diff.created"
   | "pr.prepared"
   | "pr.submitted"
-  // membership_change (13) — Spec-006 §Invite and Membership (9) +
-  // §Presence (4).
-  | "invite.created"
-  | "invite.accepted"
-  | "invite.revoked"
-  | "invite.expired"
-  | "membership.created"
-  | "membership.role_changed"
-  | "membership.suspended"
-  | "membership.revoked"
-  | "membership.reactivated"
+  // membership_change (4) — per-device presence transitions for the one user.
   | "presence.online"
   | "presence.idle"
   | "presence.reconnecting"
@@ -3364,11 +3290,11 @@ export type SessionEventType =
 
 // The SCHEMA-registered subset — the types whose payload variants are
 // registered in `SessionEventSchema` above — NOT the taxonomy census (that
-// is `SESSION_EVENT_CATEGORY_BY_TYPE`, whose keys iterate all 156 registered
+// is `SESSION_EVENT_CATEGORY_BY_TYPE`, whose keys iterate all 147 registered
 // types). The `SessionEvent["type"]` element annotation binds membership to
 // the schema union at COMPILE time: a census literal without a registered
 // payload variant is rejected here (a plain `SessionEventType` annotation
-// would admit any of the 156), and the admissible set widens as emitting
+// would admit any of the 147), and the admissible set widens as emitting
 // plans land variants through the union-registration seam. Exposed as a
 // const tuple so consumers can iterate the registered payload variants
 // without re-parsing the schemas.
@@ -3380,7 +3306,7 @@ export type SessionEventType =
 // union's branches, so a forgotten entry fails there rather than silently
 // under-reporting the registered surface.
 //
-// Membership today (30): the three Plan-001 variants, the six Plan-009
+// Membership today (29): the two session variants, the six Plan-009
 // repo/workspace variants (CP-009-4), the five Plan-010 worktree variants
 // (CP-010-5), the six Plan-006 audit-integrity / event-maintenance variants
 // (T1.11), the five Plan-003 runtime-node variants (T1.12 — CP-003-1
@@ -3388,7 +3314,6 @@ export type SessionEventType =
 // (T3.6). Order mirrors the declaration order of the union arms above.
 export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "session.created",
-  "membership.created",
   "channel.created",
   "repo.attached",
   "repo.detached",
@@ -3428,7 +3353,7 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
 // mechanically derivable from the category string (which is why the
 // `*_events` categories read `..._EVENTS_EVENT_TYPES`). Each array's member
 // set MUST equal `SESSION_EVENT_CATEGORY_BY_TYPE`'s keys filtered to that
-// category, and the 20 arrays partition the 156-type census (I-006-1-01) —
+// category, and the 20 arrays partition the 147-type census (I-006-1-01) —
 // both asserted per-category in __tests__/session-event.test.ts. Explicit
 // `readonly SessionEventType[]` annotations keep the exported surface
 // `--isolatedDeclarations`-clean, matching `SESSION_EVENT_TYPES` above.
@@ -3493,15 +3418,6 @@ export const ARTIFACT_PUBLICATION_EVENT_TYPES: readonly SessionEventType[] = [
 ] as const;
 
 export const MEMBERSHIP_CHANGE_EVENT_TYPES: readonly SessionEventType[] = [
-  "invite.created",
-  "invite.accepted",
-  "invite.revoked",
-  "invite.expired",
-  "membership.created",
-  "membership.role_changed",
-  "membership.suspended",
-  "membership.revoked",
-  "membership.reactivated",
   "presence.online",
   "presence.idle",
   "presence.reconnecting",
@@ -3718,16 +3634,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "diff.created": "artifact_publication",
   "pr.prepared": "artifact_publication",
   "pr.submitted": "artifact_publication",
-  // membership_change (13)
-  "invite.created": "membership_change",
-  "invite.accepted": "membership_change",
-  "invite.revoked": "membership_change",
-  "invite.expired": "membership_change",
-  "membership.created": "membership_change",
-  "membership.role_changed": "membership_change",
-  "membership.suspended": "membership_change",
-  "membership.revoked": "membership_change",
-  "membership.reactivated": "membership_change",
+  // membership_change (4)
   "presence.online": "membership_change",
   "presence.idle": "membership_change",
   "presence.reconnecting": "membership_change",
@@ -3866,7 +3773,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
 // exists solely for the compile-time totality check.)
 export const SESSION_EVENT_CATEGORY_BY_TYPE: ReadonlyMap<SessionEventType, EventCategory> = new Map(
   // Cast justified by the `satisfies` check above: the record's own
-  // enumerable keys are exactly the 156 SessionEventType literals (totality
+  // enumerable keys are exactly the 147 SessionEventType literals (totality
   // + excess-property checks), so `Object.entries` narrowing from
   // `[string, ...]` is sound.
   Object.entries(SESSION_EVENT_CATEGORY_RECORD) as ReadonlyArray<[SessionEventType, EventCategory]>,
@@ -4316,7 +4223,7 @@ export const EVENT_DISPOSITION_BY_KIND: ReadonlyMap<NormalizedEventKind, EventKi
 // tolerant unions, and this file now reads runtime-node.ts's payload schemas
 // at module scope for the T1.12 arms above.
 
-// Note: cross-file ID types (`SessionId`, `MembershipId`, …) are not re-
+// Note: cross-file ID types (`SessionId`, `ChannelId`, …) are not re-
 // exported here — they are surfaced from `session.ts` and reach the public
 // API via `index.ts`'s `export * from "./session.js"`. Re-exporting them
 // from this file too would create a duplicate-export conflict at the
