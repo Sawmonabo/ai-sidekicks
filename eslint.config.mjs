@@ -116,14 +116,14 @@ export default tseslint.config(
             {
               name: "pg",
               message:
-                "Plan-008 I-008-3 #2: session router + SSE factories must route through SessionDirectoryService — `pg` is forbidden here. See docs/plans/008-control-plane-relay-and-session-join.md §I-008-3.",
+                "Session router and SSE factories must reach the database through SessionDirectoryService — importing `pg` here is forbidden.",
             },
           ],
           patterns: [
             {
               group: ["pg/*"],
               message:
-                "Plan-008 I-008-3 #2: session router + SSE factories must route through SessionDirectoryService — `pg/*` subpaths are forbidden here.",
+                "Session router and SSE factories must reach the database through SessionDirectoryService — `pg/*` subpaths are forbidden here.",
             },
           ],
         },
@@ -133,7 +133,7 @@ export default tseslint.config(
         {
           selector: "ImportExpression[source.value=/^pg(\\/.*)?$/]",
           message:
-            'Plan-008 I-008-3 #2: session router + SSE factories must route through SessionDirectoryService — a dynamic `import("pg")` is forbidden here just as the static form is.',
+            'Session router and SSE factories must reach the database through SessionDirectoryService — a dynamic `import("pg")` is forbidden here just as the static form is.',
         },
       ],
     },

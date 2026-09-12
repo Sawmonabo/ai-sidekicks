@@ -1630,7 +1630,7 @@ export const MATERIAL_PATH_PREFIXES = ["packages/", "apps/", ".github/", "deploy
 // up after, and it is important not to overstate which part: it fails a
 // tokened material PR only when NEITHER a `<type>/plan-NNN-*` branch NOR a
 // `docs/plans/NNN-*.md` edit is present. PR #216 itself would PASS it — its
-// diff touches `docs/plans/007-*.md` and `docs/plans/025-*.md` alongside one
+// diff touches `docs/plans/007-*.md` and the Plan-025 doc alongside one
 // material file, and that plan-doc allowance is presence-only by design (a
 // content check cannot tell an amendment from a prose edit). So the ratified-
 // non-shipment residual is permanent, not a pre-guard legacy: a tooling PR
@@ -4972,12 +4972,8 @@ export function surveyPhase(phaseSection) {
 // or glob: a renamed plan drops off the list and trips the stale-exemption ratchet
 // (see surveyCorpus). Removal owner per file — the list itself is the tracking, no
 // backlog item:
-//   008       — its Tier-5-remainder readiness audit.
 //   023       — its Tier-8 readiness audit.
-export const LEGACY_INLINE_CITE_EXEMPT = [
-  "docs/plans/008-control-plane-relay-and-session-join.md",
-  "docs/plans/023-desktop-shell-and-renderer.md",
-];
+export const LEGACY_INLINE_CITE_EXEMPT = ["docs/plans/023-desktop-shell-and-renderer.md"];
 
 // Only the two marker-SHAPE classes the compact-inline legacy style PROVABLY
 // produces are divertable — the survey-side screens that fire on HOW the markers

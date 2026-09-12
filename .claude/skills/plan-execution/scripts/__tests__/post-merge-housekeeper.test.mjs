@@ -514,7 +514,7 @@ test("verifyTypeSignature: audit (doc-only) rejects packages/ touches", () => {
     false,
   );
   assert.equal(
-    verifyTypeSignature({ type: "audit (doc-only)", touchedFiles: ["docs/plans/002-foo.md"] }).ok,
+    verifyTypeSignature({ type: "audit (doc-only)", touchedFiles: ["docs/plans/003-foo.md"] }).ok,
     true,
   );
 });

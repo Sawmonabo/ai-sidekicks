@@ -1,4 +1,4 @@
-# Plan-008 — Rust PTY Sidecar (Test Fixture Stub)
+# Plan-024 — Rust PTY Sidecar (Test Fixture Stub)
 
 ### Phase 2 — Readiness Audit
 

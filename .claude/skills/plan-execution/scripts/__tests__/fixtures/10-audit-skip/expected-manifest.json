@@ -1,13 +1,13 @@
 {
   "generated_at": "2026-05-03T00:00:00Z",
   "pr_number": 46,
-  "plan": "008",
+  "plan": "024",
   "phase": "2",
   "task_id": null,
   "script_exit_code": 0,
   "matched_entry": {
     "ns_id": "NS-15",
-    "heading": "### NS-15: Plan-008 Phase 2 readiness audit",
+    "heading": "### NS-15: Plan-024 Phase 2 readiness audit",
     "shape": "single-pr",
     "file": "docs/architecture/cross-plan-dependencies.md",
     "heading_line": 5
@@ -32,7 +32,7 @@
   "verification_failures": [],
   "affected_files": [
     "docs/architecture/cross-plan-dependencies.md",
-    "docs/plans/008-rust-pty-sidecar.md"
+    "docs/plans/024-rust-pty-sidecar.md"
   ],
   "semantic_work_pending": [
     "compose_status_completion_prose",
@@ -47,7 +47,7 @@
   "_script_stage": {
     "affected_files": [
       "docs/architecture/cross-plan-dependencies.md",
-      "docs/plans/008-rust-pty-sidecar.md"
+      "docs/plans/024-rust-pty-sidecar.md"
     ],
     "schema_violations": [],
     "verification_failures": [],

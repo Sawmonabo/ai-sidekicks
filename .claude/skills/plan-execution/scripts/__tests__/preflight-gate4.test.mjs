@@ -1692,9 +1692,9 @@ test("classifyPhaseSize: non-package CODE paths (tools/, .claude/, .github/) fai
   );
   assert.equal(classifyPhaseSize(["T1", "T2"], ["tools/docs-corpus/lib/label-cite.ts"]), "L");
   // docs-ish paths stay exempt: alone → M; alongside a single package root → M
-  assert.equal(classifyPhaseSize(["T1", "T2"], ["docs/specs/002-x.md", "CONTRIBUTING.md"]), "M");
+  assert.equal(classifyPhaseSize(["T1", "T2"], ["docs/specs/031-x.md", "CONTRIBUTING.md"]), "M");
   assert.equal(
-    classifyPhaseSize(["T1", "T2"], ["packages/a/src/x.ts", "docs/specs/002-x.md"]),
+    classifyPhaseSize(["T1", "T2"], ["packages/a/src/x.ts", "docs/specs/031-x.md"]),
     "M",
   );
 });
@@ -1720,7 +1720,7 @@ test("G4 tiering: demotion re-applies the existence floor — no-anchor kinds na
     "#### Tasks",
     "",
     "- **T-1** — Plan-local id at anchor position, existing spec",
-    "  - **Spec coverage:** Spec-002 C5",
+    "  - **Spec coverage:** Spec-001 C5",
     "  - **Verifies invariant:** I-1",
     "",
   ].join("\n");
@@ -1742,7 +1742,7 @@ test("G4 tiering: sub-token failures inherit the segment's Spec for the existenc
     gateTasksBlockCites(missingSpecCompoundRange, "016", 1, { sizeClass: "S" }).ok,
     false,
   );
-  const existingSpecCompoundRange = missingSpecCompoundRange.replace("Spec-999", "Spec-002");
+  const existingSpecCompoundRange = missingSpecCompoundRange.replace("Spec-999", "Spec-001");
   const r = gateTasksBlockCites(existingSpecCompoundRange, "016", 1, { sizeClass: "S" });
   assert.equal(r.ok, true, `expected demote-pass; got halt:\n${r.halt}`);
   assert.equal(r.warnings[0].kind, "compound-range-multi-subject");
@@ -1799,7 +1799,7 @@ test("extractDeclaredFilePaths keeps semicolon-separated paths, still truncating
   );
   assert.deepEqual(
     extractDeclaredFilePaths(
-      "(Files: `packages/a/src/x.ts`; Verifies invariant: docs/specs/002-x.md)",
+      "(Files: `packages/a/src/x.ts`; Verifies invariant: docs/specs/031-x.md)",
     ),
     ["packages/a/src/x.ts"],
   );
@@ -1855,7 +1855,7 @@ test("extractDeclaredFilePaths stops at BOLD metadata labels — cite prose slas
 
 test("classifyPhaseSize: 2-3 tasks with ZERO parsed paths fail closed to L; docs-only keeps M (Codex, PR #190)", () => {
   assert.equal(classifyPhaseSize(["T1", "T2", "T3"], []), "L");
-  assert.equal(classifyPhaseSize(["T1", "T2"], ["docs/specs/002-x.md"]), "M");
+  assert.equal(classifyPhaseSize(["T1", "T2"], ["docs/specs/031-x.md"]), "M");
 });
 
 test("explicit-phase halt still surfaces the phase's demoted warnings (Codex, PR #190)", () => {
@@ -3116,27 +3116,17 @@ test("CORPUS ORACLE: every invariant reference in docs/plans resolves, with a fl
   const plansDir = resolve(REPO_ROOT_FOR_TESTS, "docs", "plans");
   const cache = new Map();
   let boldTotal = 0;
-  let legacyTotal = 0;
   const findings = [];
   for (const name of readdirSync(plansDir).filter(
     (n) => /^\d{3}-.+\.md$/.test(n) && !n.startsWith("000-"),
   )) {
     const r = verifyInvariantReferences(readFileSync(resolve(plansDir, name), "utf8"), { cache });
     boldTotal += r.bold.resolved;
-    legacyTotal += r.legacy.resolved;
     for (const f of r.findings) findings.push(`${name} [${f.kind}] ${f.evidence}`);
   }
   assert.ok(
     boldTotal > 400,
     `expected the corpus to resolve >400 BOLD invariant references, got ${boldTotal} — the screen is not running`,
-  );
-  // A SEPARATE floor for the legacy channel, and this is the load-bearing one.
-  // A single combined floor is exactly what let the legacy channel sit at zero
-  // undetected: 574 bold references sailed over any plausible total-floor while
-  // Plan-008's entire contribution was missing. Each channel must prove it ran.
-  assert.ok(
-    legacyTotal > 40,
-    `expected the corpus to resolve >40 LEGACY compact-inline invariant references, got ${legacyTotal} — the legacy channel is not running (this is how Plan-008 went unscreened)`,
   );
   // Asserted STRICT, with no known-defect allowlist. The corpus holds exactly
   // one violation today — `I5` at Plan-001 T5.3, a declared integration-test id
@@ -3274,68 +3264,6 @@ test("the roll-up is INERT on the parent's own honest spelling", () => {
   assert.deepEqual(r.findings, []);
   assert.equal(r.legacy.resolved, 1);
   assert.equal(r.legacy.parentResolved, 0);
-});
-
-test("CORPUS: Plan-008 is screened — the plan that had ZERO bold markers", () => {
-  // The regression guard for the coverage hole itself. Plan-008 carries 41
-  // compact-inline markers and no bold ones; before the legacy channel existed
-  // it contributed 0 resolved references while the gate printed a clean total.
-  const plan008 = readFileSync(
-    resolve(REPO_ROOT_FOR_TESTS, "docs", "plans", "008-control-plane-relay-and-session-join.md"),
-    "utf8",
-  );
-  const r = verifyInvariantReferences(plan008, { cache: new Map() });
-  assert.equal(r.bold.resolved, 0, "Plan-008 has no bold markers — if this moved, the fixture did");
-  assert.ok(
-    r.legacy.resolved > 50,
-    `Plan-008 must resolve >50 references on the legacy channel, got ${r.legacy.resolved}`,
-  );
-  assert.deepEqual(r.findings, []);
-  // Pins the facet roll-up to its ONLY live instance in the corpus: `I-008-7c`
-  // at Plan-008 task T-008r-1-4. Without this the roll-up rots SILENTLY, and measurably so:
-  // degrade that one token to its base and `parentResolved` goes 1 → 0 while
-  // `legacy.resolved` stays at 58 and `findings` stays empty — because the base
-  // id still resolves, it is simply no longer a facet. Every other assertion in
-  // this test stays green. The roll-up becomes dead code reporting success, and
-  // this line is the only thing that notices.
-  //
-  // Concretely load-bearing against content masking: `consumeFailure` reads
-  // `failure.raw`, so the roll-up REQUIRES raw to carry unmasked payload bytes.
-  // T-008r-1-4's payload is backticked (`relay_connections`), one of 8 such among the
-  // 48 legacy payloads. The ids there precede the first backtick, so masking
-  // code spans should not reach them — this assertion is what proves that
-  // holds rather than assuming it.
-  assert.equal(
-    r.legacy.parentResolved,
-    1,
-    `Plan-008 must roll up exactly one facet (I-008-7c), got ${r.legacy.parentResolved} — if 0, check that failure.raw still carries unmasked bytes`,
-  );
-});
-
-test("CORPUS negative control: perturbing a real LEGACY marker makes Plan-008 fail", () => {
-  // The test above asserts a CLEAN result on real corpus text, and a clean
-  // result is worth exactly what the checker's failure mode is worth. The
-  // bold-channel oracle has its own negative control at "CORPUS ORACLE negative
-  // control" above; this is the legacy channel's, and it is not redundant with
-  // the synthetic one. The synthetic control feeds `inlineMarker()`, whose shape
-  // I chose; Plan-008 writes the field unbolded, inside a parenthetical, after a
-  // task-header lead-in. Proving the screen fires on MY shape does not prove it
-  // fires on the corpus's — that gap is how the original coverage hole survived.
-  const plan008 = readFileSync(
-    resolve(REPO_ROOT_FOR_TESTS, "docs", "plans", "008-control-plane-relay-and-session-join.md"),
-    "utf8",
-  );
-  const perturbed = plan008.replace(
-    /Verifies invariant: I-008-/,
-    "Verifies invariant: I-008-99999-",
-  );
-  assert.notEqual(perturbed, plan008, "perturbation did not apply — the fixture shape moved");
-  const r = verifyInvariantReferences(perturbed, { cache: new Map() });
-  assert.ok(
-    r.findings.some((f) => f.kind === "invariant-undeclared"),
-    "perturbed Plan-008 produced no undeclared finding — the legacy screen cannot fail",
-  );
-  assert.equal(r.bold.resolved, 0, "the finding must have come through the legacy channel");
 });
 
 // ---------- Range references (`I-NNN-A..B`) ----------
@@ -3915,8 +3843,12 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // (+1, one added marker line). Plan-023 mints I-023-20 (the DPoP proof key
     // held outside the custody root) on the existing T-023r-4-3 marker (+1).
     // No none-arm row moves and the legacy compact-inline channel is untouched.
-    bold: { resolved: 1068, noneArm: 158, parentResolved: 0 },
-    legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
+    // 1068/158 -> 1049/131 and legacy 64/3/1 -> 0/3/0 (2026-09-11, the
+    // people-collaboration removal): Plans 002, 008, and 025 left the corpus.
+    // Plan-008 was the legacy compact-inline channel's only remaining resolved
+    // producer, so that count and its one facet roll-up go to zero with it.
+    bold: { resolved: 1049, noneArm: 131, parentResolved: 0 },
+    legacy: { resolved: 0, noneArm: 3, parentResolved: 0 },
   });
 });
 
@@ -4026,12 +3958,10 @@ function reconcileFencedRefs(planSource) {
 // should be argued for rather than done to quiet a failure.
 const PLANS_THAT_MUST_CARRY_MANIFEST_REFS = [
   "001",
-  "002",
   "003",
   "005",
   "006",
   "007",
-  "008",
   "009",
   "010",
   "024",
@@ -4330,27 +4260,6 @@ test("NEGATIVE CONTROL: a real marker beside the example is still extracted", ()
   assert.equal(r.legacy.resolved, 1);
 });
 
-test("PAYLOAD BYTES still come from raw — a backticked payload survives detection masking", () => {
-  // The reason detection and extraction read DIFFERENT views. Plan-008 task
-  // T-008r-1-4's payload is `I-008-9, I-008-11, I-008-7c (substrate — the `relay_connections`
-  // rows …)`; slicing it out of the masked view would blank the backticked run,
-  // and `consumeFailure` reads `failure.raw`. This is the assertion that the
-  // split was preserved rather than collapsed to one view for tidiness.
-  const plan008 = readFileSync(
-    resolve(REPO_ROOT_FOR_TESTS, "docs", "plans", "008-control-plane-relay-and-session-join.md"),
-    "utf8",
-  );
-  const backticked = extractInlineCitePayloads(plan008).filter((p) => p.payload.includes("`"));
-  assert.ok(
-    backticked.length >= 8,
-    `expected the live backticked-payload class to survive extraction, got ${backticked.length}`,
-  );
-  assert.ok(
-    backticked.some((p) => p.payload.includes("`relay_connections`")),
-    "Plan-008 task T-008r-1-4's payload lost its backticked bytes — extraction is reading the masked view",
-  );
-});
-
 test("the composed detection view is byte-length-identical to its input", () => {
   // LOAD-BEARING, not incidental. `lineNo` is derived by counting newlines in the
   // detection view while `nearestTaskIdAt` indexes RAW lines; a masker that
@@ -4392,7 +4301,7 @@ test("CORPUS: every legacy marker's lineNo lands on its own raw line", () => {
     }
   }
   assert.deepEqual(misaligned, [], "a marker's lineNo does not index its own raw line");
-  assert.equal(markers, 52, "the legacy marker population moved — re-derive the alignment claim");
+  assert.equal(markers, 7, "the legacy marker population moved — re-derive the alignment claim");
 });
 
 // ---------- Malformed ids in the structured namespace ----------
