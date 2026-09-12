@@ -1369,36 +1369,11 @@ export function extractDeclaredFilePaths(phaseSection) {
   return paths;
 }
 
-// Extract §5 (Canonical Build Order) from cross-plan-dependencies.md. Used by
-// the cross_plan_carve_out and audit_status:substrate_exempt resolvers to
-// scope membership checks to §5 only — pre-fix cross_plan_carve_out used a
-// bare `source.includes(ref)` substring match, which passed when the ref
-// appeared anywhere in the file (e.g., §3 prose, §6 NS-rows) even if §5 had
-// no entry. Returns the §5 slice (from its heading line through the
-// character before the next `^## ` heading), or null when §5 is missing.
-//
-// Heading shape supports both `## 5. Canonical Build Order` (dot-then-space
-// form — the current shape) and `## Section 5 — ...` (defensive alternative).
-// The `\b` lives inside the `Section 5` alternative only: putting it after
-// `5\.` would look for a word boundary between `.` (non-word) and ` `
-// (non-word) and fail to match.
-export function extractSection5(xplanSource) {
-  const startRe = /^##\s+(?:5\.\s|Section\s+5\b).*$/m;
-  const startMatch = startRe.exec(xplanSource);
-  if (!startMatch) return null;
-  const startIdx = startMatch.index;
-  const after = xplanSource.slice(startIdx + startMatch[0].length);
-  const nextRe = /^##\s+/m;
-  const nextMatch = nextRe.exec(after);
-  const endIdx = nextMatch ? startIdx + startMatch[0].length + nextMatch.index : xplanSource.length;
-  return xplanSource.slice(startIdx, endIdx);
-}
-
 // Extract a single backlog item's section — its `### BL-NNN` / `#### BL-NNN`
 // heading (active backlog uses h3, the archive uses h4) through the line before
 // the next ATX heading or `---` horizontal rule — or null if the item heading
-// is absent. Heading-anchored (not a bare substring) with the same
-// scoped-not-loose rigor as extractSection5: a `[BL-NNN](…)` cross-reference or
+// is absent. Heading-anchored (not a bare substring) rather than
+// scoped-loose: a `[BL-NNN](…)` cross-reference or
 // a mention inside a neighbor item's prose must not be mistaken for the item
 // itself, so the Status read in the bl_closed resolver comes only from the
 // item's own block. `\b` after the id rejects longer-number collisions
@@ -1442,7 +1417,8 @@ function judgeBacklogCompletion(section) {
 
 // Extract the set of task ids shipped for a given phase from the parsed
 // manifest. Single-string `task` and array-form `task` (legacy multi-task
-// PRs predating NS-02) both contribute their ids. Returns a Set.
+// PRs predating task-level manifest granularity) both contribute their ids.
+// Returns a Set.
 export function shippedTaskIdsForPhase(manifest, phaseNumber) {
   const out = new Set();
   if (!manifest || !manifest.ok) return out;
@@ -1870,8 +1846,8 @@ export function gatePhaseAuditCheckbox(planSource, phaseSection, planFile, phase
       "Either complete the plan-readiness audit and tick the plan-level checkbox,",
       "OR declare an `audit_status` precondition entry on this phase. Two values",
       "are permitted: `complete` (with evidence_pr + baseline_tag) or",
-      "`substrate_exempt` (with carve_out_ref pointing to a §5 carve-out entry in",
-      "docs/architecture/cross-plan-dependencies.md).",
+      "`substrate_exempt` (whose phase body must declare that it covers no",
+      "Spec-NNN acceptance criteria).",
     ].join("\n"),
   };
 }
@@ -4137,12 +4113,12 @@ export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts 
   return { ok: false, halt: lines.join("\n"), findings: allFailures, hasCiteMarkers: true };
 }
 
-// resolvePrecondition signature is additive-backwards-compatible. The four
-// existing cases (pr_merged, adr_accepted, plan_phase, cross_plan_carve_out)
+// resolvePrecondition signature is additive-backwards-compatible. The three
+// oldest cases (pr_merged, adr_accepted, plan_phase)
 // ignore the new params; the audit_status case introduced in this version
 // needs phaseSection + phaseNumber to evaluate the substrate_exempt criterion
 // (3) check (Spec-AC-empty sentinel + Tasks-block bracket-form conflict). The
-// bl_closed case (added for the Plan-003 Phase 3 / NS-32 backlog gate) reads
+// bl_closed case (added for the Plan-003 Phase 3 backlog gate) reads
 // only repoRoot — already present — so it too is purely additive. The
 // precondition_box_checked case (Codex P1, PR #212 round 4) additionally
 // reads planSource, threaded from the phase walk the same way phaseSection is.
@@ -4255,7 +4231,7 @@ export function resolvePrecondition(
         default:
           // Defensive: classifyPhaseShipment kinds are exhaustive today; this
           // branch fires only if a future kind lands without a handler. Halt
-          // loudly rather than silently fall through to cross_plan_carve_out.
+          // loudly rather than silently fall through to the next resolver case.
           return {
             ok: false,
             halt: `unhandled classifyPhaseShipment kind: ${result.kind}`,
@@ -4399,62 +4375,17 @@ export function resolvePrecondition(
         halt: `${planLabel(entry.plan)} Phase ${entry.phase} not shipped — missing tasks: ${missing.join(", ")}`,
       };
     }
-    case "cross_plan_carve_out": {
-      const xplanPath = resolve(repoRoot, "docs", "architecture", "cross-plan-dependencies.md");
-      let source;
-      try {
-        source = readFileSync(xplanPath, "utf8");
-      } catch (e) {
-        return { ok: false, halt: `cross-plan-dependencies.md unreadable: ${e.message}` };
-      }
-      // Scope the membership check to §5 only. Pre-this-version the resolver
-      // used `source.includes(ref)` over the whole file, which passed when
-      // the ref appeared in §3 prose or §6 NS-rows even if §5 had no entry.
-      const section5 = extractSection5(source);
-      if (section5 === null) {
-        return {
-          ok: false,
-          halt: `cross-plan-dependencies.md has no §5 (Canonical Build Order) section; cannot evaluate cross_plan_carve_out`,
-        };
-      }
-      if (section5.includes(String(entry.ref))) return { ok: true };
-      return {
-        ok: false,
-        halt: `cross_plan_carve_out ref=${entry.ref} not present in cross-plan-dependencies.md §5`,
-      };
-    }
     case "audit_status": {
       // Two values per runbook §Per-Phase Audit Semantics:
       //   - complete: the act of declaring `complete` is the load-bearing
       //     assertion (matches the existing Gate 2 behavior of trusting the
       //     human-set checkbox); evidence_pr + baseline_tag are documentary.
-      //   - substrate_exempt: requires three criteria. (1)+(2) are
-      //     human-judged at audit time and live in the §5 carve-out entry
-      //     itself; (3) is mechanically verified here — Spec coverage
+      //   - substrate_exempt: criteria (1)+(2) are human-judged at audit
+      //     time; (3) is mechanically verified here — Spec coverage
       //     declaration must be explicitly empty in the phase body, and the
       //     Tasks block must not cite Spec coverage in bracketed-list form.
       if (entry.status === "complete") return { ok: true };
       if (entry.status === "substrate_exempt") {
-        const xplanPath = resolve(repoRoot, "docs", "architecture", "cross-plan-dependencies.md");
-        let xplanSource;
-        try {
-          xplanSource = readFileSync(xplanPath, "utf8");
-        } catch (e) {
-          return { ok: false, halt: `cross-plan-dependencies.md unreadable: ${e.message}` };
-        }
-        const section5 = extractSection5(xplanSource);
-        if (section5 === null) {
-          return {
-            ok: false,
-            halt: `cross-plan-dependencies.md has no §5 (Canonical Build Order) section; cannot evaluate audit_status: substrate_exempt`,
-          };
-        }
-        if (!entry.carve_out_ref || !section5.includes(entry.carve_out_ref)) {
-          return {
-            ok: false,
-            halt: `audit_status: substrate_exempt requires carve_out_ref present in cross-plan-dependencies.md §5; "${entry.carve_out_ref ?? "<missing>"}" not found within §5 scope`,
-          };
-        }
         // Criterion (3) sentinel: phase body explicitly disclaims Spec AC
         // coverage. Three canonical phrasings accepted.
         const specAcSentinel =
@@ -4499,7 +4430,7 @@ export function resolvePrecondition(
       // reach its Exit Criteria until a governance change lands, but that change
       // is neither a merged PR nor an accepted ADR — so no artifact number
       // exists at declaration time to gate on with pr_merged / adr_accepted
-      // (Codex #3 on PR #138: Plan-003 Phase 3 / NS-32 is blocked on a Spec-003
+      // (Codex #3 on PR #138: Plan-003 Phase 3 is blocked on a Spec-003
       // §Default-Behavior heartbeat-threshold amendment whose PR number is
       // unknowable now, and the threshold value is a spec value, not
       // ADR-worthy). The honest machine-readable primitive that exists at

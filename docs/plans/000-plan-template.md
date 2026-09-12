@@ -173,8 +173,8 @@ Plan-NNN implementation lands as a sequence of small PRs. Each PR exercises one 
 
 <!--
   Machine-readable preconditions (consumed by plan-execution preflight tool).
-  Supported types: pr_merged, adr_accepted, plan_phase, cross_plan_carve_out,
-  audit_status, external_plan_phase_merged. Required for plans authored from
+  Supported types: pr_merged, adr_accepted, plan_phase, audit_status,
+  external_plan_phase_merged. Required for plans authored from
   2026-04-30 onward; legacy plans use prose fallback parsing of the
   `**Precondition:**` line above.
 
@@ -190,7 +190,6 @@ Plan-NNN implementation lands as a sequence of small PRs. Each PR exercises one 
       already-matched `Plan-NNN Phase K merged`.
 
   YAML-only (no prose analog — declare in the block below):
-    - cross_plan_carve_out
     - audit_status: complete | substrate_exempt
     - external_plan_phase_merged — the structured cross-plan phase gate:
       `{ type: external_plan_phase_merged, plan: NNN, phase: <value> }`.
@@ -209,7 +208,7 @@ Plan-NNN implementation lands as a sequence of small PRs. Each PR exercises one 
       explicit-prefix nor bare-form regex matches these shapes, so the
       dependency drops to "unparseable prose; legacy free-form silent
       pass" and is NOT machine-enforced. Express it as a YAML
-      `cross_plan_carve_out` + `pr_merged` pair so the gate enforces.
+      `pr_merged` or `external_plan_phase_merged` entry so the gate enforces.
 -->
 
 ```yaml
@@ -230,10 +229,9 @@ preconditions:
 
 <!-- prettier-ignore -->
 ```yaml
-# Phase is a substrate slice of a §5 carve-out; ships before its tier-level audit
+# Phase is a substrate slice of a carve-out; ships before its tier-level audit
 preconditions:
-  - { type: cross_plan_carve_out, ref: "Plan-NNN Substrate-vs-Namespace Carve-Out" }
-  - { type: audit_status, status: substrate_exempt, carve_out_ref: "Plan-NNN Substrate-vs-Namespace Carve-Out" }
+  - { type: audit_status, status: substrate_exempt }
 ```
 
 **Goal:** {What tests go green; what behavior is delivered.}

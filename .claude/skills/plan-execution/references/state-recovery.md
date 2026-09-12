@@ -189,25 +189,15 @@ If the plan body was amended in response to the clarification, the new analyst d
 
 ## Resuming a Phase E housekeeping halt
 
-Phase E (post-merge housekeeping; see SKILL.md § Phase E) halts when:
-
-- The candidate-lookup over §6 returns 2+ matches → `NEEDS_CONTEXT` halt with both candidates surfaced
-- The script's mechanical-stage exits ≥1 (NS not found / verification failed / no checklist / multi-PR no task-id / schema violation / arg validation) → see `references/post-merge-housekeeper-contract.md` § Exit codes
-- The subagent returns DONE_WITH_CONCERNS, NEEDS_CONTEXT, or BLOCKED → routed per `references/failure-modes.md`
+Phase E (post-merge housekeeping; see SKILL.md § Phase E) halts when the housekeeper script exits non-zero. Exit 6 and above is a crash, an IO error, or an argument-validation failure; any other non-zero code is unrecognized and halts under the same default-deny arm of `decideHousekeeperRouting`. Which malformations produce which code is documented in `references/post-merge-housekeeper-contract.md` § Exit codes.
 
 Recovery diagnostic — run in this order:
 
-1. **Did the housekeeping commit land?** `git log --oneline -1` on the local `develop` branch — if the latest commit is `chore(repo): housekeeping for PR #<N> — NS-XX ...`, housekeeping completed and Phase E is DONE; resume the next plan-execution from Phase A.
+1. **Did the housekeeping commit land?** The housekeeping edit lands through its own `housekeeping/PR<N>` branch and gated squash-merge PR, so check `develop` rather than the feature branch: `git switch develop && git pull --ff-only && git log --oneline -1`. If the latest commit is `chore(repo): housekeeping for PR #<N>`, housekeeping completed and Phase E is DONE; resume the next plan-execution from Phase A. If the branch exists but never merged, resume at SKILL.md § Phase E step 5.
 2. **Is the manifest present?** `ls .agents/tmp/housekeeper-manifest-PR<N>.json` (the squash-merge PR number). If absent, the script never wrote it — re-run `node post-merge-housekeeper.mjs` with the same args from the orchestrator's last log entry.
-3. **What does `manifest.result` say?** `jq .result .agents/tmp/housekeeper-manifest-PR<N>.json`:
-   - `null` → script-stage halt (read `manifest.script_exit_code` + `manifest.schema_violations`)
-   - `"DONE"` → housekeeping succeeded; the only remaining work is Phase E step 6-8 (Progress Log + commit + push); finish those manually
-   - `"DONE_WITH_CONCERNS"` → read `manifest.concerns`; for each `kind`, follow the routing rule in `references/failure-modes.md`
-   - `"NEEDS_CONTEXT"` → read `manifest.concerns[].context_request`; surface to the user; re-dispatch with the requested context
-   - `"BLOCKED"` → read `manifest.concerns[].blocker`; cannot proceed; user must decide
-
-### Candidate-lookup rules (canonical at SKILL.md § Phase E step 1)
-
-The four heading-only matching rules are canonical at SKILL.md § Phase E step 1 — read them there; this file no longer mirrors them. For a Phase E halt with `manifest.script_exit_code === 1` (no NS match), trace which rule should have matched and why it didn't — typo'd Plan-NN, missing `PRs:` block row, rule-3 lower-endpoint mismatch. The fixture `11-tier-range-audit` is the canonical rule-3 shape to compare against.
+3. **What does `script_exit_code` say?** `jq .script_exit_code .agents/tmp/housekeeper-manifest-PR<N>.json`:
+   - `0` → the script stage succeeded; the only remaining work is SKILL.md § Phase E steps 3-5 (shipment-manifest entry, housekeeping branch, gated PR merge); finish those manually.
+   - non-zero → an argument-validation failure or a crash. The script's stderr names the offending flag; re-run step 1 of Phase E with it corrected.
+4. **Is `proposed_manifest_entry` null?** `jq .proposed_manifest_entry .agents/tmp/housekeeper-manifest-PR<N>.json`. Null means the run omitted `--squash-sha` / `--merged-at`, or carried no task identity — the graceful-degradation path. Re-run Phase E step 1 with all of them supplied; do NOT hand-write the shipment-manifest entry to work around it.
 
 Full contract: [`post-merge-housekeeper-contract.md`](post-merge-housekeeper-contract.md).

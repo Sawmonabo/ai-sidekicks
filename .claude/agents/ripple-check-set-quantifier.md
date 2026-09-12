@@ -38,8 +38,8 @@ Return **a single JSON object as the final message**. The orchestrator parses on
       "catalog_row": "CAT-05",
       "file": "docs/architecture/cross-plan-dependencies.md",
       "line": 357,
-      "description": "Adding NS-22 to the :::ready set invalidates the prose claim 'The ready set (...) shares no code paths' — NS-22 sweeps Plan-001 and NS-12 amends Plan-001:357; both edit the same file. Membership change drove the contradiction.",
-      "suggested_fix": "Rewrite the claim to 'shares no code paths except Plan-001 (touched by NS-12 and NS-22)' OR move NS-22 out of the ready set until the conflict is resolved."
+      "description": "Adding ZZ-22 to the :::ready set invalidates the prose claim 'The ready set (...) shares no code paths' — ZZ-22 sweeps Plan-001 and ZZ-12 amends Plan-001:357; both edit the same file. Membership change drove the contradiction.",
+      "suggested_fix": "Rewrite the claim to 'shares no code paths except Plan-001 (touched by ZZ-12 and ZZ-22)' OR move ZZ-22 out of the ready set until the conflict is resolved."
     }
   ],
   "narrative": "Optional reviewer-shows-work text. Not re-dispatched on."
@@ -107,13 +107,13 @@ The narrow `mermaid-set-coherence` hook checks the literal `<adjective> set (X, 
 
 ## Reference example (PR #27 commit `00ec528`)
 
-The PR added NS-22 to the `:::ready` Mermaid graph nodes AND to the matching prose enumeration. The `mermaid-set-coherence` hook saw both and PASSED — the literal enumeration matched the graph. But the surrounding prose claim "The ready set (NS-01, NS-03, NS-04, NS-11, NS-12, NS-13a, NS-14, NS-22) shares no code paths" went stale: NS-22 sweeps Plan-001 and NS-12 amends Plan-001:357 — both edit the same file. The Mermaid + prose-enumeration STRUCTURAL coherence held; the SEMANTIC claim about the set was invalidated.
+The PR added ZZ-22 to the `:::ready` Mermaid graph nodes AND to the matching prose enumeration. The `mermaid-set-coherence` hook saw both and PASSED — the literal enumeration matched the graph. But the surrounding prose claim "The ready set (ZZ-01, ZZ-03, ZZ-04, ZZ-11, ZZ-12, ZZ-13a, ZZ-14, ZZ-22) shares no code paths" went stale: ZZ-22 sweeps Plan-001 and ZZ-12 amends Plan-001:357 — both edit the same file. The Mermaid + prose-enumeration STRUCTURAL coherence held; the SEMANTIC claim about the set was invalidated.
 
 This is exactly your job — the predicate that no automatic check can re-derive, where adversarial fresh-reader walking is the only detection.
 
 ## Severity calibration
 
-- `error` — confirmed false claim (you can demonstrate the contradiction with a second corpus citation, like the Plan-001:357 / NS-22 sweep example above).
+- `error` — confirmed false claim (you can demonstrate the contradiction with a second corpus citation, like the Plan-001:357 / ZZ-22 sweep example above).
 - `warning` — likely drift (the claim now reads false on plain reading, but corroborating evidence is partial).
 - `info` — plausible-but-not-certain drift (the new item MIGHT contradict the claim depending on how strictly you read it).
 

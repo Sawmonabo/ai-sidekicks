@@ -3806,7 +3806,7 @@ test("CORPUS: every legacy marker's lineNo lands on its own raw line", () => {
   // composed detection view: 52 of 52 live `Verifies invariant` compact-inline
   // markers (48 -> 49 at PR #323: Plan-008's new T-008r-4-14 row joins the
   // population; 49 -> 52 at the 2026-08-25 rate-limit wiring amendment, §6 node
-  // NS-80: Plan-008's Phase R5 rows T-008r-5-1/2/3 join it). (That figure is the LEGACY-MARKER population — unrelated to
+  // Plan-008's Phase R5 rows T-008r-5-1/2/3 join it). (That figure is the LEGACY-MARKER population — unrelated to
   // the fenced YAML count above, which also read 48 before this change; two
   // different figures that happened to collide. The fenced count's live value
   // is now pinned by NO test — it moves on every Shipment-Manifest append, so
