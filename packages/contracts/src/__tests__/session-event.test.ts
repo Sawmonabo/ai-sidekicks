@@ -2261,15 +2261,15 @@ describe("audit_integrity + event_maintenance payload variants", () => {
 // Structural `parse` / `safeParse` typing sidesteps `z.ZodType` variance (the
 // repo.test.ts standalone-schema precedent); the fixture view is the two
 // members every row is probed on.
-type Plan006EventFixture = {
+type AuditEventFixture = {
   readonly category: string;
   readonly payload: Record<string, unknown>;
 };
 
-const STANDALONE_PLAN_006_EVENT_SCHEMAS: ReadonlyArray<
+const STANDALONE_AUDIT_EVENT_SCHEMAS: ReadonlyArray<
   readonly [
     string,
-    () => Plan006EventFixture,
+    () => AuditEventFixture,
     {
       parse: (candidate: unknown) => unknown;
       safeParse: (candidate: unknown) => { success: boolean };
@@ -2294,7 +2294,7 @@ const STANDALONE_PLAN_006_EVENT_SCHEMAS: ReadonlyArray<
 ];
 
 describe("standalone event schemas agree with the union arms", () => {
-  it.each(STANDALONE_PLAN_006_EVENT_SCHEMAS)(
+  it.each(STANDALONE_AUDIT_EVENT_SCHEMAS)(
     "%s standalone accepts what the union accepts, with an identical parse output",
     (_label, build, standaloneSchema) => {
       const fixture = build();
@@ -2308,7 +2308,7 @@ describe("standalone event schemas agree with the union arms", () => {
     },
   );
 
-  it.each(STANDALONE_PLAN_006_EVENT_SCHEMAS)(
+  it.each(STANDALONE_AUDIT_EVENT_SCHEMAS)(
     "%s standalone rejects what the union rejects (unknown payload key)",
     (_label, build, standaloneSchema) => {
       const fixture = build();
@@ -2318,7 +2318,7 @@ describe("standalone event schemas agree with the union arms", () => {
     },
   );
 
-  it.each(STANDALONE_PLAN_006_EVENT_SCHEMAS)(
+  it.each(STANDALONE_AUDIT_EVENT_SCHEMAS)(
     "%s standalone refuses a spurious ENVELOPE key and a category mismatch",
     (_label, build, standaloneSchema) => {
       // Outer `.strict()` is the one axis of this parity with NO compile-time
@@ -2672,15 +2672,15 @@ void runtimeNodePayloadsNarrowTheEnvelope;
 // Structural `parse` / `safeParse` typing sidesteps `z.ZodType` variance; the
 // fixture view is the two members every row is probed on. Declared locally
 // rather than shared with table, which is how repo.test.ts spells its own.
-type Plan003EventFixture = {
+type RuntimeNodeEventFixture = {
   readonly category: string;
   readonly payload: Record<string, unknown>;
 };
 
-const STANDALONE_PLAN_003_EVENT_SCHEMAS: ReadonlyArray<
+const STANDALONE_RUNTIME_NODE_EVENT_SCHEMAS: ReadonlyArray<
   readonly [
     string,
-    () => Plan003EventFixture,
+    () => RuntimeNodeEventFixture,
     {
       parse: (candidate: unknown) => unknown;
       safeParse: (candidate: unknown) => { success: boolean };
@@ -2703,7 +2703,7 @@ const STANDALONE_PLAN_003_EVENT_SCHEMAS: ReadonlyArray<
 ];
 
 describe("standalone runtime_node.* event schemas agree with the union arms", () => {
-  it.each(STANDALONE_PLAN_003_EVENT_SCHEMAS)(
+  it.each(STANDALONE_RUNTIME_NODE_EVENT_SCHEMAS)(
     "%s standalone accepts what the union accepts, with an identical parse output",
     (_label, build, standaloneSchema) => {
       const fixture = build();
@@ -2715,7 +2715,7 @@ describe("standalone runtime_node.* event schemas agree with the union arms", ()
     },
   );
 
-  it.each(STANDALONE_PLAN_003_EVENT_SCHEMAS)(
+  it.each(STANDALONE_RUNTIME_NODE_EVENT_SCHEMAS)(
     "%s standalone rejects what the union rejects (unknown payload key)",
     (_label, build, standaloneSchema) => {
       const fixture = build();
@@ -2725,7 +2725,7 @@ describe("standalone runtime_node.* event schemas agree with the union arms", ()
     },
   );
 
-  it.each(STANDALONE_PLAN_003_EVENT_SCHEMAS)(
+  it.each(STANDALONE_RUNTIME_NODE_EVENT_SCHEMAS)(
     "%s standalone refuses a spurious ENVELOPE key and a category mismatch",
     (_label, build, standaloneSchema) => {
       // Outer `.strict()` is the one axis of this parity with NO compile-time

@@ -181,17 +181,17 @@ export const EPHEMERAL_CLONE_ERROR_CODES: readonly EphemeralCloneErrorCode[] = [
  * than an omission. `workspace.not_found`, `workspace.provisioning_failed`,
  * `workspace.mode_unsupported`, `workspace.stale` and `workspace.busy` are the
  * rows with carriers (`../workspace/workspace-service.js`); naming any of them
- * here would either fork a live class or advertise a code no module raises. The
- * prefixed name distinguishes this union from the `WorkspaceServiceErrorCode`,
- * which is the census for the OTHER side of the same section.
+ * here would either fork a live class or advertise a code no module raises. This union is
+ * distinct from `WorkspaceServiceErrorCode`, which is the census for the OTHER
+ * side of the same section.
  */
-export type Plan010WorkspaceErrorCode =
+export type WorkspaceErrorCode =
   | "workspace.branch_mismatch"
   | "workspace.execution_root_unresolved"
   | "workspace.branch_name_required";
 
-/** Runtime companion to {@link Plan010WorkspaceErrorCode}, in `` row order. */
-export const WORKSPACE_ERROR_CODES: readonly Plan010WorkspaceErrorCode[] = [
+/** Runtime companion to {@link WorkspaceErrorCode}, in `` row order. */
+export const WORKSPACE_ERROR_CODES: readonly WorkspaceErrorCode[] = [
   "workspace.branch_mismatch",
   "workspace.execution_root_unresolved",
   "workspace.branch_name_required",
@@ -648,7 +648,7 @@ export class WorkspaceBranchMismatchError extends DaemonDomainError {
     super(
       `branch-mode bind refused for workspace ${workspaceId}: the checkout is on ${currentBranchName}, not the requested ${requestedBranchName}; the daemon never switches branches in the main checkout`,
       {
-        code: "workspace.branch_mismatch" satisfies Plan010WorkspaceErrorCode,
+        code: "workspace.branch_mismatch" satisfies WorkspaceErrorCode,
         httpStatus: 409,
         detail: { workspaceId, requestedBranchName, currentBranchName },
       },
@@ -689,7 +689,7 @@ export class WorkspaceExecutionRootUnresolvedError extends DaemonDomainError {
         ? `workspace ${workspaceId} has no resolved execution root: root preparation failed and the run stays parked in setup`
         : `workspace ${workspaceId} has no resolved execution root: root preparation failed with ${causeCode} and the run stays parked in setup`,
       {
-        code: "workspace.execution_root_unresolved" satisfies Plan010WorkspaceErrorCode,
+        code: "workspace.execution_root_unresolved" satisfies WorkspaceErrorCode,
         httpStatus: 409,
         detail: causeCode === null ? { workspaceId } : { workspaceId, causeCode },
       },
@@ -720,7 +720,7 @@ export class WorkspaceBranchNameRequiredError extends DaemonDomainError {
     super(
       `execution root prepare refused for workspace ${workspaceId}: a writable-mode prepare must carry a branch name, because the daemon's derivation inputs exist only on the run-setup gate path`,
       {
-        code: "workspace.branch_name_required" satisfies Plan010WorkspaceErrorCode,
+        code: "workspace.branch_name_required" satisfies WorkspaceErrorCode,
         httpStatus: 400,
         detail: { workspaceId },
       },

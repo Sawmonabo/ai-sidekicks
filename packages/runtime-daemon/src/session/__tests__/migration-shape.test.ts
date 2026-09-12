@@ -986,13 +986,13 @@ describe("0004-worktree-lifecycle migration shape", () => {
         .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         .all() as ReadonlyArray<{ name: string }>;
       const tableNames: ReadonlyArray<string> = tableRows.map((row) => row.name);
-      for (const plan010Table of [
+      for (const workspaceTable of [
         "worktrees",
         "ephemeral_clones",
         "branch_contexts",
         "run_execution_contexts",
       ]) {
-        expect(tableNames).toContain(plan010Table);
+        expect(tableNames).toContain(workspaceTable);
       }
       expect(tableNames).not.toContain("repo_mounts");
       expect(tableNames).not.toContain("workspaces");

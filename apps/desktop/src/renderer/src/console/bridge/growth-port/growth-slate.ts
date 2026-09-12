@@ -73,7 +73,7 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   "session-lifecycle-verbs": {
     id: "session-lifecycle-verbs",
     wire: "session lifecycle verbs — rename, archive, close, reactivate",
-    owningDocument: "the shared session core",
+    owningDocument: "the session core",
     wireRegistered: false,
   },
   "session-directory-read": {
@@ -234,7 +234,7 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   "session-search": {
     id: "session-search",
     wire: "the session-search query surface",
-    owningDocument: "the shared session core",
+    owningDocument: "the session core",
     wireRegistered: false,
   },
   "provider-session-import": {
