@@ -38,8 +38,8 @@ V1 consists of **23 features** (amended 2026-07-02 per the capability-enhancemen
 | # | Feature | Governing Spec(s) |
 | --- | --- | --- |
 | 1 | Session creation and join | [Spec-001](../specs/001-shared-session-core.md) |
-| 2 | Mid-session invites via shareable link | [Spec-002](../specs/002-invite-membership-and-presence.md) |
-| 3 | Membership roles and permissions | [Spec-002](../specs/002-invite-membership-and-presence.md), [Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md) |
+| 2 | Mid-session invites via shareable link | Spec-002 |
+| 3 | Membership roles and permissions | Spec-002, [Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md) |
 | 4 | Runtime node attach/detach | [Spec-003](../specs/003-runtime-node-attach.md) |
 | 5 | Single-agent runs (Codex, Claude) | [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) |
 | 6 | Queue, steer, pause, resume, interrupt | [Spec-004](../specs/004-queue-steer-pause-resume.md) |
@@ -48,7 +48,7 @@ V1 consists of **23 features** (amended 2026-07-02 per the capability-enhancemen
 | 9 | Worktree-based execution | [Spec-010](../specs/010-worktree-lifecycle-and-execution-modes.md) |
 | 10 | Session timeline with replay | [Spec-013](../specs/013-live-timeline-visibility-and-reasoning-surfaces.md), [Spec-015](../specs/015-persistence-recovery-and-replay.md) |
 | 11 | Local daemon with CLI | [Spec-007](../specs/007-local-ipc-and-daemon-control.md) |
-| 12 | Presence (online/idle/offline) | [Spec-002](../specs/002-invite-membership-and-presence.md) |
+| 12 | Presence (online/idle/offline) | Spec-002 |
 | 13 | Event audit log | [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md) |
 | 14 | Artifact publication (local + cross-node shared) | [Spec-014](../specs/014-artifacts-files-and-attachments.md); cross-node payload availability pulled forward from V1.1 (amendment 2026-07-08 — see §Amendment History): eager relay pin of participant-encrypted chunked ciphertext at publish + authenticated `(participant, node)`-scoped fetch against per-node wrapped CEKs, so a shared-visible artifact stays fetchable while the publishing node is offline (**threat-model-scoped 2026-08-08 — see §Decision Log**: honest-node model; the forged-ack and attestation-spoof residuals — both availability- and attribution-class, neither a confidentiality residual — are accepted V1 residuals closing on the Plan-018/Plan-003 node-identity primitive; **additionally time-bounded 2026-08-26 — same §Decision Log**: the guarantee attaches to a **live** pin, `state = 'pinned'` AND `expires_at` still in the future, and ends at the artifact's retention TTL); normative design in [Spec-014 §Cross-Node Artifact Relay (V1)](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1); direct-first fetch is criterion-gated (C4 below) |
 | 15 | Desktop GUI | Spec-023 (from BL-041) |

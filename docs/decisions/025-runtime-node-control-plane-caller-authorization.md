@@ -372,7 +372,7 @@ Convert the level-2 reservation note ("whose level-2 slot the BL-141 campaign de
 
 ### Plan-008
 
-Amend `Plan-008 §I-008-4 — PASETO v4 validation on every Tier-5 endpoint` (verified present; the Tier-5 decomposition of I-008-2) to name the five `runtimenode.*` procedures in its gated-endpoint list, so the verified identity D2 depends on is contractually required rather than incidentally supplied. The same amendment (widened at Codex PR #327 round 2) grows `T-008r-1-5` with the **host-wiring leg** that makes D2's zero-code-change promise come true: replace the host's throwing `resolveCurrentParticipantId` injection with the middleware-derived verified principal and exercise each `runtimenode.*` route under a verified token — without an owned wiring task, the middleware would exist while every runtime-node route kept throwing the Tier-5 deferral error.
+Amend `Plan-008` (verified present; the Tier-5 decomposition of I-008-2) to name the five `runtimenode.*` procedures in its gated-endpoint list, so the verified identity D2 depends on is contractually required rather than incidentally supplied. The same amendment (widened at Codex PR #327 round 2) grows `T-008r-1-5` with the **host-wiring leg** that makes D2's zero-code-change promise come true: replace the host's throwing `resolveCurrentParticipantId` injection with the middleware-derived verified principal and exercise each `runtimenode.*` route under a verified token — without an owned wiring task, the middleware would exist while every runtime-node route kept throwing the Tier-5 deferral error.
 
 ### Suite migration (build-breaking)
 
@@ -412,7 +412,6 @@ Amend `Plan-008 §I-008-4 — PASETO v4 validation on every Tier-5 endpoint` (ve
 - [Spec-003: Runtime Node Attach](../specs/003-runtime-node-attach.md)
 - [Plan-003: Runtime Node Attach](../plans/003-runtime-node-attach.md)
 - [Plan-006: Session Event Taxonomy And Audit Log](../plans/006-session-event-taxonomy-and-audit-log.md) — T4.10, the declared creator of `RUNTIME_NODE_PERMISSION_DENIED_CODE`
-- [Plan-008: Control Plane Relay And Session Join](../plans/008-control-plane-relay-and-session-join.md) — I-008-4 amendment
 
 ## Decision Log
 

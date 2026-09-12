@@ -121,13 +121,11 @@ Hosted execution fails the product's local-runtime contribution requirement and 
 | --- | --- | --- | --- |
 | `vision.md` | Canonical product vision | Local runtime contribution and shared session collaboration are both required | [vision.md](../vision.md) |
 | `architecture/system-context.md` | Canonical architecture doc | The split enables both local execution and shared coordination | [architecture/system-context.md](../architecture/system-context.md) |
-| `specs/002-invite-membership-and-presence.md` | Canonical spec | Membership, presence, and runtime-node attachment are distinct layers and join does not require execution attach | [specs/002-invite-membership-and-presence.md](../specs/002-invite-membership-and-presence.md) |
-| `specs/008-control-plane-relay-and-session-join.md` | Canonical spec | Join, presence, and relay coordination do not make the control plane the execution authority | [specs/008-control-plane-relay-and-session-join.md](../specs/008-control-plane-relay-and-session-join.md) |
 
 ### Related Domain Docs
 
 - [Session Model](../domain/session-model.md)
-- [Participant And Membership Model](../domain/participant-and-membership-model.md)
+- [User And Device Model](../domain/user-and-device-model.md)
 - [Runtime Node Model](../domain/runtime-node-model.md)
 
 ### Related Architecture Docs
@@ -141,7 +139,6 @@ Hosted execution fails the product's local-runtime contribution requirement and 
 
 - [Shared Session Core](../specs/001-shared-session-core.md)
 - [Runtime Node Attach](../specs/003-runtime-node-attach.md)
-- [Control Plane Relay And Session Join](../specs/008-control-plane-relay-and-session-join.md)
 
 ### Related ADRs
 

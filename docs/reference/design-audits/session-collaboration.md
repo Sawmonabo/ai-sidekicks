@@ -16,7 +16,7 @@
 
 **Invite lifecycle.** Spec-002 defines invite states: `issued`, `accepted`, `declined`, `revoked`, `expired`. Default join mode is `collaborator`. Default expiry is 7 days. Invitees must authenticate before acceptance (v1 decision). Guest/anonymous invites are explicitly out of scope for v1.
 
-**Membership and roles.** The participant-and-membership-model defines four roles: `owner`, `viewer`, `collaborator`, `runtime contributor`. Membership states are `pending`, `active`, `suspended`, `revoked`. The model explicitly states that `owner` is a bootstrap/elevation role, not a normal invite join mode, and that `contributor` alone is never a valid role label.
+**Membership and roles.** The participant and membership model defines four roles: `owner`, `viewer`, `collaborator`, `runtime contributor`. Membership states are `pending`, `active`, `suspended`, `revoked`. The model explicitly states that `owner` is a bootstrap/elevation role, not a normal invite join mode, and that `contributor` alone is never a valid role label.
 
 **Trust layering.** ADR-007 decides on layered trust: membership roles, runtime-node trust, run-level approval policy, and tool/resource permission grants are separate concerns. Membership alone never authorizes cross-node execution.
 
@@ -129,7 +129,7 @@ The vision doc specifies that queue must be daemon-backed, steer must be an inte
 
 ### Consistent (good)
 
-- **Term discipline is strong.** The participant-and-membership-model explicitly prohibits `contributor` as a standalone role label, requiring `collaborator` or `runtime contributor`. This is respected across all reviewed specs and plans.
+- **Term discipline is strong.** The participant and membership model explicitly prohibits `contributor` as a standalone role label, requiring `collaborator` or `runtime contributor`. This is respected across all reviewed specs and plans.
 - **Session-as-root-aggregate.** All five specs, all three domain models, and all three ADRs consistently treat session as the primary domain object.
 - **Separation of membership from presence.** Every doc that touches both concepts maintains the distinction between durable membership and ephemeral presence.
 - **Execution stays local.** All docs consistently place execution authority in the Local Runtime Daemon and coordination in the control plane. No spec or plan violates this boundary.
@@ -141,7 +141,7 @@ The vision doc specifies that queue must be daemon-backed, steer must be an inte
 
 2. **Presence package claimed by three plans.** Plan-002 targets `packages/control-plane/src/presence/`. Plan-008 targets `packages/control-plane/src/presence/presence-register-service.ts`. Plan-018 targets `packages/control-plane/src/presence/presence-aggregation-service.ts`. No plan declares ownership of the presence package or specifies coordination order among these services.
 
-3. **Owner elevation has no mechanism.** The participant-and-membership-model states: "`owner` is not a normal invite join mode; it is a bootstrap or explicit elevation role." No spec defines how a second owner is created, how elevation from collaborator to owner works, or what authorization is required. The only specified path to `owner` is session creation bootstrap.
+3. **Owner elevation has no mechanism.** The participant and membership model states: "`owner` is not a normal invite join mode; it is a bootstrap or explicit elevation role." No spec defines how a second owner is created, how elevation from collaborator to owner works, or what authorization is required. The only specified path to `owner` is session creation bootstrap.
 
 4. **Run lifecycle is a dangling reference.** The agent-channel-and-run-model says: "Run lifecycle is defined in `run-state-machine.md`." Spec-016's orchestration behavior (parent-child runs, delegation rejection, internal helper runs) depends on run states that are not defined in any reviewed document. The run state machine is assumed but never specified within this document set.
 

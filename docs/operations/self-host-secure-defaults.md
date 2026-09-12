@@ -55,14 +55,12 @@ If you are auditing or triaging a self-host deployment and want a single pass:
 - [Spec-020 — Observability and Failure Recovery](../specs/020-observability-and-failure-recovery.md) — `/metrics` surface.
 - [Spec-021 — Rate Limiting Policy](../specs/021-rate-limiting-policy.md) — rate-limiter counter source (row 9b).
 - [Spec-022 — Data Retention and GDPR](../specs/022-data-retention-and-gdpr.md) — secret custody internals (row 3 references).
-- [Spec-025 — Self-Hostable Node Relay](../specs/025-self-hostable-node-relay.md) — relay transport and `RELAY_BIND` semantics (row 4).
 - [Spec-026 — First-Run Onboarding](../specs/026-first-run-onboarding.md) — banner format (row 10).
 
 ## Related Plans
 
 - [Plan-007 — Local IPC and Daemon Control](../plans/007-local-ipc-and-daemon-control.md) — owns rows 2, 3, 4, 7a, 7b (daemon side), 8 (daemon), 10 (daemon content).
 - [Plan-020 — Observability and Failure Recovery](../plans/020-observability-and-failure-recovery.md) — owns row 9a (the daemon `/metrics` endpoint) plus the bind/auth contract and counter-family schema both scopes share.
-- [Plan-025 — Self-Hostable Node Relay](../plans/025-self-hostable-node-relay.md) — owns rows 1, 2 (relay), 3 (admin token), 5 (Postgres config + cert helper), 7b (relay CLI), 8 (relay/Caddy), 9b (relay `/metrics` endpoint wiring, consuming the Plan-020 contract), 10 (relay content).
 - [Plan-026 — First-Run Onboarding](../plans/026-first-run-onboarding.md) — owns row 10 format.
 - [Plan-001 — Shared Session Core](../plans/001-shared-session-core.md) (with BL-063 additions) — owns row 6 SQLite online-backup implementation.
 

@@ -77,7 +77,6 @@ Primary actors:
 
 - [Shared Session Core](../specs/001-shared-session-core.md)
 - [Runtime Node Attach](../specs/003-runtime-node-attach.md)
-- [Control Plane Relay And Session Join](../specs/008-control-plane-relay-and-session-join.md)
 
 ## Related ADRs
 

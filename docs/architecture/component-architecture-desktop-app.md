@@ -60,7 +60,7 @@ The desktop app is the primary interactive client, but it must remain a client. 
 ## Related Domain Docs
 
 - [Session Model](../domain/session-model.md)
-- [Participant And Membership Model](../domain/participant-and-membership-model.md)
+- [User And Device Model](../domain/user-and-device-model.md)
 - [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md)
 
 ## Related Specs

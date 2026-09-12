@@ -28,7 +28,7 @@ This spec covers in-app attention state, desktop notifications, invite notificat
 
 - [Session Model](../domain/session-model.md)
 - [Run State Machine](../domain/run-state-machine.md)
-- [Participant And Membership Model](../domain/participant-and-membership-model.md)
+- [User And Device Model](../domain/user-and-device-model.md)
 
 ## Architectural Dependencies
 
@@ -89,7 +89,7 @@ This spec covers in-app attention state, desktop notifications, invite notificat
 ### Cross-Device Delivery
 
 - **V1**: notifications are delivered only to currently-connected devices via SSE. If no device is connected, notifications are queued in the control plane.
-- **Reconnect catch-up**: on next device connect, queued notifications are delivered as a batch via the SSE catch-up mechanism (replay from last cursor, per [Spec-008](../specs/008-control-plane-relay-and-session-join.md)).
+- **Reconnect catch-up**: on next device connect, queued notifications are delivered as a batch via the SSE catch-up mechanism (replay from last cursor, per Spec-008).
 - **V2 (deferred)**: email digest for extended offline (>24h without connection). Push notifications via FCM/APNs for mobile clients.
 - **Queue retention**: undelivered notifications are retained for 7 days, then expired and permanently deleted.
 - **No webhook delivery in V1**: external integrations use the SSE subscription directly rather than a separate webhook endpoint.

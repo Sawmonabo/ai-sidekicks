@@ -11,8 +11,8 @@ Every V1 feature has a governing spec, with campaign caveats on #18–#23. **Fea
 | # | Feature | Governing Spec(s) |
 | --- | --- | --- |
 | 1 | Session creation and join | [Spec-001](../specs/001-shared-session-core.md) |
-| 2 | Mid-session invites via shareable link | [Spec-002](../specs/002-invite-membership-and-presence.md) |
-| 3 | Membership roles and permissions | [Spec-002](../specs/002-invite-membership-and-presence.md), [Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md) |
+| 2 | Mid-session invites via shareable link | Spec-002 |
+| 3 | Membership roles and permissions | Spec-002, [Spec-012](../specs/012-approvals-permissions-and-trust-boundaries.md) |
 | 4 | Runtime node attach/detach | [Spec-003](../specs/003-runtime-node-attach.md) |
 | 5 | Single-agent runs (Codex, Claude) | [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) |
 | 6 | Queue, steer, pause, resume, interrupt | [Spec-004](../specs/004-queue-steer-pause-resume.md) |
@@ -21,7 +21,7 @@ Every V1 feature has a governing spec, with campaign caveats on #18–#23. **Fea
 | 9 | Worktree-based execution | [Spec-010](../specs/010-worktree-lifecycle-and-execution-modes.md) |
 | 10 | Session timeline with replay | [Spec-013](../specs/013-live-timeline-visibility-and-reasoning-surfaces.md), [Spec-015](../specs/015-persistence-recovery-and-replay.md) |
 | 11 | Local daemon with CLI | [Spec-007](../specs/007-local-ipc-and-daemon-control.md) |
-| 12 | Presence (online/idle/offline) | [Spec-002](../specs/002-invite-membership-and-presence.md) |
+| 12 | Presence (online/idle/offline) | Spec-002 |
 | 13 | Event audit log | [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md) |
 | 14 | Artifact publication (local + cross-node shared) | [Spec-014](../specs/014-artifacts-files-and-attachments.md) — cross-node payload availability pulled forward from V1.1 per the [ADR-015 amendment 2026-07-08](../decisions/015-v1-feature-scope-definition.md#amendment-2026-07-08-v11-deferred-features-3--2-cross-node-shared-artifacts-pulled-into-v1): eager relay pin of E2EE ciphertext at publish, fetchable while the publishing node is offline — **threat-model-scoped 2026-08-08** ([ADR-015 §Decision Log](../decisions/015-v1-feature-scope-definition.md#decision-log)): asserted given an operational relay and against non-members and other participants, **not** against a compromised node of the fetching participant, whose forged-ack and attestation-spoof residuals (availability and attribution, not confidentiality) are accepted for V1 and close on the Plan-018/Plan-003 node-identity primitive — and **time-bounded 2026-08-26** (same §Decision Log): the guarantee attaches to a **live** pin, `state = 'pinned'` AND `expires_at` still in the future, and ends at the artifact's retention TTL, after which a fetch is a correct `artifact.relay_expired` (410) refusal carrying the re-publish remedy; direct-first fetch stays criterion-gated (C4) |
 | 15 | Desktop GUI | [Spec-023: Desktop Shell and Renderer](../specs/023-desktop-shell-and-renderer.md) |
@@ -40,8 +40,8 @@ Features with a governing spec already written that defer implementation past V1
 
 | # | Feature | Deferral Gate | Governing Spec(s) |
 | --- | --- | --- | --- |
-| 1 | MLS relay E2EE | Pending audit of an MLS implementation (OpenMLS, mls-rs, or a post-audit TypeScript implementation); V1 ships pairwise X25519 + XChaCha20-Poly1305 per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md). | [Spec-008](../specs/008-control-plane-relay-and-session-join.md) |
-| 2 | Email invite delivery | V1 uses shareable-link tokens; email delivery adds an external-service dependency with no category-positioning payoff for V1. | [Spec-002](../specs/002-invite-membership-and-presence.md) |
+| 1 | MLS relay E2EE | Pending audit of an MLS implementation (OpenMLS, mls-rs, or a post-audit TypeScript implementation); V1 ships pairwise X25519 + XChaCha20-Poly1305 per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md). | Spec-008 |
+| 2 | Email invite delivery | V1 uses shareable-link tokens; email delivery adds an external-service dependency with no category-positioning payoff for V1. | Spec-002 |
 
 (Cross-node shared artifacts — formerly the third row — moved into V1 as feature-14 scope growth per the [ADR-015 amendment 2026-07-08](../decisions/015-v1-feature-scope-definition.md#amendment-2026-07-08-v11-deferred-features-3--2-cross-node-shared-artifacts-pulled-into-v1); the only deferred leg remaining is the C4 direct-first fetch optimization below — though the V1 guarantee itself is threat-model-scoped as of 2026-08-08, with two accepted residuals recorded in [ADR-015 §Decision Log](../decisions/015-v1-feature-scope-definition.md#decision-log) that close on the Plan-018/Plan-003 node-identity primitive, not on C4.)
 
@@ -78,7 +78,6 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 
 | Spec | Coverage |
 | --- | --- |
-| [Spec-008](../specs/008-control-plane-relay-and-session-join.md) | Control plane relay and session join (V1 uses pairwise X25519 + XChaCha20-Poly1305; MLS is V1.1) |
 | [Spec-011](../specs/011-gitflow-pr-and-diff-attribution.md) | Gitflow, PR preparation, and diff attribution |
 | [Spec-018](../specs/018-identity-and-participant-state.md) | Identity and participant state |
 | [Spec-019](../specs/019-notifications-and-attention-model.md) | Notifications and attention model |
@@ -86,18 +85,16 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 | [Spec-021](../specs/021-rate-limiting-policy.md) | Rate limiting policy (both backends ship in V1) |
 | [Spec-022](../specs/022-data-retention-and-gdpr.md) | Data retention and GDPR compliance |
 | [Spec-024](../specs/024-cross-node-dispatch-and-approval.md) | Cross-node dispatch and approval |
-| [Spec-025: Self-Hostable Node Relay](../specs/025-self-hostable-node-relay.md) | Self-hostable Node relay (V1 self-host deployment) |
 | [Spec-026: First-Run Three-Way-Choice Onboarding](../specs/026-first-run-onboarding.md) | First-run three-way-choice onboarding |
 
 ## Spec Coverage Assessment
 
 - **V1 features:** all 23 have a governing spec — feature #18's Spec-028 landed 2026-07-22 via the capability-enhancement campaign's B18 bundle and was promoted `approved` the same day via the campaign's W3 gate (see its row above), and features #19–#23 are governed by existing specs whose amendments landed via the named campaign bundles in their rows (B1 merged via #173, B3 merged 2026-07-05, B20 merged via #175, B6 landed 2026-07-06, B2 merged via #205) and were re-promoted `approved` via the W1.5 batch gate (campaign Task 28, 2026-07-18) — Spec-004, Spec-012, and Spec-016 were then re-flipped `review` 2026-08-03 by the V1 product-vision reconciliation amendment bundle (channel `audience` + two-human `direct` channels + the addressing-gated activation pin, D-016-21, among its legs), each restoring `approved` via its own queued targeted readiness-audit delta — Spec-004's landed 2026-08-08 (PR #299 / §6 NS-49), Spec-012's 2026-08-10 (PR #317 / §6 NS-54), and Spec-016's 2026-08-11 (PR #321 / §6 NS-56) — the flipped set fully restored, Spec-005 remaining `approved` and Spec-006 flip-and-restored `approved` in the same PR #321 swap; Spec-016, the #20/#23 orchestration surface, had earlier been briefly re-flipped `review` 2026-07-21 by the campaign B15 §Stop Conditions amendment and restored `approved` the same day by Plan-016's W2.5 targeted re-audit; implementation rides each feature's W2 plan-task bundle. Of the original 17 — Spec-023 (Desktop Shell + Renderer) landed per BL-041, Spec-016 (Multi-Agent Channels) completed its V1-readiness review per BL-042, and Spec-017 (Workflow authoring and execution) carries 27 of 31 amendments from BL-097 Wave 1+2 research in its body (SA-1…SA-23, SA-25, SA-26, SA-27, SA-28); SA-24/29/30/31 land in Plan-017 per implementation-detail separation.
-- **V1.1 features:** both have a governing spec referenced above. The MLS spec surface (Spec-008) is being rewritten to declare pairwise-first for V1 and MLS as the V1.1 upgrade per BL-048.
 - **V2 features:** intentionally uncovered. V2 scope decisions are made post-V1 and add specs as needed.
 
 ## Backlog Coverage Assessment
 
-All V1 features and supporting V1 specs have corresponding implementation plans: feature #18's Plan-028 landed 2026-07-22 via the campaign's B18 bundle at `draft` (Tier 7 in `cross-plan-dependencies.md`; its targeted readiness audit cleared 2026-08-12 — §6 node NS-61 — promoting it `review`, and its `review → approved` promotion landed 2026-08-14, closing its doc gates), and features #19–#23 land inside existing plans via the campaign bundles named in their rows (Plans 001–020 for existing V1 features, including Plan-016 for Multi-Agent Channels and Plan-017 for Workflow authoring and execution promoted to V1 per BL-097; Plan-021 per BL-044, Plan-022 per BL-045, Plan-023 per BL-043, Plan-024 per BL-078, Plan-025 per BL-080, Plan-026 per BL-082, Plan-027 for Spec-024 cross-node dispatch and approval, and Plan-028 for Spec-028 MCP governance). Tier assignments in `cross-plan-dependencies.md` align against ADR-015 per BL-054.
+All V1 features and supporting V1 specs have corresponding implementation plans: feature #18's Plan-028 landed 2026-07-22 via the campaign's B18 bundle at `draft` (Tier 7 in `cross-plan-dependencies.md`; its targeted readiness audit cleared 2026-08-12 — §6 node NS-61 — promoting it `review`, and its `review → approved` promotion landed 2026-08-14, closing its doc gates), and features #19–#23 land inside existing plans via the campaign bundles named in their rows (Plans 001–020 for existing V1 features, including Plan-016 for Multi-Agent Channels and Plan-017 for Workflow authoring and execution promoted to V1 per BL-097; Plan-021 per BL-044, Plan-022 per BL-045, Plan-023 per BL-043, Plan-024 per BL-078, Plan-026 per BL-082, Plan-027 for Spec-024 cross-node dispatch and approval, and Plan-028 for Spec-028 MCP governance). Tier assignments in `cross-plan-dependencies.md` align against ADR-015 per BL-054.
 
 ## References
 

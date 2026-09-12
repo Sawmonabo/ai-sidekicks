@@ -75,12 +75,11 @@ We will default to OS-local IPC for client-to-daemon communication, use authenti
 | Source | Type | Key Finding | URL/Location |
 | --- | --- | --- | --- |
 | `specs/007-local-ipc-and-daemon-control.md` | Canonical spec | Local daemon control should default to OS-local IPC | [specs/007-local-ipc-and-daemon-control.md](../specs/007-local-ipc-and-daemon-control.md) |
-| `specs/008-control-plane-relay-and-session-join.md` | Canonical spec | Session join and relay are separate concerns, and relay is a shared-session connectivity aid rather than execution authority | [specs/008-control-plane-relay-and-session-join.md](../specs/008-control-plane-relay-and-session-join.md) |
 | `architecture/security-architecture.md` | Canonical architecture doc | The relay path is treated as less trusted than direct local transport | [architecture/security-architecture.md](../architecture/security-architecture.md) |
 
 ### Related Domain Docs
 
-- [Participant And Membership Model](../domain/participant-and-membership-model.md)
+- [User And Device Model](../domain/user-and-device-model.md)
 - [Runtime Node Model](../domain/runtime-node-model.md)
 
 ### Related Architecture Docs
@@ -92,7 +91,6 @@ We will default to OS-local IPC for client-to-daemon communication, use authenti
 ### Related Specs
 
 - [Local IPC And Daemon Control](../specs/007-local-ipc-and-daemon-control.md)
-- [Control Plane Relay And Session Join](../specs/008-control-plane-relay-and-session-join.md)
 - [Identity And Participant State](../specs/018-identity-and-participant-state.md)
 
 ### Related ADRs

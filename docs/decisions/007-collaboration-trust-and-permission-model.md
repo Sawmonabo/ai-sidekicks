@@ -121,11 +121,10 @@ The simpler flat model is unacceptable because it collapses human collaboration 
 | --- | --- | --- | --- |
 | `specs/012-approvals-permissions-and-trust-boundaries.md` | Canonical spec | Approval and permission scopes are part of the core product contract | [specs/012-approvals-permissions-and-trust-boundaries.md](../specs/012-approvals-permissions-and-trust-boundaries.md) |
 | `architecture/security-architecture.md` | Canonical architecture doc | Security boundary follows membership, node trust, and transport separation | [architecture/security-architecture.md](../architecture/security-architecture.md) |
-| `domain/participant-and-membership-model.md` | Canonical domain doc | Membership, invite, presence, and runtime contribution stay distinct rather than collapsing into one trust layer | [domain/participant-and-membership-model.md](../domain/participant-and-membership-model.md) |
 
 ### Related Domain Docs
 
-- [Participant And Membership Model](../domain/participant-and-membership-model.md)
+- [User And Device Model](../domain/user-and-device-model.md)
 - [Runtime Node Model](../domain/runtime-node-model.md)
 - [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md)
 
@@ -137,7 +136,6 @@ The simpler flat model is unacceptable because it collapses human collaboration 
 
 ### Related Specs
 
-- [Invite Membership And Presence](../specs/002-invite-membership-and-presence.md)
 - [Runtime Node Attach](../specs/003-runtime-node-attach.md)
 - [Approvals Permissions And Trust Boundaries](../specs/012-approvals-permissions-and-trust-boundaries.md)
 

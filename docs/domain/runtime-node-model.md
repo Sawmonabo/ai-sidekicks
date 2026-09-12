@@ -70,7 +70,6 @@ A runtime node is the bridge between shared collaboration state and local execut
 
 - [Runtime Node Attach](../specs/003-runtime-node-attach.md)
 - [Local IPC And Daemon Control](../specs/007-local-ipc-and-daemon-control.md)
-- [Control Plane Relay And Session Join](../specs/008-control-plane-relay-and-session-join.md)
 
 ## Related ADRs
 

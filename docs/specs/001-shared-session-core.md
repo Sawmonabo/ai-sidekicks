@@ -7,7 +7,7 @@
 | **Slug** | `shared-session-core` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Depends On** | [Glossary](../domain/glossary.md), [Session Model](../domain/session-model.md), [Participant And Membership Model](../domain/participant-and-membership-model.md), [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md), [System Context](../architecture/system-context.md), [Container Architecture](../architecture/container-architecture.md) |
+| **Depends On** | [Glossary](../domain/glossary.md), [Session Model](../domain/session-model.md), [User And Device Model](../domain/user-and-device-model.md), [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md), [System Context](../architecture/system-context.md), [Container Architecture](../architecture/container-architecture.md) |
 | **Implementation Plan** | [Plan-001: Shared Session Core](../plans/001-shared-session-core.md) |
 
 ## Purpose
@@ -27,7 +27,7 @@ This spec covers session identity, default session structure, session creation, 
 ## Domain Dependencies
 
 - [Session Model](../domain/session-model.md)
-- [Participant And Membership Model](../domain/participant-and-membership-model.md)
+- [User And Device Model](../domain/user-and-device-model.md)
 - [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md)
 
 ## Architectural Dependencies
