@@ -693,8 +693,8 @@ export function countCites(phaseSection) {
 // on countCites (a bare substring count) and MUST stay byte-identical, so this
 // finer classification lives only in --survey. It separates BOLD field markers
 // (`**Spec coverage:**` / `**Verifies invariant:**` — the only shape
-// extractCiteAnchors parses) from UNBOLD/inline field markers (the Plan-008
-// `- **T-…** (…; Verifies invariant: …; Spec coverage: …)` style the bold
+// extractCiteAnchors parses) from UNBOLD/inline field markers (the
+// compact-inline `- **T-…** (…; Verifies invariant: …; Spec coverage: …)` style the bold
 // extractor silently skips). Both alternatives are line-anchored to a field
 // position — a bullet head (`- Spec coverage:`) or an inline `;`/`(` delimiter
 // — so a prose sentence mentioning "Spec coverage" without a field colon is
@@ -754,8 +754,8 @@ export function parsePreconditionsBlock(phaseSection) {
   // Returning [] for them conflated "no preconditions block" with "empty
   // preconditions list", which made gatePreconditions skip the prose
   // **Precondition:** fallback and vacuously pass — the silent gate-disable seen
-  // on the last phase of every manifested plan (Plan-001 P5, Plan-002 P6,
-  // Plan-003 P5) and on Plan-002 Phase 2's in-body example. Return null (no
+  // on the last phase of every manifested plan, and on a phase whose body
+  // carries a yaml example of its own. Return null (no
   // preconditions block) so the prose fallback runs.
   let blockBody = null;
   for (const m of phaseSection.matchAll(/```ya?ml\s*\n([\s\S]*?)\n```/g)) {
@@ -902,8 +902,8 @@ export function planLabel(planNumber) {
 }
 
 // Same convention for ADR references: `{type: adr_accepted, ref: 14}` rendered
-// raw reads "ADR-14" against a corpus that writes `ADR-014` (Plan-008 carries
-// exactly that live entry). Display-only, like `planLabel`.
+// raw reads "ADR-14" against a corpus that writes `ADR-014`. Display-only,
+// like `planLabel`.
 export function adrLabel(adrNumber) {
   return `ADR-${String(adrNumber).padStart(3, "0")}`;
 }
@@ -977,7 +977,7 @@ export function extractTasksBlock(phaseSection) {
   // multi-line code spans; a 2-space list indent is none of those).
   const scanned = maskNonContentLines(phaseSection);
   // A phase's declared tasks are the UNION of all its `#### Tasks` blocks —
-  // refinement-lane phases (Plan-007 Phase 3, Plan-008 Phase 1) carry a second
+  // refinement-lane phases carry a second
   // block, and reading only the first made its task ids invisible to Gate 3:
   // the phase could read fully_shipped while lane tasks were still pending
   // (same class as the Codex P1 on PR #190; found by the omission survey).
@@ -1188,12 +1188,12 @@ export function classifyInvariantReference(id) {
 // A correction worth keeping, because the wrong version of it survived a
 // review: an earlier comment here explained facet invisibility by that
 // rejection path. The rejection is real, but it was NOT the operative cause —
-// every facet in the corpus lives in Plan-008, which carries zero bold markers,
+// every facet lived in a plan carrying zero bold markers,
 // so its ids never reached the bold extractor to BE rejected. Right conclusion,
 // wrong mechanism; the same class as a comment describing a branch that turned
 // out to be dead. Corpus shape: 7 distinct facet spellings across 24 `.md`
 // occurrences (21 under docs/plans/), all bases declared, exactly one in field-
-// VALUE position (Plan-008 task `T-008r-1-4`).
+// VALUE position.
 
 // Test-tier ids from a plan's `## Test And Verification Plan` tables (`I5`)
 // share the `I` prefix with invariant ids and carry NO plan segment. They are
@@ -1773,7 +1773,7 @@ export function gatePhaseUnshipped(planSource, planNumber, phase) {
 // Pipeline order is load-bearing: Unicode dashes (en-dash U+2013 `–`,
 // em-dash U+2014 `—`) are normalised to ASCII `-` BEFORE tokenisation or
 // pattern-match. Without this the compound-range rejection rule misses
-// `lines 85–86`-shape defects (Plan-002 T3.3 form).
+// `lines 85–86`-shape defects.
 
 const UNICODE_DASH_RE = /[–—]/g;
 
@@ -1813,7 +1813,7 @@ export function extractIdentifierTokens(text) {
   return out;
 }
 
-// Namespace prefixes (`Plan-021`, `Spec-002`, `ADR-018`) are cross-reference
+// Namespace prefixes (`Plan-021`, `Spec-001`, `ADR-018`) are cross-reference
 // markers, not contract subjects. Strip them before identifier extraction so
 // `Plan` doesn't surface as a false-positive subject when a descriptor cites
 // another doc (e.g., `... per Plan-021 §RateLimitResponse canonical shape`).
@@ -1847,7 +1847,7 @@ const TOP_LEVEL_NS_LOOKAHEAD =
 // case is load-bearing because TS-object-literal descriptors like
 // `{deviceType, focusedSessionId, lastActivityAt}` carry top-level commas
 // that would otherwise be treated as anchor separators (Codex P1 on PR #96
-// line 873; Plan-002 T1.3 regression).
+// line 873).
 function bracketDelta(ch) {
   if (ch === "(" || ch === "[" || ch === "{") return 1;
   if (ch === ")" || ch === "]" || ch === "}") return -1;
@@ -2177,7 +2177,7 @@ function parseSpecSegmentInner(segment) {
 
   // First-anchor-position Plan-local-ID defect: bare token immediately after
   // `Spec-NNN ` (no `line`/`lines`/`AC`/`§` keyword) that matches a Plan-local
-  // pattern (Cn / Pn / Pr-n / In). Discriminator vs pass case 10 (C5 (Spec-002 ...)):
+  // pattern (Cn / Pn / Pr-n / In). Discriminator vs pass case 10 (C5 (Spec-NNN ...)):
   // here the Plan-local-ID sits in the namespace-prefix position; in pass case
   // 10 the segment STARTS with the Plan-local-ID and Spec lives inside a paren.
   const firstToken = body.match(/^([\w-]+)\b/);
@@ -2222,8 +2222,8 @@ function parseSpecSegmentInner(segment) {
   }
 
   // Multi-line list with per-line descriptors: `lines N1 (desc1), N2
-  // (desc2), N3 (desc3)`. Required to accept Plan-002 T2.1 / T2.2 shapes
-  // already on develop — `Spec-002 §Token Security Properties lines 110
+  // (desc2), N3 (desc3)`. Required to accept the multi-line list shapes
+  // already on develop — `Spec-NNN §Token Security Properties lines 110
   // (Entropy/CSPRNG), 111 (hash storage), 113 (Token payload structure)`
   // (Codex P1 on PR #96 line 873). Brace-aware splitWithinNamespace
   // handles TS-object-literal descriptors. Requires ≥2 entries so we
@@ -2263,7 +2263,7 @@ function parseSpecSegmentInner(segment) {
 
   // General split on `,` and ` + ` for everything else (AC, line, line+AC).
   // Descriptor forms accepted: `(parens)` OR ` - dash-separated` (the latter
-  // appears inside nested plan-local-id paren wrappers like `C5 (Spec-002
+  // appears inside nested plan-local-id paren wrappers like `C5 (Spec-NNN
   // line 15 — ChannelList)` where the inner em-dash normalizes to `-` and
   // the wrapping paren is already consumed by the plan-local-id parser).
   //
@@ -2272,7 +2272,7 @@ function parseSpecSegmentInner(segment) {
   // whenever a sub-token begins with its own `§<Section>` qualifier.
   // `inLinesList` admits bare-digit continuation tokens (`111 (hash
   // storage)`) immediately after a `§Section lines <N> (desc)` sub-token —
-  // required for Plan-002 T2.2-shape cites (Codex P1 on PR #96 line 873).
+  // required for multi-line list cites (Codex P1 on PR #96 line 873).
   const subTokens = splitWithinNamespace(body);
   const anchors = [];
   let currentSection = section;
@@ -2292,7 +2292,7 @@ function parseSpecSegmentInner(segment) {
     // §Acceptance Criteria and treats the line as a hint, this one names the
     // line the criterion sits on and leaves the ordinal implicit. Established
     // corpus vocabulary rather than a one-plan idiom — 16 marker payloads
-    // across Plan-011, Plan-014, and Plan-025 — so the grammar learns the
+    // across three plans — so the grammar learns the
     // shape instead of three plans being rewritten. It gets its OWN anchor
     // type and is deliberately NOT folded into the plain `line` anchor:
     // verifyAcLineAnchor additionally proves the cited line sits inside the
@@ -2423,8 +2423,8 @@ function parseSpecSegmentInner(segment) {
       continue;
     }
     // Re-section sub-anchor: `§<Section> line[s] YY[ (descriptor)]` inside a
-    // comma-separated multi-section Spec cite (e.g., `Spec-002 §A line 12,
-    // §B line 13` or `Spec-002 §A lines 12 (x), 13 (y), §B lines 20 (z)`).
+    // comma-separated multi-section Spec cite (e.g., `Spec-NNN §A line 12,
+    // §B line 13` or `Spec-NNN §A lines 12 (x), 13 (y), §B lines 20 (z)`).
     // Without this branch the second sub-token falls into the unparseable
     // fallback and the gate halts on shapes already in approved plans.
     const reSectionLineMatch = token.match(
@@ -2728,7 +2728,7 @@ export function parseCitePayload(rawPayload) {
   //
   // Parity alone is NOT sufficient. An EVEN number of quotes straddling a
   // bracket boundary produces the same silent truncation without ever
-  // unbalancing the count: `Spec-002 line 10 (5" window), line 99999 (30"
+  // unbalancing the count: `Spec-NNN line 10 (5" window), line 99999 (30"
   // grace)` yields ONE anchor (`line 10`) and zero failures, because the
   // quoted run swallowed the first group's `)` and stranded the splitters'
   // depth above 0 — the `line 99999` claim is discarded unverified, while the
@@ -3044,7 +3044,7 @@ function normalizeTokenForMatch(tok) {
 // `Spec-NNN §Section line N` / `§Section lines N1, N2` / `§Section AC-X` —
 // the parser attaches `.section` to line / line-range / AC anchors so the
 // verifier can reject phantom-section names alongside the line / AC check.
-// Without this, `Spec-002 §NotARealSection line 13` accepts as long as line
+// Without this, `Spec-NNN §NotARealSection line 13` accepts as long as line
 // 13 exists (Codex P2 on PR #96 line 1301).
 // Suffix comparison normalizer. Unlike normalizeTokenForMatch it PRESERVES
 // punctuation — `(v1.0)` and `(v10)` are distinct versions and must not
@@ -3086,8 +3086,8 @@ function leadingParenGroup(text) {
 }
 
 // Trailing parenthetical suffix of a heading, balanced: walks back from
-// the end so a suffix whose content itself nests parens — the Plan-008
-// CP-008-8 heading's markdown links, a `(RFC 9111 (shared cache))` — is
+// the end so a suffix whose content itself nests parens — a heading's own
+// markdown links, a `(RFC 9111 (shared cache))` — is
 // ONE suffix instead of a regex truncation (Codex round-4, PR #224).
 // Returns { suffix, start } — the inner text and the opening paren's
 // index — or null when the heading does not end with a balanced group.
@@ -3150,7 +3150,7 @@ export function findSectionHeading(sectionName, specLines, citedDescriptorTail =
   // none of them citable headings — and a 7-plus-hash pseudo-heading is
   // prose (CommonMark caps ATX at six). Suffix extraction is
   // balanced-paren on both sides, so a nested trailing suffix
-  // (`(RFC 9111 (shared cache))`, the Plan-008 CP-008-8 link shape)
+  // (`(RFC 9111 (shared cache))`, the nested-link heading shape)
   // strips and compares as one token.
   // Widens-only vs the pre-fallback matcher: exact matches still win, and
   // the PR #96 heading-prefix laxity does not return.
@@ -3622,7 +3622,7 @@ function verifyAcAnchor(anchor, source, specLines) {
     }
     // Bind the hint to the specific AC-N index: the hinted line must be the
     // N-th `- [ ]` bullet within §Acceptance Criteria. Without this check
-    // `Spec-002 AC3 (line 45)` false-passes when line 45 is actually AC1
+    // `Spec-NNN AC3 (line 45)` false-passes when line 45 is actually AC1
     // (Codex P2 on PR #96 line 1571).
     if (anchor.lineHint !== targetBulletLineNum) {
       return {
@@ -4138,8 +4138,8 @@ export function resolvePrecondition(
         // Criterion (3) sibling consistency: Tasks-block rows MUST NOT cite
         // Spec coverage in bracketed-list form (`Spec coverage: [...]`).
         // Bracket-form is the audit-runbook G4 traceability cite shape;
-        // prose-form mentions (e.g., `Spec coverage: per F-008b-1-06, NO
-        // Spec-008 AC at Tier 1`) are not in scope because they describe
+        // prose-form mentions (e.g., a `Spec coverage:` value recording that
+        // NO spec AC applies at this tier) are not in scope because they describe
         // coverage *absence*. A bracketed value is the affirmative cite.
         const tasksBlock = extractTasksBlock(phaseSection ?? "");
         if (tasksBlock !== null) {
@@ -4762,8 +4762,8 @@ export function extractInlineCitePayloads(phaseSection) {
   //
   // Detection only. The PAYLOAD BOUNDARY walk below stays on `scanned` and the
   // payload BYTES stay on the raw input, because a masked-view slice would blank
-  // the live backticked payloads (`I-008-9, I-008-11, I-008-7c (substrate — the
-  // `relay_connections` rows …)` at Plan-008 task T-008r-1-4 and 31 siblings) before
+  // the live backticked payloads (`I-NNN-9, I-NNN-11, I-NNN-7c (substrate — the
+  // `relay_connections` rows …)` at one compact-inline task and 31 siblings) before
   // parseCitePayload ever saw them, degrading failures[].raw for the facet
   // roll-up and the existence floor at once.
   const markerView = maskInlineCodeSpans(scanned);
@@ -5438,8 +5438,8 @@ function nearestTaskIdAt(lines, lineNo) {
  * TWO CHANNELS, REPORTED SEPARATELY, NEVER SUMMED. `extractCiteAnchors` reads
  * only the bold `**Verifies invariant:**` form; the compact-inline form
  * (`- **T-…** (…; Verifies invariant: …)`) is `extractInlineCitePayloads`'s.
- * Screening only the first is how 56 ids across Plan-008 — a plan with ZERO
- * bold markers — reached no screen while the gate printed a clean total. There
+ * Screening only the first is how 56 ids across one plan with ZERO bold
+ * markers reached no screen while the gate printed a clean total. There
  * is deliberately no combined `resolved` field: when the legacy channel is
  * retired its number must go visibly to zero as a CHANNEL CLOSING, not vanish
  * into a total that quietly shrinks.
@@ -5586,7 +5586,7 @@ export function verifyInvariantReferences(
   // parse failure in a Verifies-invariant field". Measured across the corpus, the
   // field carries exactly three parse-failure instances beyond the one live facet:
   // two `unparseable-cite` prose descriptors (`substrate boots` at Plan-023 T-023p-1-7,
-  // `substrate - the audited primitive libraries …` at Plan-008 task T-008r-4-1), and the
+  // `substrate - the audited primitive libraries …` in a compact-inline task field), and the
   // field also carries three Spec-§ references (Plan-023 T-023p-1-3 / T-023p-1-4 / T-023p-1-6) that parse
   // cleanly as spec anchors. Whether the field may name a spec clause at all is a
   // FIELD-CONTENT question under separate adjudication; answering it here would
@@ -5917,9 +5917,9 @@ export function surveyCorpus({
         // coverage line counts as swept and outside every unit that screens
         // anything. The whole-document fallback cannot rescue them: it fires only
         // at `surveyUnits.length === 0`, so ONE phase heading pins a plan to the
-        // per-phase path permanently. Plan-025 is the live instance — 32 of its
-        // 42 Gate-4 markers sit above its single phase heading, and screening
-        // them surfaces findings the armed survey has never once produced while
+        // per-phase path permanently. The live instance carried 32 of its 42
+        // Gate-4 markers above its single phase heading, and screening them
+        // surfaced findings the armed survey had never once produced while
         // printing `cite anomalies: none`.
         //
         // The discriminator is POSITION, not heading shape. A fix keyed on which
@@ -6236,7 +6236,7 @@ export function surveyCorpus({
           const realInvariant = markers.boldInvariant + markers.unboldInvariant;
           // W4 legacy-unbold: inline/unbold field markers are invisible to the
           // bold cite extractor, so their anchors are never verified — a
-          // false-green audit (the Plan-008 inline style). countCites can read
+          // false-green audit (the compact-inline style). countCites can read
           // > 0 and the extractor still parse nothing.
           const unboldMarkers = markers.unboldSpec + markers.unboldInvariant;
           if (unboldMarkers > 0) {

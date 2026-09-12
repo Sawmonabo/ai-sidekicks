@@ -59,8 +59,8 @@ import { resolvePlanFile } from "./lib/plan-file.mjs";
 import { MATERIAL_PATH_PREFIXES, hasPlanTitleToken } from "./preflight.mjs";
 // MATERIAL_PATH_PREFIXES is one HALF of the skip predicate: a material
 // path forces synthesis (fail-open toward validation), but its absence
-// alone never justifies a skip — deploy/-only plan tasks exist
-// (Plan-025 T-025d-14-1). The other half is the synthesizer's own task
+// alone never justifies a skip — deploy/-only plan tasks exist. The
+// other half is the synthesizer's own task
 // discriminator. See the predicate comment at the skip site.
 
 // ---------- arg parsing ----------
@@ -448,7 +448,7 @@ export async function rebuildManifest({
     // The predicate is IMPORTED from preflight.mjs rather than re-declared, so
     // this tool and manifest reconciliation cannot disagree on the population. They did while it
     // was a local copy: on 2026-08-15 manifest reconciliation halted naming PR #216 (a compound
-    // `Plan-007/025` title GitHub's tokenizer matched for Plan-025) while this
+    // two-plan title GitHub's tokenizer matched for the second plan) while this
     // tool declined to emit an entry for it — a halt with no remedy. See
     // preflight.mjs §hasPlanTitleToken for the full sync contract, including
     // why the "i" flag is load-bearing on both sides.

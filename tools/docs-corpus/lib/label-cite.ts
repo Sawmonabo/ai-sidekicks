@@ -142,14 +142,14 @@ const LABEL_CITE_RE = /\b(Spec|Plan|ADR)-(\d{3}):(\d+(?:\s*[,-]\s*\d+)*)/g;
 // widened in the same PR after the corpus census surfaced the § variants):
 //   - spaced colon           `Spec-022 :146`, `Spec-022 §Daemon Master Key :146`
 //   - §-bridged tight colon  `Spec-015 §Resolved Questions:355`
-//   - §-bridged paren colon  `Spec-008 §Relay Negotiation (:176-183, …)`
+//   - §-bridged paren colon  `Spec-NNN §Relay Negotiation (:176-183, …)`
 //   - paren colon, no §      `Spec-022 (:146`
 // Branch A requires the §-bridge and then admits any colon spelling (tight,
 // spaced, or parenthesized); branch B has no bridge and requires whitespace
 // before the (optionally parenthesized) colon, so LABEL_CITE_RE's flush-colon
 // beat (`Spec-022:146`) is never double-reported. The bridge excludes colons,
 // backticks, brackets, and newlines, so a durable backticked §-anchor whose
-// HEADING contains a colon (`` `Plan-008 §Phase 1: Bootstrap (…)` ``) never
+// HEADING contains a colon (`` `Plan-NNN §Phase 1: Bootstrap (…)` ``) never
 // fires — the digits requirement after the colon rejects prose continuations
 // ("…: Bootstrap"). The locator digits must sit FLUSH against the colon: every
 // live line-cite spelling is flush (`:355`, ` :146`, `(:176-183`), while prose
