@@ -1102,8 +1102,8 @@ export class LocalIpcGateway {
     // that structural-envelope violations (id wrong type) surface their
     // own `invalid_envelope` data.type rather than this gate's
     // `invalid_protocol_version`. A future refactor MUST NOT reorder
-    // these — the malformed-id regression test (RT-codex-1 finding #2)
-    // depends on id-shape rejecting first; reordering would change
+    // these — the malformed-id regression test depends on id-shape
+    // rejecting first; reordering would change
     // the surfaced `data.type` for `{ id: {}, ...no protocolVersion }`
     // envelopes silently.
     //

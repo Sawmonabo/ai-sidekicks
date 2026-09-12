@@ -759,18 +759,18 @@ describe("enforcement (gateway side)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// RT-codex-1 finding #1 — start() rolls back state on listen failure
+// start() rolls back state on listen failure
 // ----------------------------------------------------------------------------
 //
-// Codex P1: lines 714-715 previously set `#server` and `#started = true`
-// BEFORE `await server.listen(...)` resolved. A failed bind (e.g.
+// `#server` and `#started = true` must not be set BEFORE
+// `await server.listen(...)` resolves. A failed bind (e.g.
 // EADDRINUSE) left `#started = true` against a never-bound listener, so
 // every subsequent `start()` retry threw "gateway already started" — a
 // daemon-bootstrap-retry deadlock. The fix moves the state mutation
 // AFTER the await; a rejected `start()` MUST leave the instance in the
 // pre-call state so a retry is permitted.
 
-describe("RT-codex-1 finding #1 — start() rollback on listen failure", () => {
+describe("start() rollback on listen failure", () => {
   it("rejects on EADDRINUSE and permits a subsequent start() retry (no 'gateway already started' wedge)", async () => {
     const socketPath = ephemeralSocketPath("rollback");
     bootstrap({
@@ -834,7 +834,7 @@ describe("RT-codex-1 finding #1 — start() rollback on listen failure", () => {
 });
 
 // ----------------------------------------------------------------------------
-// RT-codex-1 finding #2 — Reject malformed request id BEFORE handler dispatch
+// Reject malformed request id BEFORE handler dispatch
 // ----------------------------------------------------------------------------
 //
 // Anything else (object, array, boolean) is an Invalid Request and MUST be
@@ -842,7 +842,7 @@ describe("RT-codex-1 finding #1 — start() rollback on listen failure", () => {
 // `{"id": {}}` as a valid request, ran the handler, and silently coerced the
 // bad id to `null` for the response — masking a wire-protocol violation.
 
-describe("RT-codex-1 finding #2 — malformed request id rejected before dispatch", () => {
+describe("malformed request id rejected before dispatch", () => {
   // Each malformed id value should produce a -32600 InvalidRequest with
   // id=null and the registered handler MUST NOT be invoked.
   const malformedIds: ReadonlyArray<{ readonly label: string; readonly idJson: string }> = [
@@ -1074,10 +1074,10 @@ describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never ec
 });
 
 // ----------------------------------------------------------------------------
-// RT-codex-1 finding #3 — header section length cap fires WITH delimiter present
+// Header section length cap fires WITH delimiter present
 // ----------------------------------------------------------------------------
 //
-// Codex P2: the 1024-byte header guard previously fired only inside the
+// The 1024-byte header guard must not fire only inside the
 // `separatorIndex === -1` branch (delimiter not yet seen). A peer who
 // sent megabytes of header followed by CRLFCRLF bypassed the cap — the
 // parser proceeded to ASCII-decode and parse the oversized header
@@ -1085,7 +1085,7 @@ describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never ec
 // own comment. Fix: an unconditional `separatorIndex > 1024` throw
 // closes the symmetric DoS surface.
 
-describe("RT-codex-1 finding #3 — parseFrame caps header section even when delimiter is present", () => {
+describe("parseFrame caps header section even when delimiter is present", () => {
   it("throws FramingError(`header_too_long`) when header section exceeds 1024 bytes despite a valid CRLFCRLF terminator", () => {
     // Build a frame with a valid CRLFCRLF terminator but a header
     // section >1 KB. We pad with a synthetic `X-Pad: <2000 a's>` line
@@ -1125,7 +1125,7 @@ describe("RT-codex-1 finding #3 — parseFrame caps header section even when del
 });
 
 // ----------------------------------------------------------------------------
-// RT-codex-2 finding #4 — envelope-level `protocolVersion` substrate gate
+// Envelope-level `protocolVersion` substrate gate
 // ----------------------------------------------------------------------------
 //
 // mandates: "Every request (except health checks) must include a
@@ -1162,7 +1162,7 @@ describe("RT-codex-1 finding #3 — parseFrame caps header section even when del
 // frame and surfaces via supervision `onError` so operators can
 // correlate notification-side wire violations.
 
-describe("RT-codex-2 finding #4 — envelope-level protocolVersion substrate gate", () => {
+describe("envelope-level protocolVersion substrate gate", () => {
   // -- helpers --------------------------------------------------------------
 
   /**

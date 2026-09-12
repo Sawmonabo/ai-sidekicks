@@ -157,7 +157,7 @@ describe("JsonRpcClient.call rejects with JsonRpcSchemaError on schema violation
     // Sanity — the request envelope carries the canonical fields.
     expect(sentEnvelope.jsonrpc).toBe(JSONRPC_VERSION);
     expect(sentEnvelope.method).toBe("session.create");
-    // Fix #6 / Codex P1 — `protocolVersion` is REQUIRED at construction
+    // `protocolVersion` is REQUIRED at construction
     // and emitted on every request envelope (matches the substrate's
     // `transport.invalid_protocol_version` gate). Asserting here pins
     // the unconditional-emit contract; a regression that re-introduces
@@ -341,11 +341,10 @@ describe("InMemoryTransport double — sanity", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Codex P1 regression — subscribe-init MUST register synchronously
+// Subscribe-init MUST register synchronously
 // ----------------------------------------------------------------------------
 //
-// External adversarial review (Codex GPT-5.5 xhigh, 2026-04-29) flagged a
-// race in `JsonRpcClient.subscribe()`: the subscription was registered into
+// The race this pins: the subscription used to be registered into
 // `#subscriptions` inside the `subscribe().then` microtask callback, which
 // only runs AFTER the current synchronous frame finishes. When a transport
 // parser delivered the subscribe-init response and the first
@@ -376,7 +375,7 @@ describe("InMemoryTransport double — sanity", () => {
 //     wire-ordering invariant.
 //   * Wire-ordering invariant (daemon side, paired contract).
 
-describe("subscribe-init registers #subscriptions synchronously (Codex P1 regression)", () => {
+describe("subscribe-init registers #subscriptions synchronously", () => {
   it("a coalesced response+notify pair (delivered in one synchronous frame) lands the first event", async () => {
     // Arrange — a value schema for a trivial event payload.
     const transport = new InMemoryTransport();
@@ -403,7 +402,7 @@ describe("subscribe-init registers #subscriptions synchronously (Codex P1 regres
 
     // Act 2 — drive response + notify BACK-TO-BACK in the same synchronous
     // frame. NO awaits, NO `await Promise.resolve()`, NO timer ticks. This
-    // is the exact coalescing pattern Codex P1 identified: a single
+    // is the exact coalescing pattern that loses the first event: a single
     // transport read parses both frames and emits both `onMessage` calls
     // before any microtask drains.
     // SubscriptionId schema is UUID-branded — the wrapper validation in
@@ -1018,21 +1017,21 @@ describe("thenable transport.send rejection propagates", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Fix #6 / Codex P1 regression — protocolVersion REQUIRED at construction
+// protocolVersion REQUIRED at construction
 // and emitted on every outbound request envelope
 // ----------------------------------------------------------------------------
 //
-// Codex P1 (issuecomment 3172637743): after Fix #4 the daemon's substrate gate
+// The daemon's substrate gate
 // (`packages/runtime-daemon/src/ipc/local-ipc-gateway.ts#dispatchFrame`)
 // rejects every non-handshake JSON-RPC envelope missing or carrying a
 // malformed `protocolVersion` with `-32600 InvalidRequest /
-// transport.invalid_protocol_version`. Pre-Fix-#6 the SDK side held
-// `JsonRpcClientOptions.protocolVersion` optional and omitted the field
+// transport.invalid_protocol_version`. The SDK side used to hold
+// `JsonRpcClientOptions.protocolVersion` optional and omit the field
 // when constructor opts were unset — so a caller writing
 // `new JsonRpcClient(transport)` got a client whose every non-handshake
 // call would runtime-fail with `-32600`, even though the TypeScript
-// surface signaled the construction was valid. F6 closes the gap by
-// making the field REQUIRED at the type level and emitting it
+// surface signaled the construction was valid. The field closes that gap by
+// being REQUIRED at the type level and emitted
 // unconditionally on every outbound request envelope.
 //
 // This describe block pins THREE wire-emission sites against regressions:
@@ -1056,7 +1055,7 @@ describe("thenable transport.send rejection propagates", () => {
 // the field). No `// @ts-expect-error` belt-and-suspenders is needed
 // because the existing call sites ARE the type-level contract proof.
 
-describe("Fix #6 / Codex P1 regression — protocolVersion REQUIRED + emitted unconditionally", () => {
+describe("protocolVersion REQUIRED + emitted unconditionally", () => {
   it("call() request envelope carries the caller-advertised protocolVersion", () => {
     const transport = new InMemoryTransport();
     const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });

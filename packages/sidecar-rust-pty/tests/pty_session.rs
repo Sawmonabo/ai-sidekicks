@@ -406,8 +406,7 @@ async fn write_round_trips_through_cat() {
     // contains the literal "hello" payload. This is the happy-path
     // coverage for the write surface — the existing
     // `write_on_unknown_session_returns_unknown_session_error` test
-    // pins the negative path, but the success path had no coverage
-    // until this test (POLISH 13 from round-2 review).
+    // pins the negative path, and this test pins the success path.
     //
     // PTY canonical-mode echo: the slave-side line discipline echoes
     // every input byte back through the master, so the daemon
@@ -475,8 +474,7 @@ async fn write_round_trips_through_cat() {
 
 #[tokio::test]
 async fn post_exit_kill_returns_unknown_session_not_recycled_pid() {
-    // Pins the race-closing fix from round-2 review (ACTIONABLE):
-    // after a child has exited naturally, the `exited` flag set
+    // Pins the race-closing fix: after a child has exited naturally, the `exited` flag set
     // inside the waiter task's `spawn_blocking` closure must cause
     // subsequent `kill()` calls to short-circuit with
     // `UnknownSession` BEFORE `libc::kill` can fire at a pid the

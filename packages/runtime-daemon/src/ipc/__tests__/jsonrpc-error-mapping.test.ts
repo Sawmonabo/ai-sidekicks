@@ -530,7 +530,7 @@ describe("mapJsonRpcError — single-seam enforcement on data.fields", () => {
 
   it("preserves the seamless behavior for FramingError oversized_body fields", () => {
     // FramingError(oversized_body) projects through `transport.message_too_large`
-    // (per Fix #2 80c5d39) with `{limit, observed}` shape. Numeric
+    // with a `{limit, observed}` shape. Numeric
     // values are JSON-safe and must pass through unchanged.
     const error = new FramingError("oversized_body", "frame body too large", {
       limit: MAX_MESSAGE_BYTES,

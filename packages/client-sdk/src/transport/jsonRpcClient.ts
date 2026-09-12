@@ -425,8 +425,8 @@ export interface JsonRpcClientOptions {
    * The protocol version attached to every outgoing JSON-RPC request envelope. ISO
    * 8601 `YYYY-MM-DD` date-string):.
    *
-   * REQUIRED — the daemon's substrate gate (Fix #4 in
-   * `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts#dispatchFrame`)
+   * REQUIRED — the daemon's substrate gate
+   * (`packages/runtime-daemon/src/ipc/local-ipc-gateway.ts#dispatchFrame`)
    * rejects every non-handshake envelope missing or carrying a malformed
    * `protocolVersion` with `-32600 InvalidRequest /
    * transport.invalid_protocol_version`. The SDK's TypeScript surface
@@ -779,7 +779,7 @@ export class JsonRpcClient {
         // See `PendingRequest.subscriptionInitState` JSDoc for the full
         // explainer and the regression test
         // `__tests__/jsonRpcClient.test.ts > subscribe-init registers
-        //  #subscriptions synchronously (Codex P1 regression)`.
+        //  #subscriptions synchronously`.
       },
       (err: unknown) => {
         // Subscribe init failed. End the subscription with the error so
@@ -829,8 +829,8 @@ export class JsonRpcClient {
 
   #buildRequestEnvelope(id: JsonRpcId, method: string, params: unknown): JsonRpcRequest {
     // Conditional spread for `params` only (a request MAY omit `params`
-    // per spec). `protocolVersion` is REQUIRED at construction (Fix #6 —
-    // see `JsonRpcClientOptions.protocolVersion` JSDoc for rationale) so
+    // per spec). `protocolVersion` is REQUIRED at construction (see
+    // `JsonRpcClientOptions.protocolVersion` JSDoc for rationale) so
     // it always appears on the envelope. The substrate's `daemon.hello`
     // exemption handles the bootstrap-handshake case where the version on
     // the wire is don't-care.
