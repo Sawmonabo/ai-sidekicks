@@ -11,26 +11,26 @@
 
 ## Context
 
-The control plane needs request-response APIs, streaming notifications, and bidirectional collaboration channels. tRPC v11 provides end-to-end TypeScript type safety with zero codegen, covering queries, mutations, and SSE-based subscriptions. However, SSE is unidirectional -- bidirectional presence and collaboration (cursor positions, typing indicators, shared editing) require WebSocket.
+The control plane needs request-response APIs, streaming notifications, and a bidirectional channel between the user's devices and the machine running their session. tRPC v11 provides end-to-end TypeScript type safety with zero codegen, covering queries, mutations, and SSE-based subscriptions. However, SSE is unidirectional -- device liveness and a device driving a live session require WebSocket.
 
 ## Problem Statement
 
-What API layer should the control plane expose given a need for typed request-response, streaming notifications, and bidirectional collaboration, all from a TypeScript-native stack deployable on Cloudflare Workers?
+What API layer should the control plane expose given a need for typed request-response, streaming notifications, and a bidirectional device channel, all from a TypeScript-native stack deployable on Cloudflare Workers?
 
 ### Trigger
 
-The control plane was about to gain multiple consumers (CLI, desktop app, browser clients, relay) and needed a single API contract before surface area fragmented into ad-hoc REST and WebSocket shapes. Collaboration features (presence, typing indicators) made a SSE-only answer insufficient.
+The control plane was about to gain multiple consumers (CLI, desktop app, browser clients, relay) and needed a single API contract before surface area fragmented into ad-hoc REST and WebSocket shapes. Remote Control (device liveness, and a device driving a session it does not execute) made an SSE-only answer insufficient.
 
 ## Decision
 
-Use tRPC v11 for control plane request-response operations and SSE subscriptions (notifications, run streaming). Use WebSocket with JSON-RPC 2.0 payloads for bidirectional collaboration channels (presence, live collaboration events — typing / shared editing (relay traffic is outside this JSON-RPC subset: relay negotiation rides tRPC request-response and the relay WSS connection speaks the `Spec-008` binary wire frames — ciphertext envelopes and broker control frames alike); session-timeline and run-output event streams stay on tRPC SSE per Spec-008's transport assignment — enumeration corrected by the 2026-07-02 Decision Log row).
+Use tRPC v11 for control plane request-response operations and SSE subscriptions (notifications, run streaming). Use WebSocket with JSON-RPC 2.0 payloads for the bidirectional device channel (device liveness and device-to-node control traffic (relay traffic is outside this JSON-RPC subset: relay negotiation rides tRPC request-response and the relay WSS connection speaks the sealed relay frames [Spec-031](../specs/031-remote-control.md) defines — ciphertext envelopes and broker control frames alike); session-timeline and run-output event streams stay on tRPC SSE per [ADR-008](./008-default-transports-and-relay-boundaries.md)'s transport assignment — enumeration corrected by the 2026-07-02 Decision Log row).
 
 ## Alternatives Considered
 
 ### Option A: tRPC + WebSocket (JSON-RPC 2.0) (Chosen)
 
-- **What:** tRPC for typed request-response and SSE streaming; WebSocket for bidirectional collaboration.
-- **Steel man:** Full type safety for the majority of API surface. WebSocket handles only the collaboration subset that genuinely requires bidirectional communication. JSON-RPC 2.0 on the WebSocket aligns with ADR-009.
+- **What:** tRPC for typed request-response and SSE streaming; WebSocket for the bidirectional device channel.
+- **Steel man:** Full type safety for the majority of API surface. WebSocket handles only the subset that genuinely requires bidirectional communication. JSON-RPC 2.0 on the WebSocket aligns with ADR-009.
 
 ### Option B: Plain REST + WebSocket (Rejected)
 
@@ -53,8 +53,8 @@ Use tRPC v11 for control plane request-response operations and SSE subscriptions
 | --- | --- | --- | --- |
 | 1 | tRPC v11 end-to-end TypeScript inference works well on Cloudflare Workers with no codegen. | tRPC v11 documents Workers as a supported adapter target; published examples run on Workers without codegen steps. | We would need a REST+OpenAPI layer, losing inference and adding schema maintenance. |
 | 2 | SSE is adequate for one-directional streaming (notifications, run events) in browser and CLI contexts. | SSE is a W3C standard, widely deployed, and supported by modern browsers and HTTP clients. | If intermediaries strip or buffer SSE, we would have to route streaming traffic through WebSocket too. |
-| 3 | A separate WebSocket channel using JSON-RPC 2.0 (per ADR-009) is the right transport for bidirectional collaboration features. | ADR-009 commits to JSON-RPC 2.0 for daemon IPC, so reusing the same payload shape avoids a second serialization contract. | If collaboration needs a different protocol (e.g., CRDT-native), we would run a third transport on the control plane. |
-| 4 | Non-TypeScript clients are a minority use case and can be served by a narrow REST facade. | First-party clients (CLI, desktop, browser) are all TypeScript; relay and integrations target the typed tRPC/Spec-008 surfaces (relay negotiation on tRPC request-response, the relay WSS connection on `Spec-008` binary frames — not JSON-RPC), so none needs a REST facade. | If enterprise customers demand OpenAPI-first contracts, we would need to publish and maintain a generated REST surface from day one. |
+| 3 | A separate WebSocket channel using JSON-RPC 2.0 (per ADR-009) is the right transport for the bidirectional device channel. | ADR-009 commits to JSON-RPC 2.0 for daemon IPC, so reusing the same payload shape avoids a second serialization contract. | If that channel needs a different protocol (e.g., CRDT-native), we would run a third transport on the control plane. |
+| 4 | Non-TypeScript clients are a minority use case and can be served by a narrow REST facade. | First-party clients (CLI, desktop, browser) are all TypeScript; relay and integrations target the typed tRPC and relay surfaces (relay negotiation on tRPC request-response, the relay WSS connection on the sealed relay frames [Spec-031](../specs/031-remote-control.md) defines — not JSON-RPC), so none needs a REST facade. | If enterprise customers demand OpenAPI-first contracts, we would need to publish and maintain a generated REST surface from day one. |
 
 ## Failure Mode Analysis
 
@@ -79,7 +79,7 @@ Use tRPC v11 for control plane request-response operations and SSE subscriptions
 
 - End-to-end type safety from server to client with zero codegen for the majority of the API
 - SSE covers streaming and notifications without WebSocket connection overhead
-- WebSocket is scoped to collaboration channels, keeping the connection count minimal
+- WebSocket is scoped to the device channel, keeping the connection count minimal
 
 ### Negative (accepted trade-offs)
 
@@ -102,7 +102,7 @@ Use tRPC v11 for control plane request-response operations and SSE subscriptions
 | --- | --- | --- | --- |
 | End-to-end type safety across CLI/desktop/browser without codegen | 100% of first-party client calls | TypeScript build checks and client CI | `2026-07-01` |
 | Control plane round-trip latency (query/mutation) on Cloudflare Workers | < 150 ms at p95 globally | Control plane metrics | `2026-10-01` |
-| Collaboration features (presence, typing) working over WebSocket/JSON-RPC with no fallback | 100% of sessions at desktop launch | Session telemetry | `2026-12-01` |
+| Device liveness and device-to-node control traffic working over WebSocket/JSON-RPC with no fallback | 100% of sessions at desktop launch | Session telemetry | `2026-12-01` |
 
 ## References
 
@@ -116,4 +116,4 @@ Use tRPC v11 for control plane request-response operations and SSE subscriptions
 | --- | --- | --- |
 | 2026-04-15 | Proposed | Initial draft |
 | 2026-04-15 | Accepted | ADR accepted |
-| 2026-07-02 | Amended — WebSocket subset enumeration corrected | Capability-enhancement campaign (B8 companion edit): the §Decision WebSocket enumeration said "live event streaming", contradicting Spec-008's transport assignment (session-timeline / run-output streams are SSE-owned); restated as live collaboration events (typing / shared editing). ADR-009's 2026-07-02 narrowing cites this ADR as the split authority, so the authority itself now carries the correct enumeration. |
+| 2026-07-02 | Amended — WebSocket subset enumeration corrected | Capability-enhancement campaign (B8 companion edit): the §Decision WebSocket enumeration said "live event streaming", contradicting the transport assignment (session-timeline / run-output streams are SSE-owned); restated as the bidirectional device channel. ADR-009's 2026-07-02 narrowing cites this ADR as the split authority, so the authority itself now carries the correct enumeration. |

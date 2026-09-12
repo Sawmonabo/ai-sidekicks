@@ -11,12 +11,12 @@
 
 ## Context
 
-AI Sidekicks is a collaborative operating system for AI coding sessions. Per [ADR-015](./015-v1-feature-scope-definition.md), V1 ships 23 features across two deployment options (OSS self-host plus hosted SaaS) on a single codebase. Session activity is modeled as events for replay, auditability, and determinism; [vision.md §5. Session Engine](../vision.md) names the product an "event-sourced engine where everything important is an event."
+AI Sidekicks is an agentic coding runtime for one user and their sidekicks. Per [ADR-015](./015-v1-feature-scope-definition.md), V1 ships 21 features across two deployment options (OSS self-host plus hosted SaaS) on a single codebase. Session activity is modeled as events for replay, auditability, and determinism; [vision.md §5. Session Engine](../vision.md) names the product an "event-sourced engine where everything important is an event."
 
 The system already has a two-store split per [ADR-004: SQLite Local State and Postgres Control Plane](./004-sqlite-local-state-and-postgres-control-plane.md):
 
 - **Local SQLite store** — machine-scoped runtime truth owned by each daemon.
-- **Shared Postgres store** — coordination truth (sessions, memberships, invites, presence history, runtime node attachments, cross-node coordination records) across all participants.
+- **Shared Postgres store** — coordination truth (sessions, the device registry, device-liveness history, runtime node attachments, cross-node coordination records) across all of the user's devices and machines.
 
 Per [ADR-010](./010-paseto-webauthn-mls-auth.md) as rewritten by BL-048, V1 relay encryption is pairwise X25519 ECDH with XChaCha20-Poly1305 via audited `@noble/curves` and `@noble/ciphers`. The relay is zero-knowledge — it sees ciphertext only and has no ability to read, append to, or sequence plaintext session content. MLS (RFC 9420) group encryption is the V1.1 upgrade path, gated on the three ADR-010 promotion gates (named external audit, interop tests against ≥ 1 other implementation, ≥ 4 weeks production soak under feature flag).
 
@@ -24,7 +24,7 @@ The current schema is already de facto per-daemon: `session_events` is owned by 
 
 ## Problem Statement
 
-Should V1 ship with a shared server-side event log where all participants' daemons append session events to a single Postgres table (Option A), or with per-daemon local event logs where each daemon owns its own authoritative log and the relay distributes encrypted event payloads for peers to append to their own logs (Option B)?
+Should V1 ship with a shared server-side event log where all of the user's daemons append session events to a single Postgres table (Option A), or with per-daemon local event logs where each daemon owns its own authoritative log and the relay distributes encrypted event payloads for peers to append to their own logs (Option B)?
 
 ### Trigger
 
@@ -32,7 +32,7 @@ BL-046 (P0) from the pre-implementation architecture audit (session `2026-04-16-
 
 ## Decision
 
-**V1 ships Option B: per-daemon local event logs.** Each daemon owns an authoritative `session_events` table in its Local SQLite store. Events originating on that daemon are appended with a monotonic per-session sequence. Cross-participant events are distributed by the relay as pairwise-encrypted payloads; each receiving daemon decrypts the payload, validates it, and appends it to its own local log with its own per-session sequence number. Shared Postgres stores coordination records only (sessions, memberships, invites, presence history, runtime node attachments, cross-node dispatch records) and does not store session event streams.
+**V1 ships Option B: per-daemon local event logs.** Each daemon owns an authoritative `session_events` table in its Local SQLite store. Events originating on that daemon are appended with a monotonic per-session sequence. Events originating on the user's other daemons are distributed by the relay as pairwise-encrypted payloads; each receiving daemon decrypts the payload, validates it, and appends it to its own local log with its own per-session sequence number. Shared Postgres stores coordination records only (sessions, the device registry, device-liveness history, runtime node attachments, cross-node dispatch records) and does not store session event streams.
 
 Option A is rejected for V1 but **retained as a V1.1 candidate** gated on ADR-010's MLS promotion gates.
 
@@ -73,13 +73,13 @@ Local-first and collaborative-editor systems predominantly use per-replica or pe
 - **Zed collaboration:** per-replica CRDT logs routed by a central server that does not own the merge. Zed's CRDT design "allows individuals to edit their own replicas of a document independently" and then "replicas apply each other's operations." Closest topological precedent for V1 — central routing, no central log ownership. ([zed.dev/blog/crdts](https://zed.dev/blog/crdts), [zed.dev/blog/full-spectrum-of-collaboration](https://zed.dev/blog/full-spectrum-of-collaboration))
 - **Replicache / Rocicorp:** per-client mutation log plus server-authoritative canonical state. "Pending mutations applied on the client are speculative until applied on the server. In Replicache, the server is authoritative." Legitimizes the per-participant-pending plus server-merge split. ([doc.replicache.dev/concepts/how-it-works](https://doc.replicache.dev/concepts/how-it-works))
 
-Four of four directly analogous systems use per-replica logs. The ecosystem norm for local-first collaborative software is Option B. Combined with the cryptographic constraint, V1 has no defensible path to Option A.
+Four of four directly analogous systems use per-replica logs. The ecosystem norm for replicated-log software is Option B. Combined with the cryptographic constraint, V1 has no defensible path to Option A.
 
 ### Antithesis — The Strongest Case Against
 
 Linear's sync engine is the clean counterexample. A collaborative, offline-capable, real-time system that nevertheless runs a shared server-authoritative log with a single global monotonic `lastSyncId` spanning the workspace. A CTO-endorsed reverse-engineering reference states: "the local database is a subset of the server database (the SSOT)… When a transaction is successfully executed by the server, the global `lastSyncId` increments by 1." Clients hold pending transactions client-side until the server's delta package arrives. ([linear.app/now/scaling-the-linear-sync-engine](https://linear.app/now/scaling-the-linear-sync-engine), [github.com/wzhudev/reverse-linear-sync-engine](https://github.com/wzhudev/reverse-linear-sync-engine))
 
-A hypothetical V1 that chose Option A — with MLS group encryption already shipped plus server-stamped global sequence numbers on ciphertext envelopes — would offer three benefits Option B cannot: (1) cross-participant audit via one SQL query rather than federated log-collection, (2) canonical event ordering with deterministic interleaving, (3) a single durable point of truth for "what happened in this session" rather than N participant-specific reconstructions.
+A hypothetical V1 that chose Option A — with MLS group encryption already shipped plus server-stamped global sequence numbers on ciphertext envelopes — would offer three benefits Option B cannot: (1) cross-daemon audit via one SQL query rather than federated log-collection, (2) canonical event ordering with deterministic interleaving, (3) a single durable point of truth for "what happened in this session" rather than N daemon-specific reconstructions.
 
 The antithesis's strongest form is: Linear proves shared-log is viable for collaborative + offline + real-time software; AI Sidekicks should adopt the Linear pattern rather than the Zed/Automerge pattern.
 
@@ -95,22 +95,22 @@ The Linear pattern is retained as the reference architecture for Option A's V1.1
 
 ### Option B: Per-daemon local event logs (Chosen)
 
-- **What:** Each daemon owns a `session_events` table in its Local SQLite (already declared in [local-sqlite-schema.md](../architecture/schemas/local-sqlite-schema.md), owned by Plan-001). Events originating on that daemon are appended with `UNIQUE(session_id, sequence)` monotonic per session. Cross-participant events are delivered by the relay as pairwise-encrypted payloads per ADR-010; each receiving daemon validates the sender signature, decrypts, and appends the event to its own log with its own per-session sequence number.
-- **Steel man:** Cryptographically coherent with the zero-knowledge relay. Matches the ecosystem norm for local-first and collaborative-editor systems (Kleppmann local-first, Automerge, Zed, Replicache). Each daemon is authoritative for its own view and can replay offline. No trust is placed in the relay beyond message routing. Schema already de facto implements this.
-- **Weaknesses:** Cross-participant audit is federated — no single query spans all peers. Daemons may disagree on the interleaving of events that arrived concurrently from different peers. Audit export is a multi-daemon collection operation.
+- **What:** Each daemon owns a `session_events` table in its Local SQLite (already declared in [local-sqlite-schema.md](../architecture/schemas/local-sqlite-schema.md), owned by Plan-001). Events originating on that daemon are appended with `UNIQUE(session_id, sequence)` monotonic per session. Events originating on the user's other daemons are delivered by the relay as pairwise-encrypted payloads per ADR-010; each receiving daemon validates the sender signature, decrypts, and appends the event to its own log with its own per-session sequence number.
+- **Steel man:** Cryptographically coherent with the zero-knowledge relay. Matches the ecosystem norm for replicated-log and collaborative-editor systems (Kleppmann, Automerge, Zed, Replicache). Each daemon is authoritative for its own view and can replay offline. No trust is placed in the relay beyond message routing. Schema already de facto implements this.
+- **Weaknesses:** Cross-daemon audit is federated — no single query spans all of the user's machines. Daemons may disagree on the interleaving of events that arrived concurrently from different peers. Audit export is a multi-daemon collection operation.
 
 ### Option A: Shared Postgres event log (Rejected for V1; retained as V1.1 candidate)
 
-- **What:** One `session_events_shared` append-only table in Postgres. All participants' daemons append session events with a server-stamped global monotonic sequence. Under MLS group encryption (V1.1), events are stored as MLS ciphertext envelopes the server cannot read but can sequence and route.
-- **Steel man:** Cross-participant audit is a single SQL query. Canonical event sequence with deterministic interleaving. No federated-log reconciliation. Linear proves the pattern is viable for collaborative + offline + real-time software with server-held plaintext.
+- **What:** One `session_events_shared` append-only table in Postgres. All of the user's daemons append session events with a server-stamped global monotonic sequence. Under MLS group encryption (V1.1), events are stored as MLS ciphertext envelopes the server cannot read but can sequence and route.
+- **Steel man:** Cross-daemon audit is a single SQL query. Canonical event sequence with deterministic interleaving. No federated-log reconciliation. Linear proves the pattern is viable for collaborative + offline + real-time software with server-held plaintext.
 - **Why rejected for V1:** V1's relay encryption (pairwise X25519 + XChaCha20-Poly1305 per ADR-010) produces per-recipient ciphertexts, not a group-encrypted envelope. Appending per-recipient ciphertexts to a shared table produces a log the server cannot index, query, or audit coherently — which removes the only reason to choose Option A. Appending plaintext to a shared server table violates ADR-010's relay trust model.
-- **Why retained as V1.1 candidate:** Once ADR-010's MLS promotion gates clear (audit + interop + 4-week soak), the relay can participate in group-key distribution and store a single MLS-ciphertext envelope per event. At that point the cross-participant audit argument becomes evaluable on its merits against the federated model's empirical trade-offs.
+- **Why retained as V1.1 candidate:** Once ADR-010's MLS promotion gates clear (audit + interop + 4-week soak), the relay can participate in group-key distribution and store a single MLS-ciphertext envelope per event. At that point the cross-daemon audit argument becomes evaluable on its merits against the federated model's empirical trade-offs.
 
 ## Reversibility Assessment
 
-- **Reversal cost:** Adding a `session_events_shared` table at V1.1 is a strictly additive migration. Per-daemon logs remain authoritative for local replay; the shared log is populated in parallel for cross-participant audit. No V1 behavior is removed.
-- **Blast radius:** `shared-postgres-schema.md` (one new table), [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md) (adds cross-participant audit semantics), [Spec-015](../specs/015-persistence-recovery-and-replay.md) (optional: shared log as a cross-participant replay source). No local schema churn.
-- **Migration path:** V1.1 introduces the shared log alongside per-daemon logs. Events continue to be emitted locally. A shared-log projector appends MLS-ciphertext envelopes to Postgres with global sequence numbers. Cross-participant audit queries the shared log; per-daemon replay continues unchanged.
+- **Reversal cost:** Adding a `session_events_shared` table at V1.1 is a strictly additive migration. Per-daemon logs remain authoritative for local replay; the shared log is populated in parallel for cross-daemon audit. No V1 behavior is removed.
+- **Blast radius:** `shared-postgres-schema.md` (one new table), [Spec-006](../specs/006-session-event-taxonomy-and-audit-log.md) (adds cross-daemon audit semantics), [Spec-015](../specs/015-persistence-recovery-and-replay.md) (optional: shared log as a cross-daemon replay source). No local schema churn.
+- **Migration path:** V1.1 introduces the shared log alongside per-daemon logs. Events continue to be emitted locally. A shared-log projector appends MLS-ciphertext envelopes to Postgres with global sequence numbers. Cross-daemon audit queries the shared log; per-daemon replay continues unchanged.
 - **Point of no return:** None at V1. The Option B → Option A path is additive. The re-evaluation trigger is ADR-010 MLS promotion gate completion.
 
 ## Consequences
@@ -119,19 +119,19 @@ The Linear pattern is retained as the reference architecture for Option A's V1.1
 
 - V1 ships without waiting for MLS promotion gates.
 - Cryptographically coherent with the zero-knowledge relay: the relay sees ciphertext and routes it; it does not own any log.
-- Matches local-first ecosystem precedent (Kleppmann, Automerge, Zed, Replicache).
+- Matches replicated-log ecosystem precedent (Kleppmann, Automerge, Zed, Replicache).
 - Each daemon is authoritative for its own view and can replay offline.
 - Reduces the shared-Postgres write path from per-event to per-coordination-record, lowering hosted SaaS operational load.
 
 ### Negative (accepted trade-offs)
 
-- **Federated audit.** Cross-participant audit spans multiple daemons. An operator investigating "what happened in session X between 14:02 and 14:05?" collects log exports from every participant's daemon and merges them. There is no single-query shortcut. This is the explicit accepted cost of pairwise V1 encryption.
-- **Per-daemon sequence semantics.** Each daemon's `sequence` is monotonic only within its own log. Daemons may disagree on the ordering of events that arrived from different peers at overlapping wall-clock times. Consumers that need cross-daemon ordering must use wall-clock timestamps plus origin-participant-id tiebreakers, or Hybrid Logical Clocks (BL-076) — never raw per-daemon sequence numbers.
-- **Cross-participant replay is reconstruction, not canonical read.** Replay of what Alice observed is replay of Alice's local log. Replay of what Bob observed is replay of Bob's local log. There is no ground-truth "session timeline" separate from what each participant saw. Divergent views are an expected property, not a defect.
+- **Federated audit.** Cross-daemon audit spans multiple daemons. An operator investigating "what happened in session X between 14:02 and 14:05?" collects log exports from every one of the user's daemons and merges them. There is no single-query shortcut. This is the explicit accepted cost of pairwise V1 encryption.
+- **Per-daemon sequence semantics.** Each daemon's `sequence` is monotonic only within its own log. Daemons may disagree on the ordering of events that arrived from different peers at overlapping wall-clock times. Consumers that need cross-daemon ordering must use wall-clock timestamps plus origin-node-id tiebreakers, or Hybrid Logical Clocks (BL-076) — never raw per-daemon sequence numbers.
+- **Cross-daemon replay is reconstruction, not canonical read.** Replay of what the laptop's daemon observed is replay of that daemon's local log; replay of what the desktop's daemon observed is replay of its own. There is no ground-truth session log separate from what each daemon recorded. Divergent views are an expected property, not a defect.
 
 ### Unknowns
 
-- Whether V1.1 will actually promote Option A or whether the federated-audit model proves sufficient in production and Option A gets deferred further. Depends on customer demand for single-query cross-participant audit and on MLS promotion gate status.
+- Whether V1.1 will actually promote Option A or whether the federated-audit model proves sufficient in production and Option A gets deferred further. Depends on demand for single-query cross-daemon audit and on MLS promotion gate status.
 - How [BL-076 Hybrid Logical Clocks](../archive/backlog-archive.md) interacts with per-daemon sequence numbers. BL-076 is independent of this decision and addresses the ordering problem at the event-taxonomy level.
 
 ## References

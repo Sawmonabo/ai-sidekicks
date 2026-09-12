@@ -11,7 +11,7 @@
 
 ## Context
 
-AI Sidekicks is a distributed collaboration product. Multiple participants run local daemons on their own machines, and those daemons emit and consume `EventEnvelope` records via a shared control plane (Postgres) and a local audit log (SQLite). The product ships as OSS + self-hostable per [ADR-020: V1 Deployment Model and OSS License](./020-v1-deployment-model-and-oss-license.md) — participants are on different machines with different update cadences, so **mixed-version participation is the normal case, not an edge case**.
+AI Sidekicks is a distributed product. One user runs local daemons on their own machines and drives them from their own devices, and those daemons emit and consume `EventEnvelope` records via a shared control plane (Postgres) and a local audit log (SQLite). The product ships as OSS + self-hostable per [ADR-020: V1 Deployment Model and OSS License](./020-v1-deployment-model-and-oss-license.md) — devices and daemons update on their own cadences, so **mixed-version participation is the normal case, not an edge case**.
 
 The wire format carried between participants is the `EventEnvelope`, defined in [Spec-006: Session Event Taxonomy and Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md). `Spec-006 §Interfaces And Contracts` already declares `EventEnvelope` must be versioned and lists `version` as an envelope-level field in the canonical field set (`Spec-006 §Canonical Serialization Rules` — serialized order is RFC 8785 UTF-16 code-unit lex order, not list order). What Spec-006 does not yet document is the **semantics** of that field: who sets it, who validates it, what happens on mismatch, and how event-type evolution interacts with it.
 
@@ -21,7 +21,7 @@ This ADR closes the semantics gap. It is Type 2 because the wire format is a one
 
 ## Problem Statement
 
-How do we evolve `EventEnvelope` and event-type semantics across a bidirectionally-skewed multi-node fleet — where different participants may run different client versions simultaneously — without data loss, crashes, silent divergence, or audit-log rewrites?
+How do we evolve `EventEnvelope` and event-type semantics across a bidirectionally-skewed multi-node fleet — where a user's devices and daemons may run different client versions simultaneously — without data loss, crashes, silent divergence, or audit-log rewrites?
 
 ### Trigger
 
@@ -66,11 +66,11 @@ Together, these give us a scheme that handles bidirectional multi-node skew with
 
 ### Antithesis — The Strongest Case Against
 
-The simpler alternative is to pin the envelope version at session creation and refuse mixed-version participation entirely. Under this model, every participant must run the exact version the session was created with; a version mismatch at join is a hard rejection. This eliminates the upcaster chain, the stub persistence, the negotiation protocol, the reviewer-checklist author discipline, and most of the failure modes in §Failure Mode Analysis. For a small-team product where all participants can be asked to upgrade together, this is cheap operationally and defensible on simplicity grounds. The asymmetric read/write tolerance only pays off if mixed-version participation is empirically common — and we don't yet have V1 data to prove it will be.
+The simpler alternative is to pin the envelope version at session creation and refuse mixed-version participation entirely. Under this model, every device and daemon must run the exact version the session was created with; a version mismatch when one connects is a hard rejection. This eliminates the upcaster chain, the stub persistence, the negotiation protocol, the reviewer-checklist author discipline, and most of the failure modes in §Failure Mode Analysis. For a product where every device and daemon can be upgraded in one step, this is cheap operationally and defensible on simplicity grounds. The asymmetric read/write tolerance only pays off if mixed-version participation is empirically common — and we don't yet have V1 data to prove it will be.
 
 ### Synthesis — Why It Still Holds
 
-Pin-at-session is a single-tenant assumption being pushed into a multi-tenant product. V1 ships as OSS and self-hostable ([ADR-020](./020-v1-deployment-model-and-oss-license.md)). Self-hosted operators will roll upgrades on their own schedule; guest participants joining from a different self-hosted instance will often be on a different version than the host. There is no "tell everyone to upgrade" channel for an OSS product. The Kubernetes version-skew policy exists precisely because heterogeneous deployment is the reality of distributed systems — treating mixed versions as "the bad case" rather than "the normal case" has historically produced systems that are brittle at exactly the moment they need to be flexible. Taking on the upcaster chain and stub persistence now is the cost of shipping a product that can evolve its wire format at all after V1. The alternative is either a frozen wire format (no new event types ever) or a forced-lockstep upgrade model that breaks the self-hosted guest-join path.
+Pin-at-session is a single-tenant assumption being pushed into a multi-tenant product. V1 ships as OSS and self-hostable ([ADR-020](./020-v1-deployment-model-and-oss-license.md)). Self-hosted operators will roll upgrades on their own schedule; a device connecting through a self-hosted control plane will often be on a different version than the machine hosting the session. There is no "tell everyone to upgrade" channel for an OSS product. The Kubernetes version-skew policy exists precisely because heterogeneous deployment is the reality of distributed systems — treating mixed versions as "the bad case" rather than "the normal case" has historically produced systems that are brittle at exactly the moment they need to be flexible. Taking on the upcaster chain and stub persistence now is the cost of shipping a product that can evolve its wire format at all after V1. The alternative is either a frozen wire format (no new event types ever) or a forced-lockstep upgrade model that breaks the self-hosted device-connect path.
 
 ## Alternatives Considered
 
@@ -82,9 +82,9 @@ Pin-at-session is a single-tenant assumption being pushed into a multi-tenant pr
 
 ### Option B: Pin session version at creation; refuse mixed-version participation (Rejected)
 
-- **What:** Session metadata carries `wire_version` set at creation. All participants must run exactly that version. Version mismatch at join is a hard rejection.
+- **What:** Session metadata carries `wire_version` set at creation. Every device and daemon must run exactly that version. A version mismatch when one connects is a hard rejection.
 - **Steel man:** Dramatically simpler. No upcaster chain. No stub persistence. No negotiation protocol. No reviewer-checklist author discipline. Failure modes collapse to a single "version mismatch" error.
-- **Why rejected:** Single-tenant assumption incompatible with V1 OSS self-hostable distribution. Guest participants joining from a different self-hosted instance will often be on a different version than the host. Forces cluster-wide lockstep upgrades across organizational boundaries, which is operationally unrealistic for an OSS product with no forced-update channel.
+- **Why rejected:** Single-tenant assumption incompatible with V1 OSS self-hostable distribution. A device connecting through a self-hosted control plane will often be on a different version than the machine hosting the session. Forces lockstep upgrades across every device and machine at once, which is operationally unrealistic for an OSS product with no forced-update channel.
 
 ### Option C: Central control-plane event-type registry with publish-time rejection (Deferred to V1.1)
 
@@ -108,7 +108,7 @@ Pin-at-session is a single-tenant assumption being pushed into a multi-tenant pr
 
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
-| 1 | Mixed-version participation is common in V1. | V1 ships as OSS + self-hostable ([ADR-020](./020-v1-deployment-model-and-oss-license.md)); participants are on independently-managed machines; guest joins cross self-hosted-instance boundaries. | Pin-at-session (Option B) becomes the better choice; most of this ADR collapses to "version must match exactly." |
+| 1 | Mixed-version participation is common in V1. | V1 ships as OSS + self-hostable ([ADR-020](./020-v1-deployment-model-and-oss-license.md)); the user's devices and machines update independently; a device connects across a self-hosted-instance boundary. | Pin-at-session (Option B) becomes the better choice; most of this ADR collapses to "version must match exactly." |
 | 2 | Event-log durability guarantees stubs remain parseable for the full audit-retention lifetime. | Event-sourcing immutability rule; SQLite forward-only migrations; Postgres migration tool with required-up migrations per [data-architecture.md](../architecture/data-architecture.md) §Migration Strategy. | Stubs become unparseable on storage-format evolution; upcaster chain loses its input. |
 | 3 | Semver is sufficient to distinguish additive vs. breaking changes when paired with reviewer discipline. | Schema Registry FORWARD_TRANSITIVE uses exactly this split; Protobuf Editions relies on author discipline for semantic-equivalence. | Authors ship semantic breaks inside MINOR bumps; receivers crash or silently misinterpret. |
 | 4 | Receivers can safely persist unknown-type payloads without schema validation, because envelope-level Ed25519 signature still covers the payload bytes. | `Spec-006 §Canonical Serialization Rules` lists `payload` as a signed field regardless of type-registry state; signature verification is independent of type-handler registration. | Stubs persist unverified payloads; attack surface opens via unsigned-content replay. |

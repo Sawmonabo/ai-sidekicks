@@ -11,7 +11,7 @@
 
 ## Context
 
-The system needs durable local execution truth, replay, and recovery on participant machines, while also needing shared coordination storage for invites, memberships, presence, and session directory metadata. A single storage model for both concerns would either over-centralize local execution data or under-serve collaboration queries.
+The system needs durable local execution truth, replay, and recovery on the user's machines, while also needing shared coordination storage for the device registry, device liveness, and session directory metadata. A single storage model for both concerns would either over-centralize local execution data or under-serve the coordination queries every device makes.
 
 ## Problem Statement
 
@@ -27,7 +27,7 @@ We will use SQLite for node-local execution state and Postgres for shared contro
 
 ### Thesis — Why This Option
 
-SQLite is a strong fit for Local Runtime Daemon persistence: embedded, transactional, WAL-backed, and simple to ship with desktop and CLI execution nodes. Postgres is a strong fit for shared Collaboration Control Plane data that needs multi-actor relational integrity, indexing, and operational visibility across hosted or self-hosted deployments.
+SQLite is a strong fit for Local Runtime Daemon persistence: embedded, transactional, WAL-backed, and simple to ship with desktop and CLI execution nodes. Postgres is a strong fit for shared Control Plane data that needs relational integrity, indexing, and operational visibility across hosted or self-hosted deployments.
 
 ### Antithesis — The Strongest Case Against
 
@@ -53,7 +53,7 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 
 ### Option C: One Shared Relational Store For Everything (Rejected)
 
-- **What:** Centralize both local execution and collaboration data in a remote relational system.
+- **What:** Centralize both local execution and coordination data in a remote relational system.
 - **Steel man:** Simplifies some centralized querying and operations.
 - **Why rejected:** Violates the local-execution boundary and weakens offline and privacy characteristics.
 
@@ -62,7 +62,7 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
 | 1 | Local daemon workloads fit SQLite well. | The persistence spec requires SQLite with WAL for node-local execution truth and restart recovery. | SQLite could become a bottleneck or operational pain. |
-| 2 | Shared collaboration data needs multi-actor relational guarantees. | Invite, membership, presence, and session directory data are cross-user. | A lighter shared store might suffice. |
+| 2 | Shared coordination data needs relational guarantees. | Device-registry, device-liveness, node-attachment, and session directory rows are read and written by several of the user's devices and machines at once. | A lighter shared store might suffice. |
 | 3 | The system can keep local and shared data boundaries explicit. | Data architecture and security docs already separate them. | Replication or visibility bugs could blur the model. |
 
 ## Failure Mode Analysis
@@ -70,7 +70,7 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
 | Local SQLite store is corrupted or unavailable | Low | High | Daemon recovery fails or enters degraded mode | Block mutable work, expose repair path, and support restore |
-| Shared Postgres is unavailable | Med | High | Invite, membership, or presence operations fail | Preserve explicit `local-only` degraded mode |
+| Shared Postgres is unavailable | Med | High | Device-registry, node-attachment, or liveness operations fail | Preserve explicit `local-only` degraded mode |
 | Artifact or metadata is written to the wrong boundary | Med | High | Visibility or audit anomalies appear | Enforce policy-aware manifest classification and tests |
 
 ## Reversibility Assessment
@@ -111,7 +111,7 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
 | Local restart recovery succeeds from embedded storage | 100% of recovery test fixtures | Recovery integration suite | `2026-04-14` |
-| Shared collaboration data remains queryable and durable across participants | 100% of core membership and invite paths | Control-plane integration suite | `2026-04-14` |
+| Shared coordination data remains queryable and durable across the user's devices and machines | 100% of core device-registry and node-attachment paths | Control-plane integration suite | `2026-04-14` |
 
 ## References
 
