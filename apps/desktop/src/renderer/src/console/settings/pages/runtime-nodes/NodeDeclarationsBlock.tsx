@@ -7,8 +7,9 @@
 // family's shape — one component per module, and a block that owned both the reads and
 // the branching would be two jobs in one file.
 //
-// THE RE-READ IS THE ROSTER'S OWN, RAISED FROM HERE. `runtime-node-attach/` is Plan-003's
-// and this console never edits it, so the refresh runs through the seam that view's own
+// THE RE-READ IS THE ROSTER'S OWN, RAISED FROM HERE. `runtime-node-attach/` belongs to
+// the runtime-node surface and this console never edits it, so the refresh runs through
+// the seam that view's own
 // contract already gives: a presence push says WHEN to re-read, and the view re-reads
 // through its own path without re-entering its loading arm. A window regaining focus is
 // a legitimate raiser of that signal — the channel stayed open while the window was

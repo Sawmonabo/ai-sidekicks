@@ -19,8 +19,8 @@
 //
 //   • `runId` / `parentRunId` — the creation row's own two identities, verbatim.
 //   • `producingNodeId` — the creation row's, where it names one. Absent stays absent:
-//     `Spec-013` requires provenance to the producing node and a fabricated one would
-//     be worse than the named absence the row renders.
+//     a row's provenance names the producing node, and a fabricated one would be worse
+//     than the named absence the row renders.
 //   • `state` — the state the child's newest lifecycle beat announces, read from the
 //     KIND through `runStateForTransitionKind` rather than from an unvalidated payload
 //     member, which is the same rule the run-entity fold is written under. The

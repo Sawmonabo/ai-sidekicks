@@ -8,9 +8,9 @@
 // keeps rule 8's distinction intact: a default drawn without one reads as the person's
 // own answer to a question nobody put to them.
 //
-// WHICH PREFERENCES, AND WHY THEY ARE NOT INVENTED HERE. `Spec-019` names no
-// preference keys, and a page that made some up would be minting a vocabulary. What it
-// DOES register — in the `AttentionItem` union, transcribed into
+// WHICH PREFERENCES, AND WHY THEY ARE NOT INVENTED HERE. No preference keys are named
+// anywhere, and a page that made some up would be minting a vocabulary. What IS
+// registered — in the `AttentionItem` union, transcribed into
 // `bridge/wire-shapes/attention-projection.ts` and closed at six — is the set of things
 // that can earn a person's attention at all. A preference set keyed by those triggers
 // therefore adds no vocabulary: every key here is a value the corpus already fixes, and
@@ -42,8 +42,8 @@ export const DEFAULT_PREFERENCE_MEMBER = "notify";
  * Every trigger notifies until somebody says otherwise.
  *
  * ON rather than off, because the alternative is a console that silently withholds
- * attention a person never asked it to withhold — and `Spec-019`'s own requirement is
- * that actionable attention survives even a denied operating system. A default of
+ * attention a person never asked it to withhold — and actionable attention has to
+ * survive even a denied operating system. A default of
  * `false` would make the quiet state the one nobody chose.
  */
 const DEFAULT_PREFERENCE_ENABLED = true;

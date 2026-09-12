@@ -1,7 +1,7 @@
 // The repos family's door.
 //
-// The family is `T-023p-1C-5` — repos and worktrees, the diff pane and its inline
-// cards, the artifact pane, and attachments — and it occupies ONE directory tree,
+// The family is repos and worktrees, the diff pane and its inline cards, the artifact
+// pane, and attachments — and it occupies ONE directory tree,
 // `repos/`, with a sub-module per subject: the sidebar section and its mount cards,
 // the two pane bodies in `repos/diff-pane/` and `repos/artifact-pane/`, and the
 // artifacts, attachments and proposals modules beside them. The pane bodies

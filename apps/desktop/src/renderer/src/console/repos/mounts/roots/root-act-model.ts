@@ -277,7 +277,7 @@ export function prepareFormVerdict(
  *
  * AND IT IS THE CANDIDATE'S OWN ID THAT IS COMPARED, which closes the second half of
  * the same defect: the verdict can stay `dirty` across a refresh and still be about a
- * DIFFERENT tree. `Spec-010`'s pair travels together or not at all, so a consent that
+ * DIFFERENT tree. The pair travels together or not at all, so a consent that
  * names no tree, or names one the daemon is no longer offering, sends nothing.
  *
  * DOUBLE DUTY, DELIBERATELY: this is also what a consent control reads for its own
@@ -300,7 +300,7 @@ export function prepareAcknowledgement(form: PrepareFormState, verdict: ReuseVer
  * BOTH SENTENCES ARE RECORDED-THEN-CLEANED, AND THE CLONE'S USED NOT TO BE. It said the
  * files were already gone, and they are not: `EphemeralCloneDisposeResponse.state` is
  * the single literal `retired` and carries no cleanup instant, because dispose records
- * the transition and the sweep removes the disk afterwards — I-010-9's ordering, which
+ * the transition and the sweep removes the disk afterwards — that ordering, which
  * this method shares with retire. A consequence claiming the bytes are gone is the
  * renderer answering a question the daemon deliberately did not, on the one screen
  * where a person is agreeing to it, and it makes the ordinary post-dispose state — a

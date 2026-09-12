@@ -16,7 +16,7 @@
 // no `gitflow` module: there is no `ChangeRequest` and no proposal type anywhere in the
 // workspace. So these are the shapes the SURFACE needs, derived from what this family
 // draws, exactly as `bridge/growth-port/growth-port.ts` derives its request and value types: they
-// are not a claim about the eventual wire, which `Spec-011` owns.
+// are not a claim about the eventual wire, which the gitflow contract owns.
 //
 // NO STACKED PROPOSALS. One cumulative proposal per run lineage is what
 // `ONE_CUMULATIVE_PROPOSAL_COPY` says out loud, and it is the whole of this module's

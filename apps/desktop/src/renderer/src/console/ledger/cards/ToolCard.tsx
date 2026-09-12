@@ -50,7 +50,7 @@ export interface ToolCardProps extends LedgerCardProps {
    *
    * Optional because density belongs to the list: where a list supplies no way to
    * change it, the card renders a state rather than a control. The fixture shell
-   * supplies one, which is what makes a collapsed tool row openable before Plan-013's
+   * supplies one, which is what makes a collapsed tool row openable before the real
    * list exists.
    */
   readonly onDensityToggle?: (() => void) | undefined;

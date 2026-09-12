@@ -36,7 +36,7 @@ import type { ProposalGateState } from "./proposal-gate-state.js";
  * These are what the gate offers. The wire behind them is the growth port's
  * `gitActionExecute`, whose `action` member is an untyped string because the action
  * vocabulary is unregistered — `bridge/growth-port/growth-slate.ts` carries it as the
- * `gitflow-actions` row, owned by `Spec-011`. So this tuple is the console's half of
+ * `gitflow-actions` row. So this tuple is the console's half of
  * that seam: three offers, each of which the port refuses by name today.
  *
  * THE ORDER IS THE PIPELINE'S, NOT THE VOCABULARY'S. `commit` records on the head

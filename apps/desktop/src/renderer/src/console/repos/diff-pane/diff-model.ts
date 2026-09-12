@@ -33,8 +33,8 @@
 //     else — there is no fallback that guesses an agent for an unmarked line.
 
 /**
- * How the daemon attributed this diff. Closed at two, because `Spec-011` fixes
- * exactly two answers and a third would be a spec amendment.
+ * How the daemon attributed this diff. Closed at two, because the contract fixes
+ * exactly two answers and a third would be a contract change.
  *
  * The tuple is the declaration and the union is derived from it, so a mode cannot
  * be added to a hand-written union while the list a badge iterates stays at two.

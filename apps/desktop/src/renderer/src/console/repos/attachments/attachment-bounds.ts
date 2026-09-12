@@ -62,7 +62,7 @@ export const SHIPPED_DEFAULT_ALLOWLIST: AttachmentAllowlistReading = {
  * How full a carrier is against the count bound, as a figure and never as a gate.
  *
  * THE COUNT IS RENDERED AND THE DAEMON DECIDES. `attachment-ingest-machine.ts` states
- * the same rule from the other side: `Spec-014` refuses the whole carrier at acceptance
+ * the same rule from the other side: the daemon refuses the whole carrier at acceptance
  * with `artifact.too_many_attachments`, so a console that stopped the eleventh attach
  * would be deriving eligibility the daemon owns and would be wrong the moment an
  * operator raises the bound. Nothing here answers "may I", and no surface reading this

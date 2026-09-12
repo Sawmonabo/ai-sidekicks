@@ -6,8 +6,8 @@
 // BELONG to that turn — a person reading a conversation should not have to leave it to
 // see what it made.
 //
-// TWO FAMILIES MEET AT THE SEAT AND NEITHER IMPORTS THE OTHER. The ledger (T-023p-1C-2)
-// renders the seat; this family owns the body. The registration below is the whole
+// TWO FAMILIES MEET AT THE SEAT AND NEITHER IMPORTS THE OTHER. The ledger renders the
+// seat; this family owns the body. The registration below is the whole
 // contact surface, and it is called from the repos family's own door rather than at
 // this module's scope, for that door's reason: one module knows every body the family
 // owns, and a hot reload re-runs one module rather than several.

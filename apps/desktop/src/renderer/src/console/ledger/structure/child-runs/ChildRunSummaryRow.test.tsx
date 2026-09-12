@@ -275,7 +275,7 @@ describe("the expansion draws the child run's own work", () => {
     // The page can hold the child run's own boundary, and a row past one is superseded
     // in the child's log exactly as it is in the parent's. Asserted through the seat's
     // own prop, so a row drawn undimmed is a red check rather than a styling question.
-    // The row AT the cutoff survives — `Spec-013`'s "exceeds" — which is what makes
+    // The row AT the cutoff survives — the comparison is "exceeds" — which is what makes
     // this a ranking rather than "everything before a boundary".
     const container = renderWhole(
       expandedWith([

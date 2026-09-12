@@ -22,8 +22,8 @@ import { readWireString } from "../../../core/index.js";
  * Declared once as a tuple with the membership test derived from it. All three
  * are registered in the `@ai-sidekicks/contracts` event census; `run.rolled_back`
  * is deliberately absent, because a rewind is not a terminal — the run continues
- * from the boundary, which is exactly why `Spec-013` gives the rollback its own
- * non-state event. It appears in {@link CHAPTER_REOPENING_EVENT_TYPES} instead,
+ * from the boundary, which is exactly why the rollback has its own non-state event.
+ * It appears in {@link CHAPTER_REOPENING_EVENT_TYPES} instead,
  * where it CLEARS a terminal the run has come back from.
  */
 export const CHAPTER_TERMINAL_EVENT_TYPES = [

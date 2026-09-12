@@ -134,8 +134,8 @@ export class ExecutionRootPrepareController extends ActSurfaceController<
   /**
    * Prepare a worktree root, reusing a named candidate where the verdict admits one.
    *
-   * THE CONSENT AND THE CANDIDATE TRAVEL TOGETHER OR NOT AT ALL. `Spec-010`'s pair is
-   * two members because naming a candidate and consenting to its uncommitted work are
+   * THE CONSENT AND THE CANDIDATE TRAVEL TOGETHER OR NOT AT ALL. The pair is two
+   * members because naming a candidate and consenting to its uncommitted work are
    * two decisions, and sending the acknowledgement without the id would consent to
    * nothing — which is why the reuse id is what decides whether either is sent.
    */

@@ -50,7 +50,7 @@ export const ATTACHMENT_ACKNOWLEDGEMENT_SITE =
 /**
  * Why the console stopped an ingest on the strength of the daemon's own reply.
  *
- * The console's code and not a daemon one: `Spec-014`'s vocabulary describes what the
+ * The console's code and not a daemon one: the daemon's vocabulary describes what it
  * daemon decided, and this is a finding about an answer that cannot be reconciled with
  * what this client sent. It is classified `restart` by the caller rather than mapped
  * through `ingestRefusalDisposition`, because the retry-in-place default assumes a

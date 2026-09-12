@@ -32,7 +32,7 @@ describe("a settings page whose body another plan authors", () => {
   const RESERVED: OwnerSlotPage = {
     slot: {
       contract: {
-        owningTask: "Plan-999 (the registry test's own seat)",
+        owningTask: "the registry test's own seat",
         mountObligation: "the page frame and the page context",
         deleteShellIn: "the task that fills this slot",
       },

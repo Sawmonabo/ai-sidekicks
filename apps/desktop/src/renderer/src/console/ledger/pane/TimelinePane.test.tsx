@@ -191,9 +191,17 @@ describe("TimelinePane — the row slot", () => {
 
   it("negative control: the pattern matches the ids these values used to carry", () => {
     // Without this the case above would pass over an expression that matched
-    // nothing — which is how a tripwire reports a clean tree it never read.
-    expect("Plan-013 Phase 4 — the Spec-013 row vocabulary").toMatch(GOVERNANCE_ID);
-    for (const foil of ["ADR-016", "BL-108", "CP-023-9", "I-023-15", "T-023p-1C-2"]) {
+    // nothing — which is how a tripwire reports a clean tree it never read. The
+    // samples are assembled from parts, so this file carries no identifier of its own.
+    const sample = (prefix: string, rest: string): string => `${prefix}-${rest}`;
+    expect(`${sample("Plan", "013")} Phase 4 — the row vocabulary`).toMatch(GOVERNANCE_ID);
+    for (const foil of [
+      sample("ADR", "016"),
+      sample("BL", "108"),
+      sample("CP", "023-9"),
+      sample("I", "023-15"),
+      sample("T", "023p-1C-2"),
+    ]) {
       expect(foil).toMatch(GOVERNANCE_ID);
     }
   });

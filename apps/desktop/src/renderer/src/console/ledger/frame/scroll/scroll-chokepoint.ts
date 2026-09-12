@@ -253,7 +253,6 @@ export class LedgerScrollController {
     this.#frameWrites.adopt(frameCoordinator);
   }
 
-  // Consumed by T-023p-1C-2
   /**
    * Ask for a write in the next frame's phase one, computed against that frame's one
    * clean geometry sample.

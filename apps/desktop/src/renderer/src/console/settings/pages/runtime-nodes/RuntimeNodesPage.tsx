@@ -22,7 +22,7 @@
 //
 // That view renders five of the roster entry's nine members and neither the capability
 // map a node declares about itself nor the client version a floor verdict is computed
-// from. Both are Plan-003's own shipped views — `CapabilityDeclaration` and
+// from. Both are the runtime-node surface's own shipped views — `CapabilityDeclaration` and
 // `MixedVersionStatus`, absorbed by import beside the roster — and this page mounts
 // them in its own block from the SAME read: `seats/node-roster/node-roster-seam.ts` records each
 // response as it passes through the console's own read seam on its way to that view,

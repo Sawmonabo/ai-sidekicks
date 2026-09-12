@@ -16,8 +16,8 @@ import { Nothing } from "../../../primitives/index.js";
  * nothing at all rather than a line congratulating the reader. The other three are
  * each a different fact: denied, never asked, and never able to ask.
  *
- * NOT A REASON TO SUPPRESS ANYTHING. `Spec-019` requires actionable attention to
- * survive a denied permission, so this notice says what the desktop will not do and
+ * NOT A REASON TO SUPPRESS ANYTHING. Actionable attention survives a denied
+ * permission, so this notice says what the desktop will not do and
  * says in the same breath that the console still will. It is deliberately not an
  * error: a person who declined desktop notifications made a choice, and reporting it
  * back as a failure would be the console arguing with them.

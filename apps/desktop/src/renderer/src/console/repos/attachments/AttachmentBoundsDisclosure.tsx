@@ -15,7 +15,7 @@
 // cannot see. The `shipped-default` arm additionally carries the refusal that kept the
 // effective read from answering, where the caller has one.
 //
-// THE COUNT BOUND CARRIES WHAT HAPPENS AT IT. `Spec-014` refuses the whole carrier at
+// THE COUNT BOUND CARRIES WHAT HAPPENS AT IT. The daemon refuses the whole carrier at
 // acceptance and leaves every artifact an earlier ingest minted untouched, which is the
 // difference between "your upload was wasted" and "take one off and send" — and it is
 // stated here, ahead of the refusal, rather than only in the refusal's own copy. It is

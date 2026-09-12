@@ -66,7 +66,7 @@ export class AttachmentIngestClient {
   /**
    * Take one attachment and begin its stream.
    *
-   * The count cap is NOT enforced here. `Spec-014` refuses the whole carrier at
+   * The count cap is NOT enforced here. The daemon refuses the whole carrier at
    * acceptance with `artifact.too_many_attachments` and leaves every artifact minted by
    * an earlier ingest untouched, so a client that blocked the eleventh attach would be
    * deriving eligibility the daemon owns — and would be wrong the moment an operator

@@ -155,7 +155,7 @@ export type ProposalGateSubject =
 /**
  * The execution roots a gate can be about. Closed at three, one per writable mode.
  *
- * `Spec-010` gives a workspace three writable execution modes and each materialises a
+ * A workspace has three writable execution modes and each materialises a
  * DIFFERENT kind of root: `worktree` a dedicated checkout with a record of its own,
  * `branch` the mount's own checkout with no record at all, and `ephemeral clone` a
  * clone row anchored to a workspace. A gate built only from worktree records therefore

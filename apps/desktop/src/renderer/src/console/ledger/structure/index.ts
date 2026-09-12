@@ -2,7 +2,8 @@
 //
 // What this subtree owns is everything the ledger knows ABOUT its own shape: which
 // run a row belongs to, which rows an epoch superseded, what a filter admits, and what
-// a query matched. None of it renders a row — the rows are Plan-013's, absorbed through
+// a query matched. None of it renders a row — the rows belong to the timeline subtree,
+// absorbed through
 // the timeline row seat — and none of it holds a store: every model here is a pure
 // derivation over one loaded window, built by the frame's own `useMemo` and thrown
 // away when the window changes.

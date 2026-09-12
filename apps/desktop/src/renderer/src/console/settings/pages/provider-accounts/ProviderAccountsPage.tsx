@@ -128,8 +128,8 @@ function openedForProvider(selection: string | undefined): string | undefined {
  * on a provider whose remedy was "register an account", and the region below the
  * vocabulary is a reservation — so without this the page they land on says the registry
  * has not been built and never says which provider they came for or what happens if
- * they leave it. The second sentence is this page's own wording of what `Spec-026`
- * makes true of a node that finishes setup with nothing registered; the walkthrough
+ * they leave it. The second sentence is this page's own wording of what is true of a
+ * node that finishes setup with nothing registered; the walkthrough
  * says the same thing in the second person, and the two are kept apart on voice
  * exactly as the readiness-state tables are.
  */

@@ -23,9 +23,9 @@
 //   • NO FADE WITH NOWHERE TO GO. The cap always ships with the controls that
 //     leave it, in the same footer, always rendered.
 //
-// TWO FAMILIES MEET AT THE SEAT AND NEITHER IMPORTS THE OTHER. The ledger
-// (T-023p-1C-2) renders the seat; this family owns the body. The registration
-// below is the whole contact surface.
+// TWO FAMILIES MEET AT THE SEAT AND NEITHER IMPORTS THE OTHER. The ledger renders
+// the seat; this family owns the body. The registration below is the whole contact
+// surface.
 //
 // WHAT THE SEAT HANDS OVER, AND THE TWO DENSITIES IT SELECTS BETWEEN.
 // `DiffInlineCardProps` carries a `runId`, the `diffArtifactId` the registered diff

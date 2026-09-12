@@ -260,7 +260,7 @@ describe("diff renderer — the view controls it is handed", () => {
 
   it("negative control: attribution comes from the line and never from the diff's own run", () => {
     // Every line here carries no trailer, so a renderer that fell back to the
-    // diff's run would mark all of them — the inference `Spec-011` forbids.
+    // diff's run would mark all of them — the inference the contract forbids.
     const unattributed = buildDiffFixture({
       ...SMALL_DIFF_SHAPE,
       agentAttributionEveryNthLine: 0,

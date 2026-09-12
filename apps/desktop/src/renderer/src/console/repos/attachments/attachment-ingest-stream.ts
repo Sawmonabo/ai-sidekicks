@@ -6,12 +6,12 @@
 // abandon, remove, reorder — a set of synchronous decisions over the ledger. This one
 // owns what happens on the wire afterwards, and hands the middle leg to
 // `attachment-ingest-chunks.ts`, which is a loop rather than a call. Three subjects,
-// three modules; the file that held all three was doing three jobs at once, which
-// `apps/desktop/AGENTS.md` rejects.
+// three modules; the file that held all three was doing three jobs at once, which this
+// package's module-shape rule rejects.
 //
 // THE PROTOCOL IS OWN-BUILT, and this module is where that is decided and why: the
-// chunking, the decoded-byte accounting, and the replay-safe retry are all `Spec-014`
-// CONTRACT behaviour, and a generic upload library would obscure every one of them. So
+// chunking, the decoded-byte accounting, and the replay-safe retry are all CONTRACT
+// behaviour, and a generic upload library would obscure every one of them. So
 // this is a class with private fields rather than a hook holding four `useState`s.
 //
 // WHAT IT CALLS, AND WHAT ANSWERS TODAY. The trio `AttachmentIngestInit`,

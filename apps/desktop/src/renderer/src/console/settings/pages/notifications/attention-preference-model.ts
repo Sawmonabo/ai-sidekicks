@@ -1,9 +1,9 @@
 // One rule for showing a preference whose keys nobody has named, and the one edit
 // that rule permits.
 //
-// The stored value is `Record<string, unknown>` on purpose. `Spec-019` requires the
-// preference pair to support per-surface preferences and scopes the store itself to
-// global-per-participant, and it names no keys — so the console's shape is an opaque
+// The stored value is `Record<string, unknown>` on purpose. The preference pair
+// supports per-surface preferences, the store itself is scoped global-per-participant,
+// and no keys are named anywhere — so the console's shape is an opaque
 // keyed value and stays one "until a document names the keys". A page that hardcoded
 // a key would be naming a preference nothing registers, and a page that drew a
 // default for a key the daemon did not send would be showing its own answer as the

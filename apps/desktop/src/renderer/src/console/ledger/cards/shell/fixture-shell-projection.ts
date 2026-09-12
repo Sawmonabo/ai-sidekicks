@@ -62,7 +62,8 @@
 //
 //   • `childRunSummary`. Derived by `shell-child-run-summaries.ts` beside this file
 //     and stamped here on one row per child run, from the orchestration linkage
-//     `Spec-006` puts on a run's birth beat. Its own module because its subject is a
+//     the event contract puts on a run's birth beat. Its own module because its
+//     subject is a
 //     RUN across the whole window rather than a row, and it is the one derived member
 //     that cannot be decided while folding a single event.
 //

@@ -1,6 +1,6 @@
 // The daemon's vocabulary, checked for totality and for the two distinctions it turns on.
 //
-// Every value here is `Spec-014`'s rather than this console's, so what a test can prove
+// Every value here is the daemon's rather than this console's, so what a test can prove
 // is that the transcription is TOTAL — a disposition with no sentence, or a code
 // classified by nothing, is the failure mode — and that the two named codes stay apart
 // from the default and from each other.

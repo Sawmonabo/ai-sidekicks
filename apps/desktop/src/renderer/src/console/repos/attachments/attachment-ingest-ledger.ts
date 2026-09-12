@@ -192,7 +192,7 @@ export class AttachmentIngestLedger {
    *
    * Only completed ingests contribute, because an artifact id is what an ingest MINTS —
    * there is nothing to name before then. The result is exactly the typed `ArtifactId[]`
-   * shape `Spec-014` specifies, held as strings because the console never mints an
+   * specified shape, held as strings because the console never mints an
    * identity of its own.
    */
   public artifactIds(): readonly string[] {
@@ -245,7 +245,7 @@ export class AttachmentIngestLedger {
  *
  * THE DISPOSITION IS DERIVED FROM THE CODE UNLESS A CALLER STATES IT, and the one
  * caller that states it is the console's own finding about an unusable acknowledgement
- * — a code `Spec-014` does not name, whose retry-in-place default would send the next
+ * — a code the daemon does not name, whose retry-in-place default would send the next
  * chunk against an offset the two sides have stopped sharing.
  */
 export function writeIngestRefusal(

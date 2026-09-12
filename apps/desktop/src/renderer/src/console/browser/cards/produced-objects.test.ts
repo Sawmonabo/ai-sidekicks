@@ -155,7 +155,7 @@ describe("folding the session's produced objects", () => {
 // the pane's own operation reply, and that is what these cases supply.
 describe("which artifacts the browser may claim as its own", () => {
   const MIXED_SESSION = [
-    // A repository attachment: `Spec-014`'s relay member and a shared visibility, and
+    // A repository attachment: the relay member and a shared visibility, and
     // otherwise indistinguishable from the capture below.
     eventOfKind(SESSION_ID, "artifact.published", 1, {
       artifactId: "artifact-repo-attachment",

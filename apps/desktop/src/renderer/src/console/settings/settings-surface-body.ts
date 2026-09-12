@@ -97,7 +97,7 @@ export function Body(context: ConsoleSurfaceContext): React.ReactNode {
  * someone adds a page to one of them.
  */
 function registerSettingsPages(registry: SettingsPageRegistry): void {
-  // T-023p-1C-4 L4.6 nodes, notifications, application
+  // Nodes, notifications, application.
   registerRuntimeNodesPage(registry);
   registerNotificationsPage(registry);
   registerApplicationPage(registry);
@@ -105,13 +105,13 @@ function registerSettingsPages(registry: SettingsPageRegistry): void {
   // It is registered from here and composed there, because naming two view families
   // is a composition site's job and this family names only its own.
   registerSidekicksPage(registry);
-  // T-023p-1C-4 L4.7 mounts, diagnostics, data, appearance, keyboard
+  // Mounts, diagnostics, data, appearance, keyboard.
   registerWorkspaceMountsPage(registry);
   registerDiagnosticsPage(registry);
   registerDataErasurePage(registry);
   registerAppearancePage(registry);
   registerKeyboardPage(registry);
-  // T-023p-1C-4 L4.8 accounts, MCP servers, cost
+  // Accounts, MCP servers, cost.
   registerProviderAccountsPage(registry);
   registerMcpServersPage(registry);
   registerCostReceiptPage(registry);

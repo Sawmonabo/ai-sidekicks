@@ -11,7 +11,8 @@
 // been correct since it was written and what regressed — twice — is which window it is
 // handed. The fold's own cases are `ledger/cards/bodies/input-ask.test.ts`'.
 //
-// THE ROW BODY IS A PROBE AND NOT A STAND-IN. The ask card is Plan-013's, so nothing
+// THE ROW BODY IS A PROBE AND NOT A STAND-IN. The ask card belongs to the timeline
+// subtree, so nothing
 // ships in the seat yet; the probe below fills the seat and reads the REAL reader and
 // the REAL hook, which is the pair under test. It renders the terminal's state where it
 // found one so a case can tell "settled" from "still open" out of the DOM.

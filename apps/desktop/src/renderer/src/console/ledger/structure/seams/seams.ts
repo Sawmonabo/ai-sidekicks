@@ -209,7 +209,7 @@ function readDeclaredLosses(payload: Readonly<Record<string, unknown>>): readonl
  * open.
  *
  * Read through the arm's own narrowing so the rewind cutoff never reaches a
- * consumer through a cast — the property `Spec-013` I-013-5 exists to guarantee.
+ * consumer through a cast — the property this narrowing exists to guarantee.
  */
 function rollbackSeamOf(row: Extract<TimelineRow, { kind: "rollback_boundary" }>): LedgerSeam {
   return {

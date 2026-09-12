@@ -38,7 +38,7 @@ import { type TimelineRow } from "@ai-sidekicks/contracts";
 import { readWireString } from "../../../core/index.js";
 import { projectedPayload } from "../../cards/wire-payload.js";
 
-/** One provider-attributed subagent, keyed as `Spec-016` keys it. */
+/** One provider-attributed subagent, keyed as the orchestration contract keys it. */
 export interface SubagentIdentity {
   readonly runId: string;
   readonly provider: string;
@@ -148,7 +148,7 @@ export function deriveSubagentAnchors(
  *
  * All three members are REQUIRED, and that is the fail-closed half of the identity
  * rule: a row naming a `subagentId` under no provider cannot be keyed the way
- * `Spec-016` keys one, and admitting it under a fabricated provider would merge two
+ * the contract keys one, and admitting it under a fabricated provider would merge two
  * providers' subagents that happen to share an id.
  *
  * `runId` comes off the arm rather than the payload — three of the four `TimelineRow`

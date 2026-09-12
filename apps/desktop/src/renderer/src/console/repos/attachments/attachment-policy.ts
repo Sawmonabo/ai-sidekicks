@@ -1,7 +1,8 @@
 // What the DAEMON decided about an attachment, transcribed and nothing else.
 //
-// THE SEAM, IN ONE SENTENCE: this module changes when `Spec-014` changes, and for no
-// other reason. The allow-list, the two named refusal codes, what each refusal means
+// THE SEAM, IN ONE SENTENCE: this module changes when the daemon's attachment contract
+// changes, and for no other reason. The allow-list, the two named refusal codes, what
+// each refusal means
 // for the next act, and the six causes an attachment can be unresolved for are all the
 // daemon's vocabulary — the console chooses none of them. So nothing here reads an
 // entry, renders a figure, or knows that a `Blob` exists, and this module imports
@@ -75,7 +76,7 @@ export type IngestRefusalDisposition = (typeof INGEST_REFUSAL_DISPOSITIONS)[numb
  * The two daemon codes whose disposition differs from the retry-safe default.
  *
  * Named here as strings because `packages/contracts` registers NEITHER — there is no
- * artifact error namespace in `error.ts` at all. They are `Spec-014`'s codes, matched
+ * artifact error namespace in `error.ts` at all. They are the daemon's codes, matched
  * against whatever a refusal carries, and they are not method names, event types, or
  * wire fields: a code the console does not recognise takes the retry-in-place arm,
  * which is the contract's own default rather than a guess.

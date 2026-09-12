@@ -22,7 +22,8 @@
 //     drift from the one the pipeline enforces." So the ceiling arrives as a prop,
 //     rendered as a wire figure beside the declared total, and this component
 //     compares nothing against it — an over-ceiling download is refused by the
-//     pipeline with `Spec-014`'s own code, and that refusal is what renders.
+//     pipeline with the artifact namespace's own code, and that refusal is what
+//     renders.
 //
 //     QUOTING IT MEANS KEEPING THE NUMBER. Rendered only as its rounded reading, a
 //     ceiling of 8,388,609 bytes and one of 8,388,608 are the same figure on screen,
