@@ -20,7 +20,7 @@ import { normalizeWireRejection } from "./wire-rejection.js";
 
 describe("normalizeWireRejection — the retry bound the wire registered", () => {
   it("reads seconds and a reset instant off a JSON-RPC fields payload", () => {
-    const refusal = normalizeWireRejection("collaboration", {
+    const refusal = normalizeWireRejection("channels", {
       code: -32603,
       message: "Too many invites.",
       data: {
@@ -36,7 +36,7 @@ describe("normalizeWireRejection — the retry bound the wire registered", () =>
 
   it("reads the same pair off a flat envelope", () => {
     expect(
-      normalizeWireRejection("collaboration", {
+      normalizeWireRejection("channels", {
         code: "ratelimit.exceeded",
         message: "Slow down.",
         retryAfter: 5,
@@ -57,7 +57,7 @@ describe("normalizeWireRejection — the retry bound the wire registered", () =>
     // is a producer defect; the surface renders no countdown rather than a countdown
     // to a date that does not exist.
     expect(
-      normalizeWireRejection("collaboration", {
+      normalizeWireRejection("channels", {
         code: "ratelimit.exceeded",
         message: "…",
         resetAt: "2026-02-30T12:00:00Z",
@@ -67,11 +67,10 @@ describe("normalizeWireRejection — the retry bound the wire registered", () =>
 
   it("ignores a negative or non-finite second count", () => {
     expect(
-      normalizeWireRejection("collaboration", { code: "x", message: "y", retryAfter: -1 }).retry,
+      normalizeWireRejection("channels", { code: "x", message: "y", retryAfter: -1 }).retry,
     ).toBeUndefined();
     expect(
-      normalizeWireRejection("collaboration", { code: "x", message: "y", retryAfter: "soon" })
-        .retry,
+      normalizeWireRejection("channels", { code: "x", message: "y", retryAfter: "soon" }).retry,
     ).toBeUndefined();
   });
 });

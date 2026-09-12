@@ -14,12 +14,12 @@
 
 import { type SidebarSectionContext } from "../seats/index.js";
 import { Nothing } from "../primitives/index.js";
-import { useSessionModels, type CollaborationSessionModelHolder } from "./session-models.js";
+import { useSessionModels, type ChannelSessionModelHolder } from "./session-models.js";
 import { ChannelsSectionBody } from "./ChannelsSectionBody.js";
 
 export interface ChannelsSectionProps {
   readonly context: SidebarSectionContext;
-  readonly holder: CollaborationSessionModelHolder;
+  readonly holder: ChannelSessionModelHolder;
 }
 
 export function ChannelsSection(props: ChannelsSectionProps): React.JSX.Element {

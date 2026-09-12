@@ -19,11 +19,10 @@
 //
 // WHAT THE DERIVATION CLAIMS, AND WHAT IT DELIBERATELY DOES NOT
 //
-// Four of the six registered triggers are derived. Three of the four are classified
+// Four of the five registered triggers are derived. Three of the four are classified
 // by name: pending approval or required input is actionable attention by default,
-// which covers `run.waiting_for_approval` and `run.waiting_for_input`; run
-// completion and invite receipt are informational attention by default, which
-// covers `run.completed`.
+// which covers `run.waiting_for_approval` and `run.waiting_for_input`; run completion
+// is informational attention by default, which covers `run.completed`.
 //
 // The fourth is `run_failed`, and it is classified by APPLYING the definition of the
 // two classes rather than by picking a default. Run failure is a required trigger,
@@ -43,13 +42,9 @@
 // this differently, the table below moves to match it; nothing above this module is
 // entitled to disagree with the wire.
 //
-// The other two registered triggers are not derived, each for a reason rather than
-// for lack of time:
-//
-//   • `invite_received` — `invite.created` is registered, but no scenario plays one,
-//     so the fold would have no input; it lands with the scenario that needs it.
-//   • `mention` — the event census registers no mention type at all, so there is
-//     nothing canonical to fold.
+// The remaining trigger is not derived, for a reason rather than for lack of time:
+// `mention` — the event census registers no mention type at all, so there is nothing
+// canonical to fold.
 
 import { compareInstants, parseInstant } from "../../../core/index.js";
 import type {

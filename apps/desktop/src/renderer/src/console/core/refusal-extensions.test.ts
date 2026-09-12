@@ -164,7 +164,7 @@ describe("refusal extensions — a rebuild carries the registered set and nothin
   it("carries a growth refusal's ledger through the normalizer", () => {
     // The defect in terms: this used to answer the three core members and drop the
     // rest, so a surface rendering the refusal could not say who owes the wire.
-    const normalized = normalizeWireRejection("collaboration", growthRefusal());
+    const normalized = normalizeWireRejection("channels", growthRefusal());
 
     expect(normalized.operationId).toBe("sessionSearch");
     expect(normalized.slateRow).toBe("session-search");
@@ -176,10 +176,7 @@ describe("refusal extensions — a rebuild carries the registered set and nothin
   it("carries it through an error the refusal was thrown as, too", () => {
     // The path the seat actually takes: a growth outcome raised as a throw so a read
     // body can settle into its failure arm.
-    const carried = normalizeWireRejection(
-      "collaboration",
-      new ConsoleRefusalError(growthRefusal()),
-    );
+    const carried = normalizeWireRejection("channels", new ConsoleRefusalError(growthRefusal()));
 
     expect(carried.operationId).toBe("sessionSearch");
     expect(carried.owningDocument).toBe("session channels");
@@ -189,7 +186,7 @@ describe("refusal extensions — a rebuild carries the registered set and nothin
     // `status` is deliberately unregistered: carried off an unvalidated candidate it
     // would let a rejection spelling `status: "served"` answer as the arm it is not,
     // and the next reader would go looking for the value that arm carries.
-    const normalized = normalizeWireRejection("collaboration", growthRefusal());
+    const normalized = normalizeWireRejection("channels", growthRefusal());
 
     expect(Object.hasOwn(normalized, "status")).toBe(false);
     // Both paths, because the ledger travels on both and so would the discriminant.
@@ -224,7 +221,7 @@ describe("refusal extensions — a rebuild carries the registered set and nothin
       owningDocument: ["session channels"],
     });
 
-    const normalized = normalizeWireRejection("collaboration", readOnce);
+    const normalized = normalizeWireRejection("channels", readOnce);
 
     expect(normalized.operationId).toBe("sessionSearch");
     expect(normalized.owningDocument).toBe("session channels");

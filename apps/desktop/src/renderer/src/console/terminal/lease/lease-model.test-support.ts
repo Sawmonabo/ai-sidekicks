@@ -30,7 +30,7 @@ import { TERMINAL_LEASE_EVENT_KIND } from "./lease-transition.js";
  * one thing about what a user id is.
  */
 export const VIEWER_USER: string = TERMINAL_SCENARIO_CAST.owner;
-export const OTHER_USER: string = TERMINAL_SCENARIO_CAST.collaborator;
+export const OTHER_USER: string = TERMINAL_SCENARIO_CAST.otherDevice;
 
 /**
  * A `pty.control_changed` carrying exactly the payload a case hands it.

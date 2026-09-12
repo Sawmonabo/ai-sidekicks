@@ -12,7 +12,7 @@ import { consoleTripwires } from "../core/tripwires.js";
 import { SurfaceErrorBoundary } from "../primitives/index.js";
 import { SessionStore } from "../store/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
-import { CollaborationSessionModelHolder, useSessionModels } from "./session-models.js";
+import { ChannelSessionModelHolder, useSessionModels } from "./session-models.js";
 import {
   LeaseProbe,
   RENDER_FAILURE_MESSAGE,
@@ -28,7 +28,7 @@ import type { RenderPhaseReading } from "./session-models.test-support.js";
 
 /** A section body that fails the way a real one does: during its own render. */
 function ExplodingProbe(props: {
-  readonly holder: CollaborationSessionModelHolder;
+  readonly holder: ChannelSessionModelHolder;
   readonly bridge: ConsoleBridge;
   readonly sessionStore: SessionStore;
 }): React.JSX.Element {
@@ -44,7 +44,7 @@ function ExplodingProbe(props: {
  * against a holder that never started anything at all.
  */
 function RenderTimeAcquisitionProbe(props: {
-  readonly holder: CollaborationSessionModelHolder;
+  readonly holder: ChannelSessionModelHolder;
   readonly bridge: ConsoleBridge;
   readonly sessionStore: SessionStore;
 }): React.JSX.Element {
@@ -55,7 +55,7 @@ function RenderTimeAcquisitionProbe(props: {
 describe("the sidebar's models — acquisition is an effect and never a render", () => {
   it("holds no lease and opens no subscription while the first render body runs", () => {
     const counted = countedFixtureBridge("session-lease-a");
-    const holder = new CollaborationSessionModelHolder();
+    const holder = new ChannelSessionModelHolder();
     const readings: RenderPhaseReading[] = [];
 
     render(
@@ -79,7 +79,7 @@ describe("the sidebar's models — acquisition is an effect and never a render",
 
   it("gives the lease back when the only section holding it unmounts", () => {
     const counted = countedFixtureBridge("session-lease-b");
-    const holder = new CollaborationSessionModelHolder();
+    const holder = new ChannelSessionModelHolder();
     const view = render(
       <LeaseProbe
         holder={holder}
@@ -98,7 +98,7 @@ describe("the sidebar's models — acquisition is an effect and never a render",
 
   it("leaves one started set behind a strict-mode double mount", () => {
     const counted = countedFixtureBridge("session-lease-c");
-    const holder = new CollaborationSessionModelHolder();
+    const holder = new ChannelSessionModelHolder();
     render(
       <StrictMode>
         <LeaseProbe
@@ -115,7 +115,7 @@ describe("the sidebar's models — acquisition is an effect and never a render",
 
   it("shares one set between two sections and disposes it on the last release", () => {
     const counted = countedFixtureBridge("session-lease-d");
-    const holder = new CollaborationSessionModelHolder();
+    const holder = new ChannelSessionModelHolder();
     const sessionStore = new SessionStore({ sessionId: "session-lease-d" });
     const view = render(
       <>
@@ -137,7 +137,7 @@ describe("the sidebar's models — acquisition is an effect and never a render",
 
   it("disposes the previous session's set exactly once when the sidebar switches", () => {
     const counted = countedFixtureBridge("session-lease-e");
-    const holder = new CollaborationSessionModelHolder();
+    const holder = new ChannelSessionModelHolder();
     const view = render(
       <LeaseProbe
         holder={holder}
@@ -179,7 +179,7 @@ describe("the sidebar's models — a render React abandons leaves nothing behind
 
   it("starts nothing when the render that asked for the models never commits", () => {
     const counted = countedFixtureBridge("session-lease-g");
-    const holder = new CollaborationSessionModelHolder();
+    const holder = new ChannelSessionModelHolder();
 
     render(
       <SurfaceErrorBoundary surfaceName="The channels section">
@@ -198,7 +198,7 @@ describe("the sidebar's models — a render React abandons leaves nothing behind
 
   it("negative control: the same render taking the models itself DOES leave one open", () => {
     const counted = countedFixtureBridge("session-lease-h");
-    const holder = new CollaborationSessionModelHolder();
+    const holder = new ChannelSessionModelHolder();
 
     render(
       <SurfaceErrorBoundary surfaceName="The channels section">

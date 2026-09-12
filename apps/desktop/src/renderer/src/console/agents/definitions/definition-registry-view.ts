@@ -13,7 +13,7 @@
 // `useState` calls updated in sequence is that same machine with its illegal
 // intermediate states reachable and unnamed.
 //
-// IT IS NOT `collaboration/mutation-coordinator.ts`, and the reason is the seam
+// IT IS NOT `channels/mutation-coordinator.ts`, and the reason is the seam
 // rather than the shape: that coordinator's failure arm normalizes a REJECTION,
 // because the daemon gateway it drives throws, while the growth port refuses by
 // RETURNING a value that already is the console's refusal shape

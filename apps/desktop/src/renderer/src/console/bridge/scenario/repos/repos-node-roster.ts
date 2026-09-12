@@ -13,7 +13,7 @@
 // attach a given path is a question only that node can answer, so every node the roster
 // names is offered and one that cannot serve the attach refuses it with a typed code.
 //
-// THE ROSTER IS CONSTANT ACROSS THE SCENARIO'S CLOCK, unlike the collaboration one. That
+// THE ROSTER IS CONSTANT ACROSS THE SCENARIO'S CLOCK, unlike the channels one. That
 // script exists to move two health axes against each other over time; this one exists so
 // a dialog opened at any tick has nodes in it, and a roster that was empty before some
 // tick would make the dialog's emptiness a function of when it was opened.

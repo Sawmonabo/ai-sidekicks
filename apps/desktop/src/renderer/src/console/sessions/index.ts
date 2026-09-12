@@ -47,7 +47,7 @@ export function registerSessionsSurface(
 ): void {
   registry.register({
     slot: "sessions",
-    owner: "collaboration-sessions",
+    owner: "sessions",
     render: (context) =>
       createElement(SessionsSurface, {
         context,
@@ -78,7 +78,7 @@ export function registerSessionsSurface(
 export function registerSessionAttentionBinding(registry: FrameBindingRegistry): void {
   registry.register({
     slot: "session-attention",
-    owner: "collaboration-sessions",
+    owner: "sessions",
     mount: (props) => createElement(SessionAttentionBinding, props),
   });
 }

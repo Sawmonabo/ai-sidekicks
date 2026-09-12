@@ -64,7 +64,7 @@ describe("when it may be closed", () => {
     // is "offered and never demanded", and one of its two triggers is a run that has
     // ALREADY been refused — so a person who asked to see which providers this node
     // can run must be able to leave, whatever the relay choice says. Locking here
-    // would build a mandatory setup flow out of a rule written for the invite flow.
+    // would build a mandatory setup flow out of a rule written for the relay flow.
     await mount(bridgeWithNoRelayChosen());
     await activateAt("providers");
     const text = document.body.textContent ?? "";

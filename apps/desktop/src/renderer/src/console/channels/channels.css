@@ -1,6 +1,6 @@
 /* The channel sub-family's own styles: the row, the archive fold, and creation.
  *
- * A sibling sheet rather than a block in `collaboration.css`: a channel row is this
+ * A sibling sheet rather than a block in `sections.css`: a channel row is this
  * sub-family's shape and nothing else draws it. The shell the list shares with the
  * roster stays at the family door, because a selector list spanning two sub-families
  * copied into both agrees only until one of them is restyled.

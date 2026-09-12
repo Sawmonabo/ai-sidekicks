@@ -40,18 +40,16 @@
 /**
  * Every attention trigger, transcribed from the registered `AttentionItem` union.
  *
- * The attention plane states the minimum set — pending approval or
- * user input, run completion, run failure, invite receipt, mention or direct
- * request — and the registered union fixes their spellings. Closed and declared
- * once: a seventh trigger is an amendment to the owning document, never a string a
- * console module invents.
+ * The attention plane states the minimum set — pending approval or user input, run
+ * completion, run failure, mention or direct request — and the registered union fixes
+ * their spellings. Closed and declared once: a sixth trigger is an amendment to the
+ * owning document, never a string a console module invents.
  */
 export const ATTENTION_TRIGGERS = [
   "pending_approval",
   "pending_input",
   "run_completed",
   "run_failed",
-  "invite_received",
   "mention",
 ] as const;
 

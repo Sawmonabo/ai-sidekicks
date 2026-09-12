@@ -53,7 +53,7 @@ import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-p
 import { ReceiptBody } from "./ReceiptBody.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
-const OWNER = "collaboration-settings-cost";
+const OWNER = "settings-cost";
 
 /** The three ways the one figure is split. Each accounts for the whole of it. */
 const RECEIPT_PARTITIONS: readonly { readonly title: string; readonly detail: string }[] = [

@@ -39,7 +39,7 @@ import type {
 import type { ConsoleBridge } from "../../console-bridge.js";
 import { createFixtureAuxiliaryWindowPort, readFixtureShell } from "../shell/auxiliary-windows.js";
 import { resolveScriptedReply, assertScriptedReplyOnContract } from "./call-door.js";
-import { FixtureChannelLifecycle } from "../collaboration/channel-lifecycle.js";
+import { FixtureChannelLifecycle } from "../session/channel-lifecycle.js";
 import { createFixtureGrowthPort } from "../growth/growth-port.js";
 import { SETTLED_CALL_FOLDS } from "./settled-call-folds.js";
 import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./served-operations.js";

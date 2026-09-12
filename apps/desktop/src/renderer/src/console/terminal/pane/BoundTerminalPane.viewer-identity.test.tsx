@@ -71,7 +71,7 @@ describe("terminal pane — the device the lease fold is told about", () => {
     // one read that changed.
     const region = renderPane(
       storeThrough(1),
-      bridgeAnsweringCallerWith(TERMINAL_SCENARIO_CAST.collaborator),
+      bridgeAnsweringCallerWith(TERMINAL_SCENARIO_CAST.otherDevice),
     );
     await waitFor(() => {
       expect(claimControl(region)).not.toBeNull();

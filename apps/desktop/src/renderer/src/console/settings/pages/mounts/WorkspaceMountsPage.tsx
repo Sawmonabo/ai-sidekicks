@@ -4,7 +4,7 @@ import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-p
 import { MountInventoryList } from "./MountInventoryList.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
-const OWNER = "collaboration-settings-mounts";
+const OWNER = "settings-mounts";
 
 export function WorkspaceMountsPage(props: { readonly context: SettingsPageContext }): ReactNode {
   const { bridge, retainedSessionId, retainedSessionStore } = props.context;

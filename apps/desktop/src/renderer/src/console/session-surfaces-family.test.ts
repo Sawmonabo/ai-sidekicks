@@ -61,7 +61,7 @@ describe("session surfaces family — composition", () => {
     const { surfaces, sections, bindings } = ownedBoards();
     registerSessionSurfacesFamily(surfaces, sections, bindings, standInComposition);
     // Two, not one: the `agents` section is this family's as well, and its body
-    // lives in the agents subtree rather than in `collaboration/` because a body
+    // lives in the agents subtree rather than in `channels/` because a body
     // belongs to the family whose vocabulary it renders. The ids come back in the
     // seat's own declared order rather than in registration order.
     expect(sections.registeredSectionIds()).toStrictEqual(["channels", "agents"]);

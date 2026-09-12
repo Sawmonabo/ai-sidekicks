@@ -1,7 +1,7 @@
 // The shell conditions a mutating surface is driven under.
 //
 // BESIDE THE MODULE THAT DERIVES THE BLOCK, which is the lowest family every reader
-// sits above. It began at the collaboration family's root, on `repos/
+// sits above. It began at the channels family's root, on `repos/
 // pane-contexts.test-support.ts`' reasoning — both `invites/` and `members/` dispatch a
 // daemon write and both disable their controls from the same seam, so a second copy of
 // "the supervisor said it is stopped" would let two suites disagree about which

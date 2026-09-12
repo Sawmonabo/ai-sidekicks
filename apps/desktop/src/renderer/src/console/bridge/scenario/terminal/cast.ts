@@ -3,7 +3,7 @@
 //
 // Split out of `terminal.ts` so that file is the SCRIPT and this one is the cast
 // list. The identities are the part every consumer reaches for by name — the
-// family's own tests read the owner and the collaborator off `TERMINAL_SCENARIO_CAST`
+// family's own tests read the owner and the other device off `TERMINAL_SCENARIO_CAST`
 // rather than indexing the join log — while the beats are read as a whole, in
 // order, by the engine. Two audiences, two files.
 //
@@ -14,7 +14,7 @@
 // not declare as a UUID.
 
 const HUMAN_USER_ID = "019b7b30-0280-79a4-8110-cca0117a0130";
-const SECOND_HUMAN_USER_ID = "019b7b30-0280-79a4-8110-cca0117a0132";
+const SECOND_DEVICE_USER_ID = "019b7b30-0280-79a4-8110-cca0117a0132";
 const AGENT_USER_ID = "019b7b30-0280-7a6e-8100-d1a4c1150034";
 
 /** The session whose one shared shell this scenario is about. */
@@ -47,8 +47,8 @@ export const TERMINAL_HOST_NODE_ID = "node-workstation";
 export interface TerminalScenarioCast {
   /** The session's owner. Holds the lease first, and holds it at the end. */
   readonly owner: string;
-  /** The collaborator the lease changes hands to. Never a viewer — see above. */
-  readonly collaborator: string;
+  /** The other device the lease changes hands to. */
+  readonly otherDevice: string;
   /**
    * The attached agent, whose run's idling is one of the five release reasons. The
    * RUN binds to the lease, never this id: an agent-path take holds as the
@@ -59,6 +59,6 @@ export interface TerminalScenarioCast {
 
 export const TERMINAL_SCENARIO_CAST: TerminalScenarioCast = {
   owner: HUMAN_USER_ID,
-  collaborator: SECOND_HUMAN_USER_ID,
+  otherDevice: SECOND_DEVICE_USER_ID,
   agent: AGENT_USER_ID,
 };

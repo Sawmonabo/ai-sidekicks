@@ -8,17 +8,17 @@
 //
 // This one owns the outcome each served operation answers with. The answers with a job
 // of their own live beside it, because each fails in a way this one cannot —
-// `collaboration/session-answers.ts` holds the base-state read, the node's directory and
-// the viewer, over `collaboration/session-snapshot.ts`, which derives the base state one
-// session opens with, and `collaboration/session-directory.ts`, which derives what the
+// `session/session-answers.ts` holds the base-state read, the node's directory and
+// the viewer, over `session/session-snapshot.ts`, which derives the base state one
+// session opens with, and `session/session-directory.ts`, which derives what the
 // node HAS, `approval-answers.ts` the two approvals reads and the two acts,
 // `shell/presence-answers.ts` the activity read and the node's control-plane host,
-// `collaboration/session-identity.ts` the header's own identity read,
+// `session/session-identity.ts` the header's own identity read,
 // `shell/auxiliary-windows.ts` models the shell's own window plane,
 // `attention-derivation.ts` folds beats into an attention projection,
 // `workflows/workflow-scope.ts` derives which workflow subjects a script can answer for,
 // `workflows/workflow-reads.ts` holds the workflow answers and the reasoning that governs
-// them, `collaboration/collaboration-reads.ts` the channel and membership answers,
+// them, `session/channel-reads.ts` the channel and membership answers,
 // `settings/diagnostics-reads.ts` the five the settings page's diagnostics regions
 // are built on, `settings/provider-account-writes.ts` the three verbs of the sign-in
 // handoff, `settings/mcp-governance.ts` the inventory read and the two mutations that
@@ -40,16 +40,16 @@ import { deriveAttentionProjection } from "./attention-derivation.js";
 import { fixtureDiagnosticsReads } from "../settings/diagnostics-reads.js";
 import { paceGrowthStreamOnScenarioClock } from "./due-frames.js";
 import { fixtureMcpGovernance } from "../settings/mcp-governance.js";
-import { fixtureCollaborationReads } from "../collaboration/collaboration-reads.js";
-import type { FixtureChannelLifecycle } from "../collaboration/channel-lifecycle.js";
+import { fixtureChannelReads } from "../session/channel-reads.js";
+import type { FixtureChannelLifecycle } from "../session/channel-lifecycle.js";
 import { fixtureOnboardingAnswers } from "../settings/onboarding-answers.js";
 import { fixtureProviderAccountWrites } from "../settings/provider-account-writes.js";
 import { fixtureRunRecordReads } from "./run-record-reads.js";
 import { answerFromScriptedReply, answerScriptOnly } from "./scripted-answer.js";
 import { fixtureShellAnswers } from "../shell/shell-answers.js";
 import { fixturePresenceAnswers } from "../shell/presence-answers.js";
-import { fixtureSessionAnswers } from "../collaboration/session-answers.js";
-import { scenarioSessionIdentity } from "../collaboration/session-identity.js";
+import { fixtureSessionAnswers } from "../session/session-answers.js";
+import { scenarioSessionIdentity } from "../session/session-identity.js";
 import {
   createRefusingGrowthPort,
   growthUnavailable,
@@ -96,7 +96,7 @@ export function createFixtureGrowthPort(
   // call could acknowledge no chunk and complete no stream.
   const attachmentSpools = new FixtureAttachmentIngest();
   const served: Pick<GrowthPort, FixtureServedGrowthOperationId> = {
-    // workflow, collaboration, onboarding and shell — spread from the modules that
+    // workflow, channel, onboarding and shell — spread from the modules that
     // implement them, so the served ids in `call-plane/served-operations.ts` and the
     // handlers there are held to
     // each other by the `Pick` above. The onboarding and shell planes own the per-caller
@@ -106,7 +106,7 @@ export function createFixtureGrowthPort(
     ...fixtureWorkflowReads(engine),
     // Every channel and membership answer is script-only: the reasoning for each
     // refusal lives in that module.
-    ...fixtureCollaborationReads(engine, channelLifecycle),
+    ...fixtureChannelReads(engine, channelLifecycle),
     ...fixtureOnboardingAnswers(engine),
     ...fixtureShellAnswers(engine),
     // sessions, approvals and presence — the same shape: each plane declares its own

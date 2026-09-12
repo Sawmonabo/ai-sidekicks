@@ -8,7 +8,7 @@
 // the channel directory watches the four channel-lifecycle kinds.
 //
 // WHY IT LIVES IN THE STORE FAMILY. It was written twice, once inside `agents/` and
-// once inside `collaboration/`, and view families are siblings that may not import
+// once inside `channels/`, and view families are siblings that may not import
 // each other — so the second copy was not laziness, it was the only place the second
 // caller could put one. `apps/desktop/AGENTS.md` hoists a helper on its second use
 // and puts a cross-family one in the lowest family that needs it, which is this one:

@@ -1,4 +1,4 @@
-// One session's collaboration models, and who owns their lifetime.
+// One session's channel models, and who owns their lifetime.
 //
 // ONE SET PER SESSION, HELD APART FROM THE SECTION THAT READS IT. The channel list
 // reads one session's channels and one set of live indicators, and both own a
@@ -48,8 +48,8 @@ import { ActivityIndicatorRegistry, type ChannelActivityLabels } from "./activit
 import { createActivityFeed, type ActivityFeed } from "./activity-feed.js";
 import { createChannelDirectory, type ChannelDirectory } from "./channel-model.js";
 
-/** Everything one session's collaboration surface reads from. */
-export interface CollaborationSessionModels {
+/** Everything one session's channel surface reads from. */
+export interface ChannelSessionModels {
   /**
    * The exact bridge and store this set was built for.
    *
@@ -81,8 +81,8 @@ export interface CollaborationSessionModels {
  * the effect that acquired it can do without naming the session it acquired for —
  * which matters exactly when the session has since changed underneath it.
  */
-export interface CollaborationModelsLease {
-  readonly models: CollaborationSessionModels;
+export interface ChannelModelsLease {
+  readonly models: ChannelSessionModels;
   /**
    * Give this grant back.
    *
@@ -94,15 +94,15 @@ export interface CollaborationModelsLease {
 }
 
 /**
- * The one owner of a session's collaboration models.
+ * The one owner of a session's channel models.
  *
  * Constructed by `registerChannelsSections` and captured by the section
  * descriptor. Every model it builds is started here — subscription first, then the
  * read — so a section body never starts one, and {@link useSessionModels} is the one
  * caller, from a mount effect.
  */
-export class CollaborationSessionModelHolder {
-  #current: CollaborationSessionModels | undefined;
+export class ChannelSessionModelHolder {
+  #current: ChannelSessionModels | undefined;
   #outstandingLeaseCount = 0;
 
   /** Leases handed out and not yet given back. The lifetime assertion, counted. */
@@ -129,7 +129,7 @@ export class CollaborationSessionModelHolder {
    * refuses to hand out, and the section would sit at `not-loaded` for as long as
    * the window lived.
    */
-  public acquire(bridge: ConsoleBridge, sessionStore: SessionStore): CollaborationModelsLease {
+  public acquire(bridge: ConsoleBridge, sessionStore: SessionStore): ChannelModelsLease {
     const existing = this.#current;
     if (existing !== undefined && isCurrentSessionSubject(existing.subject, bridge, sessionStore)) {
       this.#outstandingLeaseCount += 1;
@@ -166,7 +166,7 @@ export class CollaborationSessionModelHolder {
    * body's cleanup after a switch has already replaced the held set, and a counter
    * decremented by that cleanup would take the NEW session's set down with it.
    */
-  #leaseOn(models: CollaborationSessionModels): CollaborationModelsLease {
+  #leaseOn(models: ChannelSessionModels): ChannelModelsLease {
     let isReleased = false;
     return {
       models,
@@ -218,11 +218,11 @@ export class CollaborationSessionModelHolder {
  * builds a fresh set — so exactly one set is live once it has settled.
  */
 export function useSessionModels(
-  holder: CollaborationSessionModelHolder,
+  holder: ChannelSessionModelHolder,
   bridge: ConsoleBridge,
   sessionStore: SessionStore,
-): CollaborationSessionModels | undefined {
-  const [models, setModels] = useState<CollaborationSessionModels | undefined>(undefined);
+): ChannelSessionModels | undefined {
+  const [models, setModels] = useState<ChannelSessionModels | undefined>(undefined);
   useEffect(() => {
     const lease = holder.acquire(bridge, sessionStore);
     setModels(lease.models);
@@ -273,7 +273,7 @@ export function sessionProjectionLabels(sessionStore: SessionStore): ChannelActi
 function buildSessionModels(
   bridge: ConsoleBridge,
   sessionStore: SessionStore,
-): CollaborationSessionModels {
+): ChannelSessionModels {
   const clock = consoleClockFor(bridge);
   const activity = new ActivityIndicatorRegistry();
   return {

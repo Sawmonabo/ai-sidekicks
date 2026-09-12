@@ -254,8 +254,8 @@
 
 import { FIXTURE_SERVED_APPROVAL_OPERATION_IDS } from "../growth/approval-answers.js";
 import { FIXTURE_SERVED_ATTACHMENT_INGEST_OPERATION_IDS } from "../growth/attachment-ingest.js";
-import { FIXTURE_SERVED_COLLABORATION_OPERATION_IDS } from "../collaboration/collaboration-reads.js";
-import { FIXTURE_SERVED_SESSION_OPERATION_IDS } from "../collaboration/session-answers.js";
+import { FIXTURE_SERVED_CHANNEL_OPERATION_IDS } from "../session/channel-reads.js";
+import { FIXTURE_SERVED_SESSION_OPERATION_IDS } from "../session/session-answers.js";
 import { FIXTURE_SERVED_DIAGNOSTICS_OPERATION_IDS } from "../settings/diagnostics-reads.js";
 import { FIXTURE_SERVED_MCP_OPERATION_IDS } from "../settings/mcp-governance.js";
 import { FIXTURE_SERVED_ONBOARDING_OPERATION_IDS } from "../settings/onboarding-answers.js";
@@ -301,7 +301,7 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "terminalAcquireWriteLease",
   "terminalReleaseWriteLease",
   "workspaceExecutionContextRead",
-  ...typeof FIXTURE_SERVED_COLLABORATION_OPERATION_IDS,
+  ...typeof FIXTURE_SERVED_CHANNEL_OPERATION_IDS,
   ...typeof FIXTURE_SERVED_PRESENCE_OPERATION_IDS,
   "providerSessionImportBegin",
   "providerSessionImportSubscribe",
@@ -315,7 +315,7 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
 ] = [
   // sessions — the two the console cannot function without and the viewer that resolves
   // a role against them, taken from the module that implements them so the ids and the
-  // handlers cannot disagree. `collaboration/session-answers.ts` carries the reasoning.
+  // handlers cannot disagree. `session/session-answers.ts` carries the reasoning.
   ...FIXTURE_SERVED_SESSION_OPERATION_IDS,
   // The header's own identity read, derived from the same scripted reply the base
   // state is. The health read the same header renders is the diagnostics plane's
@@ -379,8 +379,8 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // channels — the four lifecycle verbs, the one user's per-device presence, and the
   // terminal-control holder, taken from the module that implements them so the ids and
   // the handlers cannot disagree. Every one is script-only, and
-  // `collaboration/collaboration-reads.ts` carries the reasoning for each.
-  ...FIXTURE_SERVED_COLLABORATION_OPERATION_IDS,
+  // `session/channel-reads.ts` carries the reasoning for each.
+  ...FIXTURE_SERVED_CHANNEL_OPERATION_IDS,
   // presence — the activity read and the node's own control-plane host, from the same
   // kind of module. The composer's two writes are deliberately absent, and
   // `shell/presence-answers.ts` says why.

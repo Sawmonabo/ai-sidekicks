@@ -29,7 +29,7 @@ afterEach(() => {
 
 /** A scenario that scripts nothing: the growth override is what these cases drive. */
 export const EMPTY_SCENARIO: FixtureScenario = {
-  id: "collaboration-cost-test",
+  id: "cost-test",
   label: "Cost, with nothing scripted",
   purpose: "Drives the cost receipt page against an overridden receipt read.",
   sessionId: SESSION_ID,

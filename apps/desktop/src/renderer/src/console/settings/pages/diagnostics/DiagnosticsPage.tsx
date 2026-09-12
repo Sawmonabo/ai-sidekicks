@@ -67,7 +67,7 @@ import { SessionScopedDiagnostics } from "./SessionScopedDiagnostics.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
-const OWNER = "collaboration-settings-diagnostics";
+const OWNER = "settings-diagnostics";
 
 /** What the page will not do, whatever the four readings say. */
 const DIAGNOSTICS_RULES: readonly string[] = [

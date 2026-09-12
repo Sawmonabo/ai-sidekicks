@@ -95,7 +95,7 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
     shellConfigWrite: op("shellConfigWrite", "shell-config-preferences", "method"),
     healthSubscribe: op("healthSubscribe", "health-subscribe", "subscription", "health.subscribe"),
     sessionSearch: op("sessionSearch", "session-search", "method"),
-    // session goals — the owner/collaborator pair the goal card drives.
+    // session goals — the read/write pair the goal card drives.
     sessionGoalUpdate: op(
       "sessionGoalUpdate",
       "session-goal-methods",

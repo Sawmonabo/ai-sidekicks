@@ -371,14 +371,14 @@ export { TransportReconnectSignal } from "./transport/transport-reconnect.js";
 export { openObservedSubscription } from "./transport/observed-subscription.js";
 
 // The per-operation request and value table. Published for exactly one reader: the
-// collaboration family's mutation coordinator, which binds a growth WRITE the way it
+// channels family's mutation coordinator, which binds a growth WRITE the way it
 // already binds a daemon method — reading both halves off the registry rather than
 // declaring them at the call site, so a surface naming an operation the slate does not
 // carry, or sending it the wrong payload, does not compile. It travels as a type and
 // carries no port with it, so nothing gains a way to CALL an operation through it.
 export type { GrowthOperationSignatures } from "./growth-signatures/signature-table.js";
 
-// The channel plane's shapes, published because the collaboration family RENDERS
+// The channel plane's shapes, published because the channels family RENDERS
 // them: a create form whose every field is one member of `GrowthChannelConfig`, and
 // the receipts the four lifecycle writes answer with. They leave through the module
 // that DECLARES them rather than through `growth-values/index.js`, on the
@@ -700,7 +700,7 @@ export { stampedExecutionPostureOf } from "./daemon/entity-body-reads.js";
 export { readNodeState } from "./daemon/node-state-read.js";
 
 // The Awareness activity field's readings, through the door because the
-// collaboration family folds a snapshot of them into its indicator registry and a
+// channels family folds a snapshot of them into its indicator registry and a
 // view family may not reach past a barrel into this one. They leave through
 // `growth-values/presence.js`, the module that DECLARES them, on the rule the
 // `GrowthArtifactSummary` line above states.

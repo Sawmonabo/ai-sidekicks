@@ -37,7 +37,7 @@ import { Chip } from "../../../primitives/index.js";
 import type { SettingsPageRegistry } from "../../settings-page-registry.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
-const OWNER = "collaboration-settings-data";
+const OWNER = "settings-data";
 
 /**
  * The audit stubs a purge leaves in the log.

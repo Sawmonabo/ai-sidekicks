@@ -63,7 +63,7 @@ import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-p
 import { StoreStateBlock } from "./store-state/StoreStateBlock.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
-const OWNER = "collaboration-settings-appearance";
+const OWNER = "settings-appearance";
 
 /** The subsystem name every refusal this module raises carries. */
 const APPEARANCE_REFUSAL_ORIGIN = "appearance";

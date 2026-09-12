@@ -1,12 +1,12 @@
 // Where the walkthrough is reached from, and when it may be closed.
 //
 // A WINDOW-SCOPED OVERLAY RATHER THAN A RAIL DESTINATION. This flow never opens on
-// install, first launch, health check, or first session creation; its openings are an
-// outbound invite, or an explicit activation. A rail entry would be a place a person
+// install, first launch, health check, or first session creation; its openings are a
+// command a person runs, or an activation raised after a refusal. A rail entry would be a place a person
 // goes; this is a moment they are put in, so it sits beside the command palette in the
 // frame's overlay slot.
 //
-// THREE OPENINGS AND NO OTHERS. Two are commands a person runs — the collaboration
+// THREE OPENINGS AND NO OTHERS. Two are commands a person runs — the remote-access
 // entry point that pre-stages the relay choice, and the _Set up providers_ entry
 // point Group B names — and the third is `onboarding-activation.ts`, which a surface
 // meeting an account-plane refusal raises AFTER that refusal has already happened.
@@ -19,7 +19,7 @@
 // the daemon refused both leave the choice unestablished, and unlocking there would open
 // the dialog on the strength of a state nothing said. This once read the other way
 // round, locking only on the answered-and-unresolved arm, which meant the walkthrough
-// opened by the collaboration command was closeable during the first frame of every
+// opened by the remote-access command was closeable during the first frame of every
 // mount and for the whole life of a build whose onboarding wire is unregistered.
 //
 // AND THE UNANSWERED ARM SAYS SO RATHER THAN ASKING FOR A CHOICE. The two lock reasons
@@ -37,7 +37,7 @@
 // until they had configured one — a mandatory setup flow assembled out of a rule
 // written for a different flow.
 //
-// AND IT RESOLVES NO OPENING OF ITS OWN. The collaboration command raises a `resume`
+// AND IT RESOLVES NO OPENING OF ITS OWN. The remote-access command raises a `resume`
 // activation and the walkthrough resolves it; this file decides nothing about where a
 // walkthrough starts beyond which of the three openings was asked for. It used to pick
 // the step at press time from the flow's snapshot, and the flow's window triggers
@@ -111,7 +111,7 @@ const PROVIDERS_COMMAND_ID = "onboarding.setUpProviders";
 /**
  * What _Set up providers_ opens at. A constant: that command names its own step.
  *
- * The collaboration command raises `RESUME_OPENING` instead, because where it opens
+ * The remote-access command raises `RESUME_OPENING` instead, because where it opens
  * depends on where this node already is — a reading rather than a decision this file
  * can make in advance, and one the walkthrough performs.
  */
@@ -243,7 +243,7 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
     registerConsoleCommands([
       {
         id: OPEN_COMMAND_ID,
-        title: "Set up collaboration",
+        title: "Set up remote access",
         group: "Setup",
         keywords: ["onboarding", "relay", "first run", "telemetry"],
         run: () => {

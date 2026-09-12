@@ -42,7 +42,7 @@ afterEach(() => {
 });
 
 /** A scenario that scripts nothing: the growth overrides are what these cases drive. */
-export const SCENARIO: ConsoleScenario = unscriptedScenario("collaboration-notifications-test");
+export const SCENARIO: ConsoleScenario = unscriptedScenario("notifications-test");
 
 export const SERVED_USER: CallerUserOutcome = {
   status: "served",

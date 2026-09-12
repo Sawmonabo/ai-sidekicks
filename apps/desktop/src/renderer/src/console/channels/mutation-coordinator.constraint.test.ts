@@ -1,4 +1,4 @@
-// Which methods a collaboration mutation may name, and where that answer comes from.
+// Which methods a channel mutation may name, and where that answer comes from.
 //
 // A SUITE OF ITS OWN BESIDE `mutation-coordinator.test.ts` because it is a different
 // subject: that file holds the single-flight rule and the keyed refusal, and this one
@@ -10,7 +10,7 @@
 // union written at the coordinator, which made two closed declarations of which
 // methods are writes: the store's tuple, held to the daemon's own `mutating: true`
 // registrations by a gate, and a union in this family that nothing held to anything.
-// They could disagree about whether a verb is a write, and adding a collaboration
+// They could disagree about whether a verb is a write, and adding a channel
 // mutation meant editing the classification twice.
 //
 // THE TYPE CANNOT BE ENUMERATED AT RUN TIME, so the two halves are asserted in the two
@@ -32,7 +32,7 @@ import { describe, expect, it } from "vitest";
 import { DAEMON_REPLY_REFUSAL_ORIGIN, heldIdAsWireId, type DaemonReply } from "../bridge/index.js";
 import { refuse } from "../core/index.js";
 import { MUTATING_DAEMON_METHODS } from "../store/index.js";
-import type { CollaborationMutation, CollaborationMutationMethod } from "./mutation-coordinator.js";
+import type { ChannelMutation, ChannelMutationMethod } from "./mutation-coordinator.js";
 
 /**
  * Every method the constraint admits, each one held to it by `satisfies`.
@@ -60,12 +60,12 @@ const ADMITTED_METHODS = [
   "repo.worktreeRetire",
   "session.create",
   "providerAccount.probe",
-] as const satisfies readonly CollaborationMutationMethod[];
+] as const satisfies readonly ChannelMutationMethod[];
 
 /** A queue-item id the wire's branded scalars accept. */
 const QUEUE_ITEM_ID = "019b7920-0001-7000-8000-000000000001";
 
-describe("the collaboration mutation constraint", () => {
+describe("the channel mutation constraint", () => {
   it("admits exactly the mutating methods the call door binds", () => {
     // The partition: what the constraint admits, plus the writes the registry does not
     // bind, is the authoritative tuple exactly. A verb added to that tuple fails here
@@ -77,8 +77,8 @@ describe("the collaboration mutation constraint", () => {
   it("admits no read, which is what the identity above rests on — the control", () => {
     // Without this the partition would hold just as well for a roster that had let a
     // read in: the two lists would still be equal, and every read on it would become a
-    // collaboration mutation. The roster's own suite next door holds that line from the
-    // registry's side; this is the collaboration family asserting it depends on it.
+    // channel mutation. The channel registry's own suite next door holds that line from the
+    // registry's side; this is the channels family asserting it depends on it.
     expect(MUTATING_DAEMON_METHODS.length).toBeGreaterThan(0);
     expect([...MUTATING_DAEMON_METHODS] as readonly string[]).not.toContain("session.read");
   });
@@ -96,7 +96,7 @@ describe("the collaboration mutation constraint", () => {
     // `queueItemId` off it and answering the bound response shape compiles only while
     // the registry binds one. A method the registry did not bind would be an error at
     // the type argument, which is the case below.
-    const cancelQueued: CollaborationMutation<"run.queueCancel"> = async (request) =>
+    const cancelQueued: ChannelMutation<"run.queueCancel"> = async (request) =>
       await Promise.resolve({
         status: "served",
         value: { queueItemId: request.queueItemId, state: "canceled" },
@@ -125,21 +125,21 @@ describe("the collaboration mutation constraint", () => {
 describe("the constraint's type-level refusals", () => {
   it("refuses a read the registry binds", () => {
     // @ts-expect-error TS1360: Type '"session.read"' does not satisfy the expected
-    // type 'CollaborationMutationMethod'. Deleting the directive yields exactly that
+    // type 'ChannelMutationMethod'. Deleting the directive yields exactly that
     // error rather than TS2578, which is what makes this a control and not a comment:
     // a read bound here would hand the door no cancellation signal and look identical
     // to a write that deliberately carries none.
-    const read = "session.read" satisfies CollaborationMutationMethod;
+    const read = "session.read" satisfies ChannelMutationMethod;
 
     expect(read).toBe("session.read");
   });
 
   it("refuses a verb neither half of the intersection holds", () => {
     // @ts-expect-error TS1360: Type '"driver.applyIntervention"' does not satisfy the
-    // expected type 'CollaborationMutationMethod'. The door binds no schema for it and
+    // expected type 'ChannelMutationMethod'. The door binds no schema for it and
     // the store no longer calls it a write — it was on the roster naming a method this
     // console cannot call, which is why a control disabled for it disabled nothing.
-    const unbound = "driver.applyIntervention" satisfies CollaborationMutationMethod;
+    const unbound = "driver.applyIntervention" satisfies ChannelMutationMethod;
 
     expect(unbound).toBe("driver.applyIntervention");
   });
@@ -147,8 +147,8 @@ describe("the constraint's type-level refusals", () => {
   it("negative control: two bound writes are admitted", () => {
     // Without this, a constraint that had collapsed to `never` would satisfy both
     // refusals above and refuse every write just as quietly.
-    const cancel = "run.queueCancel" satisfies CollaborationMutationMethod;
-    const retire = "repo.worktreeRetire" satisfies CollaborationMutationMethod;
+    const cancel = "run.queueCancel" satisfies ChannelMutationMethod;
+    const retire = "repo.worktreeRetire" satisfies ChannelMutationMethod;
 
     expect([cancel, retire]).toStrictEqual(["run.queueCancel", "repo.worktreeRetire"]);
   });

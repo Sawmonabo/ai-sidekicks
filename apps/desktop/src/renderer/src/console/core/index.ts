@@ -21,11 +21,9 @@ export { ForwardingConsoleClock } from "./forwarding-clock.js";
 // with a rationale each."
 //
 // ONE HOME MEANS ONE HOME, AND A DIRECTORY IS A HOME. The home used to say a view
-// family adds its own module beside its subtree, and four families took that licence
-// — `agents/constants.ts`, `collaboration/constants.ts`, `sessions/bounds.ts`,
-// `settings/constants.ts` — so a cap audit's answer depended on which of five places
-// it looked in, and a bound was spelled `constants` in three of them and `bounds` in
-// the fourth. Every bound lives in `core/constants/` now, and the config
+// family adds its own module beside its subtree, and four families took that licence,
+// so a cap audit's answer depended on which of five places it looked in, and a bound
+// was spelled `constants` in three of them and `bounds` in the fourth. Every bound lives in `core/constants/` now, and the config
 // single-sourcing rule in `apps/desktop/AGENTS.md` is what rejects a second home.
 //
 // ONE MODULE PER CONCERN, named for who spends it, appended within a module. The home
@@ -81,7 +79,7 @@ export {
   POSITION_SIBLING_OBSERVER_CAP,
   RELAYED_TOOL_CALL_ROW_CAP,
 } from "./constants/browser-caps.js";
-export { AGENT_RUNS_NAMED_CAP } from "./constants/collaboration-caps.js";
+export { AGENT_RUNS_NAMED_CAP } from "./constants/channels-caps.js";
 export {
   DIFF_FILE_LIST_SCROLL_THRESHOLD,
   DIFF_INTRALINE_CACHE_ENTRY_CAP,
@@ -234,7 +232,7 @@ export {
 export { consoleLedgerWindows, type LedgerWindowReading } from "./ledger-window-diagnostics.js";
 
 // The one keyed-record rebuild. At the floor because its readers are `settings/` and
-// `collaboration/`, two VIEW families, and a view family never imports another — so the
+// `channels/`, two VIEW families, and a view family never imports another — so the
 // floor is the only home either could have taken it from.
 export { withoutKey } from "./keyed-record.js";
 // The registry classes leave through this door; the two symbols only their own

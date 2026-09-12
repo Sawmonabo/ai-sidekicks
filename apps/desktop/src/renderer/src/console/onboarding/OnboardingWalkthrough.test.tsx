@@ -490,7 +490,7 @@ describe("leaving the provider step", () => {
 
 describe("where a resume activation opens", () => {
   it("opens at the first step the daemon says is unresolved, not at the first step", async () => {
-    // The regression itself. The collaboration command fires before this window has
+    // The regression itself. The remote-access command fires before this window has
     // necessarily read anything, so a step chosen at press time was chosen from a
     // snapshot reporting nothing done — `relay`, on a node that had settled it.
     const container = await mountAt(RESUME_OPENING, bridgeWithStepsDone("relay"));

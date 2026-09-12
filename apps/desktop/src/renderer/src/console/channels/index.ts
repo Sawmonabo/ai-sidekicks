@@ -1,9 +1,9 @@
-// The collaboration subtree's door.
+// The channels subtree's door.
 //
 // Channels — the sidebar section this subtree fills — plus the two stylesheets it
 // renders through, imported here and nowhere else so a section can never reach a
 // screen without them and the bundler sees one edge into each sheet. The channels
-// sub-family carries its own sheets; `collaboration.css` holds the shell the section
+// sub-family carries its own sheets; `sections.css` holds the shell the section
 // takes and the live line the family draws itself.
 //
 // WHAT IS NOT HERE

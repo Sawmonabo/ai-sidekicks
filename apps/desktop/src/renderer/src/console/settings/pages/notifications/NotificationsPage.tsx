@@ -63,7 +63,7 @@ import { StoredPreferences } from "./StoredPreferences.js";
 import { useStoredAttentionPreferences } from "./stored-attention-preferences.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
-const OWNER = "collaboration-settings-notifications";
+const OWNER = "settings-notifications";
 
 /** The one key this page spends. Named once so the row and its note cannot drift. */
 const OS_TOAST_MUTE_KEY = "notifications.osToastsMuted";

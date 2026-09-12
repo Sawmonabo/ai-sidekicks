@@ -57,7 +57,7 @@ import { SIDEKICK_DEFINITIONS_SECTION } from "./agents/sidekick-definitions-sect
 import type { SettingsPageRegistrar } from "./settings/settings-page-registry.js";
 
 /** The lane that owns this registration, so an unfilled section names someone. */
-const OWNER = "collaboration-settings-sidekicks";
+const OWNER = "settings-sidekicks";
 
 /**
  * Claim the sidekicks section.

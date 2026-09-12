@@ -70,7 +70,7 @@ export interface OnboardingActivation {
    * Which step this activation opens at, or `RESUME_OPENING` for wherever this node
    * has got to.
    *
-   * THE TWO GROUP-B OPENINGS NAME THEIR STEP and the collaboration one does not, and
+   * THE TWO GROUP-B OPENINGS NAME THEIR STEP and the remote-access one does not, and
    * that asymmetry is the point: the first two are about the provider step whatever
    * the node has settled, and the third is about the node. Resolving the third into a
    * step HERE would resolve it against whatever the flow's snapshot happened to hold
@@ -121,13 +121,13 @@ export const onboardingActivation: OnboardingActivationSignal = new OnboardingAc
  * them is edited.
  *
  * A RESUME OPENING IS GROUP A'S, and that is a reading of the same fact rather than
- * an exception to it: the collaboration entry point is the only opening that resumes,
+ * an exception to it: the remote-access entry point is the only opening that resumes,
  * and it is the one the non-dismissible rule is written for. Deciding it here rather
  * than after the read is what keeps the lock answerable on the frame the dialog opens
  * on.
  *
  * WHY IT IS ASKED AT ALL. The walkthrough is non-dismissible until the relay choice is
- * made, and that rule is about the flow an outbound invite triggers. Two of the three
+ * made, and that rule is about the flow that needs a relay before it can proceed. Two of the three
  * openings are group B's — the _Set up providers_ command and the post-refusal
  * activation, both of which name the provider step — and those are offered and never
  * demanded, reached after a refusal that has already happened. Locking those behind an

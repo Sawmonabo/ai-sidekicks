@@ -290,7 +290,7 @@ export class AgentConsoleModels {
  * models whose reads are bound to the transport and the projection that were just
  * retired — and the binding column dispatched through the superseded bridge before
  * the effect installed the replacement. `seats/session-subject.ts` owns the
- * comparison, because the collaboration family's holder had written the same guard
+ * comparison, because the channels family's holder had written the same guard
  * with the same defect and two copies of a predicate drift.
  */
 export function useAgentConsoleModels(

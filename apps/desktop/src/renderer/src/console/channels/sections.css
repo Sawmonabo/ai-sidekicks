@@ -1,4 +1,4 @@
-/* What the collaboration family SHARES, and the live line it draws itself.
+/* What the channels family SHARES, and the live line it draws itself.
  *
  * The channels sub-family carries its own sheets — `channels/channels.css` and
  * `channels/create-channel.css`. What is left here is the shape neither owns: the
@@ -20,7 +20,7 @@
  *     list has no gaps in it.
  */
 
-/* The collaboration family's own styles: channels and the live line.
+/* The channels family's own styles: channels and the live line.
  *
  * Hand-authored composition over generated values, like every other console sheet —
  * no literal colour below, and the only literal lengths are the hairlines that

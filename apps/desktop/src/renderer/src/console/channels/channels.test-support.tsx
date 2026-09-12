@@ -101,7 +101,7 @@ export function loaded(
 }
 
 /** The scenario id every bridge below plays under. Named once; it rides every refusal. */
-const SCENARIO_ID = "collaboration-channels-test";
+const SCENARIO_ID = "channels-test";
 
 /** How a case wants its bridge to answer: which script it plays. */
 export interface ChannelsBridgeOptions {

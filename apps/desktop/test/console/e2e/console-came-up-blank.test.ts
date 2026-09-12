@@ -124,7 +124,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
       //
       // IT IS THE HARNESS'S ADMISSION REFUSAL, AND NO LONGER ITS RESERVED ARM. Every
       // previous revision of this probe pointed at a destination nobody owned — off
-      // `#/settings` when the collaboration family took it, off `#/workflows` when the
+      // `#/settings` when the channels family took it, off `#/workflows` when the
       // workflows family took that, off `#/window/timeline/…` once the ledger claimed
       // the last unowned SURFACE slot, and then one layer down at a pane kind the deck
       // declared and no family rendered. That last address is gone too: `registeredPaneKinds()`

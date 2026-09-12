@@ -264,7 +264,7 @@ export { WindowAbsences } from "./absence/WindowAbsences.js";
 // No marker: `InlineRefusal` has its consumers — `seats/pane/ConsolePaneChrome.tsx`, whose
 // kind-narrowing adapter renders it where a pane body was mounted at another kind's
 // address, and the composer, sidebar, runs, approvals, inspector, settings,
-// collaboration, sessions, and agents surfaces, which render a row-scoped refusal
+// channels, sessions, and agents surfaces, which render a row-scoped refusal
 // through it — so a surviving tag would fail the run under
 // `--treat-tag-hints-as-errors`.
 export { InlineRefusal } from "./refusal/InlineRefusal.js";

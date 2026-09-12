@@ -9,7 +9,7 @@ import type { ConsoleBridge } from "../bridge/index.js";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { SessionStore } from "../store/index.js";
-import { CollaborationSessionModelHolder, useSessionModels } from "./session-models.js";
+import { ChannelSessionModelHolder, useSessionModels } from "./session-models.js";
 import {
   LeaseProbe,
   SUBSCRIPTIONS_PER_MODEL_SET,
@@ -21,7 +21,7 @@ describe("the sidebar's models — a set is handed out only under its own sessio
   /** Every frame the probe committed, in order, with the store each one was handed. */
   function switchBetweenOpenSessions(): readonly FramePairing[] {
     const counted = countedFixtureBridge("session-switch-a");
-    const holder = new CollaborationSessionModelHolder();
+    const holder = new ChannelSessionModelHolder();
     const frames: FramePairing[] = [];
     const record = (pairing: FramePairing): void => {
       frames.push(pairing);
@@ -83,7 +83,7 @@ describe("the sidebar's models — the exact bridge and store they answer for", 
     before: { readonly bridge: ConsoleBridge; readonly sessionStore: SessionStore },
     after: { readonly bridge: ConsoleBridge; readonly sessionStore: SessionStore },
   ): readonly (ConsoleBridge | undefined)[] {
-    const holder = new CollaborationSessionModelHolder();
+    const holder = new ChannelSessionModelHolder();
     const answered: (ConsoleBridge | undefined)[] = [];
     function SubjectProbe(props: {
       readonly bridge: ConsoleBridge;
@@ -118,7 +118,7 @@ describe("the sidebar's models — the exact bridge and store they answer for", 
   it("hands out nothing on the frame where the store was rebuilt under one session", () => {
     const bridge = countedFixtureBridge("session-store-rebuild").bridge;
     const rebuilt = new SessionStore({ sessionId: "session-rebuilt" });
-    const holder = new CollaborationSessionModelHolder();
+    const holder = new ChannelSessionModelHolder();
     const answered: (SessionStore | undefined)[] = [];
     function StoreProbe(props: { readonly sessionStore: SessionStore }): React.JSX.Element {
       const models = useSessionModels(holder, bridge, props.sessionStore);
@@ -155,7 +155,7 @@ describe("the sidebar's models — the exact bridge and store they answer for", 
     // The holder's own cache has to agree with the render guard: an `acquire` that
     // joined on the session id would hand back a set the guard then refuses to
     // render, and the section would sit at `not-loaded` for the window's life.
-    const holder = new CollaborationSessionModelHolder();
+    const holder = new ChannelSessionModelHolder();
     const sessionStore = new SessionStore({ sessionId: "session-id-only" });
     const retiredBridge = countedFixtureBridge("session-id-only-a");
     const replacementBridge = countedFixtureBridge("session-id-only-b");

@@ -41,7 +41,7 @@ export const ACTIVITY_FEED_ORIGIN = "activity-feed";
  * The session's activity, read and folded into one registry.
  *
  * A class with private fields: it owns a subscription to its own read, the applied
- * set it diffs against, and therefore a teardown. Constructed by the collaboration
+ * set it diffs against, and therefore a teardown. Constructed by the channels
  * holder and started by it, exactly as the channel directory is.
  */
 export class ActivityFeed {

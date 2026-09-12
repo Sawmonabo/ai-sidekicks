@@ -33,7 +33,7 @@ const CONFIRM_TONE_CLASSES: Readonly<Record<ConfirmationTone, string>> = {
  * WHY IT IS A PRIMITIVE AND NOT A SETTINGS COMPONENT. Two families were composing the
  * same eight Base UI parts — root, portal, backdrop, popup, title, description, and
  * the two closes — and a view family may not reach into another's, so the settings
- * copy could not import the collaboration one and each carried its own. The parts are
+ * copy could not import the channels one and each carried its own. The parts are
  * the same in both because the pattern is: what differs is the copy and which row the
  * trigger sits in. So the composition lives here, at the lowest family both callers
  * already import, and each caller keeps only what is its own.

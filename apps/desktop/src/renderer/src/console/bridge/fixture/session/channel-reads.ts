@@ -56,7 +56,7 @@ import type { ScenarioEngine } from "../../scenario/runtime/index.js";
  * below is keyed on the same names, so an operation implemented here and left out of
  * the set — or named in the set and never implemented — is a compile error.
  */
-export const FIXTURE_SERVED_COLLABORATION_OPERATION_IDS: readonly [
+export const FIXTURE_SERVED_CHANNEL_OPERATION_IDS: readonly [
   "channelCreate",
   "channelMute",
   "channelUnmute",
@@ -73,8 +73,7 @@ export const FIXTURE_SERVED_COLLABORATION_OPERATION_IDS: readonly [
 ];
 
 /** One operation this module answers. Derived, so the set has exactly one home. */
-export type FixtureServedCollaborationOperationId =
-  (typeof FIXTURE_SERVED_COLLABORATION_OPERATION_IDS)[number];
+export type FixtureServedChannelOperationId = (typeof FIXTURE_SERVED_CHANNEL_OPERATION_IDS)[number];
 
 /**
  * How the terminal-control holder read is keyed in a script.
@@ -97,10 +96,10 @@ export const TERMINAL_CONTROL_HOLDER_READ_CALL = "growth:terminalControlHolderRe
  * create recorded. A second instance would be a second fixture answering for one
  * session's channels, and the fold's rows would name counts no act had produced.
  */
-export function fixtureCollaborationReads(
+export function fixtureChannelReads(
   engine: ScenarioEngine,
   channelLifecycle: FixtureChannelLifecycle,
-): Pick<GrowthPort, FixtureServedCollaborationOperationId> {
+): Pick<GrowthPort, FixtureServedChannelOperationId> {
   return {
     // The CREATE is scoped here and answered there. The scoping is this module's
     // because it is the same guard the two reads take; the act — the receipt, and the
@@ -172,7 +171,7 @@ function namesPlayedSession(
  * scripted seam and the unscripted refusal stay in one order that no handler can get
  * half right.
  */
-async function answerSessionScopedRead<TOperationId extends FixtureServedCollaborationOperationId>(
+async function answerSessionScopedRead<TOperationId extends FixtureServedChannelOperationId>(
   engine: ScenarioEngine,
   call: string,
   operationId: TOperationId,

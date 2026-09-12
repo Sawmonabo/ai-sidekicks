@@ -10,9 +10,9 @@ import { describe, expect, it } from "vitest";
 
 import { registerChannelsSections } from "./sections.js";
 import { sectionsRegisteredForTest } from "./sections.test-support.js";
-import { CollaborationSessionModelHolder } from "./session-models.js";
+import { ChannelSessionModelHolder } from "./session-models.js";
 
-describe("collaboration sidebar sections", () => {
+describe("channels sidebar sections", () => {
   it("fills exactly the channels section", () => {
     expect(sectionsRegisteredForTest().registeredSectionIds()).toStrictEqual(["channels"]);
   });
@@ -40,11 +40,11 @@ describe("collaboration sidebar sections", () => {
   });
 });
 
-describe("collaboration session models — the holder", () => {
+describe("channels session models — the holder", () => {
   it("releases nothing it never built", () => {
     // `dispose` before any session is asked for is the teardown path a sidebar that
     // never rendered takes, and it must not throw on the way out.
-    const holder = new CollaborationSessionModelHolder();
+    const holder = new ChannelSessionModelHolder();
     expect(() => {
       holder.dispose();
     }).not.toThrow();

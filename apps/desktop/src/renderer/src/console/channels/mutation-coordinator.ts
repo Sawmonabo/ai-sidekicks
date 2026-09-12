@@ -74,17 +74,17 @@ import {
 } from "../bridge/index.js";
 
 /** The subsystem name every refusal this module raises carries. */
-export const COLLABORATION_REFUSAL_ORIGIN = "collaboration";
+export const CHANNELS_REFUSAL_ORIGIN = "channels";
 
 /**
- * One method a collaboration mutation may name.
+ * One method a channel mutation may name.
  *
  * DERIVED FROM THE AUTHORITATIVE SET AND DECLARED NOWHERE. The read-versus-mutation
  * line is `store/shell/shell-mutation-block.ts`' to draw — that tuple is what a supervisor's
  * condition closes, and it is held to the daemon's own `mutating: true` registrations
  * by a gate — so this family derives from its exported type rather than repeating
  * method literals. Written as a literal union here instead, the two declarations could
- * disagree about whether a verb is a write, and adding a collaboration mutation would
+ * disagree about whether a verb is a write, and adding a channel mutation would
  * mean editing the classification twice.
  *
  * Intersected with the call door's own registry key type, so the constraint carries
@@ -98,7 +98,7 @@ export const COLLABORATION_REFUSAL_ORIGIN = "collaboration";
  * whatever sits behind it. `controlPlane.call` is deliberately not used — it would
  * open a second seam this client does not have.
  */
-export type CollaborationMutationMethod = MutatingDaemonMethod & ConsoleDaemonMethod;
+export type ChannelMutationMethod = MutatingDaemonMethod & ConsoleDaemonMethod;
 
 /**
  * The code a press refused for arriving while another mutation is unsettled.
@@ -129,7 +129,7 @@ export type WireMutation<TRequest, TResponse> = (
  *
  * The request and the response are READ OFF the door's registry rather than declared
  * at a surface: a dispatch composing the wrong payload for its method does not
- * compile, and the method itself is held to {@link CollaborationMutationMethod}, so a
+ * compile, and the method itself is held to {@link ChannelMutationMethod}, so a
  * read cannot be bound here by mistake.
  *
  * The DISPATCH stays at the surface that names one method, and that placement is the
@@ -139,7 +139,7 @@ export type WireMutation<TRequest, TResponse> = (
  * deliberate absence become the same line. One
  * method per call site is what keeps the deliberate absence below legible as one.
  */
-export type CollaborationMutation<MethodName extends CollaborationMutationMethod> = WireMutation<
+export type ChannelMutation<MethodName extends ChannelMutationMethod> = WireMutation<
   DaemonRequestOf<MethodName>,
   DaemonResponseOf<MethodName>
 >;
@@ -363,7 +363,7 @@ export class WireMutationCoordinator<TRequest, TResponse> {
    */
   #refuseForUnsettled(unsettledKey: string): ConsoleRefusal {
     return refuse(
-      COLLABORATION_REFUSAL_ORIGIN,
+      CHANNELS_REFUSAL_ORIGIN,
       MUTATION_IN_FLIGHT_CODE,
       `${this.#describeWhat} was not applied. A change to ${unsettledKey} is still being applied, and only one runs at a time — wait for it to settle, then press again.`,
     );
@@ -391,7 +391,7 @@ export function useWireMutation<TRequest, TResponse>(
  * slate row, and the document that owes the wire. This is where the second becomes the
  * first — and it is a WIDENING and not a translation: a `GrowthUnavailable` already IS
  * a `ConsoleRefusal`, so nothing is paraphrased on the way through and the surface
- * renders the port's own code and sentence rather than a collaboration-scoped
+ * renders the port's own code and sentence rather than a channel-scoped
  * restatement of one.
  *
  * The operation id is a member of the growth registry, so the request and the response

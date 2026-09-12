@@ -304,7 +304,7 @@ describe("registerMenuSection", () => {
     menu.registerMenuSection({
       id: "onboarding",
       label: "Session",
-      items: [{ label: "Set up collaboration" }],
+      items: [{ label: "Set up remote access" }],
     });
     menu.installApplicationMenu();
 

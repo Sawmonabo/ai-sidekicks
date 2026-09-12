@@ -25,7 +25,7 @@
 // renderer to make this observable.
 //
 // Each locator names a STRUCTURE only its own route mounts, and both routes have
-// shipped their surface now. The settings destination is the collaboration family's
+// shipped their surface now. The settings destination is the channels family's
 // settings frame, so its locator is that frame's own section rail; the session
 // workspace is the ledger, so its locator is the scroll container the whole surface
 // is built around. Neither was always so: each was an absence class while its

@@ -47,7 +47,7 @@ afterEach(() => {
 
 /** A scenario that scripts nothing: the growth overrides are what these cases drive. */
 export const EMPTY_SCENARIO: FixtureScenario = {
-  id: "collaboration-diagnostics-test",
+  id: "diagnostics-test",
   label: "Diagnostics, with nothing scripted",
   purpose: "Drives the diagnostics page against overridden health reads.",
   sessionId: SESSION_ID,

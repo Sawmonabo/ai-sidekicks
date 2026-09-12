@@ -51,7 +51,7 @@ import {
 } from "./daemon-controls.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
-const OWNER = "collaboration-settings-daemon";
+const OWNER = "settings-daemon";
 
 /**
  * Why both confirmation actions are refused once one dispatch has gone out.

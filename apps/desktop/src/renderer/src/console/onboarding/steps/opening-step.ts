@@ -5,7 +5,7 @@
 // now said where this node got to — and both write the same value. Two cells would
 // have to agree about which of them wins, and the answer is always the person.
 //
-// THE RESUME OPENING IS RESOLVED HERE RATHER THAN AT THE PRESS. The collaboration
+// THE RESUME OPENING IS RESOLVED HERE RATHER THAN AT THE PRESS. The remote-access
 // entry point contributes a command whose `run` fires before any state read has
 // necessarily answered, so a step chosen there is chosen from a snapshot reporting
 // nothing done — which resolves to the first step every time, on a node that may have

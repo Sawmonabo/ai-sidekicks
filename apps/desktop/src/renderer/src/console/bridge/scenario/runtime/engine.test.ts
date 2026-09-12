@@ -30,7 +30,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { BASE_STATE_CURSOR } from "../../fixture/collaboration/session-snapshot.js";
+import { BASE_STATE_CURSOR } from "../../fixture/session/session-snapshot.js";
 import { ScenarioEngine } from "./engine.js";
 import type { ConsoleScenario } from "./vocabulary.js";
 import { SessionStore } from "../../../store/index.js";

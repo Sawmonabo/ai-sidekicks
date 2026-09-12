@@ -52,4 +52,4 @@ export { createFixtureBridge } from "./call-plane/bridge.js";
 
 export { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./call-plane/served-operations.js";
 
-export { BASE_STATE_CURSOR } from "./collaboration/session-snapshot.js";
+export { BASE_STATE_CURSOR } from "./session/session-snapshot.js";

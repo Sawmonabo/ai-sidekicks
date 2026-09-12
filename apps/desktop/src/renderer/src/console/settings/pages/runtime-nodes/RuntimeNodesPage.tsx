@@ -68,7 +68,7 @@ import { Chip, Nothing } from "../../../primitives/index.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
-const OWNER = "collaboration-settings-nodes";
+const OWNER = "settings-nodes";
 
 export function RuntimeNodesPage(props: { readonly context: SettingsPageContext }): ReactNode {
   const { bridge, retainedSessionId, retainedSessionStore } = props.context;

@@ -37,7 +37,7 @@ import type { ConsoleSurfaceRegistry } from "../../seats/index.js";
 import { type ConsolePaneRegistry } from "../../seats/index.js";
 
 /** The owner string both of this body's claims carry, so a hot reload replaces. */
-const AGENT_CONSOLE_OWNER = "collaboration-agent-console";
+const AGENT_CONSOLE_OWNER = "agent-console";
 
 /**
  * Claim the `agent-console` pane kind, and wrap its body in the console's chrome.

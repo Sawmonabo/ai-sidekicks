@@ -178,7 +178,7 @@ describe("wire mutation coordinator — whose refusal it was", () => {
     const coordinator = coordinatorOver(async () => await pending.promise);
     const run = coordinator.run("subject-1", "first");
     await coordinator.run("subject-2", "second");
-    expect(coordinator.snapshot().refusalByKey["subject-2"]?.origin).toBe("collaboration");
+    expect(coordinator.snapshot().refusalByKey["subject-2"]?.origin).toBe("channels");
     pending.settle(served("applied"));
     await run;
   });
@@ -220,7 +220,7 @@ describe("wire mutation coordinator — one at a time", () => {
 
     const refusal = coordinator.snapshot().refusalByKey["subject-2"];
     expect(refusal?.code).toBe("mutation-in-flight");
-    expect(refusal?.origin).toBe("collaboration");
+    expect(refusal?.origin).toBe("channels");
     // The row still running is named, because on a ledger of many rows "one at a
     // time" without a subject is not an answer a person can act on.
     expect(refusal?.detail).toContain("subject-1");

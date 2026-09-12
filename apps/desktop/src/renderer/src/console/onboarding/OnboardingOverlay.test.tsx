@@ -221,7 +221,7 @@ describe("the window behind an open walkthrough", () => {
   });
 });
 
-describe("the collaboration entry point", () => {
+describe("the remote-access entry point", () => {
   it("resumes at the step the daemon says is unresolved rather than at the first", async () => {
     // The command's `run` fires before this window has necessarily read anything —
     // the flow's window triggers mount inside the walkthrough — so a step chosen there
@@ -244,7 +244,7 @@ describe("the collaboration entry point", () => {
 
   it("is still the group-A opening, so an unmade relay choice holds it shut", async () => {
     // The lock reads which group an activation opens, and a resume opening is the
-    // collaboration one — the flow the non-dismissible rule is written for. Deciding it
+    // remote-access one — the flow the non-dismissible rule is written for. Deciding it
     // from the sentinel rather than after the read is what keeps the lock answerable on
     // the frame the dialog opens on.
     await mount(bridgeWithNoRelayChosen());

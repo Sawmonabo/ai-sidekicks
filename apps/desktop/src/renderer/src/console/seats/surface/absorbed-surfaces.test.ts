@@ -1,12 +1,8 @@
 // The pre-console families a console surface absorbed, and the seam one is handed.
 //
-// TWO of the four families reach the screen through a console-authored surface
-// rather than through a slot of their own, so this file covers the mounts those
-// surfaces call and the guard one of them carries. The two absences are cases here
-// rather than silences: the shipped user roster drew a session's presence a
-// second time beside the collaboration family's own roster, and the shipped invite
-// acceptance prompt takes a raw token no caller in this renderer holds any more. Both
-// mounts were retired, and the published set is what says so. The guard is a CLAIM — a helper
+// BOTH families reach the screen through a console-authored surface rather than
+// through a slot of their own, so this file covers the mounts those surfaces call and
+// the guard one of them carries. The guard is a CLAIM — a helper
 // that mounted its component past the check would look identical from the outside
 // until it answered from the live daemon in a window showing fixture data. The
 // roster's half carries a different claim: it is handed the bridge's own reads, so
@@ -77,7 +73,7 @@ function centredAbsence(node: ReactNode): { type: unknown; props: Record<string,
 }
 
 /**
- * The tick the collaboration script's roster first has rows at.
+ * The tick the scenario script's roster first has rows at.
  *
  * Its first frame is empty — a session whose machines have not attached yet — and
  * the three arrive together at this one. Named here the way the fixture bridge's own
@@ -92,12 +88,10 @@ function fixtureBridge(): ConsoleBridge {
 }
 
 describe("absorbed surfaces — the families a console surface mounts", () => {
-  it("publishes mounts for two families, and none for the two it retired", () => {
-    // The application draws a session's presence in ONE place and accepts an
-    // invitation in ONE process, and this is the half of each claim a module can
-    // carry: the user roster and the invite acceptance prompt are what the
-    // frame's slot table used to call, so either mount published again is a retired
-    // surface re-entering the console through the door it left by. Every name here
+  it("publishes mounts for the two families it absorbed, and no others", () => {
+    // The published set is the claim a module can carry: a name that is not here is a
+    // surface this door does not mount, so a mount published later is a surface
+    // entering the console through a door rather than by composition. Every name here
     // belongs to one of the two absorbed families — the session probe, and the
     // runtime-node family's roster, attach flow, capability declaration and
     // mixed-version verdict. The guard's own predicate stands beside them because a

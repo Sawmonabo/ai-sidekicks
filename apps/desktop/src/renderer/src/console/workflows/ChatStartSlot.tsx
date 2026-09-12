@@ -24,10 +24,9 @@
 // adjudication. So this mount carries no channel, and a body that wanted one would
 // have to obtain it from the surface the conversation is actually on.
 //
-// NOR DOES IT CARRY ELIGIBILITY. The public role matrix — owner yes, collaborator
-// yes, runtime contributor no, viewer no — is rendered by the body BESIDE the
-// daemon's own message when a start is denied, not consulted by this mount to
-// decide whether to offer the control.
+// NOR DOES IT CARRY ELIGIBILITY. The daemon's own eligibility verdict is rendered by
+// the body BESIDE the daemon's message when a start is denied, and is not consulted by
+// this mount to decide whether to offer the control.
 
 import { WorkflowSlotMount } from "./WorkflowSlotMount.js";
 import { WORKFLOW_CHAT_START_SLOT } from "./owner-slots.js";

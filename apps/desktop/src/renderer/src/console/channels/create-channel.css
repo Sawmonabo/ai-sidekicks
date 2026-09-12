@@ -8,7 +8,7 @@
  * in either file names a class from the other, so no element is matched by both sheets
  * and the cascade cannot be reordered by moving one of them.
  *
- * It enters through `collaboration/index.ts` beside its sibling, because this
+ * It enters through `channels/index.ts` beside its sibling, because this
  * directory carries no door of its own and the family door is the owner.
  */
 

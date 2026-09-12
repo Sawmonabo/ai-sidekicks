@@ -37,7 +37,7 @@ export const SIGN_IN_ATTEMPT: ProviderAccountLoginResponse = {
 
 /** A scenario that scripts nothing: each case overrides the operation it drives. */
 const EMPTY_SCENARIO: Parameters<typeof createFixtureBridge>[0]["scenario"] = {
-  id: "collaboration-accounts-test",
+  id: "accounts-test",
   label: "Accounts, with nothing scripted",
   purpose: "Drives the account-plane calls against overridden growth operations.",
   sessionId: "session-accounts",

@@ -68,7 +68,7 @@ describe("the mutating method set", () => {
       "daemon.hello",
       // The account plane's own read, beside the probe that is not one.
       "providerAccount.list",
-      // The collaboration plane's read.
+      // The channel plane's read.
       "channel.list",
       // The repo plane's four reads, beside the seven writes that are not.
       "repo.mountRead",

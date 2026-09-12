@@ -130,7 +130,7 @@ export function registerConsoleFamilies(
   // `seats/surface/absorbed-surfaces.ts` publishes, so they reach the screen inside a
   // console-authored surface rather than beside one. The shipped user roster
   // was the last slot claimant, and it is retired rather than re-homed: it rendered
-  // presence a second time in one application, and the collaboration family renders
+  // presence a second time in one application, and the channels family renders
   // presence from the bridge the console resolved. The `workspace` slot it used to
   // hold is the LEDGER's now, claimed at that family's own seat below, so the frame
   // resolves a console-authored body there rather than a reservation.
@@ -192,7 +192,7 @@ export function registerConsoleFamilies(
   // what keeps the block a grammar a reviewer can read at a glance.
   const ledgerComposition = { workspace: Workspace };
   // The sessions destination's composition, on the same terms one line up: that
-  // surface is the collaboration family's and the composed new-session draft is the
+  // surface is the channels family's and the composed new-session draft is the
   // workspace family's, and one view family may not import another — so the root says
   // which component fills the place beside the shipped probe. Named for what it
   // MOUNTS rather than `…Composition` because a seat is one line and has to stay

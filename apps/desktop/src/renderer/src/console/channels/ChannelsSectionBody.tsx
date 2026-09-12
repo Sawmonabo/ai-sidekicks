@@ -3,7 +3,7 @@ import { useCallback } from "react";
 import { usePushDrivenRead, type SidebarSectionContext } from "../seats/index.js";
 import { useSessionDegraded } from "../store/index.js";
 import { ChannelList } from "./ChannelList.js";
-import { type CollaborationSessionModels } from "./session-models.js";
+import { type ChannelSessionModels } from "./session-models.js";
 
 /**
  * The body, mounted only once the models exist.
@@ -17,7 +17,7 @@ import { type CollaborationSessionModels } from "./session-models.js";
  */
 export function ChannelsSectionBody(props: {
   readonly context: SidebarSectionContext;
-  readonly models: CollaborationSessionModels;
+  readonly models: ChannelSessionModels;
 }): React.JSX.Element {
   const { context, models } = props;
   const { bridge, sessionStore } = context;

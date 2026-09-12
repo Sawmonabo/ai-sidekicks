@@ -32,7 +32,7 @@ import { renderOwnerSlotPage } from "../../owner-slot-page.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
-const OWNER = "collaboration-settings-mcp";
+const OWNER = "settings-mcp";
 
 /**
  * What this page may never put on screen.

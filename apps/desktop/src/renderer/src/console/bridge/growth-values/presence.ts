@@ -5,7 +5,7 @@
 //
 // ONE FIELD, AND IT IS RUN-KEYED. An agent's activity travels on the `activity.runs`
 // map, edge-triggered by the owning daemon rather than timed by a receiver, and the
-// snapshot below carries that one list. `collaboration/activity-model.ts` holds the
+// snapshot below carries that one list. `channels/activity-model.ts` holds the
 // clear rule the edge implies.
 //
 // NOTHING HERE CARRIES CONTENT. The wire forbids it, so there is no member for it to
@@ -32,7 +32,7 @@ export interface GrowthAgentActivityReading {
  * A SNAPSHOT AND NOT A DELTA FEED, which is the same discipline the runtime-node
  * roster read keeps: Awareness state is a map each publisher owns outright, so the honest thing
  * to hand a consumer is what that map says now. The console diffs it into its own
- * registry (`collaboration/activity-feed.ts`), which is where the clear rule lives —
+ * registry (`channels/activity-feed.ts`), which is where the clear rule lives —
  * and a wire that emitted edges instead would make every consumer responsible for
  * reconstructing the map from a stream it might have joined late.
  *

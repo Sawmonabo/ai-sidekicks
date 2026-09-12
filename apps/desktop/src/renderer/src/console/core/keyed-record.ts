@@ -2,13 +2,13 @@
 //
 // The rule every store snapshot in the console needs and three of them had each written
 // for themselves — `settings/shared/shell-preferences/shell-preference-snapshot.ts` as an
-// exported generic, `collaboration/mutation-coordinator.ts` as a private one narrowed to
+// exported generic, `channels/mutation-coordinator.ts` as a private one narrowed to
 // its own refusal map, and the schema-form answer module as a third spelling nothing
 // ever called. One rule, three bodies, and no instrument holding them together, which
 // is what the shared-code rule in `apps/desktop/AGENTS.md` forbids.
 //
 // IT LIVES AT THE FLOOR AND NOT IN THE FAMILY THAT NEEDED IT FIRST. Its readers are
-// `settings/` and `collaboration/`, two VIEW families, and a view family never imports
+// `settings/` and `channels/`, two VIEW families, and a view family never imports
 // another — so neither could have taken the other's copy however the first was written.
 // `core/` is the only home both can reach, and this rule needs nothing to sit there: no
 // store type, no schema, no React, no clock.

@@ -1,7 +1,7 @@
 // What the fixture answers a WORKFLOW read with, and what it refuses to invent.
 //
 // Lifted out of `growth/growth-port.ts` beside `bridge/fixture/workflows/workflow-scope.ts`, on the
-// precedent that port set for `fixture/collaboration/session-directory.ts` and
+// precedent that port set for `fixture/session/session-directory.ts` and
 // `growth/scripted-answer.ts`: the four handlers here and the reasoning that governs
 // them are one unit with one subject, and holding them in the port took it past the
 // package's split threshold. The port keeps the DECISION — which operations are

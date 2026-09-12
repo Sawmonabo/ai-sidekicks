@@ -85,7 +85,7 @@ export { TERMINAL_SCENARIO_CAST } from "./cast.js";
 export const TERMINAL_SCENARIO_ID = "terminal";
 
 const OWNER = TERMINAL_SCENARIO_CAST.owner;
-const COLLABORATOR = TERMINAL_SCENARIO_CAST.collaborator;
+const OTHER_DEVICE = TERMINAL_SCENARIO_CAST.otherDevice;
 const AGENT = TERMINAL_SCENARIO_CAST.agent;
 
 export const TERMINAL_SCENARIO: ConsoleScenario = {
@@ -94,7 +94,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
   purpose:
     "The session's one shared shell moving between two people and an agent run — the run queued, started, taken on the agent path, and completed, so the run-idle release follows the acquisition it releases — reaching all five transition reasons, ending held, then losing its host so the unheld-and-read-only degraded state is reachable. The output stream is absent until the terminal pane's renderer surface is registered.",
   sessionId: TERMINAL_SCENARIO_SESSION_ID,
-  userIdsInJoinOrder: [OWNER, COLLABORATOR, AGENT],
+  userIdsInJoinOrder: [OWNER, OTHER_DEVICE, AGENT],
   // The owner is the person at this window. The lease line's `held-by-me` arm —
   // and the handback it offers — is reachable only when the caller read names
   // the holder, and this scenario ends with the owner holding the degraded
@@ -181,18 +181,18 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     terminalLeaseTransitionBeat({
       atMs: 1200,
       sequence: 7,
-      holderUserId: COLLABORATOR,
+      holderUserId: OTHER_DEVICE,
       previousHolderUserId: null,
       reason: "taken",
-      actorId: COLLABORATOR,
+      actorId: OTHER_DEVICE,
     }),
     terminalLeaseTransitionBeat({
       atMs: 1800,
       sequence: 8,
       holderUserId: null,
-      previousHolderUserId: COLLABORATOR,
+      previousHolderUserId: OTHER_DEVICE,
       reason: "auto_released_disconnect",
-      actorId: COLLABORATOR,
+      actorId: OTHER_DEVICE,
     }),
     terminalLeaseTransitionBeat({
       atMs: 2300,

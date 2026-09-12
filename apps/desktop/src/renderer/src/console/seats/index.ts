@@ -523,11 +523,8 @@ export { subscribeDaemonEvent } from "./read/wire-access.js";
 //
 // In this family because a mount reads a bridge source, two primitives and the console's
 // own bridge, and nothing above `bridge/`, and on this door because the surfaces that
-// mount them are view families. The other two shipped families are absent on purpose:
-// the user roster rendered a session's presence a second time beside the
-// collaboration family's own roster, and the invite acceptance prompt is mounted by
-// nothing, its one prop being the raw invite token the deep-link lifecycle confines to
-// the main process.
+// mount them are view families. Two pre-console families are absent because their
+// components are gone from this renderer entirely; nothing here mounts either.
 export {
   absorbedSurfaceAsks,
   renderAbsorbedAttachFlow,
@@ -558,8 +555,8 @@ export { useNodeRosterReReadTriggers } from "./node-roster/node-roster-triggers.
 // the rows that open panes, plus the fold that splits a section's rows into groups.
 //
 // On this door and not in any family's subtree because three DIFFERENT families own the
-// eight section bodies — the composer family's `runs` and `approvals`, the collaboration
-// family's `channels`, `agents` and `members`, the repos family's `repos` and
+// eight section bodies — the composer family's `runs` and `approvals`, the channels
+// family's `channels` and `agents`, the repos family's `repos` and
 // `artifacts` — and one view family may not import another. This is the layer that
 // already owns the sidebar-section contract, so the markup that contract implies and
 // the fold every body performs leave through the same door the contract does.

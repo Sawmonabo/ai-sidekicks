@@ -8,8 +8,8 @@
 // TWO GROUPS AND NOT ONE FLOW. Group A settles where this node relays and takes a
 // separate explicit answer about telemetry; group B tells a person which providers
 // this node can actually run. They are different questions with different terminals:
-// group A must be answered before the invite that triggered the walkthrough can go
-// out, and group B is offered and never demanded — onboarding completes with zero
+// group A must be answered before the act that triggered the walkthrough can go
+// through, and group B is offered and never demanded — onboarding completes with zero
 // registered accounts. The rail shows both because a person reaching either one arrives
 // through the same door.
 //
@@ -48,7 +48,7 @@ export type OnboardingStepId = (typeof ONBOARDING_STEP_IDS)[number];
 /**
  * The opening that means "wherever this node has got to" rather than a named step.
  *
- * A SENTINEL RATHER THAN A STEP CHOSEN AT PRESS TIME. The collaboration entry point
+ * A SENTINEL RATHER THAN A STEP CHOSEN AT PRESS TIME. The remote-access entry point
  * resumes, and where a resumed walkthrough opens is a reading of the daemon's
  * completed set — which the command that contributes it cannot have, because the
  * activation may be raised before any state read has answered. A press that picked a
@@ -89,8 +89,7 @@ export interface OnboardingStepDescriptor {
    * EXACTLY ONE STEP MAY BE LEFT UNANSWERED, and it is the provider step: it is offered
    * and never demanded, and onboarding completes with zero registered accounts. The
    * other two are not. The relay choice sits behind a modal that is non-dismissible
-   * until a choice is made or the user explicitly cancels the outbound invite that
-   * triggered it, and telemetry — which this field once called skippable — is the
+   * until a choice is made or the user explicitly cancels the act that triggered it, and telemetry — which this field once called skippable — is the
    * strictest of the three: the flow must not proceed past telemetry opt-in without an
    * explicit choice, and there is no silent default. Default-OFF is what the answer
    * defaults to, not permission to leave without giving one.

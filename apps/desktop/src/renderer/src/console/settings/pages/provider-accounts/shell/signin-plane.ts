@@ -17,7 +17,7 @@
 // layer down from the one this module exists to close.
 //
 // AND IT HOLDS NO WIRE. The two calls are handed in bound, on
-// `collaboration/mutation-coordinator.ts`'s precedent: a class that publishes a
+// `channels/mutation-coordinator.ts`'s precedent: a class that publishes a
 // snapshot AND holds a `ConsoleBridge` is a READING, and the console requires every
 // one of those to be refreshable through a scheduler and the trigger contract. This
 // is a mutation carrier — a start and a cancel are acts a person takes, not answers

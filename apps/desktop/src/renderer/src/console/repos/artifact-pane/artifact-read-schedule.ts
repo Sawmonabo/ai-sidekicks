@@ -5,7 +5,7 @@
 // reader's. Nothing here knows what a reading MEANS — the two members below that touch
 // one are abstract, and the subclass answers them.
 //
-// A BASE CLASS AND NOT A COMPOSED COLLABORATOR, on `store/act/act-controller-base.ts`'s
+// A BASE CLASS AND NOT A COMPOSED OTHER_DEVICE, on `store/act/act-controller-base.ts`'s
 // precedent and for a reason that is mechanical rather than stylistic. A READING is one
 // class that publishes what a surface reads off it AND holds the daemon connection, and
 // that same

@@ -17,7 +17,7 @@ import type {
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
 
 import { SessionStore } from "../store/index.js";
-import { CollaborationSessionModelHolder, useSessionModels } from "./session-models.js";
+import { ChannelSessionModelHolder, useSessionModels } from "./session-models.js";
 
 export const RENDER_FAILURE_MESSAGE = "this section could not render";
 
@@ -56,7 +56,7 @@ export interface FramePairing {
 export function countedFixtureBridge(sessionId: string): CountedBridge {
   const fixture = createFixtureBridge({
     scenario: {
-      id: `collaboration-session-models-${sessionId}`,
+      id: `channels-session-models-${sessionId}`,
       label: "Nothing scripted",
       purpose: "Drives the sidebar's model lifecycle against a bridge that plays no beat.",
       sessionId,
@@ -88,7 +88,7 @@ export function countedFixtureBridge(sessionId: string): CountedBridge {
 }
 
 export function LeaseProbe(props: {
-  readonly holder: CollaborationSessionModelHolder;
+  readonly holder: ChannelSessionModelHolder;
   readonly bridge: ConsoleBridge;
   readonly sessionStore: SessionStore;
   readonly onRender?: (reading: RenderPhaseReading) => void;

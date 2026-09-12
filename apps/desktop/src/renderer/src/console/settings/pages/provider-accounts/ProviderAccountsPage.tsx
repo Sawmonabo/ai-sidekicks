@@ -58,7 +58,7 @@ import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-p
 import { WireVocabulary } from "./WireVocabulary.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
-const OWNER = "collaboration-settings-accounts";
+const OWNER = "settings-accounts";
 
 /**
  * What each billing mode means beside a money figure.

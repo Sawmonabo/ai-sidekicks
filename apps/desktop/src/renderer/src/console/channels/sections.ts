@@ -2,7 +2,7 @@
 //
 // The sidebar is the composer family's and the section body is ours; the seat is
 // what lets both land without either editing the other's file. This module is the
-// only place the collaboration family writes to the sidebar board, and it writes to
+// only place the channels family writes to the sidebar board, and it writes to
 // the board it is HANDED — never to the module-scope singleton beside it, which is
 // the running console's whatever a caller composed.
 //
@@ -21,10 +21,10 @@ import { createElement } from "react";
 
 import type { SidebarSectionRegistry } from "../seats/index.js";
 import { ChannelsSection } from "./ChannelsSection.js";
-import { CollaborationSessionModelHolder } from "./session-models.js";
+import { ChannelSessionModelHolder } from "./session-models.js";
 
 /** The owner string the section registers under. */
-const COLLABORATION_SECTION_OWNER = "collaboration-sections";
+const CHANNELS_SECTION_OWNER = "channels-sections";
 
 /**
  * Fill the channels section.
@@ -36,11 +36,11 @@ const COLLABORATION_SECTION_OWNER = "collaboration-sections";
  * holder itself, and nothing in the console does.
  */
 export function registerChannelsSections(sections: SidebarSectionRegistry): void {
-  const holder = new CollaborationSessionModelHolder();
+  const holder = new ChannelSessionModelHolder();
 
   sections.register({
     id: "channels",
-    owner: COLLABORATION_SECTION_OWNER,
+    owner: CHANNELS_SECTION_OWNER,
     render: (context) => createElement(ChannelsSection, { context, holder }),
   });
 }

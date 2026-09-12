@@ -44,7 +44,7 @@ import { createStubBridge } from "@ai-sidekicks/contracts";
  *
  * The first-run scenario with its one reply rewritten, so the directory reads
  * through the shape a real scenario has. Local to this suite: the co-located
- * `collaboration/session-directory.test.ts` drives the derivation directly and this one
+ * `session/session-directory.test.ts` drives the derivation directly and this one
  * drives it through the port, which is the seam each is about.
  */
 function scenarioDeclaring(state: string): ConsoleScenario {

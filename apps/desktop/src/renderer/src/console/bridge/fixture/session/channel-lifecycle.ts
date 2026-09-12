@@ -73,7 +73,7 @@ type ChannelLifecycleMoveId = keyof typeof CHANNEL_LIFECYCLE_MOVES;
  * The call a create is scripted under.
  *
  * Named here beside the act rather than spelled where the guard next door raises its
- * refusal, so the string has one home: `collaboration-reads.ts` scopes the
+ * refusal, so the string has one home: `channel-reads.ts` scopes the
  * create to the session being played and has to name the same call this method
  * consults, and two literals would drift the day the method string moves.
  */

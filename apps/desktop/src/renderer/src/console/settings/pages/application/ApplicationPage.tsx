@@ -27,7 +27,7 @@ import { UpdatesBlock } from "./updates/UpdatesBlock.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
-const OWNER = "collaboration-settings-application";
+const OWNER = "settings-application";
 
 export function ApplicationPage(props: { readonly context: SettingsPageContext }): ReactNode {
   const { bridge, retainedSessionStore } = props.context;
