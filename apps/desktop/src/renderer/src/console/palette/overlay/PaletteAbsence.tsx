@@ -1,13 +1,12 @@
 // The palette's five kinds of nothing.
 //
-// `Spec-023 §Console Design (Meridian)` rule 8: "A renderer that collapses two of
-// these into one is wrong." The palette can be empty for five distinct reasons
-// and renders five distinct things — a skeleton while contributions are still
-// arriving, three different quiet lines (nothing registered / nothing offered
-// here / nothing matched), a red-edged row when a `when` clause failed to parse
-// and hid its command, a dotted badge when the frame has not evaluated its
-// context keys, and a clock badge while something is still being computed. An
-// empty query is NOT "no results".
+// Rule 8: a renderer that collapses two of these into one is wrong. The palette
+// can be empty for five distinct reasons and renders five distinct things — a
+// skeleton while contributions are still arriving, three different quiet lines
+// (nothing registered / nothing offered here / nothing matched), a red-edged row
+// when a `when` clause failed to parse and hid its command, a dotted badge when
+// the frame has not evaluated its context keys, and a clock badge while something
+// is still being computed. An empty query is NOT "no results".
 //
 // This is its own module rather than a block inside `PaletteOverlay.tsx` because
 // the choice between the five is a decision with an order (below), and the

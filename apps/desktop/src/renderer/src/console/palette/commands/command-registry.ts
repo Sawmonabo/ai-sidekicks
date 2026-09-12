@@ -1,11 +1,11 @@
 // The command registry — one list of every act the console offers.
 //
-// `Spec-023 §Console Design (Meridian)` §Layout grammar: "The command palette
-// has categories, recents, a scoped-context row naming what the command acts on,
-// and one matcher shared with settings search." Categories are `group`; recents
-// are `recordInvocation`; the matcher is `scoreSubsequence`, reached through
-// `command-ranking.ts` rather than re-implemented, because "one matcher" is a
-// claim that fails the moment a second surface writes its own ranking.
+// The command palette has categories, recents, a scoped-context row naming what
+// the command acts on, and one matcher shared with settings search. Categories
+// are `group`; recents are `recordInvocation`; the matcher is `scoreSubsequence`,
+// reached through `command-ranking.ts` rather than re-implemented, because "one
+// matcher" is a claim that fails the moment a second surface writes its own
+// ranking.
 //
 // TWO RULES WORTH STATING BEFORE THE CODE:
 //
@@ -18,8 +18,8 @@
 //   • ELIGIBILITY IS NEVER PROJECTED. `commandsFor` decides what the palette
 //     OFFERS, from `when` clauses the frame's own context answers; it does not
 //     decide what the daemon will permit. A command whose daemon call may be
-//     refused is still offered, and its refusal is rendered when it comes back —
-//     `Spec-023 §Console Design (Meridian)`'s "Offer, then render the refusal".
+//     refused is still offered, and its refusal is rendered when it comes back:
+//     offer, then render the refusal.
 
 import { lossyStringify } from "../../../../../shared/wire-errors.js";
 

@@ -1,12 +1,12 @@
 // The node-graph canvas's slot — two node kinds, one edge kind, and the connection
 // predicate that refuses a shape while it is being dragged rather than at save.
 //
-// OWNED BY PLAN-017. The canvas is the workflow engine's own authoring surface: the
-// entry node plus the four phase classes, the gate on a phase's outgoing shoulder,
-// the agent avatars and binding badge inside a node, the labelled back-reference,
-// and the seven shapes a connection may never complete. This console frames that
-// canvas; it does not draw one. THE SHELL DIES IN THE PLAN-017 TASK THAT MOUNTS THE
-// BODY, in the same PR as the mount.
+// OWNED BY THE WORKFLOW ENGINE. The canvas is its own authoring surface: the entry
+// node plus the four phase classes, the gate on a phase's outgoing shoulder, the
+// agent avatars and binding badge inside a node, the labelled back-reference, and
+// the seven shapes a connection may never complete. This console frames that canvas;
+// it does not draw one. THE SHELL DIES IN THE TASK THAT MOUNTS THE BODY, in the same
+// PR as the mount.
 //
 // THE RENDERING LIBRARY IS IN THE TREE, AND WHAT IT DRAWS HERE IS STILL NOT THIS
 // CANVAS. The console's library ruling adopts a graph-rendering library under named
@@ -59,8 +59,8 @@ export interface NodeGraphMount {
 }
 
 /**
- * The body Plan-017 authors: a COMPONENT this pane renders, never a function it
- * calls. `owner-slots.ts` states the reason once for all five slots.
+ * The body the workflow engine authors: a COMPONENT this pane renders, never a function
+ * it calls. `owner-slots.ts` states the reason once for all five slots.
  */
 export type NodeGraphBody = (mount: NodeGraphMount) => React.ReactNode;
 

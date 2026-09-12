@@ -3,10 +3,10 @@
 // OFFERED AND NEVER GREYED. Whether this caller may write at a scope is the daemon's
 // adjudication, and nothing here pre-empts it: every control is pressable and the
 // answer — the port's `wire-unregistered`, a daemon's typed code, a parse's reason —
-// renders under the control that asked. That is `Spec-023 §Console Design (Meridian)`
-// rule 9 applied to an act rather than to a read, and it is also the only honest shape
-// while the create is on the growth port: a console that disabled the controls would be
-// asserting an eligibility nobody asked about.
+// renders under the control that asked. That is rule 9 applied to an act rather than
+// to a read, and it is also the only honest shape while the create is on the growth
+// port: a console that disabled the controls would be asserting an eligibility nobody
+// asked about.
 //
 // THE PASTE BOX IS PART OF THE IMPORT ACT AND NOT A SEPARATE SURFACE. An import needs
 // bytes, this build has no file-open wire, and a modal for one textarea would be a

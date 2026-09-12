@@ -3,7 +3,7 @@
 //
 //   1. **The shell stands while nobody has filled it**, and says the feature has
 //      not been built — never a shape that reads as a broken one, and never a word
-//      of the governance prose the contract carries.
+//      of the ownership prose the contract carries.
 //   2. **The mount obligation is delivered.** A slot's props type is a promise
 //      about what the body receives, and a promise nothing checks is prose. Each
 //      case below supplies a body and reads back exactly what arrived.
@@ -70,15 +70,12 @@ describe("an unfilled slot is reserved, not stubbed", () => {
     expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
   });
 
-  it.each(UNFILLED_SLOTS)(
-    "%s renders none of the contract's governance prose",
-    (_name, element) => {
-      const { container } = render(element);
-      for (const slot of [WORKFLOW_RUN_DETAIL_SLOT, WORKFLOW_HUMAN_FORM_SLOT]) {
-        expect(container.textContent ?? "").not.toContain(slot.owningTask);
-      }
-    },
-  );
+  it.each(UNFILLED_SLOTS)("%s renders none of the contract's ownership prose", (_name, element) => {
+    const { container } = render(element);
+    for (const slot of [WORKFLOW_RUN_DETAIL_SLOT, WORKFLOW_HUMAN_FORM_SLOT]) {
+      expect(container.textContent ?? "").not.toContain(slot.owningTask);
+    }
+  });
 
   it("negative control: the contracts really do carry that prose, so the case is not vacuous", async () => {
     // Every contract names its owning task. If none did, the assertion above would

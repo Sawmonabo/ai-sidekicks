@@ -3,7 +3,7 @@
 //
 //   1. **The shell stands while nobody has filled it**, and says the feature has not
 //      been built — never a shape that reads as a broken one, and never a word of the
-//      governance prose the contract carries.
+//      ownership prose the contract carries.
 //   2. **The mount obligation is delivered.** The slot's props type is a promise
 //      about what the body receives, and a promise nothing checks is prose.
 //   3. **The session travels even when there is none.** This is the required-carrying-
@@ -30,7 +30,7 @@ describe("the conversational start is reserved, not stubbed", () => {
     expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
   });
 
-  it("renders none of the contract's governance prose", () => {
+  it("renders none of the contract's ownership prose", () => {
     const { container } = render(<ChatStartSlot sessionId={PROBE_SESSION_ID} />);
     expect(container.textContent ?? "").not.toContain(WORKFLOW_CHAT_START_SLOT.owningTask);
   });

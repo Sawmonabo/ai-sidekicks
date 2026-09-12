@@ -12,12 +12,12 @@
 // that stayed above a channel forever would be the one piece of chrome a person cannot
 // dismiss reporting a thing that already ended.
 //
-// THERE IS A PICK BECAUSE THERE CAN BE MORE THAN ONE. `Spec-017 §Chat-start surface
-// (SA-38)` registers `channelId` as PROVENANCE — the channel a start was issued from,
-// never an input to the adjudication and never a uniqueness key — so a room that
-// started a second run while its first was still going holds two, and the fold answers
-// with the head of the order rather than with "the" run. Anything above this that reads
-// the answer as a uniqueness claim is reading a guarantee no wire makes.
+// THERE IS A PICK BECAUSE THERE CAN BE MORE THAN ONE. The chat-start surface registers
+// `channelId` as PROVENANCE — the channel a start was issued from, never an input to
+// the adjudication and never a uniqueness key — so a room that started a second run
+// while its first was still going holds two, and the fold answers with the head of the
+// order rather than with "the" run. Anything above this that reads the answer as a
+// uniqueness claim is reading a guarantee no wire makes.
 //
 // THE COUNT IS PHASES COMPLETED OF PHASES KNOWN, and it is deliberately not a
 // percentage. The engine's phase list is what the run read carries; a percentage would
@@ -27,8 +27,7 @@
 // NOTHING HERE ADJUDICATES AND NOTHING HERE READS A PARK. Whether a phase is parked is
 // `projectParkedPhases`' answer, applied once in the run list's projection and carried
 // on the row — this module reads that answer and never `PhaseState.state`, which
-// carries no suspended arm on purpose (`Spec-017 §Park surfacing on the read model
-// (SA-44)`).
+// carries no suspended arm on purpose.
 
 import { RunListProjection, type WorkflowRunListRow } from "../runs/run-list-projection.js";
 import type { WorkflowRunListEntry } from "../../bridge/index.js";

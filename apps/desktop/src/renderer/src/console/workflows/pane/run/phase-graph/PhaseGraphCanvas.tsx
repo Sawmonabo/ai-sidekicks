@@ -10,13 +10,13 @@
 // module in the console to it. The door's own header carries why the two sheets ride
 // this chunk rather than `workflows.css`, and why their order is load-bearing.
 //
-// THE PIN IS 12.11.6, WHICH IS THE BASELINE `Spec-023 §Console Libraries` MEASURED.
-// That row binds an exact pin with `@xyflow/system` in lockstep and records its
-// bundle and heap figures against 12.11.6 / `@xyflow/system@0.0.82`; the manifest
-// carried 12.11.5 / 0.0.81, so the code was running a pair the governing decision had
-// not measured. The lockstep half needs no second hand-written number either way —
+// THE PIN IS 12.11.6, WHICH IS THE BASELINE THE LIBRARY POLICY MEASURED. That policy
+// binds an exact pin with `@xyflow/system` in lockstep and records its bundle and
+// heap figures against 12.11.6 / `@xyflow/system@0.0.82`; the manifest carried
+// 12.11.5 / 0.0.81, so the code was running a pair the governing decision had not
+// measured. The lockstep half needs no second hand-written number either way —
 // 12.11.6's manifest declares `@xyflow/system@0.0.82` exactly, so the library's own
-// dependency is what meets it — and 12.11.5's fix for the broken 12.11.4 that row
+// dependency is what meets it — and 12.11.5's fix for the broken 12.11.4 that policy
 // warns about is carried forward rather than left behind.
 //
 // MOVING THE PIN COST 488 RAW BYTES AND 75 GZIPPED, ALL OF THEM IN THIS LAZY CHUNK

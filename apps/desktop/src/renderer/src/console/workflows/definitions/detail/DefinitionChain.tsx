@@ -1,9 +1,9 @@
 // The version chain a definition's pinned version belongs to, or the reason there is
 // none to draw.
 //
-// ITS OWN MODULE BECAUSE EVERY `.tsx` HOLDS ONE COMPONENT — `apps/desktop/AGENTS.md`
-// §Module shape, held in review. It is composed from `DefinitionDetail.tsx` and from
-// nothing else.
+// ITS OWN MODULE BECAUSE EVERY `.tsx` HOLDS ONE COMPONENT — the module-shape rule in
+// `apps/desktop/AGENTS.md`, held in review. It is composed from `DefinitionDetail.tsx`
+// and from nothing else.
 //
 // THE THIRD ARM IS NOT A REFUSAL AND IS NOT AN EMPTY LIST. `unaddressable` means the
 // definition read carried no opaque version id, so the chain read could not be put at

@@ -1,29 +1,27 @@
 // The command palette.
 //
-// COMPOSITION. `Spec-023 §Console Libraries` adopts `@base-ui/react` 1.7.0 as
-// "the one widget family … including combobox and autocomplete", so the palette
-// is `Combobox.Root` in `inline` mode wrapping a `Dialog.Root` — the composition
-// that package's own `ComboboxRoot` documentation names: bind the combobox's
-// `open` / `onOpenChange` to the dialog's, and it resets its transient state
-// (filter query, highlight, input value) when the dialog closes. Combobox owns
-// the `combobox` / `listbox` / `option` roles, `aria-activedescendant`, arrow and
-// Home/End navigation, and Enter-on-highlighted; Dialog owns the focus trap,
-// Escape, outside press, and the portal. None of that is re-implemented here,
-// which is the whole reason the family was adopted.
+// COMPOSITION. The console adopts `@base-ui/react` 1.7.0 as the one widget family,
+// combobox and autocomplete included, so the palette is `Combobox.Root` in `inline`
+// mode wrapping a `Dialog.Root` — the composition that package's own `ComboboxRoot`
+// documentation names: bind the combobox's `open` / `onOpenChange` to the dialog's,
+// and it resets its transient state (filter query, highlight, input value) when the
+// dialog closes. Combobox owns the `combobox` / `listbox` / `option` roles,
+// `aria-activedescendant`, arrow and Home/End navigation, and Enter-on-highlighted;
+// Dialog owns the focus trap, Escape, outside press, and the portal. None of that
+// is re-implemented here, which is the whole reason the family was adopted.
 //
-// Two deviations from the library defaults, both required by the spec:
+// Two deviations from the library defaults, both required:
 //
 //   • `modal="trap-focus"` rather than `modal` (the default `true`). Focus is
-//     trapped, but the document's scroll is NOT locked — `Spec-023 §Console
-//     Libraries` says "no body scroll lock" in the same row that adopts this
-//     family. Trapping focus is not the same guarantee as leaving the app root:
-//     a reader navigating by structure still reaches the rail and the surface
-//     underneath. The `inert` that closes that gap is the shell's rather than the
-//     palette's — this component cannot know what "the rest of the app" is, and a
-//     dialog that inerted its own container would leave nothing reachable at all
-//     — so the frame carries it on the background wrapper it renders around
-//     everything but its overlay slot, for exactly as long as the same `open`
-//     this component is controlled by.
+//     trapped, but the document's scroll is NOT locked — no body scroll lock is
+//     part of the same rule that adopts this family. Trapping focus is not the
+//     same guarantee as leaving the app root: a reader navigating by structure
+//     still reaches the rail and the surface underneath. The `inert` that closes
+//     that gap is the shell's rather than the palette's — this component cannot
+//     know what "the rest of the app" is, and a dialog that inerted its own
+//     container would leave nothing reachable at all — so the frame carries it on
+//     the background wrapper it renders around everything but its overlay slot,
+//     for exactly as long as the same `open` this component is controlled by.
 //   • `filter={null}`. The registry has already filtered and RANKED; letting the
 //     combobox filter again would put a second matcher in the console, and
 //     "one matcher shared with settings search" is a claim about the whole app.
@@ -32,9 +30,9 @@
 // nothing are `PaletteAbsence.tsx`. Every decision this surface makes — the scope
 // captured at the open transition, the dormancy that makes a closed palette walk
 // nothing, the clear that runs after the commit, the one chord it listens for — is
-// `use-palette-overlay.ts` beside this file, because `apps/desktop/AGENTS.md`
-// §State and views puts effects and derivations in a hook and never in a render
-// body. This module is the composition and the markup.
+// `use-palette-overlay.ts` beside this file, because the state-and-views rule in
+// `apps/desktop/AGENTS.md` puts effects and derivations in a hook and never in a
+// render body. This module is the composition and the markup.
 
 import { Combobox } from "@base-ui/react/combobox";
 import { Dialog } from "@base-ui/react/dialog";
@@ -97,12 +95,11 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
     >
       <Dialog.Root open={open} onOpenChange={handleOpenChange} modal="trap-focus">
         {/* THE AIRSPACE REGISTRATION IS THE PRIMITIVE'S, and the whole of this
-            surface's part in it is the kind it names (`Spec-023 §Console Design
-            (Meridian)` 12.3, §4.3). An open palette is one of the seven overlay kinds
-            a native browser-pane view has to yield to, and a view painted over it is
-            the one thing 12.3 forbids outright — so the shell that mounts the popup is
-            also what registers its live rectangle, and no surface can mount one
-            without. */}
+            surface's part in it is the kind it names. An open palette is one of the
+            seven overlay kinds a native browser-pane view has to yield to, and a view
+            painted over it is the one thing the airspace rule forbids outright — so
+            the shell that mounts the popup is also what registers its live
+            rectangle, and no surface can mount one without. */}
         <OverlayDialogPopup
           airspaceKind="command-palette"
           container={overlayContainer}

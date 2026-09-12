@@ -1,7 +1,7 @@
 // One act's last answer, or nothing at all.
 //
-// ITS OWN MODULE BECAUSE EVERY `.tsx` HOLDS ONE COMPONENT — `apps/desktop/AGENTS.md`
-// §Module shape, held in review. It is composed from the act strip in
+// ITS OWN MODULE BECAUSE EVERY `.tsx` HOLDS ONE COMPONENT — the module-shape rule in
+// `apps/desktop/AGENTS.md`, held in review. It is composed from the act strip in
 // `DefinitionAuthoringActs.tsx` and from nothing else.
 //
 // `idle` RENDERS NOTHING, deliberately: a row saying an act has not been attempted is

@@ -21,9 +21,9 @@
 //      run status and computes no permission, and it never decides in advance that an
 //      act is unreachable. The press puts the question and the answer — a served
 //      settlement, or a refusal from the growth port, the daemon or this family's own
-//      single flight — renders INLINE beside the button (`Spec-023 §Console Design
-//      (Meridian)` rule 9: nothing changed, the act did not happen, and the control
-//      stays beside its refusal). `RunControlOutcome.tsx` draws it.
+//      single flight — renders INLINE beside the button (rule 9: nothing changed, the
+//      act did not happen, and the control stays beside its refusal).
+//      `RunControlOutcome.tsx` draws it.
 //
 // THE CALL IS NOT THIS FILE'S AND THE OUTCOME IS NOT EITHER. What a press puts on the
 // growth port, whether it may be dispatched at all, and what the reply settles to are

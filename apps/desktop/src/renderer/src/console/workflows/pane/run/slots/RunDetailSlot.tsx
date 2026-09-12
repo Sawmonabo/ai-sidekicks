@@ -1,16 +1,15 @@
 // The run detail's slot — phase sections, retry iterations, pool waits, outputs.
 //
-// OWNED BY PLAN-017. This console frames a run; it does not render one. The body
-// that renders phase sections, their retry sub-entries keyed on the phase-run and
-// attempt number, the pool-wait readings and the completed outputs is the workflow
-// engine's own, and authoring one here would be a second implementation of a
-// surface another plan owns.
+// OWNED BY THE WORKFLOW ENGINE. This console frames a run; it does not render one.
+// The body that renders phase sections, their retry sub-entries keyed on the
+// phase-run and attempt number, the pool-wait readings and the completed outputs is
+// the workflow engine's own, and authoring one here would be a second implementation
+// of a surface another part of the system owns.
 //
-// THE SHELL DIES IN THE PLAN-017 TASK THAT MOUNTS THE BODY, in the same PR as the
-// mount — not when the body is written, and not by being left beside it. The
-// contract that says so travels on the family's `owner-slots.ts` value and is
-// carried here rather than displayed: it names governance work, and no console
-// surface renders one.
+// THE SHELL DIES IN THE TASK THAT MOUNTS THE BODY, in the same PR as the mount — not
+// when the body is written, and not by being left beside it. The contract that says
+// so travels on the family's `owner-slots.ts` value and is carried here rather than
+// displayed: it names work owned elsewhere, and no console surface renders one.
 //
 // WHAT THE MOUNT OWES TODAY, AND WHAT IT CANNOT YET. `RunDetailMount` is the mount
 // obligation made checkable, and it carries what this pane can honestly supply: the
@@ -53,8 +52,8 @@ export interface RunDetailMount {
 }
 
 /**
- * The body Plan-017 authors: a COMPONENT this pane renders, never a function it
- * calls. `owner-slots.ts` states the reason once for all five slots.
+ * The body the workflow engine authors: a COMPONENT this pane renders, never a function
+ * it calls. `owner-slots.ts` states the reason once for all five slots.
  */
 export type RunDetailBody = (mount: RunDetailMount) => React.ReactNode;
 

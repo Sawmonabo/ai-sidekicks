@@ -60,10 +60,10 @@ export type PhaseTopologyAbsence = "not-supplied" | "not-drawable";
  *
  * A BOOLEAN WOULD BE THE DEFECT. The node used to carry `isParked`, so every park
  * took the same amber border — including a provider-limited phase the engine had
- * armed a readable resume for, which needs nobody. `Spec-023 §Console Design
- * (Meridian)` rule 3 spends amber on "a person is needed" and on nothing else, and
- * the park badge beside the graph had that right while the node beside it did not:
- * one phase, two attention readings, and nothing failing.
+ * armed a readable resume for, which needs nobody. Rule 3 spends amber on "a person
+ * is needed" and on nothing else, and the park badge beside the graph had that right
+ * while the node beside it did not: one phase, two attention readings, and nothing
+ * failing.
  *
  * The caller supplies the answer rather than deriving it here, and derives it
  * through `workflows/runs/run-list-rows.ts`'s `parkAwaitsPerson` — the same reading the

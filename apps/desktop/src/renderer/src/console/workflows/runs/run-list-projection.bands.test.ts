@@ -46,8 +46,8 @@ describe("the band a run status lands in", () => {
 
   it("negative control: a park overrides the status band", () => {
     // Without this, every case above would pass over a projection that read only the
-    // status and never looked at a phase — which is the reading `Spec-017` keeps the
-    // status union coarse to prevent.
+    // status and never looked at a phase — which is the reading the coarse status
+    // union exists to prevent.
     const projection = new RunListProjection([
       run({
         state: "running",

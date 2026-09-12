@@ -1,10 +1,10 @@
 // The conversational start's slot — the way a run begins from where the
 // conversation is happening rather than from the definitions browser.
 //
-// OWNED BY PLAN-017. Three callers collapse onto one start operation with no new
-// start mode: the registered command, the composer's own affordance, and the agent
-// leg's withheld callback tool. The console authors none of them. THE SHELL DIES IN
-// THE PLAN-017 TASK THAT MOUNTS THE BODY, in the same PR as the mount.
+// OWNED BY THE WORKFLOW ENGINE. Three callers collapse onto one start operation with
+// no new start mode: the registered command, the composer's own affordance, and the
+// agent leg's withheld callback tool. The console authors none of them. THE SHELL DIES
+// IN THE TASK THAT MOUNTS THE BODY, in the same PR as the mount.
 //
 // WHO MOUNTS IT, AND WHY IT SITS AT THE FAMILY ROOT RATHER THAN INSIDE A PANE. Two
 // surfaces mount it, which is exactly what `owner-slots.ts` says of this slot and of
@@ -45,8 +45,8 @@ export interface ChatStartMount {
 }
 
 /**
- * The body Plan-017 authors: a COMPONENT the mount renders, never a function it
- * calls. `owner-slots.ts` states the reason once for all five slots.
+ * The body the workflow engine authors: a COMPONENT the mount renders, never a function
+ * it calls. `owner-slots.ts` states the reason once for all five slots.
  */
 export type ChatStartBody = (mount: ChatStartMount) => React.ReactNode;
 

@@ -2,7 +2,7 @@
 //
 //   1. **The shell stands while nobody has filled it**, and says the feature has
 //      not been built — never a shape that reads as a broken one, and never a word
-//      of the governance prose the contract carries.
+//      of the ownership prose the contract carries.
 //   2. **The mount obligation is delivered.** A slot's props type is a promise
 //      about what the body receives, and a promise nothing checks is prose. Each
 //      case below supplies a body and reads back exactly what arrived.
@@ -68,7 +68,7 @@ describe("an unfilled builder slot is reserved, not stubbed", () => {
   });
 
   it.each(unfilledSlots())(
-    "%s renders none of the contract's governance prose",
+    "%s renders none of the contract's ownership prose",
     (_name, element) => {
       const { container } = render(element);
       for (const slot of [WORKFLOW_GRAPH_SLOT, WORKFLOW_DRAFT_SLOT]) {

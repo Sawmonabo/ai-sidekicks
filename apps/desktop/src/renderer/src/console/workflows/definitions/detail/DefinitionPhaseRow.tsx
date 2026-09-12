@@ -1,7 +1,7 @@
 // One phase of a version body, in the sequence's own order.
 //
-// ITS OWN MODULE BECAUSE EVERY `.tsx` HOLDS ONE COMPONENT — `apps/desktop/AGENTS.md`
-// §Module shape, held in review. It is reached from the list in
+// ITS OWN MODULE BECAUSE EVERY `.tsx` HOLDS ONE COMPONENT — the module-shape rule in
+// `apps/desktop/AGENTS.md`, held in review. It is reached from the list in
 // `DefinitionVersionBody.tsx` and from nothing else, which makes it a deep sibling
 // import and not a name on any door.
 //

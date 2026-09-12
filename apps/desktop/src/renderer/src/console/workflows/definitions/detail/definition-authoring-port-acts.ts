@@ -70,13 +70,13 @@ export async function importDefinitionFile(runtime: AuthoringRuntime, text: stri
  * Submit the body on screen at `shared` scope, byte for byte.
  *
  * NO `parentContentHash`, AND ITS ABSENCE IS THIS ACT'S OWN CLAIM RATHER THAN AN
- * OMISSION. That member is copy-on-write provenance for the OPPOSITE direction:
- * `Spec-017 §Definition scope in the builder (SA-36)` reserves it for an author editing
- * a `shared` definition, which produces a NARROWER one recording the shared original's
- * hash. A promotion runs the other way and creates the shared definition "from the
- * promoted version's exact bytes" — there is no shared original to have branched from,
- * so setting it would record every promoted version as a downward fork off a definition
- * that never existed and corrupt the version chain for each one.
+ * OMISSION. That member is copy-on-write provenance for the OPPOSITE direction: it is
+ * reserved for an author editing a `shared` definition, which produces a NARROWER one
+ * recording the shared original's hash. A promotion runs the other way and creates the
+ * shared definition from the promoted version's exact bytes — there is no shared
+ * original to have branched from, so setting it would record every promoted version as
+ * a downward fork off a definition that never existed and corrupt the version chain for
+ * each one.
  *
  * WHAT TRAVELS IS THE BODY AND THE TARGET SCOPE, AND NO FLAG. The daemon's
  * operator-scope authorization keys on the scope the body names and never on the

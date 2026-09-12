@@ -2,8 +2,7 @@
 // on its own.
 //
 // The badge exists because a park is the state an operator is most likely to be
-// looking at and least able to explain from a status word alone
-// (`Spec-017 §Park surfacing on the read model (SA-44)`). Two rules shape it:
+// looking at and least able to explain from a status word alone. Two rules shape it:
 //
 //   • **A park is read from `parkReason`, never from a phase's `state`.** The
 //     phase-run status union has five values and no suspended arm; the park rides

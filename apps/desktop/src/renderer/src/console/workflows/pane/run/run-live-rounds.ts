@@ -1,21 +1,19 @@
 // When the run this pane is showing has moved under the answer it is holding.
 //
-// THE GAP THIS CLOSES. `Spec-017`'s run lifecycle is evented — twenty-four
-// `workflow.*` types across five categories — and the run pane read its snapshot
-// ONCE, re-reading only when an operator at this keyboard performed a control and the
-// daemon served it. Every other way a run moves reached nothing: the engine advancing
-// a phase, a park arming a resume, a second window's cancel, another participant's
-// gate resolution. The pane showed a stale run indefinitely and nothing on screen said
-// so.
+// THE GAP THIS CLOSES. The run lifecycle is evented — twenty-four `workflow.*` types
+// across five categories — and the run pane read its snapshot ONCE, re-reading only
+// when an operator at this keyboard performed a control and the daemon served it. Every
+// other way a run moves reached nothing: the engine advancing a phase, a park arming a
+// resume, a second window's cancel, another participant's gate resolution. The pane
+// showed a stale run indefinitely and nothing on screen said so.
 //
-// AND IT IS NOT A POLL. `Spec-023 §Rules every console surface obeys` puts reads on
-// subscribe, on window focus, on reconnect, and on the terminal events the owning spec
-// names, through one coalescing scheduler — and forbids an interval outright. This
-// module is that policy applied to one run: `store/read/refresh-triggers.ts` observes the
-// three outside reasons, `store/read/refresh-scheduler.ts` coalesces them, and what comes out is a
+// AND IT IS NOT A POLL. The console's read policy puts reads on subscribe, on window
+// focus, on reconnect, and on the terminal events the owning surface names, through one
+// coalescing scheduler — and forbids an interval outright. This module is that policy
+// applied to one run: `store/read/refresh-triggers.ts` observes the three outside
+// reasons, `store/read/refresh-scheduler.ts` coalesces them, and what comes out is a
 // ROUND NUMBER the snapshot read is keyed on. No timer is armed here beyond the
-// scheduler's own coalescing window, and a session where nothing happens costs
-// nothing.
+// scheduler's own coalescing window, and a session where nothing happens costs nothing.
 //
 // NO SECOND SUBSCRIPTION. The session's events are already held: `SessionStoreRegistry`
 // opens one `session.subscribe` per open session and projects its frames into a

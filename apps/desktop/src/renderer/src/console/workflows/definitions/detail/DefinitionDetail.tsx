@@ -21,9 +21,9 @@
 // answered.
 //
 // WHAT THIS IS NOT. It is not the canvas. The node graph, the inspector and the
-// connection-validity predicate are Plan-017's body, mounted through the builder pane's
-// own typed slots; this is the read the canvas will be drawn from and the acts that
-// carry a definition somewhere else.
+// connection-validity predicate are the workflow engine's body, mounted through the
+// builder pane's own typed slots; this is the read the canvas will be drawn from and
+// the acts that carry a definition somewhere else.
 
 import { Nothing, RefusalBanner, WireFigure, formatCount } from "../../../primitives/index.js";
 import type { ConsoleBridge } from "../../../bridge/index.js";

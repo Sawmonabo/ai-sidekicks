@@ -55,10 +55,10 @@ function recordingCreate(
 
 describe("promoting — the promoted bytes, and no copy-on-write marker", () => {
   it("submits no `parentContentHash`, which is the other direction's provenance", async () => {
-    // `Spec-017 §Definition scope in the builder (SA-36)`: a promotion creates the
-    // shared definition from the promoted version's exact bytes, and the marker belongs
-    // to the edit that forks a shared definition DOWNWARD. Setting it here recorded
-    // every promoted version as branched from a shared original that never existed.
+    // A promotion creates the shared definition from the promoted version's exact
+    // bytes, and the marker belongs to the edit that forks a shared definition
+    // DOWNWARD. Setting it here recorded every promoted version as branched from a
+    // shared original that never existed.
     const body = scriptedBody();
     const submitted: WorkflowDefinitionCreateBody[] = [];
     const mounted = mountAuthoring(

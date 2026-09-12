@@ -1,11 +1,11 @@
 // The inspector's draft slot — what a person has typed into a phase's configuration
 // and not yet saved.
 //
-// OWNED BY PLAN-017. A `human` phase's form configuration, a gate's settings and a
-// back-reference target are edited in the inspector, and the in-progress text is
-// participant-authored content the console holds and never stores. The editor is
-// the engine's own body; this console frames it. THE SHELL DIES IN THE PLAN-017
-// TASK THAT MOUNTS THE BODY, in the same PR as the mount.
+// OWNED BY THE WORKFLOW ENGINE. A `human` phase's form configuration, a gate's
+// settings and a back-reference target are edited in the inspector, and the
+// in-progress text is participant-authored content the console holds and never
+// stores. The editor is the engine's own body; this console frames it. THE SHELL
+// DIES IN THE TASK THAT MOUNTS THE BODY, in the same PR as the mount.
 //
 // THE DURABLE STORE IS DELIBERATELY NOT ON THIS MOUNT, and that absence is the
 // whole design rather than an omission. A draft is prose, so the durable store's
@@ -47,8 +47,8 @@ export interface DraftsMount {
 }
 
 /**
- * The body Plan-017 authors: a COMPONENT this pane renders, never a function it
- * calls. `owner-slots.ts` states the reason once for all five slots.
+ * The body the workflow engine authors: a COMPONENT this pane renders, never a function
+ * it calls. `owner-slots.ts` states the reason once for all five slots.
  */
 export type DraftsBody = (mount: DraftsMount) => React.ReactNode;
 

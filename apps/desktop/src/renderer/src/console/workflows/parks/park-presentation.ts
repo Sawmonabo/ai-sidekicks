@@ -12,7 +12,7 @@
 // `runs/run-list-rows.ts`'s, decided once per park as it is projected; a fold's own
 // answer is the disjunction over the parks it holds, which the fold computes. What is
 // here is only the last step — the mapping from "a person is needed" onto the one
-// tone `Spec-023 §Console Design (Meridian)` rule 3 reserves for it.
+// tone rule 3 reserves for it.
 
 import type { ChipTone } from "../../primitives/index.js";
 import type { WorkflowParkReason } from "../runs/run-list-rows.js";
@@ -33,11 +33,10 @@ export const PARK_REASON_LABELS: Readonly<Record<WorkflowParkReason, string>> = 
 /**
  * The tone a park wears, decided by whether anything will end the wait on its own.
  *
- * Amber is spent on "a person is needed" and on nothing else (`Spec-023 §Console
- * Design (Meridian)` rule 3), which is every park that did not arm a boundary this
- * console can read. A scheduled park is a machine waiting for a machine and earns no
- * colour; an unreadable boundary earns the amber, because nothing legible says the
- * run will resume itself.
+ * Amber is spent on "a person is needed" and on nothing else (rule 3), which is every
+ * park that did not arm a boundary this console can read. A scheduled park is a
+ * machine waiting for a machine and earns no colour; an unreadable boundary earns the
+ * amber, because nothing legible says the run will resume itself.
  *
  * Takes the ANSWER rather than the schedule, so the fold — whose answer is a
  * disjunction over several parks and has no single schedule to hand over — reaches the

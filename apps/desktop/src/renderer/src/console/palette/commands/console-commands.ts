@@ -6,9 +6,8 @@
 // `consoleSurfaceRegistry` and `consoleRouteRegistry` are: an auxiliary window is
 // its own renderer process, so module scope IS window scope here, and a family can
 // register its commands where it declares them rather than threading a registry
-// through props it has no other use for. I-023-12's "auxiliary windows share no
-// store" holds by construction — there is no channel between two processes' module
-// graphs.
+// through props it has no other use for. Auxiliary windows share no store, and that
+// holds by construction — there is no channel between two processes' module graphs.
 //
 // WHY IT IS HERE AND NOT IN `frame/`, WHERE IT WAS WRITTEN. The frame was its first
 // consumer, not its owner: every input is this family's or below it — `CommandRegistry`

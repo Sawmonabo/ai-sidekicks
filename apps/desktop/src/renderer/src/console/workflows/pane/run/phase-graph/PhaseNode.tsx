@@ -1,6 +1,6 @@
 // One phase, as a box on the canvas.
 //
-// The visuals are OWN-BUILT, which `Spec-023 §Console Libraries` requires of the
+// The visuals are OWN-BUILT, which the console's library policy requires of the
 // node and edge treatment: the library supplies the box's position, its focus
 // handling and its handle geometry, and everything a reader looks at is this file's
 // and this family's sheet. Nothing here reads a library colour — the treatment comes
@@ -23,14 +23,13 @@
 // would be asserting something the run never said.
 //
 // THREE OF THE FOUR THINGS ON THIS BOX CAME OFF THE WIRE, AND THEY LOOK LIKE IT.
-// `Spec-023 §Console Design (Meridian)` rule 4 gives every wire-true figure the mono
-// provenance signature, and the phase id, the state and the gate state are all
-// strings a daemon sent. They were drawn as ordinary interface prose, which read
-// worst on the id: with no authored name available to any read this console can put,
-// the id stood in the name's place, in the name's face and weight, and an opaque key
-// was presented as something a person had chosen. So the name — where there is one —
-// is the only text here the console sets as prose, and the identifier and the two
-// enum values go through `WireFigure`.
+// Rule 4 gives every wire-true figure the mono provenance signature, and the phase
+// id, the state and the gate state are all strings a daemon sent. They were drawn as
+// ordinary interface prose, which read worst on the id: with no authored name
+// available to any read this console can put, the id stood in the name's place, in
+// the name's face and weight, and an opaque key was presented as something a person
+// had chosen. So the name — where there is one — is the only text here the console
+// sets as prose, and the identifier and the two enum values go through `WireFigure`.
 //
 // AND THE PARK'S ATTENTION IS THE CALLER'S READING, NOT THIS BOX'S. Amber means a
 // person is needed; a phase parked on provider capacity with a readable resume

@@ -6,20 +6,19 @@
 // per surface. So they are answered here, once, as a value:
 //
 //   1. **Is anything parked, and why?** Not from the phase's `state`. The phase-run
-//      status union carries no suspended arm — that is deliberate
-//      (`Spec-017 §Park surfacing on the read model (SA-44)`), and the park instead
-//      rides four additive-optional members that a daemon emits for exactly those
-//      phases parked when the response was built. So `parkReason` PRESENCE is the
+//      status union carries no suspended arm — that is deliberate — and the park
+//      instead rides four additive-optional members that a daemon emits for exactly
+//      those phases parked when the response was built. So `parkReason` PRESENCE is the
 //      wire's park discriminator, and a projection that read `state` would report a
 //      phase that already resumed as still waiting.
 //   2. **Which parks resume themselves and which need a person?** `autoResumeAt` is
 //      armed only where a provider reported a reset boundary; its absence narrows
 //      the park to the unscheduled, operator-resumable kind rather than denying it.
 //   3. **Is this run pinned to a version its definition has moved past?** That is
-//      the frozen-definition state — the condition an operator repairs on resume
-//      (`Spec-017 §Frozen-definition repair (SA-41)`). It is an INEQUALITY between
-//      two opaque ids the caller passes through verbatim, never a parse of either,
-//      and it is unknown rather than false when the caller holds no latest.
+//      the frozen-definition state — the condition an operator repairs on resume. It
+//      is an INEQUALITY between two opaque ids the caller passes through verbatim,
+//      never a parse of either, and it is unknown rather than false when the caller
+//      holds no latest.
 //
 // WHAT THIS MODULE IS NOT. It is not eligibility. Nothing here decides whether a run
 // may be cancelled, resumed, or re-pinned — those are daemon adjudications reaching

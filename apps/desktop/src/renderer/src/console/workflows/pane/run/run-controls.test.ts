@@ -27,7 +27,7 @@ describe("the reason bound is measured on the encoding", () => {
   // and the two agreed on ASCII while each was free to grow a surrogate-pair or
   // normalisation rule the other did not. The budget is what a caller consumes, so
   // asserting on it checks the bound AND the fact that it is reached through the one
-  // measurement `apps/desktop/AGENTS.md` §Chokepoints gives every cap.
+  // measurement the chokepoint rule in `apps/desktop/AGENTS.md` gives every cap.
   it("counts UTF-8 bytes and not code units", () => {
     expect(cancelReasonBudget("abc").byteLength).toBe(3);
     expect(cancelReasonBudget("é").byteLength).toBe(2);

@@ -1,11 +1,12 @@
 // Everything the palette DECIDES, so the component beside it only renders.
 //
-// `apps/desktop/AGENTS.md` §State and views: effects, subscriptions and derivations
-// live in a hook and never in a render body. All four of the palette's were in one,
-// and each of them is a claim worth reading on its own rather than between two JSX
-// blocks: the capture that freezes the scope, the dormancy that makes a closed
-// palette walk nothing, the clear that runs after the commit, and the one chord this
-// surface listens for before any family has registered a command.
+// The state-and-views rule in `apps/desktop/AGENTS.md`: effects, subscriptions and
+// derivations live in a hook and never in a render body. All four of the palette's
+// were in one, and each of them is a claim worth reading on its own rather than
+// between two JSX blocks: the capture that freezes the scope, the dormancy that
+// makes a closed palette walk nothing, the clear that runs after the commit, and
+// the one chord this surface listens for before any family has registered a
+// command.
 //
 // THE HOOK TAKES THE PROPS WHOLE. The component destructures nothing before calling
 // it — a hook that took eleven positional arguments would put the props' own order
