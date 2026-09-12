@@ -103,4 +103,4 @@ All V1 features and supporting V1 specs have corresponding implementation plans:
 - [Vision](../vision.md) — signature features and build order.
 - [Backlog](../backlog.md) — open work items against V1 scope.
 - [Deployment Topology](./deployment-topology.md) — topologies supporting the two V1 deployment options.
-- Cross-Plan Dependencies — tier graph aligned against this scope per BL-054.
+- [Cross-Plan Dependencies](./cross-plan-dependencies.md) — the forward build order aligned against this scope.

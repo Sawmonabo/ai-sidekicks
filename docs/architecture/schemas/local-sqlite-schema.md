@@ -471,8 +471,8 @@ The build-metadata rejection above is grounded in the SemVer specification itsel
 -- kSecAttrAccessibleWhenUnlockedThisDeviceOnly on macOS / CRED_TYPE_GENERIC
 -- CRED_PERSIST_LOCAL_MACHINE on Windows / Secret Service via libsecret +
 -- kwallet6 + keyutils fallback on Linux). Public key is registered in the
--- session user roster at join time per security-architecture.md
--- §Per-Event Daemon Signature. Sealed-key storage
+-- session verification-key roster when the daemon establishes the session,
+-- per security-architecture.md §Per-Event Daemon Signature. Sealed-key storage
 -- lives in local SQLite (NOT shared-Postgres sessions) per ADR-004 SQLite-
 -- local-state boundary — daemon-private secrets are per-machine.
 -- rotated_at is reserved and unwritten in V1: no daemon signing-key rotation
@@ -495,12 +495,12 @@ The build-metadata rejection above is grounded in the SemVer specification itsel
 -- (session_id, node_id) via SQLite table rebuild.
 CREATE TABLE daemon_signing_keys (
   session_id          TEXT NOT NULL,
-  node_id             TEXT NOT NULL,         -- NodeId this row's keypair was registered under (CP-008-15)
+  node_id             TEXT NOT NULL,         -- NodeId this row's keypair was registered under (security-architecture.md §Per-Event Daemon Signature)
   public_key          BLOB NOT NULL,         -- Ed25519 32-byte public key
   sealed_private_key  BLOB NOT NULL,         -- Ed25519 private key sealed via OS keystore master key
   created_at          TEXT NOT NULL,
   rotated_at          TEXT,                  -- reserved; see rotation note above
-  superseded_at_sequence INTEGER,            -- NULL = active row; else the succession watermark (CP-008-15)
+  superseded_at_sequence INTEGER,            -- NULL = active row; else the succession watermark (security-architecture.md §Per-Event Daemon Signature)
   PRIMARY KEY (session_id, node_id)
 );
 
@@ -1502,7 +1502,7 @@ CREATE INDEX idx_human_phase_form_state_phase ON human_phase_form_state(phase_ru
 
 ## Channel and Orchestration Tables (Plan-016)
 
-DDL hardened during the Tier-6 plan-readiness audit (D-016-15, A-016-5, A-016-2, D-016-5). Posture per table: `channels`, `run_links`, and `agents` are events-canonical projections ([ADR-017](../../decisions/017-shared-event-sourcing-scope.md) Option B — rebuilt from `session_events` on replay; never written except by the projector); `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, not evented). `channels` holds **user-created channels only**: the bootstrap main channel is projected (`deriveMainChannelId(sessionId)` per CP-002-7) and never has a row or a `channel.created` event — so it carries no `ChannelConfig`. Channels carry agents, not people: a channel restricts which sidekicks take turns in it, never who may read it.
+DDL hardened during the Tier-6 plan-readiness audit (D-016-15, A-016-5, A-016-2, D-016-5). Posture per table: `channels`, `run_links`, and `agents` are events-canonical projections ([ADR-017](../../decisions/017-shared-event-sourcing-scope.md) Option B — rebuilt from `session_events` on replay; never written except by the projector); `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, not evented). `channels` holds **user-created channels only**: the bootstrap main channel is projected (`deriveMainChannelId(sessionId)`, `packages/contracts/src/channel-id.ts`) and never has a row or a `channel.created` event — so it carries no `ChannelConfig`. Channels carry agents, not people: a channel restricts which sidekicks take turns in it, never who may read it.
 
 ```sql
 -- Owner: Plan-016 (events-canonical projection of channel.* events; user channels only — main is synthesized)

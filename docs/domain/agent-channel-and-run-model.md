@@ -11,7 +11,7 @@ This document covers `Agent`, `Channel`, and `Run`, and the relationships among 
 ## Definitions
 
 - `Agent`: a configured execution persona bound to a runtime node.
-- `Channel`: a session-local communication stream for users and agents.
+- `Channel`: a session-local communication stream for the user and agents.
 - `Run`: a single execution episode performed by one agent.
 
 ## What This Is
@@ -30,7 +30,7 @@ This model explains how agents exist between runs, how communication surfaces ar
 - Every run belongs to exactly one session and exactly one agent.
 - An agent can perform many runs over time.
 - Every run must publish to at least one channel.
-- Channel membership and run ownership are separate concerns.
+- Which agents a channel carries and which agent owns a run are separate concerns.
 - Parent-child or peer relationships between runs must be explicit when orchestration is involved.
 
 ## Relationships To Adjacent Concepts
@@ -62,7 +62,7 @@ Channel lifecycle:
 | `muted` | The channel remains valid but is intentionally suppressed from normal attention surfaces. |
 | `archived` | The channel remains historical only. |
 
-Transitions (Tier-6 audit, D-016-12): `active` ↔ `muted` via `channel.mute` / `channel.unmute`; `active` or `muted` → `archived` via `channel.archive` (terminal). Run admission targeting an `archived` channel is refused (`channel.inactive`); a `muted` channel still accepts runs and output — mute suppresses attention surfaces, not execution. The bootstrap `main` channel is projected from the session itself (`deriveMainChannelId`, CP-002-7), never has a stored row or `channel.created` event, and is not mutable by the lifecycle verbs.
+Transitions (Tier-6 audit, D-016-12): `active` ↔ `muted` via `channel.mute` / `channel.unmute`; `active` or `muted` → `archived` via `channel.archive` (terminal). Run admission targeting an `archived` channel is refused (`channel.inactive`); a `muted` channel still accepts runs and output — mute suppresses attention surfaces, not execution. The bootstrap `main` channel is projected from the session itself (`deriveMainChannelId`, `packages/contracts/src/channel-id.ts`), never has a stored row or `channel.created` event, and is not mutable by the lifecycle verbs.
 
 Run lifecycle is defined in `run-state-machine.md`. Parent-child run links carry one of three caller-declared link types — `spawn`, `delegate`, `handoff` ([Spec-016 §Interfaces And Contracts](../specs/016-multi-agent-channels-and-orchestration.md#interfaces-and-contracts), D-016-17) — and V1 nesting is depth-1.
 
@@ -74,7 +74,7 @@ Run lifecycle is defined in `run-state-machine.md`. Parent-child run links carry
 ## Edge Cases
 
 - An agent can exist in `ready` state with no current active run.
-- A channel can remain `active` even when it has no current runs if users continue discussing next steps.
+- A channel can remain `active` even when it has no current runs if the user continues discussing next steps.
 - A run can publish status to one channel while depositing artifacts that are visible from the wider session.
 
 ## Related Specs

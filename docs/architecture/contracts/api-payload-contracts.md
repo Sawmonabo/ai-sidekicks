@@ -2,7 +2,7 @@
 
 Typed payload definitions for all named interfaces across all specs. Each contract specifies request shape, response shape, and error shapes using TypeScript/Zod notation.
 
-**Usage:** Implementation agents translate these definitions into Zod schemas in `packages/contracts/src/`. The organization by tier matches the Canonical Build Order.
+**Usage:** Implementation agents translate these definitions into Zod schemas in `packages/contracts/src/`. The organization by tier follows the build order recorded in [cross-plan-dependencies.md](../cross-plan-dependencies.md).
 
 **Schema reference:** Column types and constraints are in [Local SQLite Schema](../schemas/local-sqlite-schema.md) and [Shared Postgres Schema](../schemas/shared-postgres-schema.md).
 
@@ -269,7 +269,7 @@ The Remote Control bootstrap (Tier 1 carve-out per `Plan-031 §Phase 0 — Alrea
 | `session.create` | `mutation` | `SessionCreateRequestSchema` | `SessionCreateResponseSchema` | `directoryService.createSession(...)` |
 | `session.read` | `query` | `SessionReadRequestSchema` | `SessionReadResponseSchema` | `directoryService.readSession(...)` |
 
-The procedure-type assignments follow the tRPC convention: read-only operations use `query` (HTTP GET-like, idempotent); writes / state-changes use `mutation` (HTTP POST-like, non-idempotent). Method-name strings are `dotted-camelCase` (`session.create`, `session.read`, `session.join`) per the canonical format ratified in §Tier 1 (cont.): Plan-007 below — the same `dotted-camelCase` convention applies to both Plan-031's tRPC HTTP procedures and Plan-007's JSON-RPC IPC methods so that client SDK call-site shape is symmetric across local IPC and remote control-plane calls. The Tier 1 surface uses all-lowercase segments (`session.create`, `session.read`, `session.join`); within-segment camelCase is permitted in nested namespaces per LSP precedent (e.g. `textDocument.didOpen`, `settings.effectiveRead`).
+The procedure-type assignments follow the tRPC convention: read-only operations use `query` (HTTP GET-like, idempotent); writes / state-changes use `mutation` (HTTP POST-like, non-idempotent). Method-name strings are `dotted-camelCase` (`session.create`, `session.read`) per the canonical format ratified in §Tier 1 (cont.): Plan-007 below — the same `dotted-camelCase` convention applies to both Plan-031's tRPC HTTP procedures and Plan-007's JSON-RPC IPC methods so that client SDK call-site shape is symmetric across local IPC and remote control-plane calls. The Tier 1 surface uses all-lowercase segments (`session.create`, `session.read`); within-segment camelCase is permitted in nested namespaces per LSP precedent (e.g. `textDocument.didOpen`, `settings.effectiveRead`).
 
 ```ts
 // session.create — tRPC mutation
@@ -324,7 +324,7 @@ Closes the BL-102 sub-item "JSON-RPC method-name canonical-format registry (`ses
 /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/
 ```
 
-Every dot-delimited segment starts with a lowercase letter and may contain camelCase (`[a-z][a-zA-Z0-9]*`) — the first segment (the namespace root) included, per the 2026-09-05 root widening recorded in this paragraph. This adopts the dotted-camelCase _segment_ style of the LSP precedent ([Language Server Protocol §General Messages](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) — e.g. `workspace.executeCommand`) and the MCP precedent ([Model Context Protocol §Protocol Messages](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — `tools.list`, `tools.call`), and applies that style **uniformly to every segment, the root included**. It did not always. Until 2026-09-05 the leading segment was tightened to lowercase-only, which rejected LSP's own camelCase-rooted names such as `textDocument.didOpen` while citing LSP — whose roots are camelCase — as the precedent for the style, and which, once the ten-verb `providerAccount.*` namespace was ratified ([Spec-029](../../specs/029-provider-accounts-and-credential-homes.md) / [Plan-029](../../plans/029-provider-accounts-and-credential-homes.md) / [ADR-028](../../decisions/028-provider-credential-custody-posture.md)) and registered in §Plan-029 — Provider Accounts And Credential Homes below, rejected a namespace root **this document itself registers** — so the `register()`-time guard below would have thrown on all ten verbs at daemon boot. The widening resolves the contradiction by moving the first segment to the class the later segments already admit, which is the class the cited precedent uses; renaming ten ratified verbs across every spec, plan, ADR, architecture contract, and runbook that carries them, to satisfy a regex whose own stated precedent contradicts it, was the wrong direction. Nothing else moves: segment-internal rules are unchanged, the two-segment minimum is unchanged, and an uppercase-**starting** segment is still rejected in any position (`Session.create` fails, as it always did). `providerAccount` is the only registered method root carrying an uppercase letter; the rest are lowercase identifiers — as enumerated at the Tier-8 audit, registered or shipped: `session`, `daemon`, `run`, `repo`, `approval`, `user`, `gdpr`, `runtimenode`, `channel`, plus the Tier-6-ratified Plan-016 roots `orchestration` and `agent`, the Tier-7-ratified Plan-011 root `gitflow`, the campaign-B18-registered Plan-028 root `mcp`, and the Tier-8-ratified roots `timeline` (Plan-013), `attention` (Plan-019), and `health` (Plan-020); still-planned: `driver`, `settings`, `event`, `artifact` (root set re-derived during the Tier-6 audit, gitflow added during the Tier-7 audit, mcp with the campaign-B18 registration (2026-07-22), and timeline, attention, and health during the Tier-8 audit). The V1 Tier 1 surface (`session.create`, `session.read`, `session.join`, `session.subscribe`) uses all-lowercase segments; nested-namespace operations like `settings.effectiveRead` and `driver.listCapabilities` (lowercase root + camelCase tail) are permitted under this regex, as is a camelCase root such as `providerAccount.list`.
+Every dot-delimited segment starts with a lowercase letter and may contain camelCase (`[a-z][a-zA-Z0-9]*`) — the first segment (the namespace root) included, per the 2026-09-05 root widening recorded in this paragraph. This adopts the dotted-camelCase _segment_ style of the LSP precedent ([Language Server Protocol §General Messages](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) — e.g. `workspace.executeCommand`) and the MCP precedent ([Model Context Protocol §Protocol Messages](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — `tools.list`, `tools.call`), and applies that style **uniformly to every segment, the root included**. It did not always. Until 2026-09-05 the leading segment was tightened to lowercase-only, which rejected LSP's own camelCase-rooted names such as `textDocument.didOpen` while citing LSP — whose roots are camelCase — as the precedent for the style, and which, once the ten-verb `providerAccount.*` namespace was ratified ([Spec-029](../../specs/029-provider-accounts-and-credential-homes.md) / [Plan-029](../../plans/029-provider-accounts-and-credential-homes.md) / [ADR-028](../../decisions/028-provider-credential-custody-posture.md)) and registered in §Plan-029 — Provider Accounts And Credential Homes below, rejected a namespace root **this document itself registers** — so the `register()`-time guard below would have thrown on all ten verbs at daemon boot. The widening resolves the contradiction by moving the first segment to the class the later segments already admit, which is the class the cited precedent uses; renaming ten ratified verbs across every spec, plan, ADR, architecture contract, and runbook that carries them, to satisfy a regex whose own stated precedent contradicts it, was the wrong direction. Nothing else moves: segment-internal rules are unchanged, the two-segment minimum is unchanged, and an uppercase-**starting** segment is still rejected in any position (`Session.create` fails, as it always did). `providerAccount` is the only registered method root carrying an uppercase letter; the rest are lowercase identifiers — as enumerated at the Tier-8 audit, registered or shipped: `session`, `daemon`, `run`, `repo`, `approval`, `user`, `gdpr`, `runtimenode`, `channel`, plus the Tier-6-ratified Plan-016 roots `orchestration` and `agent`, the Tier-7-ratified Plan-011 root `gitflow`, the campaign-B18-registered Plan-028 root `mcp`, and the Tier-8-ratified roots `timeline` (Plan-013), `attention` (Plan-019), and `health` (Plan-020); still-planned: `driver`, `settings`, `event`, `artifact` (root set re-derived during the Tier-6 audit, gitflow added during the Tier-7 audit, mcp with the campaign-B18 registration (2026-07-22), and timeline, attention, and health during the Tier-8 audit). The V1 Tier 1 surface (`session.create`, `session.read`, `session.subscribe`) uses all-lowercase segments; nested-namespace operations like `settings.effectiveRead` and `driver.listCapabilities` (lowercase root + camelCase tail) are permitted under this regex, as is a camelCase root such as `providerAccount.list`.
 
 The regex accepts the Tier 1 surface and rejects:
 
@@ -1721,17 +1721,9 @@ type EventCategory =
   | "usage_telemetry"
   // Extended per Spec-006 §Runtime Node Lifecycle, §Recovery Events, §User Lifecycle,
   // §Audit Integrity, §Security Events, §Event Maintenance, §Policy Events,
-  // §Channel Arbitration, §Onboarding Lifecycle, §Cross-Node Dispatch, §MCP Governance (20 categories
-  // total per Spec-006 §Event Type Summary; 159 event types (140 per the 2026-07-02 B1 amendment,
-  // +1 `pty.control_changed` per the 2026-07-06 B4 amendment, +15 per the 2026-07-22 B18 amendment —
-  // incl. the five `mcp_governance` types — +2 (`agent.provider_switched`,
-  // `agent.provider_switch_failed`) per the 2026-08-26 D-016-26 amendment, and +1
-  // (`session.peer_invocation_set`) per the 2026-08-26 Spec-030 peer-invocation amendment) — the Tier-5
-  // readiness-audit swap registered daemon.master_key_source + daemon.pii_split_ambiguous
-  // under the existing security_events category, Plan-022 D-022-5, and the Tier-6 swap
-  // added approval.canceled (D-012-8) plus four Plan-016 types (A-016-6, D-016-10/11/12),
-  // all within existing categories — B18's mcp_governance is the first category addition since
-  // the 16 → 19 widening).
+  // §Channel Arbitration, §Onboarding Lifecycle, §Cross-Node Dispatch, §MCP Governance. The
+  // census — 20 categories and the event-type total — is Spec-006 §Event Type Summary's, which
+  // carries the marked table; re-derive it there by counting, never here.
   | "runtime_node_lifecycle"
   | "recovery_events"
   | "user_lifecycle"
@@ -2706,7 +2698,7 @@ The client↔daemon bridge for relay-decrypted payloads (registered 2026-08-11, 
 
 | Method | Type | Semantics |
 | --- | --- | --- |
-| `session.historyBackfillStart` | request/response | Joiner-side, coordinator-called at relay admission: the daemon joiner engine mints the `correlationId`, registers the two-axis coverage expectations (member sources excluding self; roster origins), credits the joiner's own origin from the local log, and returns the `HistoryBackfillRequest` the coordinator seals to each **other** current member |
+| `session.historyBackfillStart` | request/response | Joiner-side, coordinator-called at relay admission: the daemon joiner engine mints the `correlationId`, registers the two-axis coverage expectations (peer node sources excluding self; roster origins), credits the joiner's own origin from the local log, and returns the `HistoryBackfillRequest` the coordinator seals to each **other** node currently attached |
 | `session.historyBackfillServe` | streaming (subscribe-init ack + chunk notifications, the Plan-007 streaming primitive) | Source-side, coordinator-called when a decrypted `HistoryBackfillRequest` arrives, carrying the pairwise-authenticated requester `UserId`: the daemon source engine runs the possession-bound entitlement selection, builds chunks in ordinal order, and signs the terminal marker under its own roster key (the key is daemon-held — the signature can only be produced here); the coordinator seals and publishes each chunk as it streams |
 | `session.historyBackfillDeliver` | request/response | Joiner-side, coordinator-called per decrypted `HistoryBackfillChunk`, carrying the source `UserId`: the daemon joiner engine verifies the terminal responder signature and every entry (roster read, verify-before-append), appends under ADR-017 receive semantics with `received_from_node_id` stamped, updates coverage accounting, and returns the per-chunk disposition (appended / refused / duplicate counts) |
 | `session.relayEventDeliver` | request/response | Joiner-side live sibling (Plan-031 inbound leg): a decrypted `RelayedSessionEventPayload` (the tagged wrapper above) whose nested `HistoryBackfillEntry` is forwarded verbatim into the same verify-and-append engine, so live receive and backfill share one verification path, one entry type, and one append seam (Plan-031) |
@@ -2715,7 +2707,7 @@ No control-plane procedure is added, and nothing here rides the relay transport 
 
 ### Envelope-Interior Application-Payload Kind Registry (Tier 5, Plan-031)
 
-The discriminator that separates the message families riding **inside** one pairwise ciphertext envelope (registered 2026-08-12 — Plan-031, ratified as Plan-014 D-014-5 by that plan's relay-scope targeted readiness-audit delta). Spec-031 and [Spec-014 §Cross-Node Artifact Relay (V1)](../../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) each place their payloads in that envelope and each refuses a new frame message type, citing the other's use of the same seam — so without a tag the receiving demultiplexer has no input at all. **Owner: Plan-031**, in `packages/contracts/src/session-join.ts` — one level below the `RelayFrameType` 1-byte frame enum hoisted into the same file by the Tier-7 audit: `RelayFrameType` separates frames, this union separates payloads inside one frame's decrypted plaintext. The union is `RelayApplicationPayload`, a Zod `discriminatedUnion` over the required string member **`kind`**, whose vocabulary is the `RelayApplicationPayloadKind` enum. It lands with the codec block at **Plan-031** (the file itself CREATEd at Plan-031) and is consumed by the client coordinator's demux at **Plan-031** and the bridge engines at **Plan-031**.
+The discriminator that separates the message families riding **inside** one pairwise ciphertext envelope (registered 2026-08-12 — Plan-031, ratified as Plan-014 D-014-5 by that plan's relay-scope targeted readiness-audit delta). Spec-031 and [Spec-014 §Cross-Node Artifact Relay (V1)](../../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) each place their payloads in that envelope and each refuses a new frame message type, citing the other's use of the same seam — so without a tag the receiving demultiplexer has no input at all. **Owner: Plan-031**, in `packages/contracts/src/relay.ts` — one level below the `RelayFrameType` 1-byte frame enum hoisted into the same file by the Tier-7 audit: `RelayFrameType` separates frames, this union separates payloads inside one frame's decrypted plaintext. The union is `RelayApplicationPayload`, a Zod `discriminatedUnion` over the required string member **`kind`**, whose vocabulary is the `RelayApplicationPayloadKind` enum. It lands with the codec block at **Plan-031** (the file itself CREATEd at Plan-031) and is consumed by the client coordinator's demux at **Plan-031** and the bridge engines at **Plan-031**.
 
 | `kind` | Payload | Registering plan |
 | --- | --- | --- |
@@ -3151,9 +3143,9 @@ type RememberedRuleId = string & { readonly __brand: "RememberedRuleId" }; // �
 // all other categories = exact scope-token equality. Absent pattern =
 // category-wide within the (session, node, user, kind) boundary — the
 // candidate set additionally requires rule.user_id = the adjudicating
-// turn's effective principal (D-012-10, cross-user run-control authorization
-// delta 2026-08-10): one user's remembered grant never authorizes
-// another user's direction, so the lookup is never actor-blind.
+// turn's effective principal (D-012-10, run-control authorization
+// delta 2026-08-10): a grant remembered for one principal never authorizes
+// another principal's direction, so the lookup is never actor-blind.
 interface RememberedScope {
   kind: "run" | "session"; // 'run' = remainder of the originating run; 'session' = session-wide (explicit opt-in)
   pattern?: string; // resource-matching pattern within the kind boundary; absent = category-wide
@@ -4118,7 +4110,7 @@ interface AttentionItem {
   id: string;
   sessionId: SessionId;
   runId?: RunId;
-  trigger: "pending_approval" | "pending_input" | "run_completed" | "run_failed" | "mention";
+  trigger: "pending_approval" | "pending_input" | "run_completed" | "run_failed";
   severity: "actionable" | "informational";
   summary: string;
   sourceEventId: string; // canonical event that triggered this
@@ -4284,7 +4276,7 @@ The namespace root is `shell` rather than `shellKey` or `daemonKey`. That choice
 
 ## Tier 6 / Tier 8: Plans 016, 017 (Task 4.10)
 
-Heading retitled by the Tier-6 audit: Plan-016 executes at Tier 6 (cross-plan-dependencies §4 build order); Plan-017 at Tier 8. The original "Tier 9" label predated the tier graph.
+Heading retitled by the Tier-6 audit: Plan-016 executes at Tier 6, Plan-017 at Tier 8. The original "Tier 9" label predated the tier graph.
 
 ### Plan-016 — Multi-Agent Channels And Orchestration
 
@@ -4297,7 +4289,7 @@ interface ChannelConfig {
   turnPolicy?: TurnPolicy;
   roundRobinOrder?: AgentId[]; // REQUIRED non-empty when turnPolicy === "round-robin" (validation error otherwise)
   moderation?: { preTurnGate?: boolean; postTurnReview?: boolean }; // Spec-016 §Moderation Hooks; both default false (V1 opt-in)
-  turnsPerAgent?: number; // D-016-23 (2026-08-11): positive integer — per-channel override of the session's per-agent consecutive-turn limit (session_budgets.turn_limit_per_agent, default 50); absent = session value. The OWN-channel budget provider Spec-017 consumes (A-017-07); enforced by the turn-policy arbiter under unchanged D-016-8 counting; refused on the direct kind with the other agent-turn members. Create-time-fixed like every ChannelConfig member — V1 ships no post-create channel-config mutation, so an overridden channel recovers from its limit by interleave alone (the owner raise via orchestration.budgetUpdate reaches only session-default channels; Spec-016 §Resolved Questions, PR #321 round 1)
+  turnsPerAgent?: number; // D-016-23 (2026-08-11): positive integer — per-channel override of the session's per-agent consecutive-turn limit (session_budgets.turn_limit_per_agent, default 50); absent = session value. The OWN-channel budget provider Spec-017 consumes (A-017-07); enforced by the turn-policy arbiter under unchanged D-016-8 counting. Create-time-fixed like every ChannelConfig member — V1 ships no post-create channel-config mutation, so an overridden channel recovers from its limit by interleave alone (the owner raise via orchestration.budgetUpdate reaches only session-default channels; Spec-016 §Resolved Questions, PR #321 round 1)
 }
 interface OrchestrationRunConfig {
   tokenLimit?: number; // per-run token budget; default 100000 (Spec-016 §Budget Policies)
@@ -4338,7 +4330,7 @@ interface ChannelRosterReadRequest {
 }
 interface ChannelRosterReadResponse {
   channels: Array<{
-    id: ChannelId; // synthesized main (deriveMainChannelId(sessionId), CP-002-7) listed first
+    id: ChannelId; // synthesized main (deriveMainChannelId(sessionId), packages/contracts/src/channel-id.ts) listed first
     name?: string;
     state: ChannelState;
     config: ChannelConfig;

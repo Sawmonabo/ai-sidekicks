@@ -15,7 +15,7 @@ The system needs durable local execution truth, replay, and recovery on the user
 
 ## Problem Statement
 
-How should the system split local execution storage from shared collaboration storage?
+How should the system split local execution storage from shared coordination storage?
 
 ### Trigger
 
@@ -41,7 +41,7 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 
 ### Option A: SQLite Local + Postgres Shared (Chosen)
 
-- **What:** Use embedded SQLite per runtime node and Postgres for collaboration services.
+- **What:** Use embedded SQLite per runtime node and Postgres for control-plane coordination services.
 - **Steel man:** Aligns storage technology with trust boundary and workload shape.
 - **Weaknesses:** Requires explicit replication boundaries and two operational models.
 

@@ -44,7 +44,7 @@ It also defines **peer invocation** — the two daemon-served tools by which a r
 - [local-sqlite-schema.md](../architecture/schemas/local-sqlite-schema.md) — the `sidekick_definitions` table.
 - [Spec-006](./006-session-event-taxonomy-and-audit-log.md) — the event taxonomy this spec mints exactly one type into, `session.peer_invocation_set` in the existing `session_lifecycle` category. Nothing on the definition plane emits; the single type carries the per-session peer-invocation opt-in, which is session state rather than node-local configuration and therefore has no home outside the event log.
 - [error-contracts.md](../architecture/contracts/error-contracts.md) — the refusal vocabulary, which this spec extends by exactly one namespace: the five-code `sidekick.*` set covering the definition plane. The **peer-invocation path mints no code at all** — every invocation refusal, authorization denial included, rides the callback-tool result's own `denied` / `failed` arms so it reaches the asking model as a tool result rather than a transport error. Every other namespace is consumed unchanged.
-- [security-architecture.md](../architecture/security-architecture.md) — the user role matrix that bounds who may manage definitions.
+- [security-architecture.md](../architecture/security-architecture.md) — the permission matrix that bounds who may manage definitions.
 - [ADR-001](../decisions/001-session-is-the-primary-domain-object.md) — a definition is session-independent configuration; the session remains the primary object and a definition never owns one.
 - [ADR-012](../decisions/012-cedar-approval-policy-engine.md) — the policy engine the two named actions register against.
 

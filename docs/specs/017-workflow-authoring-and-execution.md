@@ -216,7 +216,7 @@ The engine rules of SA-40 through SA-42 are reachable over the wire through exac
 - `multi-agent` phase-owned channel defaults differ from bare-channel defaults on four axes (SA-8 / Pass B §3.3):
   - `turn_policy: round-robin` (bare-channel default `free-form`)
   - `turns_per_agent`: formula-bounded, indicative max 20 (bare-channel 50)
-  - `membership`: phase-targeted agents only (bare-channel: session membership)
+  - `membership`: phase-targeted agents only (bare-channel: all session agents)
   - `moderation`: `off` for `auto-continue` / `done` / `human-approval` gates; `post-turn informational` for `quality-checks` gate
   - All other bare-channel defaults (token budget, cost limit, idle timeout, scheduler limits, partition behavior) unchanged.
 - `multi-agent` channel termination defaults to `CLOSE_WITH_RECORDS_PRESERVED` on phase completion (SA-9). This inverts Temporal's `TERMINATE` default because the workflow engine inherits channel transcripts as phase-output source material. Phase failure drives `REQUEST_CANCEL` with 30-second grace period. Retry creates a new channel per iteration (prevents BIND-like cross-iteration state leak).

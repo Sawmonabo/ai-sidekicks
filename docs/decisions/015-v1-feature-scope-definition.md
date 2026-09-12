@@ -77,7 +77,7 @@ Add `ownership: 'BIND'` to `multi-agent` phase contract in V1.1, contingent on *
 
 - (a) **Production signal:** ≥3 production workflows reporting OWN + transcript-inheritance insufficient for a documented user goal, AND
 - (b) **Concrete failure case:** at least one documented case where the transcript-as-context pattern degrades UX measurably (e.g., agent context loss detectable in outcomes), AND
-- (c) **Lifecycle contract:** a BIND lifecycle contract addressing the 5 ambiguities — phase-A-retry semantics, phase-A-abandonment handling, gate-scoping-lattice resolution, membership-snapshot timing, termination-authority resolution.
+- (c) **Lifecycle contract:** a BIND lifecycle contract addressing the 5 ambiguities — phase-A-retry semantics, phase-A-abandonment handling, gate-scoping-lattice resolution, channel-agent-snapshot timing, termination-authority resolution.
 
 If (a)–(c) are satisfied, BIND ships as an additive amendment to the `multi-agent` phase type (SDK ergonomics: new `ownership: 'BIND'` discriminant). If any of (a)–(c) is not satisfied within V1.1's scoping window, BIND remains deferred under the same criteria.
 

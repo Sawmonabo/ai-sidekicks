@@ -249,7 +249,7 @@ CREATE TABLE runtime_node_presence (
 ## Session Directory and Relay (Plan-031)
 
 ```sql
--- Owner: Plan-008
+-- Owner: Plan-031
 CREATE TABLE session_directory (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id      UUID NOT NULL REFERENCES sessions(id) UNIQUE,
@@ -258,7 +258,7 @@ CREATE TABLE session_directory (
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Owner: Plan-008
+-- Owner: Plan-031
 CREATE TABLE relay_connections (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id      UUID NOT NULL REFERENCES sessions(id),
@@ -272,18 +272,18 @@ CREATE TABLE relay_connections (
 
 CREATE INDEX idx_relay_connections_session ON relay_connections(session_id);
 
--- Owner: Plan-008
+-- Owner: Plan-031
 -- Durable cross-session ephemeral-key reuse guard (Spec-031 — "Reused
 -- ephemeral X25519 public keys across distinct sessions must be rejected by the control plane").
--- Each user mints a fresh ephemeral X25519 key pair per session (I-008-6), and the
+-- Each endpoint mints a fresh ephemeral X25519 key pair per session (Spec-031), and the
 -- per-session relay Durable Object discards its bundles on close — so a key reused in a *later*
 -- session can only be detected against a store that OUTLIVES the session. This control-plane table
 -- is that store (OD-008r-2, Tier-5 readiness audit). The PK on the public key is the DB-level
 -- uniqueness index that makes a duplicate INSERT of a key a constraint violation; the broker's
 -- admission logic reads the stored session_id before deciding — rejecting a CROSS-session reuse
 -- with relay.bundle_rejected (Spec-031) and treating a SAME-session
--- re-presentation as an idempotent admit ONLY for the user that first claimed the key
--- (Spec-031's reconnect-resume step; a different user
+-- re-presentation as an idempotent admit ONLY for the endpoint that first claimed the key
+-- (Spec-031's reconnect-resume step; a different endpoint
 -- is rejected). That original-claimant check is broker live-layer logic against the in-memory
 -- admission record (fail-closed when absent → client re-mints) — this table stays the cross-session
 -- (key → first session_id) backstop, never a claimant store. The audit ratifies that the store is
@@ -567,7 +567,7 @@ CREATE TABLE notification_queue (
                                                  -- the same precedent). The DOMAIN below is byte-identical to the
                                                  -- contract union; only the column name is qualified.
                     CHECK(attention_trigger IN ('pending_approval', 'pending_input', 'run_completed',
-                                                'run_failed', 'mention')),
+                                                'run_failed')),
   severity          TEXT NOT NULL
                     CHECK(severity IN ('actionable', 'informational')),
   summary           TEXT NOT NULL,               -- derived render string (AttentionItem.summary); personal content -- see the erasure note

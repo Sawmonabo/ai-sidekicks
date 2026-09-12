@@ -63,8 +63,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Cross-Plan Obligations
 
-- **CP-011-1 (consumes)** — Imports `BranchContextId` and reads/extends the `branch_contexts` row owned by Plan-010 (cross-plan-dependencies §1; Plan-010 CP-010-6). Plan-011 extends via ALTER + service access, never by editing Plan-010's git/ module.
-- **CP-011-2 (consumes)** — Uses `artifact_manifests` + the OCI envelope and the `artifacts/` module owned by Plan-014 (cross-plan-dependencies §2 Package Path Ownership Map, the `packages/runtime-daemon/src/artifacts/` row; `Spec-014 §State And Data Implications`). DiffArtifact rides as artifactType `"diff"` under that envelope.
+- **CP-011-1 (consumes)** — Imports `BranchContextId` and reads/extends the `branch_contexts` row owned by Plan-010 (cross-plan-dependencies; Plan-010 CP-010-6). Plan-011 extends via ALTER + service access, never by editing Plan-010's git/ module.
+- **CP-011-2 (consumes)** — Uses `artifact_manifests` + the OCI envelope and the `artifacts/` module owned by Plan-014 (cross-plan-dependencies Package Path Ownership Map, the `packages/runtime-daemon/src/artifacts/` row; `Spec-014 §State And Data Implications`). DiffArtifact rides as artifactType `"diff"` under that envelope.
 
 ## Implementation Steps
 
@@ -91,7 +91,7 @@ preconditions:
   - **Spec coverage:** Spec-011 line 40 (every writable run executes against an explicit branch context), line 41 (track base/head/worktree association), line 64 (`BranchContextRead` exposes base/head/upstream/worktree), AC line 173.
   - **Verifies invariant:** none (no I-011 invariant governs persistence directly — A-011-2 adjudicates Task 1 as persistence backfill, not gated by an I-011 invariant).
   - **Consumes:**
-    - `BranchContextId` ← Plan-010 provider (cross-plan-dependencies §1 line 22; Plan-010 CP-010-6) — minted by `repo.executionRootPrepare`; SHAPE verified present.
+    - `BranchContextId` ← Plan-010 provider (cross-plan-dependencies line 22; Plan-010 CP-010-6) — minted by `repo.executionRootPrepare`; SHAPE verified present.
     - `branch_contexts` row (ALTER/extend) ← Plan-010 provider ([`branch_contexts`](../architecture/schemas/local-sqlite-schema.md#workspace-and-git-tables-plan-009-plan-010-plan-011); §1 line 22) — at-most-one association CHECK + (worktree_id, workspace_id) partial-unique index present.
     - `WorktreeId`, `WorkspaceId`, `EphemeralCloneId` branded types ← Plan-010 provider (api-payload-contracts BranchContextReadResponse fields) — present.
 
@@ -158,7 +158,7 @@ preconditions:
   - **Spec coverage:** Spec-011 line 47 (reviewable before execution), line 44 (explicit fallback labeling, never implied run attribution), line 161 (attribution quality is a first-class field, not an inferred UI decoration), AC line 174 (modes distinguished) + AC line 175 (reviewable proposal).
   - **Verifies invariant:** I-011-1 — UI surfaces the fallback label honestly.
   - **Consumes:**
-    - renderer path `apps/desktop/src/renderer/src/diff-review/` ← Plan-011-owned (cross-plan-dependencies §2, `apps/desktop/src/renderer/` row) — present/pinned.
+    - renderer path `apps/desktop/src/renderer/src/diff-review/` ← Plan-011-owned (cross-plan-dependencies, `apps/desktop/src/renderer/` row) — present/pinned.
     - `gitflowClient` SDK ← Plan-011-owned (`packages/client-sdk/src/gitflowClient.ts`, §Target Areas) — to be authored by this plan; depends on the four `gitflow.*` wire methods (`gitflow.branchContextRead` / `gitflow.diffArtifactCreate` / `gitflow.prPrepare` / `gitflow.gitActionExecute`), RESOLVED via A-011-1 + D-011-5 — the four method names are registered in the canonical method table in api-payload-contracts.md (`dotted-camelCase` per `METHOD_NAME_FORMAT`).
     - attribution-mode + artifact-payload contracts ← consumes the same enum/shapes as Step 2 — RESOLVED via D-011-2 (the `run_attributed`/`workspace_fallback` mode labels are fixed) for the mode-label rendering.
 

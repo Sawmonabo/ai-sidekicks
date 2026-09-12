@@ -47,7 +47,7 @@ This spec defines V1 feature #18 ([ADR-015 §Decision](../decisions/015-v1-featu
 - **No config-store ownership.** Provider config files (`~/.claude.json` scopes, `$CODEX_HOME/config.toml`, project-local `.codex/config.toml`, `.mcp.json`) remain provider-owned; the daemon mutates them only through each provider's sanctioned write mechanism and treats them as the source of truth it observes, not a mirror it maintains.
 - **No server marketplace, registry, or discovery.** V1 governs servers the operator declares; it does not fetch, recommend, or install them.
 - **No remote governance mutation.** V1 authorizes only the node-local operator (the caller-owns-the-node model — §Authorization); control-plane-relayed mutation attempts are denied, not queued.
-- **No session-role permission-matrix extension.** Governance is node-operator authority, deliberately outside the session-role matrix ([Security Architecture §Permission Matrix (Task 5.4)](../architecture/security-architecture.md#permission-matrix-task-54)); the only session-role-facing MCP surface remains `mcp_elicitation` approvals per Spec-012.
+- **No session-scoped permission-matrix extension.** Governance is node-operator authority, deliberately outside the session permission matrix ([Security Architecture §Permission Matrix (Task 5.4)](../architecture/security-architecture.md#permission-matrix-task-54)); the only session-facing MCP surface remains `mcp_elicitation` approvals per Spec-012.
 - **No non-user-scope config writes.** V1 observes project and local scopes read-only on both providers (Codex cwd-resolved `.codex/config.toml`; Claude `.mcp.json` and the project-keyed `local` scope); writes target user scope only (see §Fallback Behavior for the honest degradation).
 
 ## Domain Dependencies

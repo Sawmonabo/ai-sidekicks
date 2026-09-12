@@ -20,7 +20,7 @@ Define the one-time, client-daemon first-run onboarding flow that presents the t
 
 It also defines the **provider-authentication step group** that settles whether the node can start an agent run at all — the first-run gap [BL-154](../archive/backlog-archive.md) recorded, where a node completes onboarding with no provider account registered and learns it only when its first run is refused. The two step groups are independently triggered and independently skippable; §Required Behavior names which sections belong to which.
 
-This spec covers the **client-daemon** first-run experience across both V1 clients (CLI and desktop). It does not define the self-hosted _operator_ first-run — that is `docker-compose up` using the package defined in Spec-025 and is not subject to the three-way choice. [Spec-023](./023-desktop-shell-and-renderer.md) remains authoritative for keystore access, WebAuthn orchestration, and the preload bridge; this spec composes those surfaces, it does not restate them.
+This spec covers the **client-daemon** first-run experience across both V1 clients (CLI and desktop). It does not define the self-hosted _operator_ first-run — that is `docker-compose up` for the self-hosted package and is not subject to the three-way choice. [Spec-023](./023-desktop-shell-and-renderer.md) remains authoritative for keystore access, WebAuthn orchestration, and the preload bridge; this spec composes those surfaces, it does not restate them.
 
 ## Scope
 
@@ -39,9 +39,9 @@ In scope:
 Out of scope (see Non-Goals):
 
 - Installer or package-manager bootstrap (brew, apt, npm, release binary).
-- Self-hosted _operator_ first-run — that is `docker-compose up` per Spec-025.
+- Self-hosted _operator_ first-run — that is `docker-compose up` for the self-hosted package.
 - Hosted SaaS sign-up page UX, pricing surface, billing, or account dashboard (hosted product concerns).
-- Relay protocol design or endpoint validation contract beyond calling the Spec-008 / Spec-025 endpoints that already exist.
+- Relay protocol design or endpoint validation contract beyond calling the relay endpoints that already exist ([Spec-031](./031-remote-control.md)).
 - Enterprise SSO onboarding (OIDC / SAML) — deferred to V1.1+ alongside the rest of the enterprise track in [BL-060](../archive/backlog-archive.md).
 - The provider-account registry, credential homes, the readiness derivation, spawn validation, and the vendor authentication-policy constraints — all [Spec-029](029-provider-accounts-and-credential-homes.md)'s, composed here and never re-specified. Group B owns the _surface_; it owns none of the mechanism beneath it.
 
@@ -91,7 +91,7 @@ The flow must present three and only three options. Their identifiers, copy inte
 | # | Choice ID (config) | Display name | One-line framing the UI must convey |
 | --- | --- | --- | --- |
 | 1 | `free-public-relay` | Free public relay (default) | _Use the project-operated relay — zero config, fastest path to reaching this machine from another device. Session payloads are end-to-end encrypted; the relay never sees plaintext._ |
-| 2 | `self-host` | Self-host your own relay | _Point at a relay you operate (Spec-025). You own the infrastructure and the audit surface. Requires a relay URL, an admin-issued join token, and a first-connection fingerprint trust decision._ |
+| 2 | `self-host` | Self-host your own relay | _Point at a relay you operate. You own the infrastructure and the audit surface. Requires a relay URL, an admin-issued relay token, and a first-connection fingerprint trust decision._ |
 | 3 | `hosted-saas` | Sign up for hosted SaaS | _Open a browser to sign up for the hosted managed service. Same feature set as the free option with vendor support on the paid tier. Returns a scoped token to this daemon via deep-link or loopback callback._ |
 
 Copy may be tightened or localized; the framing (zero-config vs. own-it vs. managed; what the user has to provide; where tokens live) must not be lost.
@@ -99,7 +99,7 @@ Copy may be tightened or localized; the framing (zero-config vs. own-it vs. mana
 Option-specific required prompts:
 
 - **Option 1 (`free-public-relay`).** The UI must display the current published relay URL from daemon config (the URL is not operator-editable from this flow). No further prompts. Token: the free tier uses the daemon's existing per-machine identity key; no network call is made until the relay is actually used.
-- **Option 2 (`self-host`).** The UI must prompt for: the relay URL (`https://…`); the admin-issued join token (paste, never echoed on CLI); a TLS-fingerprint-trust confirmation step after the daemon's first reachability probe against `GET /readyz` at the URL. The daemon must pin the certificate's SubjectPublicKeyInfo hash on confirmation (TOFU). The admin token must be written to the OS keystore via the same keystore surface Spec-023 defines; never to a plaintext config field.
+- **Option 2 (`self-host`).** The UI must prompt for: the relay URL (`https://…`); the admin-issued relay token (paste, never echoed on CLI); a TLS-fingerprint-trust confirmation step after the daemon's first reachability probe against `GET /readyz` at the URL. The daemon must pin the certificate's SubjectPublicKeyInfo hash on confirmation (TOFU). The admin token must be written to the OS keystore via the same keystore surface Spec-023 defines; never to a plaintext config field.
 - **Option 3 (`hosted-saas`).** The UI must open the system browser to the hosted sign-up URL (a configurable constant in daemon config) with a one-shot PKCE state parameter. The daemon must listen on a `127.0.0.1:<ephemeral>/callback` loopback endpoint (desktop may alternatively register a `sidekicks://` deep-link handler per Spec-023) and accept exactly one inbound callback bearing the scoped token and the matching PKCE state. The scoped token must be written to the OS keystore. The loopback listener must bind only to `127.0.0.1` and must close within 5 minutes or on first use, whichever comes first.
 
 ### Persistence
@@ -179,7 +179,7 @@ It must not trigger on install, on first daemon launch, on a health check, on se
 ## Fallback Behavior
 
 - **No network when the choice resolves (Option 1).** The daemon must offer a deferred-choice mode: store the resolved choice; defer network validation until the next relay connection attempt; log `onboarding.choice_made` with `deferred_validation: true`. The onboarding flow itself completes offline.
-- **Self-host TLS fingerprint mismatch on subsequent connect (Option 2).** The daemon must refuse the connection and surface a CLI / desktop dialog asking the user to either re-run `sidekicks onboarding reset` or explicitly re-pin with `sidekicks relay repin --force` (which itself requires the user to paste the new SPKI hash to prove out-of-band verification). Silent re-trust is forbidden. (Spec-008 may later introduce a named event for this refusal path; that registration is out of scope here.)
+- **Self-host TLS fingerprint mismatch on subsequent connect (Option 2).** The daemon must refuse the connection and surface a CLI / desktop dialog asking the user to either re-run `sidekicks onboarding reset` or explicitly re-pin with `sidekicks relay repin --force` (which itself requires the user to paste the new SPKI hash to prove out-of-band verification). Silent re-trust is forbidden. (A named event for this refusal path may be registered later; that registration is out of scope here.)
 - **Hosted-SaaS sign-up canceled or loopback callback never fires (Option 3).** The flow must time out after 5 minutes, discard the PKCE state, leave `onboarding` unset, and return the user to the three-way choice screen. No partial state persists.
 - **OS keystore unavailable (Option 2, Option 3, or telemetry-choice persistence on platforms that require keystore-backed daemon tokens).** Per `Spec-023 §Fallback Behavior`: refuse to persist long-lived auth material; the session proceeds memory-only with the degradation surfaced; the flow records `onboarding.choice_made` with `keystore_available: false` so ops can diagnose. On Linux, the daemon must distinguish `basic_text` (plaintext fallback) from `gnome_libsecret` / `kwallet*` via `safeStorage.getSelectedStorageBackend()` ([Electron safeStorage docs](https://www.electronjs.org/docs/latest/api/safe-storage)) and refuse the plaintext backend for hosted / self-host tokens.
 - **Conflicting daemon already configured (`config.toml` present but no `[onboarding]`, or `[onboarding]` present on a daemon installation version that predates this spec).** The daemon must migrate at first trigger: if a legacy config field maps to a current choice ID, carry it forward with `resolved_at = now()` and emit `onboarding.choice_made` with `migrated: true`; otherwise treat it as a fresh onboarding.

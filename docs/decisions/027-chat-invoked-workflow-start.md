@@ -72,7 +72,7 @@ The minimal surface: grammar without discoverability. Rejected because a command
 
 ### Option C: Workflows as @-mentionable pseudo-users (Rejected)
 
-`@release-workflow go` — reuse the addressing namespace. Rejected structurally: `Spec-016 §Turn Policies` defines `@` as the addressing act resolving to `OrchestrationRunCreate` naming a `targetAgentId`; workflows are not users, hold no agent identity, and take no turns. Overloading the addressing act would put a non-user in every roster surface, force the addressing-gated activation invariant to carve out an exception, and collide names across two namespaces (an agent and a workflow sharing a name becomes ambiguous). `@` is who; `/` is what.
+`@release-workflow go` — reuse the addressing namespace. Rejected structurally: `Spec-016 §Turn Policies` defines `@` as the addressing act resolving to `OrchestrationRunCreate` naming a `targetAgentId`; workflows are not users, hold no agent identity, and take no turns. Overloading the addressing act would put a non-user in every surface that lists who can be addressed, force the addressing-gated activation invariant to carve out an exception, and collide names across two namespaces (an agent and a workflow sharing a name becomes ambiguous). `@` is who; `/` is what.
 
 ### Option D: A tenth `workflow_start` approval category (Rejected)
 

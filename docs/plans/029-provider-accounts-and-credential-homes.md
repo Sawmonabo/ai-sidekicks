@@ -196,7 +196,7 @@ Plan-016 owns the committed-spend fold and the session cost receipt. This plan p
 
 `Plan-016 §Cross-Plan Obligations` CP-016-16 obliges any plan that grows a cost-displaying surface to source every figure from the accountant's committed-spend accessor and to return-cite the obligation at its own audit. This plan's global cost page is such a surface.
 
-**Resolution.** Discharged at this plan's authoring audit: the global cost page read (T4.2) is a projection over the accountant's accessor with no independent fold, and the `Spec-016 §Cost Figure Display Consistency` clause (b) declaration is carried per figure. The reciprocal registration is recorded on the `cross-plan-dependencies.md` §3 edge, which CP-016-16 anticipated for exactly this case.
+**Resolution.** Discharged at this plan's authoring audit: the global cost page read (T4.2) is a projection over the accountant's accessor with no independent fold, and the `Spec-016 §Cost Figure Display Consistency` clause (b) declaration is carried per figure. The reciprocal registration is recorded on the `cross-plan-dependencies.md` edge, which CP-016-16 anticipated for exactly this case.
 
 ### CP-029-5 — Plan-013 renders the account-scoped provider quota
 
@@ -232,7 +232,7 @@ Plan-028 observes provider configuration files inside a provider home and derive
 
 **Obligation.** `Spec-023 §Provider Accounts And Cost View (→ Plan-029 Provider Accounts And Credential Homes)` already names Plan-029 as its owning plan. The 2026-08-26 amendment grows that view with the sign-in, token-supply, observer opt-out, and per-limit quota affordances. Plan-023 owns the desktop shell and the preload bridge the view mounts onto; Plan-029 authors the view's own subtree.
 
-**Resolution.** Reciprocal, producer on this side: T4.4 authors `apps/desktop/src/renderer/src/provider-accounts/` and Plan-023 mounts it, the same shape CP-004-15 takes for the edit affordance. Spec-023 is flip-and-restored `approved` in this same swap; Plan-023 takes the mount row and no new task, because the subtree is Plan-029-authored content inside a Plan-023-owned tree — the per-file ownership crossing pinned in cross-plan §2.
+**Resolution.** Reciprocal, producer on this side: T4.4 authors `apps/desktop/src/renderer/src/provider-accounts/` and Plan-023 mounts it, the same shape CP-004-15 takes for the edit affordance. Spec-023 is flip-and-restored `approved` in this same swap; Plan-023 takes the mount row and no new task, because the subtree is Plan-029-authored content inside a Plan-023-owned tree — the per-file ownership crossing pinned in cross-plan-dependencies.md.
 
 ### CP-029-11 — Plan-007 registers the run-start account-override option on the CLI
 
@@ -258,7 +258,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/ipc/handlers/` (EXTEND — the `providerAccount.*` namespace binder, registered under Plan-007's registry)
 - `packages/runtime-daemon/src/policy/` (EXTEND — the additive `providerAccount` Cedar action-family policy module, the Plan-028 `mcp` action-family precedent)
 - `packages/client-sdk/src/providerAccountClient.ts` (NEW)
-- `apps/cli/src/commands/` (CREATE — Plan-029-authored content inside Plan-007's `apps/cli` scaffold, the per-file ownership crossing pinned in cross-plan §2) + `apps/cli/src/main.ts` (EXTEND — registration calls)
+- `apps/cli/src/commands/` (CREATE — Plan-029-authored content inside Plan-007's `apps/cli` scaffold, the per-file ownership crossing pinned in cross-plan-dependencies.md) + `apps/cli/src/main.ts` (EXTEND — registration calls)
 - `apps/desktop/src/renderer/src/provider-accounts/` (NEW renderer subtree — the settings registry, the run-start selector, and the global cost page)
 
 ## Data And Storage Changes

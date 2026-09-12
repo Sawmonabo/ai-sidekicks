@@ -97,7 +97,7 @@ flowchart TD
  n022_2["Plan-022 Phase 2 — per-user crypto primitives"]
  n022_3["Plan-022 Phase 3 — write-path integration"]
  n022_4["Plan-022 Phase 4 — GDPR stub surface"]
- n022_6["Plan-022 Phase 6 — shred fan-out alignment checkpoint"]
+ n022_5["Plan-022 Phase 5 — shred fan-out alignment checkpoint"]
  %% Plan-023
  n023_2["Plan-023 Phase 2 — IPC bridge registry and handlers"]
  n023_3["Plan-023 Phase 3 — daemon supervisor and crash reporter"]
@@ -227,7 +227,7 @@ flowchart TD
  n022_1 --> n022_2
  n022_2 --> n022_3
  n022_3 --> n022_4
- n022_4 --> n022_6
+ n022_4 --> n022_5
  n023_2 --> n023_3
  n023_3 --> n023_4
  n023_4 --> n023_5
@@ -390,7 +390,7 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-030 Phase 4](../plans/030-sidekick-definitions-and-peer-invocation.md) | peer invocation. | Plan-016 Phase 4B, Plan-030 Phase 3 |
 | 7 | [Plan-014 Phase 5](../plans/014-artifacts-files-and-attachments.md) | authenticated relay fetch. | Plan-014 Phase 4 |
 |  | [Plan-019 Phase 3](../plans/019-notifications-and-attention-model.md) | notification emission and delivery. | Plan-013 Phase 4, Plan-019 Phase 2 |
-|  | [Plan-022 Phase 6](../plans/022-data-retention-and-gdpr.md) | shred fan-out alignment checkpoint. | Plan-022 Phase 4 |
+|  | [Plan-022 Phase 5](../plans/022-data-retention-and-gdpr.md) | shred fan-out alignment checkpoint. | Plan-022 Phase 4 |
 |  | [Plan-023 Phase 5](../plans/023-desktop-shell-and-renderer.md) | auto-updater and deep-link handler. | Plan-023 Phase 4 |
 |  | [Plan-027 Phase 3](../plans/027-cross-node-dispatch-and-approval.md) | caller-side dispatch and outbox. | Plan-015 Phase 3, Plan-027 Phase 2 |
 |  | [Plan-027 Phase 4](../plans/027-cross-node-dispatch-and-approval.md) | approval integration and dual-signed record. | Plan-027 Phase 2 |

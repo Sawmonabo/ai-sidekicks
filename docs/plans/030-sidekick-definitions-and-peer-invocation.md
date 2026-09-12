@@ -140,7 +140,7 @@ Child-run creation stamps the effective principal of the turn that issued the in
 
 **Why load-bearing.** Two independent holes close here. A peer-invoked run has neither an intervention row nor a user who started it — the two arms `EffectivePrincipal` resolves through — so without a stamped value it has no principal at all, and chaining to the parent run cannot supply one because a run accumulates turns from several principals and recency is not a correct answer. Separately, `ask_sidekick` is the only tool in this plan that outlives its own child: admission succeeding does not guarantee an answer, so a child that fails, is cancelled, or completes silently would leave the asking model blocked on a call that never returns — the one outcome the callback-tool dispatch seam forbids.
 
-**Verification.** T4.4 asserting the stamped principal equals the invoking turn's effective principal and differs from the parent run's initiator when a second user issued the call, and that an unresolvable principal refuses creation; T4.3 settlement rows for each child terminal — failed, cancelled, interrupted, and completed-without-answer — each answering `failed` naming the terminal state, plus a race row landing the terminal between admission and subscription.
+**Verification.** T4.4 asserting the stamped principal equals the invoking turn's effective principal and differs from the parent run's initiator when the call was issued under a different principal, and that an unresolvable principal refuses creation; T4.3 settlement rows for each child terminal — failed, cancelled, interrupted, and completed-without-answer — each answering `failed` naming the terminal state, plus a race row landing the terminal between admission and subscription.
 
 ### I-030-12 — Every daemon-consumed resolved axis has a durable, non-opaque home
 
@@ -182,7 +182,7 @@ Peer invocation and definition management are authorized as the named operation 
 
 **Resolution.** Plan-016 registers the reciprocal CP-016-19, carries the column on its own `run_links` `CREATE` (Phase 2 merges before this plan's Phase 4, so no separate migration ordinal is consumed), and stamps the value its admission caller supplies. Plan-030 T4.4 resolves the invoking turn's effective principal and supplies it; a call whose principal cannot be resolved refuses before admission, so Plan-016 never has to represent an unattributed peer-invoked link. The column is NULL for every link created by any other path.
 
-**Why surfaced here.** The write is one-writer Plan-016 by the §2 ownership map, but the obligation originates entirely in this plan's feature: no other caller of that admission path has an invoking turn distinct from the run's initiator.
+**Why surfaced here.** The write is one-writer Plan-016 by the ownership map, but the obligation originates entirely in this plan's feature: no other caller of that admission path has an invoking turn distinct from the run's initiator.
 
 ### CP-030-5 — Event-type registration in the Plan-006 union-registration seam
 
@@ -230,7 +230,7 @@ Peer invocation and definition management are authorized as the named operation 
 ## Target Areas
 
 - `packages/contracts/src/sidekick-definition.ts` (NEW) — the definition record, the `sidekick.*` request/response pairs, and the two peer-invocation tool argument schemas.
-- `packages/runtime-daemon/src/sidekicks/` (NEW directory per cross-plan §2): `invoking-principal.ts`, `definition-store.ts`, `definition-resolver.ts`, `attach-resolution.ts`, `handlers.ts`, `peer-invocation-tools.ts`, `peer-invocation-handler.ts`, `errors.ts`.
+- `packages/runtime-daemon/src/sidekicks/` (NEW directory per cross-plan-dependencies.md): `invoking-principal.ts`, `definition-store.ts`, `definition-resolver.ts`, `attach-resolution.ts`, `handlers.ts`, `peer-invocation-tools.ts`, `peer-invocation-handler.ts`, `errors.ts`.
 - `packages/runtime-daemon/src/migrations/` (EXTEND) — the `sidekick_definitions` migration and its runner registration.
 - `apps/cli/src/commands/sidekick-definition-*.ts` (NEW) — the CLI definition commands, each extending the shared base command class per CP-007-15.
 - `packages/client-sdk/src/` (EXTEND) — `sidekickClient.ts` (NEW), the typed client for the five `sidekick.*` pairs, plus one barrel export line in the Plan-001-owned `index.ts`.
@@ -453,7 +453,7 @@ preconditions:
   - **Consumes:** T4.3; the turn-scoped effective principal ← Plan-012 permission-check service (read, never authored); the stamping column ← Plan-016 `run_links` (CP-030-4 ⇄ CP-016-19); Plan-016 cost receipt (Phase 4B).
   - **Spec coverage:** Spec-030 §Required Behavior (the invoking-principal rule and the cost-and-causation rules).
   - **Verifies invariant:** I-030-11.
-  - **Tests:** the stamped principal equal to the invoking turn's effective principal; a second user steering the asking run and issuing the call, asserting the stamp is that user and **not** the parent run's initiator; an unresolvable principal refusing before admission with no run and no link row written; a smuggled principal in the tool arguments ignored; the child's `costCents` on its own run row and on the target account's row; the asking run's row byte-identical to a control run that made no invocation; both receipt partition identities still summing to the session total.
+  - **Tests:** the stamped principal equal to the invoking turn's effective principal; a steer admitted under a different principal issuing the call, asserting the stamp is that principal and **not** the parent run's initiator; an unresolvable principal refusing before admission with no run and no link row written; a smuggled principal in the tool arguments ignored; the child's `costCents` on its own run row and on the target account's row; the asking run's row byte-identical to a control run that made no invocation; both receipt partition identities still summing to the session total.
 
 ### Phase 5 — Desktop editor and enablement control
 
