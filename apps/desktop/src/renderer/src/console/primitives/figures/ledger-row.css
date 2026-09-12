@@ -12,8 +12,9 @@
  * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
  * and reads every value back out as a custom property.
  *
- * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 1 (the
- * row's anatomy), rule 3's edge hues, and rule 7's hover footer.
+ * Design-language rules that govern this sheet: rule 1 (the row's anatomy), rule 3's
+ * edge hues, and rule 7's hover footer.
+ *
  * The edge spans both rows of the grid so a revealed footer does not leave a gap in
  * the attribution — a ledger line is one line, footer or no footer.
  */

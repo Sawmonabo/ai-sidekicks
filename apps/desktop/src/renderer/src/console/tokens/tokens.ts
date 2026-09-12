@@ -1,12 +1,11 @@
 // The typed TS mirror of the Meridian token set.
 //
-// `palette.ts` authors the values; this module resolves them (gamut fit, then
-// rounding to the precision the CSS carries) and names them. Two consumers:
-// `generate-css.ts`, which emits `meridian.css` from exactly these records, and
-// `contrast.test.ts`, which measures exactly these records against the WCAG 2.2
-// AA floors `Spec-023 §Console Design (Meridian)` rule 3 states. Because both
-// read the same resolved values, a token that passes the contrast test is the
-// token the browser paints — there is no second table to drift.
+// `palette.ts` authors the values; this module resolves them (gamut fit, then rounding
+// to the precision the CSS carries) and names them. Two consumers: `generate-css.ts`,
+// which emits `meridian.css` from exactly these records, and `contrast.test.ts`, which
+// measures exactly these records against the WCAG 2.2 AA floors design-language rule 3
+// states. Because both read the same resolved values, a token that passes the contrast
+// test is the token the browser paints — there is no second table to drift.
 //
 // Component code never reaches into these records for a color. It writes
 // `var(--meridian-text-muted)` and lets the cascade resolve the scheme; the
@@ -114,13 +113,13 @@ function resolvePairs(source: Readonly<Record<string, SchemePair>>): Map<string,
  * emits, so the generated file reads top-down from ground to signal and finishes with
  * the sets a single family spends.
  *
- * DATA AND NOT A `Map`, which is `apps/desktop/AGENTS.md` §State and views' rule and
- * is enforced as syntax in `eslint.console-syntax-bans.mjs`: an exported `Map` is one
- * object every importer in the window shares, `ReadonlyMap` hides `set` and `delete`
- * from a reader and from nothing at runtime, and `Object.freeze` does not close a
- * `Map`. A single importer writing into this one would have repainted the whole
- * console for every later reader. Every consumer iterates it or reads the names off
- * it; the one lookup by name is this module's own, below.
+ * DATA AND NOT A `Map`, which is the state-and-views rule in `apps/desktop/AGENTS.md`
+ * and is enforced as syntax in `eslint.console-syntax-bans.mjs`: an exported `Map` is
+ * one object every importer in the window shares, `ReadonlyMap` hides `set` and
+ * `delete` from a reader and from nothing at runtime, and `Object.freeze` does not
+ * close a `Map`. A single importer writing into this one would have repainted the whole
+ * console for every later reader. Every consumer iterates it or reads the names off it;
+ * the one lookup by name is this module's own, below.
  */
 export const SCHEME_COLOR_TOKENS: readonly (readonly [string, SchemePair])[] = [
   ...resolvePairs(SURFACE_TOKENS),

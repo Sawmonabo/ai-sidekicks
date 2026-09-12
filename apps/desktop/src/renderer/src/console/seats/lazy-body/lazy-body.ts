@@ -6,10 +6,9 @@
 // Every view family registers what it draws through one of the console's boards — the
 // deck's pane registry and the frame's surface registry — by static import, so every
 // family's body code sits in the entry chunk whether or not that pane or that route is
-// ever reached. Measured on the `renderer-initial-bundle` budget
-// (`Spec-023 §Console Design (Meridian)` §Budgets, ≤ 450 kB gzip): four landed families
-// spend it to about 79 %, and two more families each carry it past the ceiling on their
-// own. The budget is the spec's, so what has to change is the registration.
+// ever reached. Measured on the `renderer-initial-bundle` budget (≤ 450 kB gzip): four
+// landed families spend it to about 79 %, and two more families each carry it past the
+// ceiling on their own. The budget is fixed, so what has to change is the registration.
 //
 // It changes ONCE, here, rather than per family and rather than per board. A family
 // supplies a `body` loader instead of a `render` function; the board normalises it into

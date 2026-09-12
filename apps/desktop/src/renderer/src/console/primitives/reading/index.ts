@@ -20,8 +20,8 @@
 // stopped folding a `ReadingState` the rules would have gone with it. The sheet sits at
 // `primitives/partial-read.css` beside the door that publishes what it styles, which is
 // what its own header has always said, and ownership follows it there rather than
-// staying with the deeper barrel: `apps/desktop/AGENTS.md` §Module shape's "either move
-// the entry with the sheet or leave the sheet at the door".
+// staying with the deeper barrel, on the module-shape rule in `apps/desktop/AGENTS.md`:
+// either move the entry with the sheet or leave the sheet at the door.
 
 export type { PartialReadNotice, ReadingState } from "./partial-read.js";
 export { partialReadNotices } from "./partial-read.js";

@@ -1,13 +1,12 @@
 // The attachment ingest bounds, and the stride the encoder walks a chunk in.
 
-// `Spec-014 §Bounds (normative defaults; operator-tunable)` registers all four of
-// the bounds below on the wire, and the daemon is what enforces them; the console
-// carries them so it can explain a bound ahead of the refusal rather than after
-// it. Each mirrors its registered source EXACTLY and is never looser — a console
-// that admitted more than the daemon would spend a participant's upload to earn a
-// refusal. Three are operator-tunable, so every surface that shows one says
-// "default" until `artifactAllowlistRead` answers with the effective value; the
-// chunk size is fixed because the frame ceiling it derives from is.
+// All four of the bounds below are registered on the wire, and the daemon is what
+// enforces them; the console carries them so it can explain a bound ahead of the refusal
+// rather than after it. Each mirrors its registered source EXACTLY and is never looser —
+// a console that admitted more than the daemon would spend a participant's upload to earn
+// a refusal. Three are operator-tunable, so every surface that shows one says "default"
+// until `artifactAllowlistRead` answers with the effective value; the chunk size is fixed
+// because the frame ceiling it derives from is.
 
 /**
  * Decoded bytes one attachment may carry, at the shipped default.

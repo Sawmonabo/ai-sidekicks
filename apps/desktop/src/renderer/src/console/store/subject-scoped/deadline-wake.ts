@@ -8,17 +8,16 @@
 // therefore keeps the pre-deadline sentence for as long as the window stays open,
 // which is exactly the state a person leaves a session in.
 //
-// AND THE FIX IS NOT A POLL. `Spec-023 §Console Design (Meridian)`'s "No interval
-// polling" rule and the idle-CPU budget behind it both hold, so this arms ONE
-// timeout at a time, for the earliest deadline still ahead, and re-arms from inside
-// its own tick: a chain of single shots that stops on its own the moment nothing is
-// outstanding. A deadline further out than a platform timer can hold is walked in
-// steps of that ceiling rather than armed for in one go — see
-// `MAXIMUM_TIMEOUT_MILLISECONDS`, where a single unclamped arm fires immediately and
-// forever. Nothing is read when it fires — it publishes an INSTANT — which is
-// why this is not a refresh and does not belong to `read/refresh-scheduler.ts`. That
-// module decides when to ask the daemon again; this one decides nothing at all
-// except what time it is for the rows already in hand.
+// AND THE FIX IS NOT A POLL. The no-interval-polling rule and the idle-CPU budget
+// behind it both hold, so this arms ONE timeout at a time, for the earliest deadline
+// still ahead, and re-arms from inside its own tick: a chain of single shots that stops
+// on its own the moment nothing is outstanding. A deadline further out than a platform
+// timer can hold is walked in steps of that ceiling rather than armed for in one go —
+// see `MAXIMUM_TIMEOUT_MILLISECONDS`, where a single unclamped arm fires immediately
+// and forever. Nothing is read when it fires — it publishes an INSTANT — which is why
+// this is not a refresh and does not belong to `read/refresh-scheduler.ts`. That module
+// decides when to ask the daemon again; this one decides nothing at all except what
+// time it is for the rows already in hand.
 //
 // THE DEPENDENCY IS THE DEADLINE, NOT THE ARRAY. Every family that wrote this by
 // hand keyed its effect on the record array, so a caller that rebuilt the array each

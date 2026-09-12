@@ -1,9 +1,8 @@
 // Which airspace registry each window holds.
 //
-// One registry per renderer document, which is what `Spec-023 §Console Design
-// (Meridian)` 12.3 means by "one per renderer process": an auxiliary window is its
-// own renderer with its own overlays and its own native views, and two windows must
-// not yield to each other's dialogs.
+// One registry per renderer document, which is what "one per renderer process" means:
+// an auxiliary window is its own renderer with its own overlays and its own native
+// views, and two windows must not yield to each other's dialogs.
 //
 // KEYED ON THE DOCUMENT, and that is the correction this move makes rather than a
 // consequence of it. The registry this replaces keyed on the console BRIDGE, because

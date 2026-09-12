@@ -1,10 +1,10 @@
 // A keyboard chord, rendered the way the operator's platform writes it.
 //
-// The console's chord grammar is `tinykeys`' (`Spec-023 §Console Libraries`, the
-// headless-UI row admits it as the chord parser only), so a binding is authored once
-// as `"$mod+KeyK"` and the platform decides what `$mod` looks like. Authoring `"⌘K"`
-// at a call site would hard-code macOS into a cross-platform app; authoring
-// `"Ctrl+K"` would hard-code Windows into it.
+// The console's chord grammar is `tinykeys`' — the library is admitted as the chord
+// parser and nothing else — so a binding is authored once as `"$mod+KeyK"` and the
+// platform decides what `$mod` looks like. Authoring `"⌘K"` at a call site would
+// hard-code macOS into a cross-platform app; authoring `"Ctrl+K"` would hard-code
+// Windows into it.
 //
 // This component decides LAYOUT — a run of keycaps with an accessible label — and
 // nothing about vocabulary. What each token prints and how it is spoken comes from

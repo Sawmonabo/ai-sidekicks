@@ -1,30 +1,30 @@
 // The three inline cards a ledger row can carry, and the seat each body fills.
 //
-// `Spec-023 §Console Design (Meridian)` rule 7 puts these in the timeline: "diff
-// cards expand to a height cap and then offer 'show all'". A diff, an attachment,
-// and a published artifact each render as a card INSIDE a row rather than as a
-// pane, because they belong to the turn that produced them.
+// These live in the timeline: a diff card expands to a height cap and then offers
+// "show all". A diff, an attachment, and a published artifact each render as a card
+// INSIDE a row rather than as a pane, because they belong to the turn that produced
+// them.
 //
-// TWO FAMILIES MEET HERE. The workspace family (T-023p-1C-2) owns the ledger and
-// renders the seat; the repos family (T-023p-1C-5) owns all three bodies. The
-// ledger imports no body and the bodies import no ledger.
+// TWO FAMILIES MEET HERE. The workspace family owns the ledger and renders the seat;
+// the repos family owns all three bodies. The ledger imports no body and the bodies
+// import no ledger.
 //
 // WHY THE PROPS CARRY IDENTITY AND NOTHING ELSE
 //
 // A card body needs the artifact's size, its media type, its allow-list verdict —
-// and NONE of those is a wire member that exists. `Plan-023 §Console growth slate`
-// carries `artifact-ingest-and-crud` ("attachment ingest method-name table and
-// artifact CRUD method strings", owned by Plan-014) and
-// `artifact-allowlist-and-abort` ("effective allow-list read; ingest abort", owned
-// by Spec-014) precisely because they do not. Minting a `ConsoleArtifact` shape
+// and NONE of those is a wire member that exists. The console growth slate carries
+// `artifact-ingest-and-crud` ("attachment ingest method-name table and artifact CRUD
+// method strings") and `artifact-allowlist-and-abort` ("effective allow-list read;
+// ingest abort") precisely because they do not. Minting a `ConsoleArtifact` shape
 // here with the members a card would like would be the console inventing wire
-// members, which `store/entities/entities.ts` names as the lane-4 change Phase 1C forbids.
+// members, which `store/entities/entities.ts` names as a change this console may not
+// make.
 //
-// So each arm carries the identity its body fetches WITH, and the fetch goes
-// through `bridge/growth-port/growth-port.ts`, which refuses by name until the wire lands. The
-// day Plan-014 registers the typed attachment reference, the local
-// `InlineCardAttachmentRef` below is deleted and the contract type imported in its
-// place — one edit, in the PR that removes the slate rows.
+// So each arm carries the identity its body fetches WITH, and the fetch goes through
+// `bridge/growth-port/growth-port.ts`, which refuses by name until the wire lands. The
+// day the typed attachment reference is registered, the local
+// `InlineCardAttachmentRef` below is deleted and the contract type imported in its place
+// — one edit, in the PR that removes the slate rows.
 
 import { ConsoleRefusalError, KeyedRegistry, refuse } from "../../core/index.js";
 import { type ConsoleEntityRef } from "../../store/index.js";
@@ -32,7 +32,6 @@ import { type ConsoleEntityRef } from "../../store/index.js";
 /** The subsystem an inline-card refusal names as its author. */
 const INLINE_CARD_ORIGIN = "inline-card-seats";
 
-// Consumed by T-023p-1C-2
 /**
  * Every kind of card a ledger row can carry. Closed.
  *
@@ -41,21 +40,17 @@ const INLINE_CARD_ORIGIN = "inline-card-seats";
  */
 export const INLINE_CARD_KINDS = ["diff", "attachment", "artifact"] as const;
 
-// Consumed by T-023p-1C-2, T-023p-1C-5
 /** One inline-card kind. Derived from the enumeration, never restated. */
 export type InlineCardKind = (typeof INLINE_CARD_KINDS)[number];
 
-// Consumed by T-023p-1C-2, T-023p-1C-5
 /**
  * A reference to an attachment on a message.
  *
  * Renderer-local and identity-only, and it is a placeholder with a named owner
- * rather than a guess: `Spec-014 §Required Behavior` types the attachment
- * reference and Plan-014 T14.13 builds it, and until that lands
- * `@ai-sidekicks/contracts` exports no attachment type at all —
- * `SteerPayload.attachments` is `unknown[]` by contract. When the typed reference
- * ships, this interface is deleted and the contract type is imported at the arm
- * below.
+ * rather than a guess: the attachment reference is typed and built outside this
+ * console, and until that lands `@ai-sidekicks/contracts` exports no attachment type at
+ * all — `SteerPayload.attachments` is `unknown[]` by contract. When the typed reference
+ * ships, this interface is deleted and the contract type is imported at the arm below.
  */
 export interface InlineCardAttachmentRef {
   /** Opaque, wire-verbatim. The only thing the console can honestly hold today. */
@@ -67,8 +62,8 @@ export interface InlineCardAttachmentRef {
  *
  * The two identifiers are the ones the registered diff result carries — the
  * `DiffArtifactCreateResponse` in
- * `docs/architecture/contracts/api-payload-contracts.md` §Plan-011, whose members
- * are `diffArtifactId`, `artifactManifestId`, and `createdAt`. They are spelled flat
+ * `docs/architecture/contracts/api-payload-contracts.md`, whose members are
+ * `diffArtifactId`, `artifactManifestId`, and `createdAt`. They are spelled flat
  * here because that response is flat, so the arm and the wire it is fetched with
  * read as one shape.
  *
@@ -115,7 +110,6 @@ export interface AttachmentInlineCardProps {
   readonly attachment: InlineCardAttachmentRef;
 }
 
-// Consumed by T-023p-1C-2, T-023p-1C-5
 /**
  * A reference to one entity in the console's `artifact` partition.
  *
@@ -149,7 +143,6 @@ export interface ArtifactInlineCardProps {
   readonly artifact: ArtifactEntityRef;
 }
 
-// Consumed by T-023p-1C-2, T-023p-1C-5
 /**
  * The props each card kind's body receives, declared once and indexed by kind.
  *
@@ -168,7 +161,6 @@ export interface InlineCardPropsByKind {
 /** The discriminated union of every card's props. Narrow on `kind`. */
 export type InlineCardSeatProps = InlineCardPropsByKind[InlineCardKind];
 
-// Consumed by T-023p-1C-5
 /** What a family registers to fill one card kind's body. */
 export interface InlineCardBodyDescriptor<TKind extends InlineCardKind = InlineCardKind> {
   /** The task or family that owns it, so an unfilled card names someone. */

@@ -1,11 +1,10 @@
 // Who owns a session store's life.
 //
-// `Spec-023 §Console Design (Meridian)` puts one zustand store behind each OPEN
-// session. That sentence needs an owner, and until this class there was none: the
-// composition root held a bare `Map` in a ref and constructed a store inside a
-// render body, which is the shape the design rules reject — a store created during
-// render is created again on any discarded render pass, and every event applied to
-// the discarded one is silently gone.
+// There is one zustand store behind each OPEN session. That sentence needs an owner,
+// and until this class there was none: the composition root held a bare `Map` in a ref
+// and constructed a store inside a render body, which is the shape the design rules
+// reject — a store created during render is created again on any discarded render pass,
+// and every event applied to the discarded one is silently gone.
 //
 // So the lifecycle lives here, in one encapsulated class. What ONE open session is
 // made of — its store, its apply queue, its refresh scheduler, and the repair loop

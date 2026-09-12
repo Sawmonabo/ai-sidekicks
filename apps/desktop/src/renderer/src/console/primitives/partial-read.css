@@ -12,8 +12,8 @@
  * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
  * and reads every value back out as a custom property.
  *
- * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 3 (this box
- * wears neither hue) and rule 8 (an absence is not a short answer).
+ * Design-language rules that govern this sheet: rule 3 (this box wears neither hue) and
+ * rule 8 (an absence is not a short answer).
  *
  * DELIBERATELY NEITHER HUE. Rule 3 gives amber to "a person is needed" and red to
  * "something failed", and this box is neither: the rows beneath it are the best

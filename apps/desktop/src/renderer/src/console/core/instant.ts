@@ -32,7 +32,7 @@
 //     the single outcome a chokepoint exists to prevent.
 //   • `@js-temporal/polyfill` — declined. It ships the whole Temporal object model
 //     to buy one predicate, and the console's bundle budget is a gate rather than a
-//     preference (`Spec-023 §Console Design (Meridian)`).
+//     preference.
 //   • `date-fns` `parseISO` — declined, and on correctness rather than on size. It
 //     is documented to accept what this console must refuse: a date-only value and
 //     a timezone-less value both parse, and the second is read in the host's zone —
@@ -43,20 +43,20 @@
 //     against the method's registered shape — and `core/` is the DAG floor, which
 //     takes no library at all. A wire SHAPE needs a registry row; an ENCODING of one
 //     scalar needs twenty lines, written below, and those lines are also what let
-//     this reader follow RFC 3339 §5.6 exactly where zod narrows it (the lowercase
-//     `t` / `z` separators that section permits and zod refuses).
+//     this reader follow RFC 3339 section 5.6 exactly where zod narrows it (the
+//     lowercase `t` / `z` separators that section permits and zod refuses).
 //
 // ONE NARROWING THIS READER KEEPS, recorded rather than discovered later. RFC 3339
-// §5.6 permits a leap second (`23:59:60Z`); the platform's epoch cannot represent
-// one, so it reads as malformed here. Nothing this console talks to emits one, and
-// it fails CLOSED — an em dash and a row sorted last, never a wrong instant.
+// section 5.6 permits a leap second (`23:59:60Z`); the platform's epoch cannot
+// represent one, so it reads as malformed here. Nothing this console talks to emits
+// one, and it fails CLOSED — an em dash and a row sorted last, never a wrong instant.
 
 import { lossyStringify } from "../../../../shared/wire-errors.js";
 
 /**
- * RFC 3339 §5.6 `date-time`, and nothing wider: `full-date`, a `T` (either case,
- * as that section's note permits), `partial-time` with an optional fraction of any
- * width, then `time-offset` as `Z` (either case) or a signed `HH:MM`.
+ * RFC 3339 section 5.6 `date-time`, and nothing wider: `full-date`, a `T` (either case,
+ * as that section's note permits), `partial-time` with an optional fraction of any width,
+ * then `time-offset` as `Z` (either case) or a signed `HH:MM`.
  *
  * What the groups do NOT admit is the whole design: no date-only value, no
  * timezone-less time, no compact `+0200` offset, no space separator. Each is a form
@@ -134,10 +134,10 @@ export type InstantReading = Instant | MalformedInstant;
  * A parameter rather than a wider grammar, because the two planes this console reads
  * genuinely declare different encodings and neither one is the module's to choose:
  *
- *   • `"any-offset"` — the whole of RFC 3339 §5.6 the grammar admits: `Z` or `z`, a
- *     signed `HH:MM` offset, and either case of the `T` separator. What the wire
- *     figures and the rate-limit reader take, because a producer there may legally
- *     send any of them and every one names one instant unambiguously.
+ *   • `"any-offset"` — the whole of RFC 3339 section 5.6 the grammar admits: `Z` or
+ *     `z`, a signed `HH:MM` offset, and either case of the `T` separator. What the
+ *     wire figures and the rate-limit reader take, because a producer there may
+ *     legally send any of them and every one names one instant unambiguously.
  *   • `"utc-only"` — `Z` and `T`, exactly. A numeric offset parses unambiguously, so
  *     admitting it would cost nothing today — but a plane that declares ONE encoding
  *     and a reader that quietly accepts a second is the place a producer's encoding
@@ -158,11 +158,11 @@ export type InstantOrder = "oldest-first" | "newest-first";
  * Read one wire instant.
  *
  * THREE CONJUNCTS, IN THIS ORDER, and none alone is the reading. The grammar answers
- * whether the text is spelled in RFC 3339 §5.6 at all; the calendar and clock checks
- * then answer whether the digits name a day and a time that exist; and
- * `offsetPolicy` answers whether the spelling is one the CALLER's plane declares.
- * Only a value past all three is composed into a number, so there is no `Date.parse`
- * here to normalize a day that does not exist into the next one.
+ * whether the text is spelled in RFC 3339 section 5.6 at all; the calendar and clock
+ * checks then answer whether the digits name a day and a time that exist; and
+ * `offsetPolicy` answers whether the spelling is one the CALLER's plane declares. Only a
+ * value past all three is composed into a number, so there is no `Date.parse` here to
+ * normalize a day that does not exist into the next one.
  *
  * A fraction wider than milliseconds is TRUNCATED, never rounded: `.9999Z` reads
  * as `.999`, so a reading is never later than the instant the wire named.

@@ -1,11 +1,10 @@
 // The persistence write chokepoint.
 //
-// Every durable write in the console goes through `UiStateStore.write`. That is the
-// whole point of the class: `Spec-023 §Console Design (Meridian)` makes a write
-// outside the closed value-class enumeration "a tripwire failure at the store's
-// write chokepoint", and a chokepoint that callers can go around is not one. The
-// adapters are deliberately not exported from the console's barrel, so the only
-// reachable path to a durable byte is this class.
+// Every durable write in the console goes through `UiStateStore.write`. That is the whole
+// point of the class: a write outside the closed value-class enumeration is a tripwire
+// failure at the store's write chokepoint, and a chokepoint that callers can go around is
+// not one. The adapters are deliberately not exported from the console's barrel, so the
+// only reachable path to a durable byte is this class.
 //
 // Four behaviours are worth stating because they are decisions rather than
 // mechanics:
@@ -132,8 +131,7 @@ export class UiStateStore {
 
   /**
    * Build the store the renderer actually uses: durable when the privileged scheme
-   * gave this window a database, in-memory and SAYING SO when it did not
-   * (I-023-11).
+   * gave this window a database, in-memory and SAYING SO when it did not.
    *
    * Synchronous by design — it returns the store, not a promise of one, so the
    * composition root can create it during its first render and hand the same

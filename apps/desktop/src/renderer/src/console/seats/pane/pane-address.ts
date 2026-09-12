@@ -31,16 +31,15 @@
 //
 // WHERE EACH ROW COMES FROM
 //
-// `Spec-023 §Console Design (Meridian)` §The surface set fixes most of them in
-// one sentence: the pane-kind set is closed, `timeline` is "(session- or
-// channel-scoped)", and "a repo, workspace, worktree, invite, or member entity
-// is a card in its sidebar section and opens as an `inspector` pane keyed by its
-// entity kind, its changes opening the `diff` pane — no dedicated pane kind exists
-// for those families and the set is not widened for them". All five of the entities
-// that sentence names are console entity KINDS, so the inspector's row is that
-// sentence's list and nothing narrower. It was the intersection with the partition
-// set until repo and invite were missing from that set — which made a repo card and
-// an invite card unrepresentable at the address layer, and would have had the repos
+// Most of them come from one rule: the pane-kind set is closed, `timeline` is session-
+// or channel-scoped, and a repo, workspace, worktree, invite, or member entity is a
+// card in its sidebar section and opens as an `inspector` pane keyed by its entity
+// kind, its changes opening the `diff` pane — no dedicated pane kind exists for those
+// families and the set is not widened for them. All five of the entities that rule
+// names are console entity KINDS, so the inspector's row is that list and nothing
+// narrower. It was the intersection with the partition set until repo and invite were
+// missing from that set — which made a repo card and an invite card unrepresentable at
+// the address layer, and would have had the repos
 // and collaboration branches reopen this shared substrate to open a pane the spec
 // already routes. The row is now derived from a map that decides EVERY entity kind,
 // so a kind added later fails to compile until the question is answered for it.
@@ -57,14 +56,13 @@
 // inspector's row already carried once, one clause later in the same sentence.
 //
 // So the list is declared ONCE, below, and both rows read it. What an invite's or a
-// member's changes RENDER is not settled anywhere in the corpus — the diff wire is
-// unregistered (the console growth slate's gitflow row, owned by `Spec-011`) — and it
-// belongs to the repos and collaboration families that own those cards, not to an
-// address layer that renders nothing. This module's claim is narrower and is the one
-// it can make: the address is representable, so those families can answer that
-// question without reopening this substrate. Optionality is never
-// invented: `agent-console` takes a no-entity arm because
-// `src/shared/auxiliary-routes.ts` gives that route a no-context target the
+// member's changes RENDER is not settled anywhere — the diff wire is unregistered and
+// sits on the console growth slate as its gitflow row — and it belongs to the repos and
+// collaboration families that own those cards, not to an address layer that renders
+// nothing. This module's claim is narrower and is the one it can make: the address is
+// representable, so those families can answer that question without reopening this
+// substrate. Optionality is never invented: `agent-console` takes a no-entity arm
+// because `src/shared/auxiliary-routes.ts` gives that route a no-context target the
 // window's own picker resolves, and `workflow-builder` takes one because
 // `routing/routes.ts` opens the workflows destination bare — "a definition id
 // written into the address here would be a second, unowned locator for something
@@ -278,7 +276,6 @@ const PANE_ENTITY_SCOPES: {
   "agent-console": { entityKinds: ["agent"], entityRequired: false },
 };
 
-// Consumed by T-023p-1C-2, T-023p-1C-3
 /** One pane kind's entity scope, as a caller deciding at runtime reads it. */
 export interface PaneEntityScopeDeclaration {
   /** The entity kinds this pane may be opened over. Empty means session-scoped. */
@@ -297,7 +294,6 @@ export type EntityOptionalPaneKind = {
   [K in PaneKind]: EntityRequired<K> extends true ? never : K;
 }[PaneKind];
 
-// Consumed by T-023p-1C-2, T-023p-1C-3
 /**
  * How a pane names itself as the pane another was opened FROM.
  *
@@ -337,7 +333,6 @@ export type ConsolePaneOpener = (address: ConsolePaneAddress, link?: ConsolePane
 // the module that declares addresses, and nothing here imports a module that could
 // reach back.
 
-// Consumed by T-023p-1C-2, T-023p-1C-3
 /**
  * One pane kind's entity scope, for the callers that decide at runtime — the
  * deck's layout validator and the sidebar's open-pane call.

@@ -1,10 +1,9 @@
 // The refresh scheduler, driven on frozen time.
 //
-// Every assertion here is about a claim `Spec-023 §Console Design (Meridian)`
-// §The eight rules makes and that a happy-path test cannot see: a burst costs one
-// read, a continuous stream still gets one (the absolute deadline), two reads never
-// overlap, the reasons a read is performed for are the ones callers gave, and
-// nothing stays armed after a pane goes away.
+// Every assertion here is about a claim the console's own rules make and that a
+// happy-path test cannot see: a burst costs one read, a continuous stream still gets
+// one (the absolute deadline), two reads never overlap, the reasons a read is performed
+// for are the ones callers gave, and nothing stays armed after a pane goes away.
 //
 // It runs on `ManualClock` and arms no real timer at all. That is not a convenience:
 // `clock.pendingCount === 0` after settle is the only way the idle-CPU budget's

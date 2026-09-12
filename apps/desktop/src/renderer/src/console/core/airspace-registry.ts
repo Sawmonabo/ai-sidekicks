@@ -1,11 +1,11 @@
 // The overlay set a native view yields to — the console's one airspace.
 //
-// `Spec-023 §Console Design (Meridian)` 12.3: "Every overlay primitive registers its
-// own rectangle on mount … The visibility predicate consults the registry, and an
-// overlay whose rectangle intersects the pane makes the view yield. Registration
-// happens once, at the primitive layer, never per overlay instance." §4.3 states the
-// same rule from the deck's side and calls it the airspace registry. The wire table
-// for both reads `renderer-local`, and this module is that locality.
+// Every overlay primitive registers its own rectangle on mount. The visibility
+// predicate consults the registry, and an overlay whose rectangle intersects the pane
+// makes the view yield. Registration happens once, at the primitive layer, never per
+// overlay instance. The deck states the same rule from its own side and calls it the
+// airspace registry. The wire table for both reads `renderer-local`, and this module
+// is that locality.
 //
 // WHY IT IS AT THE DAG FLOOR. It was minted in `browser/geometry/`, beside the one
 // surface that reads it, and its own header recorded the consequence: `primitives/`

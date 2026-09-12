@@ -1,9 +1,9 @@
 // The figures sub-module door: what a SIBLING inside `primitives/` takes from here.
 //
-// Everything in this directory is one concern — a wire value on screen. The
-// formatter chokepoint `apps/desktop/AGENTS.md §Chokepoints` names, the `Intl`
-// instance cache beside it, and the components that wear a formatted value: the two
-// figure spans, the chip, the glyph, the ledger row, and the choice list.
+// Everything in this directory is one concern — a wire value on screen. The formatter
+// chokepoint that `apps/desktop/AGENTS.md` names, the `Intl` instance cache beside it,
+// and the components that wear a formatted value: the two figure spans, the chip, the
+// glyph, the ledger row, and the choice list.
 //
 // WHY THIS DIRECTORY CARRIES A DOOR AND MOST DO NOT. The rule is one edge: a
 // sub-module publishes exactly what a sibling reads, and a directory no sibling reads

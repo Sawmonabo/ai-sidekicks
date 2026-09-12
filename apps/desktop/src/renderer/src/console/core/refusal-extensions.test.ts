@@ -38,7 +38,7 @@ function growthRefusal(): ConsoleRefusal & Record<string, unknown> {
     status: "unavailable",
     operationId: "sessionSearch",
     slateRow: "session-search",
-    owningDocument: "Spec-016",
+    owningDocument: "session channels",
   };
 }
 
@@ -60,7 +60,7 @@ describe("refusal extensions — the registry is the set, and it is closed", () 
     expect(readRefusalExtensions(growthRefusal())).toStrictEqual({
       operationId: "sessionSearch",
       slateRow: "session-search",
-      owningDocument: "Spec-016",
+      owningDocument: "session channels",
     });
   });
 
@@ -84,7 +84,7 @@ describe("refusal extensions — the registry is the set, and it is closed", () 
   });
 
   it("reads the failed bindings a goal-delivery refusal names", () => {
-    // `error-contracts.md §Session` puts these on `data.fields` for
+    // `error-contracts.md` puts these on `data.fields` for
     // `session.goal_delivery_failed`, and the goal card names them beside the remedy.
     expect(readRefusalExtensions({ failedBindingIds: ["binding-a", "binding-b"] })).toStrictEqual({
       failedBindingIds: ["binding-a", "binding-b"],
@@ -108,7 +108,7 @@ describe("refusal extensions — the registry is the set, and it is closed", () 
   });
 
   it("reads the referencing manifests a blocked delete names, list and total together", () => {
-    // `error-contracts.md §Artifact` puts both on the `artifact.delete_blocked`
+    // `error-contracts.md` puts both on the `artifact.delete_blocked`
     // details shape, and the panel names the derivatives beside the remedy.
     expect(
       readRefusalExtensions({
@@ -168,7 +168,7 @@ describe("refusal extensions — a rebuild carries the registered set and nothin
 
     expect(normalized.operationId).toBe("sessionSearch");
     expect(normalized.slateRow).toBe("session-search");
-    expect(normalized.owningDocument).toBe("Spec-016");
+    expect(normalized.owningDocument).toBe("session channels");
     expect(normalized.code).toBe("wire-unregistered");
     expect(normalized.origin).toBe("growth-port");
   });
@@ -182,7 +182,7 @@ describe("refusal extensions — a rebuild carries the registered set and nothin
     );
 
     expect(carried.operationId).toBe("sessionSearch");
-    expect(carried.owningDocument).toBe("Spec-016");
+    expect(carried.owningDocument).toBe("session channels");
   });
 
   it("drops the union discriminant, so a rebuilt refusal never claims to be an arm", () => {
@@ -221,13 +221,13 @@ describe("refusal extensions — a rebuild carries the registered set and nothin
       origin: ["growth-port"],
       operationId: ["sessionSearch"],
       slateRow: ["session-search"],
-      owningDocument: ["Spec-016"],
+      owningDocument: ["session channels"],
     });
 
     const normalized = normalizeWireRejection("collaboration", readOnce);
 
     expect(normalized.operationId).toBe("sessionSearch");
-    expect(normalized.owningDocument).toBe("Spec-016");
+    expect(normalized.owningDocument).toBe("session channels");
     // And the answer survives being read again, which the candidate would not.
     expect(normalized.operationId).toBe("sessionSearch");
   });

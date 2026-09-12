@@ -1,10 +1,9 @@
 // The closed value-class enumeration the persistence write chokepoint enforces.
 //
-// `Spec-023 §Console Design (Meridian)` §Persistence on the renderer scheme:
-// "The durable store therefore holds **UI state only** — a closed value-class
-// enumeration the persistence layer's schema encodes, and a write outside it
-// (message text, form values, paths, code, names, anything participant- or
-// machine-authored) is a tripwire failure at the store's write chokepoint."
+// The durable store holds UI state only — a closed value-class enumeration the
+// persistence layer's schema encodes, and a write outside it (message text, form
+// values, paths, code, names, anything participant- or machine-authored) is a
+// tripwire failure at the store's write chokepoint.
 //
 // The hard part is mechanical: how does a chokepoint tell an expansion set from a
 // sentence? Two conjuncts do it, and neither alone would:
@@ -32,9 +31,9 @@
 //
 // Drafts are absent from this enumeration on purpose. Composer text, form values,
 // paths, and code a participant typed and did not send are participant-authored
-// content, and the only durable homes the corpus gives such content are the
-// daemon's encrypted, PII-mapped stores (Spec-022). A draft lives in its window's
-// memory for that window's lifetime — see `draft-store.ts`.
+// content, and the only durable homes such content has are the daemon's encrypted,
+// PII-mapped stores. A draft lives in its window's memory for that window's lifetime
+// — see `draft-store.ts`.
 //
 // ONE DECLARATION OF EACH CLOSED SET. The class names are written once, as the
 // `as const` array below; the union is `(typeof …)[number]` and the validator
@@ -100,9 +99,8 @@ function invalid(detail: string): PersistenceRefusal {
   return refusePersistence("value-shape-invalid", detail);
 }
 
-// The rule the detail states is Spec-022's (participant- and machine-authored
-// content has no durable home in the renderer); the identifier stays here, in a
-// comment, because a governance ID never rides a runtime string.
+// The rule the detail states: participant- and machine-authored content has no
+// durable home in the renderer.
 function notIdentifier(where: string, value: string): PersistenceRefusal {
   return refusePersistence(
     "value-not-identifier-shaped",
@@ -259,8 +257,8 @@ const SHAPE_VALIDATORS: Readonly<Record<PersistedValueClass, ShapeValidator>> = 
    *
    * BOOLEANS ONLY, which is what keeps this from becoming the arbitrary-JSON class
    * the enumeration exists to refuse. A preference that needed a string would be
-   * carrying a name, a path, or a sentence — the three things Spec-022 gives no
-   * durable home in the renderer — and a preference that needed a number would be a
+   * carrying a name, a path, or a sentence — the three things that have no durable
+   * home in the renderer — and a preference that needed a number would be a
    * threshold, which is a constant with a rationale rather than a stored value.
    */
   preference: recordOf(
@@ -346,12 +344,12 @@ const UTF8_ENCODER = new TextEncoder();
 /**
  * How many bytes a string occupies once encoded, for every cap in this console.
  *
- * `apps/desktop/AGENTS.md` §Chokepoints: one byte-measurement function serves every
- * cap. It is published rather than module-private because a second cap now exists —
- * the run controls bound a cancellation reason exactly as the engine bounds a park
- * cause — and the two measured the same sentence through two functions until this
- * line. They agreed on ASCII, which is the whole hazard: the first surrogate-pair or
- * normalisation rule either of them grew would have moved one cap and not the other.
+ * The chokepoint rule in `apps/desktop/AGENTS.md`: one byte-measurement function serves
+ * every cap. It is published rather than module-private because a second cap now exists —
+ * the run controls bound a cancellation reason exactly as the engine bounds a park cause
+ * — and the two measured the same sentence through two functions until this line. They
+ * agreed on ASCII, which is the whole hazard: the first surrogate-pair or normalisation
+ * rule either of them grew would have moved one cap and not the other.
  *
  * UTF-8 bytes rather than `String.length`, which counts UTF-16 code units — a cap
  * counted in code units refuses a shorter sentence in one script than in another.

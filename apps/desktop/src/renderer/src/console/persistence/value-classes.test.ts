@@ -68,14 +68,13 @@ describe("the value-class enumeration is declared once and reaches a validator",
   });
 
   it("refuses prose through the write chokepoint, whatever class is claimed", () => {
-    // `Spec-023 §Console Design (Meridian)` limits the durable store to layouts,
-    // selection, pins, and expansion state and keeps composer drafts in window memory:
-    // a draft is participant-authored content, and a durable copy would need the
-    // encrypted, PII-mapped storage `Spec-022` specifies and the renderer does not
-    // have. Widen one class's shape predicate — `selection` from a record of branded
-    // ids to `Record<string, string>`, say — and draft text validates, reaches
-    // IndexedDB, and lands in an unencrypted origin-scoped database outside every
-    // erasure selector the corpus defines.
+    // The durable store is limited to layouts, selection, pins, and expansion state,
+    // and composer drafts stay in window memory: a draft is participant-authored
+    // content, and a durable copy would need encrypted, PII-mapped storage the
+    // renderer does not have. Widen one class's shape predicate — `selection` from a
+    // record of branded ids to `Record<string, string>`, say — and draft text
+    // validates, reaches IndexedDB, and lands in an unencrypted origin-scoped
+    // database outside every erasure selector there is.
     //
     // EVERY admissible class is tried, so the guarantee is "no class takes this"
     // rather than "the one class I thought of does not".

@@ -1,9 +1,8 @@
 // Both sides of the layout snapshot's pane filter, in one module.
 //
-// `Spec-023 §Console Design (Meridian)` 12.1 says the browser pane is ephemeral, and
-// §The surface set says an unknown pane kind read back from a snapshot "is dropped and
-// reported". Those are the two rules a layout snapshot has to obey about its panes,
-// and this module is both halves of them.
+// The browser pane is ephemeral, and an unknown pane kind read back from a snapshot is
+// dropped and reported. Those are the two rules a layout snapshot has to obey about its
+// panes, and this module is both halves of them.
 //
 // WHY ONE MODULE AND NOT TWO. The write filter and the restore drop are the producer
 // and the consumer of one seam, and `apps/desktop/AGENTS.md` puts those in one module
@@ -71,7 +70,6 @@ export interface LayoutRestoreReading<TEntry> {
   readonly dropped: readonly LayoutPaneDrop[];
 }
 
-// Consumed by T-023p-1C-2
 /**
  * The panes a layout snapshot may carry.
  *
@@ -84,7 +82,6 @@ export function panesForLayoutSnapshot<TPane extends { readonly kind: PaneKind }
   return panes.filter((pane) => !isEphemeralPaneKind(pane.kind));
 }
 
-// Consumed by T-023p-1C-2
 /**
  * The panes a restore may re-open, and the report for the ones it may not.
  *

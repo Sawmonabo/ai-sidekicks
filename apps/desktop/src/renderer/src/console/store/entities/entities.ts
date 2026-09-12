@@ -1,7 +1,7 @@
 // The console's entity vocabulary and the shape of a store mutation.
 //
-// `Spec-023 §Console Design (Meridian)` §The four bars ("Light on the machine")
-// and the design's store discipline give three rules this module encodes:
+// Being light on the machine, and the design's store discipline, give three rules this
+// module encodes:
 //
 //   • **Entity-keyed, partitioned.** State is a map per entity KIND, not one flat
 //     map, so a mutation replaces one partition's identity and a row selector for
@@ -14,7 +14,7 @@
 //     a second source of truth that the reconnect path cannot heal.
 //   • **Projections never persist.** Nothing here is durable. `persistence/` holds
 //     UI state only, and every entity in this module is re-derived from the
-//     daemon on reconnect (`Spec-023 §Pitfalls To Avoid`).
+//     daemon on reconnect.
 
 /**
  * The entity kinds the console partitions by, in a stable order for tests and for
@@ -82,8 +82,7 @@ export interface ConsoleEntity {
   readonly kind: ConsoleEntityKind;
   readonly id: string;
   /**
-   * Wire-verbatim state string. Rendered as received, never re-parsed
-   * (`Spec-023 §Console Design (Meridian)` §The eight rules, wire figures).
+   * Wire-verbatim state string. Rendered as received, never re-parsed.
    */
   readonly state?: string;
   /** ISO-8601 timestamp of the newest event that touched this entity. */
@@ -123,11 +122,11 @@ export type EntityMutation = EntityUpsert | EntityRemoval;
 /**
  * An event as the console consumes it.
  *
- * This is a RENDERER-LOCAL projection contract, not a wire type: the bridge's
- * event payloads are `unknown` until Plan-007 lands its discriminated unions, and
- * a console that invented wire members would be the lane-4 change Phase 1C
- * forbids. The bridge adapter narrows a payload into this shape at the boundary,
- * so exactly one module knows the wire and everything above it reads this.
+ * This is a RENDERER-LOCAL projection contract, not a wire type: the bridge's event
+ * payloads are `unknown` until the contracts package lands its discriminated unions, and
+ * a console that invented wire members would be the lane-4 change Phase 1C forbids. The
+ * bridge adapter narrows a payload into this shape at the boundary, so exactly one module
+ * knows the wire and everything above it reads this.
  */
 export interface ConsoleSessionEvent {
   /**

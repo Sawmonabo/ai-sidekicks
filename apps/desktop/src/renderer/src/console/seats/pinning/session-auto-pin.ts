@@ -176,11 +176,11 @@ class BridgeAutoPinRecord {
 /**
  * This window's auto-pin records, one per bridge.
  *
- * A class with private fields rather than a module-level `Map`, on the rule
- * `apps/desktop/AGENTS.md` §State and views states and the precedent
- * `seats/surface/absorbed-surfaces.ts` sets in this family: module scope is WINDOW scope here,
- * since an auxiliary window is its own renderer process and no channel joins two
- * windows' module graphs.
+ * A class with private fields rather than a module-level `Map`, on the state-and-views
+ * rule in `apps/desktop/AGENTS.md` and the precedent
+ * `seats/surface/absorbed-surfaces.ts` sets in this family: module scope is WINDOW
+ * scope here, since an auxiliary window is its own renderer process and no channel
+ * joins two windows' module graphs.
  */
 class SessionAutoPinPort {
   readonly #recordByBridge = new WeakMap<ConsoleBridge, BridgeAutoPinRecord>();

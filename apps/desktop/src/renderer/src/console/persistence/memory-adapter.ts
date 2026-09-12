@@ -1,10 +1,10 @@
 // The in-memory adapter: what the console uses when there is no durable store.
 //
-// It is not a stub. It is the whole persistence layer for a renderer whose scheme
-// was not registered privileged (I-023-11's failing arm), and for every test that
-// wants the store's behaviour without a database. It therefore implements the full
-// seam — partitions, LRU trim, a quota gauge — so that a code path exercised only
-// under the memory adapter is not a code path nobody ever runs.
+// It is not a stub. It is the whole persistence layer for a renderer whose scheme was not
+// registered privileged, and for every test that wants the store's behaviour without a
+// database. It therefore implements the full seam — partitions, LRU trim, a quota gauge —
+// so that a code path exercised only under the memory adapter is not a code path nobody
+// ever runs.
 //
 // The one thing it does differently is tell the truth, and it does so on BOTH read
 // models rather than only the prose one: `durable` is false, `describe()` says

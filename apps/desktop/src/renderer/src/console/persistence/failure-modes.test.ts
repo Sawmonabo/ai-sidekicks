@@ -91,7 +91,7 @@ describe("failure matrix — the durable store cannot be opened", () => {
     expect(ambientFactory.openCallCount).toBe(1);
   });
 
-  it("falls back to memory and SAYS SO when the open is refused (I-023-11)", async () => {
+  it("falls back to memory and SAYS SO when the open is refused", async () => {
     // The refusing factory is installed as the AMBIENT global as well as passed,
     // because `idb`'s `openDB` reads the global rather than a parameter — a
     // factory handed only to the option would never have its `open` called, and

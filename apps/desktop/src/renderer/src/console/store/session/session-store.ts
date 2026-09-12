@@ -1,12 +1,11 @@
 // The per-session store and its single apply chokepoint.
 //
-// One store per OPEN session (`Spec-023 §Console Libraries`, the state row), and
-// exactly one way into it: `applyBatch`. Every wire event and every read response
-// enters through that function, which validates, reconciles the sequence, runs the
-// registered projectors, and commits one immutable state transition. No component
-// subscribes to the bridge and no component calls `setState`; the zustand store's
-// setter is private to this class, so "the chokepoint" is a structural property
-// rather than a convention a reviewer has to police.
+// One store per OPEN session, and exactly one way into it: `applyBatch`. Every wire
+// event and every read response enters through that function, which validates,
+// reconciles the sequence, runs the registered projectors, and commits one immutable
+// state transition. No component subscribes to the bridge and no component calls
+// `setState`; the zustand store's setter is private to this class, so "the chokepoint"
+// is a structural property rather than a convention a reviewer has to police.
 //
 // Why coalescing lives at the SOURCE rather than in the notifier: a store that
 // updated its state synchronously but notified on a frame boundary would let

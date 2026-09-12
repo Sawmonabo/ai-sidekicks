@@ -1,10 +1,9 @@
 // The per-session store lifecycle.
 //
-// `Spec-023 §Console Design (Meridian)` puts one store behind each OPEN session.
-// The claims that need driving are the ones a bare `Map` in a component ref gets
-// wrong: a second open of the same session is the same store, a close forgets it,
-// and a delivery for a session nobody has open refuses instead of throwing through
-// the bridge's own subscription.
+// There is one store behind each OPEN session. The claims that need driving are the
+// ones a bare `Map` in a component ref gets wrong: a second open of the same session is
+// the same store, a close forgets it, and a delivery for a session nobody has open
+// refuses instead of throwing through the bridge's own subscription.
 //
 // The two schedulers bound to that lifecycle have their own files:
 // `session-store-registry.scheduling.test.ts` for the queue and the refresh read,

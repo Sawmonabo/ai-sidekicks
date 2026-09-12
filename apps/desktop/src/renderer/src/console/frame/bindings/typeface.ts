@@ -1,13 +1,12 @@
 // The console's faces, self-hosted.
 //
-// `Spec-023 §Console Design (Meridian)` sets UI text in a humanist grotesque and
-// every wire-true figure in mono, and both that rule and `§Console Libraries` name
-// IBM Plex Sans and IBM Plex Mono, VARIABLE builds, from the foundry's own
-// packages. Until this module existed the two families were named in
-// `tokens/typography.ts` and nowhere loaded, so the console rendered in whichever
-// face the host happened to carry — which makes the type scale, the ledger's fixed
-// gutter, and every screenshot reference a property of the operator's machine
-// rather than of the design.
+// UI text is set in a humanist grotesque and every wire-true figure in mono, and the
+// two families are IBM Plex Sans and IBM Plex Mono, VARIABLE builds, from the foundry's
+// own packages. Until this module existed the two families were named in
+// `tokens/typography.ts` and nowhere loaded, so the console rendered in whichever face
+// the host happened to carry — which makes the type scale, the ledger's fixed gutter,
+// and every screenshot reference a property of the operator's machine rather than of
+// the design.
 //
 // WHY THIS IS A MODULE AND NOT A STYLESHEET. It was a `.css` file first, and a
 // `.css` file cannot state this dependency in a way any tool can read: a bare
@@ -221,8 +220,7 @@ type TypefaceStyle = "normal" | "italic";
  *
  * `zero` is a real substitution here — both variable builds carry it in `GSUB`,
  * read out of the shipped files on 2026-09-09 — and it belongs to mono alone,
- * because `Spec-023 §Console Design (Meridian)` rule 4 makes mono the signature
- * that a number came from the wire. `tnum` is deliberately absent: neither family
+ * because mono is the signature that a number came from the wire. `tnum` is deliberately absent: neither family
  * carries `tnum` OR `pnum` in `GSUB` or `GPOS`, and every digit in both measures
  * 600/1000 em, so there are no proportional figures to switch away from and the
  * setting would be a feature declared against a face that offers none.

@@ -58,8 +58,8 @@ describe("composer seat — the empty answer", () => {
   it("negative control: an unfilled seat has no body", () => {
     // Every case above reads `composerSeatRenderer`, and all of them would pass
     // over a seat that answered with a body nobody registered. This is also the
-    // state the workspace mounts against until T-023p-1C-3 lands: it renders
-    // nothing rather than a placeholder that looks like a broken feature.
+    // state the workspace mounts against until the composer family lands: it
+    // renders nothing rather than a placeholder that looks like a broken feature.
     expect(composerSeatRenderer()).toBeUndefined();
   });
 

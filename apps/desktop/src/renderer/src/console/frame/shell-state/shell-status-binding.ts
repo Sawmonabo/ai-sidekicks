@@ -16,8 +16,8 @@
 //     subscription noticed, and asking the shell about it would be asking the wrong
 //     process.
 //
-// `Spec-023 §Console Design (Meridian)` forbids interval polling outright, and there
-// is nothing to poll here: one push subscription and one store subscription.
+// Interval polling is forbidden outright, and there is nothing to poll here: one push
+// subscription and one store subscription.
 //
 // A DROPPED STREAM PUBLISHES `unreported` RATHER THAN THE LAST THING IT HEARD. A
 // report is a claim about right now; holding the last one after the channel closed

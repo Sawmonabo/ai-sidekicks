@@ -1,11 +1,10 @@
 // What a person can DO about a named daemon refusal, and which shape it calls for.
 //
-// `Spec-023 §Console Design (Meridian)` rule 9 fixes what reaches the screen from
-// the refusal itself: the code verbatim in mono, the daemon's own sentence
-// unparaphrased, and no sentence of the console's explaining what the daemon meant.
-// It also gives every rendering an `action` slot — "the operator's next move, when
-// one exists" — and that slot is the console's to fill. This table is what fills it,
-// and the distinction it keeps is the one rule 9 draws: the daemon says what
+// What reaches the screen from the refusal itself is fixed: the code verbatim in mono,
+// the daemon's own sentence unparaphrased, and no sentence of the console's explaining
+// what the daemon meant. Every rendering also gets an `action` slot — the operator's
+// next move, when one exists — and that slot is the console's to fill. This table is
+// what fills it, and the distinction it keeps is the same one: the daemon says what
 // happened, and the console says what to do next.
 //
 // SO NOTHING HERE PARAPHRASES A `detail`. Each entry names an act — edit the line,

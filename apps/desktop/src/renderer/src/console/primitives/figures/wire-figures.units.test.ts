@@ -1,15 +1,14 @@
 // The two figures whose unit and precision the console decides, not `Intl`.
 //
-// `Spec-023 §Console Design (Meridian)` §The eight rules puts every quantity through
-// `Intl`, and these two are where obeying that literally is not enough. `Intl` has
-// no 1024 scale and no opinion about which of five labels a byte count should wear,
-// so byte scaling is the rule's one sanctioned exception — and the ways it goes
-// wrong are drifting off powers of 1024, or past the closed
-// `B / KiB / MiB / GiB / TiB` set. `Intl` does know a currency's minor unit, but its
-// answer is not the console's: the column needs a FLOOR of two fractional digits,
-// and a floor that also lowered would be a cap that drops the third digit of a
-// currency whose minor unit is a thousandth and the sub-cent digits of a token
-// price — two figures the daemon did send.
+// The eight rules put every quantity through `Intl`, and these two are where obeying
+// that literally is not enough. `Intl` has no 1024 scale and no opinion about which of
+// five labels a byte count should wear, so byte scaling is the rule's one sanctioned
+// exception — and the ways it goes wrong are drifting off powers of 1024, or past the
+// closed `B / KiB / MiB / GiB / TiB` set. `Intl` does know a currency's minor unit, but
+// its answer is not the console's: the column needs a FLOOR of two fractional digits,
+// and a floor that also lowered would be a cap that drops the third digit of a currency
+// whose minor unit is a thousandth and the sub-cent digits of a token price — two
+// figures the daemon did send.
 //
 // Both compose their result the same way once the number is formatted, pairing it
 // with the unit across a no-break space so the two cannot wrap apart mid-line. That

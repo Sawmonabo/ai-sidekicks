@@ -1,16 +1,15 @@
 // The one grammar that tells an identifier from authored content, and the record
 // address it validates.
 //
-// `Spec-023 §Console Design (Meridian)` makes a write outside the closed
-// value-class enumeration a tripwire failure at the store's write chokepoint, and
-// the hard part of that is mechanical: how does a chokepoint tell an expansion set
-// from a sentence? This module is one of the two conjuncts that do it.
-// Participant- and machine-authored content is prose: it carries spaces,
-// punctuation, and length. Identifiers are bounded, whitespace-free, and drawn from
-// a narrow charset. A value whose strings all pass `IDENTIFIER_PATTERN` cannot be
-// carrying a message, a path, a name, or a line of code. The other conjunct — every
-// admitted class declares a shape, and no class has a field that takes a path —
-// lives in `value-classes.ts`, and neither conjunct would do alone.
+// A write outside the closed value-class enumeration is a tripwire failure at the store's
+// write chokepoint, and the hard part of that is mechanical: how does a chokepoint tell
+// an expansion set from a sentence? This module is one of the two conjuncts that do it.
+// Participant- and machine-authored content is prose: it carries spaces, punctuation, and
+// length. Identifiers are bounded, whitespace-free, and drawn from a narrow charset. A
+// value whose strings all pass `IDENTIFIER_PATTERN` cannot be carrying a message, a path,
+// a name, or a line of code. The other conjunct — every admitted class declares a shape,
+// and no class has a field that takes a path — lives in `value-classes.ts`, and neither
+// conjunct would do alone.
 //
 // A RECORD IS A VALUE AND AN ADDRESS, and the address half is settled here.
 // `partition` and `key` are written to the record verbatim, so validating the value

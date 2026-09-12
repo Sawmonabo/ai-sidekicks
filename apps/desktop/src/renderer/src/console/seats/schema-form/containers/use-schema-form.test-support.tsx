@@ -83,8 +83,8 @@ export function mountFormUnsettled(inputSchema: unknown): MountedSchemaForm {
  * THE ONE PLACE ANYTHING IN THIS TREE WAITS FOR THAT CHUNK, and it lives here rather than
  * in whichever support was written first: three mounts across two families need it — this
  * hook's, the form host's beside it, and the workflows human-form slot's — and three copies
- * of one await is exactly the shape where two wait and the third races. `apps/desktop/
- * AGENTS.md` §Tests states the rule and §Shared code says where the copy goes: the lowest
+ * of one await is exactly the shape where two wait and the third races. The test and
+ * shared-code rules in `apps/desktop/AGENTS.md` say where the single copy goes: the lowest
  * module that owns the concern, which is the hook's own mount.
  *
  * Awaiting the loader rather than the module map: the loader memoises nothing itself, but

@@ -1,11 +1,11 @@
 // The console's one base64 encoder.
 //
-// It exists because the local wire is JSON with no binary serialization
-// (`Spec-007 §Wire Format`), so any payload byte that has to reach the daemon
-// rides as an RFC 4648 §4 string. There is exactly one such payload in this
-// console today — an attachment ingest chunk — and there will be more, which is
-// why the encoder is a core leaf rather than a private function inside the ingest
-// client: a second copy would drift from this one and both would look right.
+// It exists because the local wire is JSON with no binary serialization, so any payload
+// byte that has to reach the daemon rides as an RFC 4648 section 4 string. There is
+// exactly one such payload in this console today — an attachment ingest chunk — and there
+// will be more, which is why the encoder is a core leaf rather than a private function
+// inside the ingest client: a second copy would drift from this one and both would look
+// right.
 //
 // IT ENCODES A SLICE, NOT A FILE. The parameter is a `Uint8Array` the caller
 // already holds, and the caller's obligation is to hold a BOUNDED one: the ingest
@@ -23,7 +23,8 @@
 import { BASE64_ENCODE_STRIDE_BYTES } from "./constants/attachment-caps.js";
 
 /**
- * Encode bytes as RFC 4648 §4 base64, the form the local wire carries payloads in.
+ * Encode bytes as RFC 4648 section 4 base64 — the form the local wire carries
+ * payloads in.
  *
  * The intermediate is a latin-1 string rather than an array of characters: one
  * rope of the byte count, which the engine concatenates without copying, instead
@@ -38,7 +39,8 @@ export function encodeBase64(bytes: Uint8Array): string {
 }
 
 /**
- * How many raw bytes an RFC 4648 §4 base64 string decodes to, without decoding it.
+ * How many raw bytes an RFC 4648 section 4 base64 string decodes to, without
+ * decoding it.
  *
  * BESIDE THE ENCODER BECAUSE IT IS THE SAME SEAM READ THE OTHER WAY, which is this
  * package's rule for a producer and its consumer: the stride, the padding, and the

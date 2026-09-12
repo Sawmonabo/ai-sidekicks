@@ -5,10 +5,10 @@
 // owns the other half of the same seam — the moment a re-read is asked for. Two
 // subjects, and the file was already carrying both.
 //
-// THE ROSTER'S REFRESH WAS THE ONE THAT DID NOT GO THROUGH THE CHOKEPOINT.
-// `apps/desktop/AGENTS.md` §Chokepoints: "every refresh goes through
-// `console/store/read/refresh-scheduler.ts`". The absorbed roster re-read straight off the push —
-// one `runtimenode.roster` per delivered `runtime_node.*` frame, and a node
+// THE ROSTER'S REFRESH WAS THE ONE THAT DID NOT GO THROUGH THE CHOKEPOINT. The
+// chokepoint rule in `apps/desktop/AGENTS.md`: "every refresh goes through
+// `console/store/read/refresh-scheduler.ts`". The absorbed roster re-read straight off
+// the push — one `runtimenode.roster` per delivered `runtime_node.*` frame, and a node
 // registering, declaring a capability and coming online inside one advance cost three
 // reads of an answer that only the last of them was going to render. So the pushes,
 // the window triggers, and the session's own lease frames all land here instead, and
@@ -16,7 +16,7 @@
 // absolute deadline, so a continuous stream still gets a read.
 //
 // IT RAISES THE VIEW'S OWN HANDLER AND READS NOTHING ITSELF. `runtime-node-attach/` is
-// Plan-003's and this console never edits it, so the refresh runs through the seam
+// a shipped surface this console never edits, so the refresh runs through the seam
 // that view's own contract already gives: a presence push says WHEN to re-read, the
 // view re-reads through its own path, and its refresh deliberately never re-enters
 // `loading`. Handing it a fresh seam to force a read would return a live roster to its

@@ -128,12 +128,11 @@ describe("the glyph faces — the map is total over the name set", () => {
   });
 
   it("draws from both collections, so neither half of the pairing is empty", () => {
-    // `Spec-023 §Console Design (Meridian)` asks for a borrowed single-stroke set
-    // AND our own signature glyphs in the same collection. Read as the two BOXES
-    // rather than as a count of distinct components: the geometry below is
-    // imposed on both collections, so it would pass just as cleanly on a build
-    // that resolved only one of them — and the box is the one thing the two do
-    // not share.
+    // The design language asks for a borrowed single-stroke set AND our own signature
+    // glyphs in the same collection. Read as the two BOXES rather than as a count of
+    // distinct components: the geometry below is imposed on both collections, so it
+    // would pass just as cleanly on a build that resolved only one of them — and the
+    // box is the one thing the two do not share.
     const boxes = new Set(
       GLYPH_NAMES.map((name) => renderFace(name, GLYPH_VIEWBOX_SIZE).getAttribute("viewBox")),
     );

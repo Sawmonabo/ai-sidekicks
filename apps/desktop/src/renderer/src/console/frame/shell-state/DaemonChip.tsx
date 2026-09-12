@@ -1,11 +1,10 @@
 // The supervisor's own state, in one chip, inside the window.
 //
 // The tray carries the same truth outside the window and is main-process work on a
-// later phase (`T-023r-3-x`); this is the in-window half, so a person who never
-// looks at the tray is not the last to know. Both render the SAME supervisor state
-// machine — startup probe, spawn and readiness wait, version-incompatible, live
-// heartbeat, crash with backoff, shutdown — and this component invents no state that
-// machine does not have.
+// later phase; this is the in-window half, so a person who never looks at the tray is
+// not the last to know. Both render the SAME supervisor state machine — startup probe,
+// spawn and readiness wait, version-incompatible, live heartbeat, crash with backoff,
+// shutdown — and this component invents no state that machine does not have.
 //
 // THE TWO-HUE RULE DECIDES THE TONE, and it is stricter than it first looks.
 // Reconnecting is not amber: the supervisor drives the backoff ladder and no person
@@ -14,13 +13,13 @@
 // refused handshake and the runtime that did not come back — and on nothing else.
 // Connected is neutral, which is the point: a healthy window carries no colour.
 //
-// THE REPORTED CHIP IS A CONTROL, BECAUSE THE DESIGN ALREADY PROMISED ONE. `Spec-023`
-// §Tray and daemon lifecycle puts the supervisor's detail "one click away" and this
-// chip is the click: rendered as inert content it made a claim — attempt counts, the
-// last heartbeat, the stop and restart controls — that a person could only reach by
-// guessing their way through Settings. So the reported arms wrap the chip in a real
-// button whose accessible name says where it goes, and the visible label stays the
-// state so the name CONTAINS what a person reads rather than replacing it.
+// THE REPORTED CHIP IS A CONTROL, BECAUSE THE DESIGN ALREADY PROMISED ONE. The tray and
+// daemon lifecycle put the supervisor's detail one click away and this chip is the
+// click: rendered as inert content it made a claim — attempt counts, the last
+// heartbeat, the stop and restart controls — that a person could only reach by guessing
+// their way through Settings. So the reported arms wrap the chip in a real button whose
+// accessible name says where it goes, and the visible label stays the state so the name
+// CONTAINS what a person reads rather than replacing it.
 //
 // WHERE IT GOES IS NOT THIS COMPONENT'S DECISION. The chip is handed the navigation,
 // so it holds no route, no store, and no opinion about which surface answers for the

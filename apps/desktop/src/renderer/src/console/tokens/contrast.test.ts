@@ -1,11 +1,11 @@
 // Contrast, measured rather than asserted.
 //
-// `Spec-023 §Console Design (Meridian)` rule 3 puts the console at WCAG 2.2 AA. A
-// palette can claim that; only a computation can hold it. So this file walks every
-// pair the rules name and computes the real ratio from the sRGB the browser will
-// paint — which is why `tokens/color.ts` fits each colour into gamut at AUTHORING
-// time. If the values were left out of gamut, the browser would map them and the
-// number measured here would not be the number a person sees.
+// Design-language rule 3 puts the console at WCAG 2.2 AA. A palette can claim that;
+// only a computation can hold it. So this file walks every pair the rules name and
+// computes the real ratio from the sRGB the browser will paint — which is why
+// `tokens/color.ts` fits each colour into gamut at AUTHORING time. If the values were
+// left out of gamut, the browser would map them and the number measured here would not
+// be the number a person sees.
 //
 // Two floors, and the distinction is load-bearing:
 //

@@ -1,12 +1,11 @@
 // A read's settlement, said out loud exactly once.
 //
-// A surface that renders `not-loaded` and then a list has told everyone who can see
-// the screen that its read landed, and nobody else. `Spec-023 §Console Design
-// (Meridian)`'s live announcer exists for that gap, and the discipline it needs is
-// narrower than "call `announce` when the state changes": a read that refreshes on
-// focus settles again on every refresh, a component re-renders for reasons that have
-// nothing to do with its read, and a person who navigates away and back did not ask
-// to be told twice.
+// A surface that renders `not-loaded` and then a list has told everyone who can see the
+// screen that its read landed, and nobody else. The console's live announcer exists for
+// that gap, and the discipline it needs is narrower than "call `announce` when the
+// state changes": a read that refreshes on focus settles again on every refresh, a
+// component re-renders for reasons that have nothing to do with its read, and a person
+// who navigates away and back did not ask to be told twice.
 //
 // SO THE UNIT IS THE SENTENCE, NOT THE STATE. A caller composes one sentence from
 // its settled reading and hands it over; this hook speaks it when it is new and stays

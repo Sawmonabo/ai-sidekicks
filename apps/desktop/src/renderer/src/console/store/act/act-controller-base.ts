@@ -6,13 +6,13 @@
 // the four act arms, and the single-flight guard — is `act-controller.ts`'s, and this
 // class is how a controller composes that one without writing the wiring again.
 //
-// A BASE CLASS AND NOT SIX FORWARDING MEMBERS PER CONTROLLER. `store/act/act-controller.ts`
-// already ended three copies of the machine; what survived it was three copies of the
-// pass-through — `snapshot`, `isDisposed`, `subscribe`, `requestRead`, `clearAct`, and
-// `dispose`, each one line of body and each one written three times. `apps/desktop/AGENTS.md`
-// §Shared code hoists on the SECOND use, and a forwarding member is exactly where a
-// copy drifts silently: a controller that forgot to forward `requestRead` still
-// compiles, still renders, and is simply never refreshed.
+// A BASE CLASS AND NOT SIX FORWARDING MEMBERS PER CONTROLLER.
+// `store/act/act-controller.ts` already ended three copies of the machine; what survived
+// it was three copies of the pass-through — `snapshot`, `isDisposed`, `subscribe`,
+// `requestRead`, `clearAct`, and `dispose`, each one line of body and each one written
+// three times. The package's shared-code rule hoists on the SECOND use, and a forwarding
+// member is exactly where a copy drifts silently: a controller that forgot to forward
+// `requestRead` still compiles, still renders, and is simply never refreshed.
 //
 // THE COMPOSITION SURVIVES THE INHERITANCE, which is the point of the shape. This class
 // still HOLDS an `ActController` rather than extending it: the machine's `ask`,
@@ -28,10 +28,10 @@
 // written here and dispatches to the subclass's override. It is called only after the
 // first read is scheduled, which is after every subclass field has been initialised.
 //
-// WHAT THIS IS NOT. It is not a reading in its own right: it holds no `ConsoleBridge`
-// and knows no method name, so the reading rule in `apps/desktop/AGENTS.md` §Chokepoints
-// does not count it as one. What a subclass inherits from here is the scheduler and the
-// trigger contract it used to declare by hand, which keeps it a subject of that rule.
+// WHAT THIS IS NOT. It is not a reading in its own right: it holds no `ConsoleBridge` and
+// knows no method name, so the package's chokepoint rule does not count it as a reading.
+// What a subclass inherits from here is the scheduler and the trigger contract it used to
+// declare by hand, which keeps it a subject of that rule.
 
 import type { ConsoleClock, RejectionFallback, Unsubscribe } from "../../core/index.js";
 import { ActController } from "./act-controller.js";

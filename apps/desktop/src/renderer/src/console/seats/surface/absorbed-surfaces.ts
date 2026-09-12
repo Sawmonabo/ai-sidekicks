@@ -198,11 +198,11 @@ export function renderAbsorbedNodeRoster(
  * The attach flow, mounted wherever a node declaration is actually available.
  *
  * TAKES THE BRIDGE AND NEVER A DRAFT, which is the whole trust decision made once, in
- * the module that can make it. `Spec-023 §Trust Stance` puts the declaration a machine
- * makes about itself — its identity, the contract version it speaks, its self-reported
- * health, and what it can run — in the main process, off the node registry. A caller
- * that could pass a draft in would be a caller that could compose one, and a renderer
- * composing one is a renderer vouching for a machine on its own word. So the draft is
+ * the module that can make it. The declaration a machine makes about itself — its
+ * identity, the contract version it speaks, its self-reported health, and what it can
+ * run — is composed in the main process, off the node registry. A caller that could
+ * pass a draft in would be a caller that could compose one, and a renderer composing one
+ * is a renderer vouching for a machine on its own word. So the draft is
  * RESOLVED here and invented nowhere: `seats/node-roster/node-attach-seam.ts` asks the running scenario
  * under the fixture, and answers nothing under the live bridge, where no registered
  * read delivers such a declaration to this renderer yet.

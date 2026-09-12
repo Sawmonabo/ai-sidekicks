@@ -1,15 +1,14 @@
 // The four time readings: the unit changes rather than the number growing.
 //
-// `Spec-023 §Console Design (Meridian)` §The eight rules puts every quantity through
-// `Intl`, and these four are where that rule has a second half — WHICH unit the
-// figure is read in is itself a decision, and each of them makes it differently:
-// `formatDuration` switches at fixed boundaries and pads the borrowed fields once it
-// is digital, `formatRelativeTime` picks by magnitude and lets the platform compose
-// the words, `formatClockTime` fixes its fields and drops the date entirely
-// because the day divider carries it, and `formatDayDuration` takes its unit from the
-// wire and asks `Intl` for the WORD — the one of the four whose failure was never a
-// boundary but a plural. So the interesting cases are the boundaries, and each one is
-// asserted a millisecond either side of itself.
+// The eight rules put every quantity through `Intl`, and these four are where that rule
+// has a second half — WHICH unit the figure is read in is itself a decision, and each
+// of them makes it differently: `formatDuration` switches at fixed boundaries and pads
+// the borrowed fields once it is digital, `formatRelativeTime` picks by magnitude and
+// lets the platform compose the words, `formatClockTime` fixes its fields and drops the
+// date entirely because the day divider carries it, and `formatDayDuration` takes its
+// unit from the wire and asks `Intl` for the WORD — the one of the four whose failure
+// was never a boundary but a plural. So the interesting cases are the boundaries, and
+// each one is asserted a millisecond either side of itself.
 //
 // `formatClockTime` is asserted by SHAPE rather than by literal, deliberately.
 // `Intl.DateTimeFormat` with no `timeZone` renders in the runner's zone, so a
@@ -47,9 +46,8 @@ describe("formatDuration — the unit changes rather than the number growing", (
     expect(formatDuration(59_000, "en-US")).toBe("59 s");
   });
 
-  // `Spec-023 §Console Design (Meridian)` §The eight rules: digital at one minute
-  // and above. The boundary is
-  // the interesting part — one millisecond below it the shape is still `59 s`.
+  // The eight rules fix a digital reading at one minute and above. The boundary is the
+  // interesting part — one millisecond below it the shape is still `59 s`.
   it("switches to a digital reading at exactly one minute", () => {
     expect(formatDuration(59_999, "en-US")).toBe("60 s");
     expect(formatDuration(60_000, "en-US")).toBe("1:00");

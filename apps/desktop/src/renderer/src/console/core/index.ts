@@ -15,19 +15,18 @@ export { ManualClock, RealClock, type ConsoleClock, type ScheduledHandle } from 
 export { ForwardingConsoleClock } from "./forwarding-clock.js";
 // The console's named bounds. All of them.
 //
-// `Spec-023 §Console Design (Meridian)` §The four bars, "Light on the machine":
-// "Every cap, window, and timeout is a named constant with a one-line rationale".
-// `apps/desktop/AGENTS.md` says where: "One value, one home: budgets and their unit
-// factors in `budgets.json`, caps in `console/core/constants/` with a rationale
-// each."
+// Light on the machine: every cap, window, and timeout is a named constant with a
+// one-line rationale. `apps/desktop/AGENTS.md` says where: "One value, one home:
+// budgets and their unit factors in `budgets.json`, caps in `console/core/constants/`
+// with a rationale each."
 //
 // ONE HOME MEANS ONE HOME, AND A DIRECTORY IS A HOME. The home used to say a view
 // family adds its own module beside its subtree, and four families took that licence
 // — `agents/constants.ts`, `collaboration/constants.ts`, `sessions/bounds.ts`,
 // `settings/constants.ts` — so a cap audit's answer depended on which of five places
 // it looked in, and a bound was spelled `constants` in three of them and `bounds` in
-// the fourth. Every bound lives in `core/constants/` now, and
-// `apps/desktop/AGENTS.md` §Config single-sourcing is what rejects a second home.
+// the fourth. Every bound lives in `core/constants/` now, and the config
+// single-sourcing rule in `apps/desktop/AGENTS.md` is what rejects a second home.
 //
 // ONE MODULE PER CONCERN, named for who spends it, appended within a module. The home
 // was one 1 051-line file whose own banner comments already drew these seams; a file
@@ -43,9 +42,9 @@ export { ForwardingConsoleClock } from "./forwarding-clock.js";
 // family door follows everywhere else in the console.
 //
 // WITH ONE SHAPE THE RULE DECIDES, and it decides against a family keeping its own.
-// `apps/desktop/AGENTS.md` §Config single-sourcing is about DECLARATIONS, names
-// `core/constants/` the one place a bound may be declared in, and rejects a view family
-// that declares one of its own. So a family's bound TABLE — a record keyed by the
+// The config single-sourcing rule in `apps/desktop/AGENTS.md` is about DECLARATIONS,
+// names `core/constants/` the one place a bound may be declared in, and rejects a view
+// family that declares one of its own. So a family's bound TABLE — a record keyed by the
 // names it declares in one tuple, which is what `browser/bounds/browser-bounds.ts` is
 // — stays beside its readers, while a plain `export const SOMETHING_CAP = …` lands in
 // this home whichever family spends it. The rationale travels with the value: each
@@ -215,14 +214,14 @@ export {
   MILLISECONDS_PER_DAY,
   MILLISECONDS_PER_MINUTE,
   parseInstant,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a console view family still to be built */
   type Instant,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a console view family still to be built */
   type InstantOffsetPolicy,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a console view family still to be built */
   type InstantOrder,
   type InstantReading,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a console view family still to be built */
   type MalformedInstant,
 } from "./instant.js";
 // What one session's ledger viewport is showing, and the registry that carries it.
@@ -301,7 +300,7 @@ export { NO_TRANSPORT_RECONNECT } from "./transport-reconnect.js";
 // they measure against. Through the door because their producers are the console's
 // chokepoints and every one of them sits above this family: the ledger's frame
 // coordinator and reveal engine, and the session store's apply. The REGISTRY is not
-// published — a reader is the diagnostics surface T-023p-1C-8 owns, and publishing
+// published — its reader is a diagnostics surface nobody has built yet, and publishing
 // the instance here would give a view family a second way to record beside the entry
 // points. The retiring pair is published for the same reason the recording four are:
 // a producer whose key names itself closes its own series when it is disposed, and
@@ -364,10 +363,9 @@ export { readWireErrorEnvelopeWithCode } from "../../../../shared/wire-errors.js
 // rather than reaching past the DAG to the cross-process leaf that holds it.
 export { DAEMON_SHUTDOWN_FLUSH_BUDGET_MS } from "../../../../shared/shutdown-budget.js";
 
-// The console's one airspace: which overlays are on screen in a window, so a native
-// view yields to them (`Spec-023 §Console Design (Meridian)` 12.3, §4.3). At the DAG
-// floor because its registrants are `primitives/` and its reader is a view family,
-// and this is the only rung both of them stand above.
+// The console's one airspace: which overlays are on screen in a window, so a native view
+// yields to them. At the DAG floor because its registrants are `primitives/` and its
+// reader is a view family, and this is the only rung both of them stand above.
 export {
   AirspaceRegistry,
   type AirspaceMotionObserver,

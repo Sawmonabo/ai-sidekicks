@@ -1,13 +1,12 @@
 // The one place the console names a daemon EVENT.
 //
-// `SidekicksBridge.daemon.subscribe` is declared over the same `never`-shaped
-// Plan-007 brand its `call` sibling is: no string literal is assignable until
-// Plan-007 narrows the brand to the real name union, so every caller in this
-// repository casts. This module is the console's single copy, and it is a seat
-// rather than any one family's module because several view families subscribe
-// through it — which is well past the second use `apps/desktop/AGENTS.md` hoists
-// on. When the brand narrows, exactly one file changes and the models above it do
-// not.
+// `SidekicksBridge.daemon.subscribe` is declared over the same `never`-shaped brand
+// its `call` sibling is: no string literal is assignable until that brand narrows to
+// the real name union, so every caller in this repository casts. This module is the
+// console's single copy, and it is a seat rather than any one family's module because
+// several view families subscribe through it — which is well past the second use
+// `apps/desktop/AGENTS.md` hoists on. When the brand narrows, exactly one file changes
+// and the models above it do not.
 //
 // THE CALL SIDE IS NOT HERE, AND ITS ABSENCE IS THE POINT. This module used to cast
 // `daemon.call` the same way, with each caller pinning the request and response

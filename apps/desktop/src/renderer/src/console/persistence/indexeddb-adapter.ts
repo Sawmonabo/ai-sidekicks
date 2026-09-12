@@ -1,15 +1,14 @@
 // The durable adapter, and the four ways opening it can fail.
 //
-// `Spec-023 §Console Libraries` gives the `idb` row as ADOPT: a thin promise
-// wrapper over IndexedDB, chosen over a key-value abstraction because the console
-// wants the index and the cursor, not a `get`/`set` façade over them.
+// The `idb` library is adopted here: a thin promise wrapper over IndexedDB, chosen
+// over a key-value abstraction because the console wants the index and the cursor,
+// not a `get`/`set` façade over them.
 //
 // Opening is the interesting part. Every one of these is reachable in a shipped
 // Electron app and each needs a DIFFERENT answer, which is why `openConsoleDatabase`
 // returns a discriminated reason rather than a boolean:
 //
-//   • no `indexedDB` global — the renderer scheme was not registered `standard`,
-//     I-023-11's failing arm;
+//   • no `indexedDB` global — the renderer scheme was not registered `standard`;
 //   • the open is refused (`SecurityError`) — same cause, different symptom
 //     depending on the Chromium build;
 //   • a `VersionError` — a NEWER build of the app already wrote this database.

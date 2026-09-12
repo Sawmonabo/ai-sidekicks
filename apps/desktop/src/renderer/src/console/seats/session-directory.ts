@@ -55,9 +55,8 @@
 // `reading` is a read in flight — the `not-loaded` kind of nothing. `served` is an
 // answer, and an answer with no rows is genuinely `empty`. `unavailable` carries
 // the port's refusal, which a surface renders as `not-checked`: the console did not
-// ask, because no wire answers. Collapsing any two of them is exactly the
-// conflation `Spec-023 §Console Design (Meridian)`'s five kinds of nothing exist to
-// prevent.
+// ask, because no wire answers. Collapsing any two of them is exactly the conflation
+// the console's five kinds of nothing exist to prevent.
 //
 // THE STATE IS SUBJECT-SCOPED, AND THE SUBJECT IS THE PORT
 //
@@ -163,10 +162,10 @@ function settledDirectoryState(settlement: SettledSessionDirectory): SessionDire
  * about any round of any caller's. The name says that rather than borrowing the
  * vocabulary of the two chokepoints, which is what a reviewer reads for.
  *
- * A class with private fields rather than a module-level `Map`, on the rule
- * `apps/desktop/AGENTS.md` §State and views states and the precedent
- * `seats/surface/absorbed-surfaces.ts` sets one file over: module scope is WINDOW scope here,
- * since an auxiliary window is its own renderer process and no channel joins two
+ * A class with private fields rather than a module-level `Map`, on the state-and-views
+ * rule in `apps/desktop/AGENTS.md` and the precedent
+ * `seats/surface/absorbed-surfaces.ts` sets one file over: module scope is WINDOW scope
+ * here, since an auxiliary window is its own renderer process and no channel joins two
  * windows' module graphs.
  *
  * KEYED ON THE PORT AND NOT ON THE CALLER, because what goes stale is the node's

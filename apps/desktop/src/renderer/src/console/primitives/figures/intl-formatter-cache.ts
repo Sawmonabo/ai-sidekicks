@@ -52,19 +52,18 @@ interface LocaleResolvingFormatter {
 /**
  * The console's `Intl` instances of one kind, one per RESOLVED locale.
  *
- * A CLASS WITH PRIVATE FIELDS rather than a module-level `Map`, per
- * `apps/desktop/AGENTS.md` §State and views — and it holds state at all because
- * constructing an `Intl` formatter resolves a locale and builds a message table,
- * which is the expensive half, while formatting with one is cheap. A relative time
- * is the console's most repeated figure: every ledger row carrying an age
- * re-renders on the reading tick, so a formatter minted per call is one locale
- * resolution per row per tick.
+ * A CLASS WITH PRIVATE FIELDS rather than a module-level `Map`, per the state-and-views
+ * rule in `apps/desktop/AGENTS.md` — and it holds state at all because constructing an
+ * `Intl` formatter resolves a locale and builds a message table, which is the expensive
+ * half, while formatting with one is cheap. A relative time is the console's most
+ * repeated figure: every ledger row carrying an age re-renders on the reading tick, so
+ * a formatter minted per call is one locale resolution per row per tick.
  *
  * GENERIC OVER THE FORMATTER because two kinds are now held on one policy — the
  * relative time and the day duration — and a second copy of an eviction rule, a
- * resolved-tag key and a host slot is exactly the drift `apps/desktop/AGENTS.md`
- * §Shared code hoists on the second use. What differs between the two is the MINT,
- * so that is what a caller supplies and the only thing it supplies.
+ * resolved-tag key and a host slot is exactly the drift the shared-code rule in
+ * `apps/desktop/AGENTS.md` hoists on the second use. What differs between the two is
+ * the MINT, so that is what a caller supplies and the only thing it supplies.
  *
  * KEYED ON WHAT `Intl` RESOLVED, not on what the caller wrote. `en-US` and `en-us`
  * are one locale and were two entries holding two formatters that answer

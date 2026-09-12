@@ -99,13 +99,13 @@ describe("parseInstant — the encoding the wire declares, and nothing wider", (
   });
 
   it("records the one RFC 3339 spelling this reader narrows away", () => {
-    // A leap second is permitted by RFC 3339 §5.6 and refused here, and it fails
+    // A leap second is permitted by RFC 3339 section 5.6 and refused here, and it fails
     // CLOSED — an em dash and a row sorted last, never a wrong instant. Asserted so
     // the narrowing is a decision on the record rather than a surprise in a bug report.
     expect(parseInstant("2026-12-31T23:59:60Z").kind).toBe("malformed");
   });
 
-  it("reads the lowercase separators RFC 3339 §5.6 permits", () => {
+  it("reads the lowercase separators RFC 3339 section 5.6 permits", () => {
     expect(epochMillisecondsOf("2026-09-01t12:00:00z")).toBe(
       epochMillisecondsOf("2026-09-01T12:00:00Z"),
     );

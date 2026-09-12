@@ -9,19 +9,18 @@
 // front of somebody who has not pressed anything yet.
 //
 // THREE COPIES OF THIS WERE WRITTEN IN ONE DIRECTORY. The repos family's attach, bind,
-// and execution-root-prepare controllers were the same class member for member — the
-// same scheduler wiring, the same trigger wiring, the same emitter, the same disposed
-// latch, the same four read arms, the same four act arms, the same overlap guard, and
-// the same hook and disposal constant underneath — differing only in which call each
-// sent and what its settled arm carried. `apps/desktop/AGENTS.md` §Shared code hoists
-// on the SECOND use, and the place copies of a guard drift is the predicate.
+// and execution-root-prepare controllers were the same class member for member — the same
+// scheduler wiring, the same trigger wiring, the same emitter, the same disposed latch,
+// the same four read arms, the same four act arms, the same overlap guard, and the same
+// hook and disposal constant underneath — differing only in which call each sent and what
+// its settled arm carried. The package's shared-code rule hoists on the SECOND use, and
+// the place copies of a guard drift is the predicate.
 //
-// THE PREREQUISITE HALF IS SCHEDULED AND THE ACT HALF IS NOT, which is the one
-// asymmetry this class is built around. `Spec-023 §Rules every console surface obeys`
-// admits four reasons to read again and forbids interval polling, so the read goes
-// through the console's one `RefreshScheduler` and declares its own trigger census.
-// An act is something a person did once; re-sending it on a window focus would put a
-// second durable record on the wire for one press.
+// THE PREREQUISITE HALF IS SCHEDULED AND THE ACT HALF IS NOT, which is the one asymmetry
+// this class is built around. Four reasons admit reading again and interval polling is
+// forbidden, so the read goes through the console's one `RefreshScheduler` and declares
+// its own trigger census. An act is something a person did once; re-sending it on a
+// window focus would put a second durable record on the wire for one press.
 //
 // THE QUESTION IS A STRING AND IT ARRIVES LATE. A prerequisite has nothing to ask
 // until something names it — a dialog that opened, a branch that was typed — so a
@@ -259,9 +258,9 @@ export class ActController<
    * from the published reading admits both. What that costs is two durable records for
    * one intended act, and two replies racing to decide which settlement is shown.
    *
-   * THE SETTLEMENT IS PUBLISHED ON BOTH ARMS AND SWALLOWED ON NEITHER. `Spec-023
-   * §Rules every console surface obeys` admits no silent no-op: an act that worked
-   * says what it produced, and one that was refused renders the daemon's own code.
+   * THE SETTLEMENT IS PUBLISHED ON BOTH ARMS AND SWALLOWED ON NEITHER. No silent no-op is
+   * admitted: an act that worked says what it produced, and one that was refused renders
+   * the daemon's own code.
    *
    * AND THE SETTLE CALLBACK IS ANNOTATED {@link ActOwnArm} RATHER THAN `TSettlement`,
    * which is where this module's "a discriminant of its own" requirement is actually

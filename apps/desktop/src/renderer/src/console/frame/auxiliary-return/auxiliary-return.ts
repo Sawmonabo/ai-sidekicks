@@ -1,10 +1,10 @@
 // The one act an auxiliary window can perform on ITSELF: give its pane back.
 //
-// `Spec-023 §The surface set` keeps the moved pane's slot in the deck as a
-// placeholder for the whole life of the window, so the way back is a control rather
-// than a re-open. The deck has had its half since the placeholder did — a return
-// control in the slot — and the WINDOW had none, which left the person who was
-// looking at the moved pane with only the operating system's close button.
+// The moved pane's slot stays in the deck as a placeholder for the whole life of the
+// window, so the way back is a control rather than a re-open. The deck has had its half
+// since the placeholder did — a return control in the slot — and the WINDOW had none,
+// which left the person who was looking at the moved pane with only the operating
+// system's close button.
 //
 // AND THAT BUTTON IS NOT THIS ACT. Closing the window through the shell's own
 // chrome is a window that stopped being open, which is what the deck's crashed-window
@@ -53,10 +53,10 @@ export interface AuxiliaryReturnState {
 /**
  * Hold the window's own return act.
  *
- * The refusal goes to the caller rather than being rendered beside the control:
- * `Spec-023 §Meridian, the design language` puts a refusal that changes what the
- * whole window can do in the frame's banner list, and this window has exactly one
- * surface — so a refusal about closing it is about all of it.
+ * The refusal goes to the caller rather than being rendered beside the control: a
+ * refusal that changes what the whole window can do belongs in the frame's banner list,
+ * and this window has exactly one surface — so a refusal about closing it is about all
+ * of it.
  *
  * There is no local record of the return beyond `isReturning`, and deliberately: the
  * deck's slot is restored by the shell's own orderly-return signal, which is the only

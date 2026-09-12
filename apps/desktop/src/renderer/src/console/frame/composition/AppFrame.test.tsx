@@ -1,10 +1,10 @@
 // Two claims the frame alone can make, because both are about the SLOT rather
 // than about what is put in it.
 //
-//   • **A modal overlay makes the background inert.** `Spec-023 §Console
-//     Libraries` adopts the dialog family under `modal="trap-focus"`, which traps
-//     focus and deliberately does not lock scroll — and leaves inerting the app
-//     root to the shell. Nothing was doing it, so the rail and the whole surface
+//   • **A modal overlay makes the background inert.** The adopted dialog family runs
+//     under `modal="trap-focus"`, which traps focus and deliberately does not lock
+//     scroll — and leaves inerting the app root to the shell. Nothing was doing it,
+//     so the rail and the whole surface
 //     stayed in the accessibility tree underneath an open dialog, reachable by
 //     every assistive-technology reader that does not follow focus. The overlays
 //     slot has to sit OUTSIDE whatever carries the attribute, or the palette

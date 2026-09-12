@@ -58,8 +58,8 @@ const CHANNEL_LIST_METHOD = "channel.list";
  * The signal arrives through the console's own session store rather than through a
  * second bridge subscription. The store is already the one subscriber to the event
  * stream; opening another would be a second copy of the same feed, arriving in a
- * different order, and `Spec-023 §Console Design (Meridian)` puts exactly one thing
- * on the bridge for exactly this reason.
+ * different order, and exactly one thing belongs on the bridge for exactly this
+ * reason.
  */
 const CHANNEL_LIFECYCLE_EVENT_KINDS: readonly SessionEventType[] = [
   "channel.created",
@@ -160,12 +160,12 @@ export function orderChannelRows(
  * The three states the wire declares, enumerated where the console can read them.
  *
  * `packages/contracts` ships `ChannelState` as a TYPE and enumerates its members only
- * inside a Zod schema, and `Spec-023 §Console Design (Meridian)` closes that door: a
- * console surface never parses a wire value itself, so that schema is not importable
- * here and the daemon's own replies are parsed at `callDaemon` instead. Keying a
- * record by the contract's OWN union is what keeps this from being a second
- * declaration of the set — a member added upstream stops this literal compiling rather
- * than quietly becoming a state this file drops on the floor.
+ * inside a Zod schema, and that door stays closed: a console surface never parses a
+ * wire value itself, so that schema is not importable here and the daemon's own
+ * replies are parsed at `callDaemon` instead. Keying a record by the contract's OWN
+ * union is what keeps this from being a second declaration of the set — a member added
+ * upstream stops this literal compiling rather than quietly becoming a state this file
+ * drops on the floor.
  */
 const CHANNEL_STATES: Readonly<Record<ChannelState, ChannelState>> = {
   active: "active",

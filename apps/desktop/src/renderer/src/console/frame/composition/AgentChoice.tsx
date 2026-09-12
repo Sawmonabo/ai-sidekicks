@@ -13,8 +13,8 @@
 // no store yet is the picker's to render, and this component takes a store it is
 // guaranteed to have.
 //
-// THREE STATES, AND NOT ONE OF THEM AN EMPTY LIST STANDING IN FOR ANOTHER
-// (`Spec-023 §Console Design (Meridian)` §The five kinds of nothing):
+// THREE STATES, AND NOT ONE OF THEM AN EMPTY LIST STANDING IN FOR ANOTHER — the five
+// kinds of nothing are kept apart:
 //
 //   • The store has no base state yet → `not-loaded`. A read is genuinely in
 //     flight: the registry requested one when the session opened.

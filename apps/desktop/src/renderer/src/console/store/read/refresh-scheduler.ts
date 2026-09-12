@@ -1,10 +1,9 @@
 // The read side of the console's scheduling: one scheduler, no interval.
 //
-// `Spec-023 §Console Design (Meridian)` §The eight rules, "No interval polling":
-// "Reads happen on subscribe, on window focus, on reconnect, and on the terminal
-// events the owning spec names — through one refresh scheduler firing at
-// `min(lastEvent + delay, firstEvent + maxWait)`, serialized, so a trailing
-// debounce cannot starve under a stream."
+// No interval polling: reads happen on subscribe, on window focus, on reconnect, and on
+// the terminal events the owning surface names — through one refresh scheduler firing
+// at `min(lastEvent + delay, firstEvent + maxWait)`, serialized, so a trailing debounce
+// cannot starve under a stream."
 //
 // `RefreshScheduler` is that scheduler. It coalesces a burst of reasons-to-re-read
 // into one read, with an absolute deadline so a continuous stream still gets a

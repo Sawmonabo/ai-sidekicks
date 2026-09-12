@@ -1,11 +1,11 @@
 // Meridian color math — OKLCH authoring, sRGB rendering, WCAG 2.2 measurement.
 //
-// `Spec-023 §Console Design (Meridian)` rule 3 states contrast floors that a
-// test must be able to *measure*, and rule 2 generates the twelve participant
-// hues from an OKLCH wheel. Both need one conversion path, so this module owns
-// it: OKLCH is the authoring space (perceptually uniform lightness, so one
-// lightness really does read as one lightness across the wheel), sRGB is what a
-// display emits, and WCAG relative luminance is what the floors are stated in.
+// Design-language rule 3 states contrast floors that a test must be able to *measure*,
+// and rule 2 generates the twelve participant hues from an OKLCH wheel. Both need one
+// conversion path, so this module owns it: OKLCH is the authoring space (perceptually
+// uniform lightness, so one lightness really does read as one lightness across the
+// wheel), sRGB is what a display emits, and WCAG relative luminance is what the floors
+// are stated in.
 //
 // Why the values are pre-fitted into gamut here rather than left to the browser:
 // CSS Color 4 gamut-maps an out-of-gamut `oklch()` by reducing chroma along a

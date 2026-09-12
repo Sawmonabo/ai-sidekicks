@@ -64,17 +64,15 @@
 // `DurableRunMemberName`, the base table classifies it, and the co-located test's
 // no-second-spelling case fails until the entry here is deleted.
 //
-// THE TWO SHAPES ARE NOT ONE SHAPE, and the exclusions are where that is stated.
-// That module says so itself: the `run.subscribeState` projection is
-// "deliberately distinct from the durable `run_lifecycle` payload of `Spec-006
-// §Run Lifecycle (run_lifecycle)` (`{sessionId, runId, runVersion,
-// previousState, newState, channelId?, ...}`)", where "the canonical wire member
-// is `currentState`" on the stream and `newState` on the durable row. `sessionId`
-// and `timestamp` are excluded because the envelope already carries both —
-// `event.sessionId` and `event.occurredAt`, the latter stored as `touchedAt` —
-// and `runId` because it is the entity's own id. `agentId` is the one member no
-// registered shape names, and it is `Spec-006`'s: `run.queued` carries it for
-// orchestration-created runs.
+// THE TWO SHAPES ARE NOT ONE SHAPE, and the exclusions are where that is stated. That
+// module says so itself: the `run.subscribeState` projection is deliberately distinct
+// from the durable run-lifecycle payload (`{sessionId, runId, runVersion,
+// previousState, newState, channelId?, ...}`), where the canonical wire member is
+// `currentState` on the stream and `newState` on the durable row. `sessionId` and
+// `timestamp` are excluded because the envelope already carries both —
+// `event.sessionId` and `event.occurredAt`, the latter stored as `touchedAt` — and
+// `runId` because it is the entity's own id. `agentId` is the one member no registered
+// shape names: `run.queued` carries it for orchestration-created runs.
 //
 // `state` is written only where the payload names `newState`: writing one for a
 // non-state event would have a turn boundary silently rewrite the run's state,

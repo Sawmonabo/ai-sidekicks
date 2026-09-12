@@ -35,8 +35,7 @@ describe("the self-hosted faces", () => {
   // families are reached. A family that declares only its upright face does not
   // lose those runs — the browser SYNTHESIZES an oblique by slanting the upright
   // outlines, which is a transform of the wrong drawing rather than the italic the
-  // foundry cut, and `Spec-023 §Console Design (Meridian)` rule 4 names the faces
-  // and not a slant of them. This is the assertion that keeps the omission from
+  // foundry cut, and the design language names the faces and not a slant of them. This is the assertion that keeps the omission from
   // being invisible: a family present with one style is a family whose italic runs
   // are faux, and nothing else in this file would notice.
   it("declare a real italic for every family, never a synthesized oblique", () => {
@@ -136,14 +135,14 @@ describe("the generated @font-face block", () => {
     expect(css).toContain("font-stretch: 85% 100%;");
   });
 
-  // `Spec-023 §Console Design (Meridian)` rule 4 makes the slashed zero the MONO
-  // signature — "mono is the signature that a number came from the wire" — so it is
-  // a property of the mono FACE and reaches nothing else. Declared as a descriptor
-  // it is scoped by construction: `font-feature-settings` INHERITS as a property, so
-  // the same features on `body` put a slashed zero on every participant name, repo
-  // path, and branch in the console, which is the design's mark for a wire figure
-  // spent on prose. Asserted per block rather than by count, because a descriptor in
-  // the right count and the wrong block is exactly the sans-carries-it failure.
+  // The slashed zero is the MONO signature — mono is what says a number came from the
+  // wire — so it is a property of the mono FACE and reaches nothing else. Declared as a
+  // descriptor it is scoped by construction: `font-feature-settings` INHERITS as a
+  // property, so the same features on `body` put a slashed zero on every participant
+  // name, repo path, and branch in the console, which is the design's mark for a wire
+  // figure spent on prose. Asserted per block rather than by count, because a
+  // descriptor in the right count and the wrong block is exactly the sans-carries-it
+  // failure.
   it("puts the slashed zero on the mono face, and on no sans one", () => {
     const blocks = css.split("@font-face").filter((block) => block.includes("src:"));
     for (const face of TYPEFACE_FACES) {

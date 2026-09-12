@@ -15,10 +15,10 @@
 // a different obligation with controls attached and belongs to whichever lane builds
 // those controls.
 //
-// IT NAMES THE COMPOSITION. `Spec-023`'s absence grammar puts the identifying value in
-// the mono face and the console's own words in prose, so the scenario's label travels
-// as a wire-shaped figure — it is the id a person passes back on a launch argument —
-// and the sentence around it is ours.
+// IT NAMES THE COMPOSITION. The absence grammar puts the identifying value in the mono
+// face and the console's own words in prose, so the scenario's label travels as a
+// wire-shaped figure — it is the id a person passes back on a launch argument — and the
+// sentence around it is ours.
 
 import { WireFigure } from "../../primitives/index.js";
 

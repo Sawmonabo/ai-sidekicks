@@ -13,20 +13,20 @@
 // longer being added to — and copy that says "disconnected" without saying what that
 // costs a person leaves them guessing whether what is on screen is fiction.
 //
-// And it never names a governance document, a task id, or a method the daemon
-// registry owns as prose. The six method NAMES are wire strings and appear as wire
-// figures; what appears in a sentence is what each one does in a person's words.
+// And it never names a governance document, a task id, or a method the daemon registry
+// owns as prose. The six method NAMES are wire strings and appear as wire figures; what
+// appears in a sentence is what each one does in a person's words.
 //
-// AND NO SENTENCE HERE CARRIES A VALUE THE SHELL REPORTED. That was the third rule
-// all along and this module was breaking it: the mismatch line pasted both protocol
-// versions into proportional prose and the outage lines pasted the attempt counters
-// in through `String()`, so four figures the shell had sent reached the screen with
-// none of the provenance `Spec-023 §Console Design (Meridian)` rule 4 requires and
-// none of them through the console's one formatter. Every such sentence is now a
-// SENTENCE MODEL — words and figure slots — and {@link ShellSentenceText} is what
-// turns one into elements. The words stay here where the whole vocabulary can be read
-// as one page; the figures leave through `primitives/figures/wire-figures.ts`, which is the
-// only module allowed to format a wire value at all.
+// AND NO SENTENCE HERE CARRIES A VALUE THE SHELL REPORTED. That was the third rule all
+// along and this module was breaking it: the mismatch line pasted both protocol
+// versions into proportional prose and the outage lines pasted the attempt counters in
+// through `String()`, so four figures the shell had sent reached the screen with none
+// of the provenance a wire figure requires and none of them through the console's one
+// formatter. Every such sentence is now a SENTENCE MODEL — words and figure slots — and
+// {@link ShellSentenceText} is what turns one into elements. The words stay here where
+// the whole vocabulary can be read as one page; the figures leave through
+// `primitives/figures/wire-figures.ts`, which is the only module allowed to format a
+// wire value at all.
 
 import {
   MUTATING_DAEMON_METHODS,
@@ -68,8 +68,7 @@ export interface VersionRemedy {
 /**
  * Which side moves, from the refused ack's own reason.
  *
- * `Spec-023 §Daemon Supervision Lifecycle` step 3 requires the incompatibility be
- * surfaced and does not write the copy, and the two registered reasons admit exactly
+ * The incompatibility has to be surfaced and no document writes the copy, and the two registered reasons admit exactly
  * one reading each: below the daemon's floor, this console is what moves; above its
  * ceiling, the runtime is. A reason this build does not know is not guessed at — the
  * remedy line says the console cannot tell which side to move, which is true, rather

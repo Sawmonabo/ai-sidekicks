@@ -1,10 +1,10 @@
 // The console's OWN reading — "waiting on you", "three rows collapsed", a relative
 // time paired with its absolute.
 //
-// It is proportional precisely so it cannot be mistaken for something the daemon
-// said. Putting a wire number through it is the one misuse worth naming: it strips
-// the figure's provenance signature, which `Spec-023 §Console Design (Meridian)`
-// rule 4 reserves for the mono class `WireFigure.tsx` beside this one renders.
+// It is proportional precisely so it cannot be mistaken for something the daemon said.
+// Putting a wire number through it is the one misuse worth naming: it strips the
+// figure's provenance signature, which rule 4 reserves for the mono class
+// `WireFigure.tsx` beside this one renders.
 //
 // It offers no `title`, and that absence is deliberate rather than an omission: a
 // derived reading is not a formatting of a wire figure, so a slot for "the number

@@ -8,9 +8,9 @@
 // component renders what it returns.
 //
 // EVERY ADDRESS CRUMB IS A WIRE STRING and wears the provenance signature that says
-// so (`Spec-023 §Console Design (Meridian)` rule 4), through the one module allowed to
-// format one. The LAST crumb is not: it is the pane's own name, prose from the closed
-// title table, and it is the crumb the trail is currently on.
+// so, through the one module allowed to format one. The LAST crumb is not: it is the
+// pane's own name, prose from the closed title table, and it is the crumb the trail is
+// currently on.
 //
 // A CRUMB THE ADDRESS DOES NOT CARRY IS LEFT OUT rather than rendered as a
 // placeholder — the trail describes where this pane is, and an em dash standing in for

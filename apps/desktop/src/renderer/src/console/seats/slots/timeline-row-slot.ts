@@ -1,17 +1,17 @@
-// The timeline row slot — the one seat Plan-013 absorbs by import.
+// The timeline row slot — the one seat the timeline subtree absorbs by import.
 //
 // THE ABSORB-BY-IMPORT RULE, WHICH IS WHAT THIS SEAT IS FOR
 //
 // Every other seat in this family is filled by a console view family and stays
 // filled. This one is filled TWICE, in two PRs, and the second deletes the first:
 //
-//   1. The workspace family (T-023p-1C-2) registers a FIXTURE SHELL here — a row
-//      that renders the ledger primitive against the fixture scenarios so the
-//      timeline surface is real before Plan-013's rows exist.
-//   2. The `timeline/` subtree, which Plan-013 owns, replaces that registration in
-//      its own PR — and DELETES the shell in the same diff. Two registrations
-//      would not merely be untidy: the seat is owner-scoped, so the second owner
-//      is refused and the timeline stops rendering at import time.
+//   1. The workspace family registers a FIXTURE SHELL here — a row that renders the
+//      ledger primitive against the fixture scenarios so the timeline surface is
+//      real before the real rows exist.
+//   2. The `timeline/` subtree replaces that registration in its own PR — and
+//      DELETES the shell in the same diff. Two registrations would not merely be
+//      untidy: the seat is owner-scoped, so the second owner is refused and the
+//      timeline stops rendering at import time.
 //
 // `apps/desktop/AGENTS.md` states the boundary this rests on: "The console imports
 // no plan-owned renderer subtree whose owner mounts into it — `timeline/`, … Those
@@ -31,19 +31,18 @@
 //     Only `TimelineRow`'s `run` arm carries a `superseded` marker at all; a
 //     `general` or `legacy_stub` row after a boundary is superseded too and says
 //     so nowhere in its own shape.
-//   • `density` is the list's collapse state for this row, under `Spec-023
-//     §Console Design (Meridian)` rule 7's density budgets.
+//   • `density` is the list's collapse state for this row, under the timeline's
+//     density budgets.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
 import { type ParticipantHueAssignment } from "../../tokens/index.js";
 import { SingleSlotSeat } from "./single-slot-seat.js";
 
-// Consumed by T-023p-1C-2
 /**
- * A row's collapse state, under `Spec-023 §Console Design (Meridian)` rule 7:
- * "Tool rows render as one line until opened; run chapters collapse once terminal
- * and the live chapter stays open".
+ * A row's collapse state, under the timeline's density rule: tool rows render as one
+ * line until opened; run chapters collapse once terminal and the live chapter stays
+ * open.
  *
  * Two values and not a numeric scale: the rule is about what is COLLAPSED, and a
  * comfortable/compact spacing axis would be a second, unrelated meaning wearing
@@ -62,11 +61,10 @@ export interface TimelineRowSlotProps {
    * The author's place on the twelve-step wheel, or `undefined` for a row with no
    * attributable participant.
    *
-   * The whole assignment rather than a colour string because
-   * `Spec-023 §Console Design (Meridian)` rule 2 is explicit that "the hue is
-   * never the sole attribution channel" — past twelve participants the wheel wraps
-   * and the ring treatment is what tells two people on one step apart. A row handed
-   * only a colour could not render that, and `undefined` is the fail-closed answer
+   * The whole assignment rather than a colour string because the hue is never the
+   * sole attribution channel — past twelve participants the wheel wraps and the ring
+   * treatment is what tells two people on one step apart. A row handed only a colour
+   * could not render that, and `undefined` is the fail-closed answer
    * rather than step zero, which belongs to somebody.
    */
   readonly participantHue: ParticipantHueAssignment | undefined;

@@ -4,8 +4,8 @@
 // for themselves — `settings/shared/shell-preferences/shell-preference-snapshot.ts` as an
 // exported generic, `collaboration/mutation-coordinator.ts` as a private one narrowed to
 // its own refusal map, and the schema-form answer module as a third spelling nothing
-// ever called. One rule, three bodies, and no instrument holding them
-// together, which is what `apps/desktop/AGENTS.md` §Shared code forbids.
+// ever called. One rule, three bodies, and no instrument holding them together, which
+// is what the shared-code rule in `apps/desktop/AGENTS.md` forbids.
 //
 // IT LIVES AT THE FLOOR AND NOT IN THE FAMILY THAT NEEDED IT FIRST. Its readers are
 // `settings/` and `collaboration/`, two VIEW families, and a view family never imports

@@ -50,7 +50,7 @@ function deliveredEvent(sessionId: string, sequence: number): ConsoleSessionEven
   };
 }
 
-/** One run beat, payload-shaped as `Spec-006 §Run Lifecycle (run_lifecycle)` spells it. */
+/** One run beat, payload-shaped as the run-lifecycle taxonomy spells it. */
 function queuedRunEvent(sessionId: string, sequence: number, runId: string): ConsoleSessionEvent {
   return {
     id: `event-${String(sequence)}`,

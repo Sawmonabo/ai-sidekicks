@@ -1,34 +1,34 @@
 // The console's one clipping-ancestor walk.
 //
 // Two view families ask the same question — which ancestors of this element clip what
-// is inside them — for different reasons: `workspace/deck/` intersects the answers
-// into the rectangle a native view may occupy, and `browser/geometry/` collects their
-// boxes so the sampler can subtract them. They sit beside each other in the console's
-// DAG, so neither can read the other's copy, and each writing its own was the shape
-// `apps/desktop/AGENTS.md §Shared code` warns about: two copies of one normalization
-// drift, and the gate stays green. These had, three ways — the data structure (a
-// module-level `Set` against a frozen tuple), the predicate (one read the `overflow`
-// shorthand, the other did not), and the evidence (one was covered, the other was
-// not). `primitives/` is the lowest family both consumers sit above and it already
-// owns the DOM-touching seams; `core/` cannot take it, because that family is
+// is inside them — for different reasons: `workspace/deck/` intersects the answers into
+// the rectangle a native view may occupy, and `browser/geometry/` collects their boxes
+// so the sampler can subtract them. They sit beside each other in the console's DAG, so
+// neither can read the other's copy, and each writing its own was the shape the
+// shared-code rule in `apps/desktop/AGENTS.md` warns about: two copies of one
+// normalization drift, and the gate stays green. These had, three ways — the data
+// structure (a module-level `Set` against a frozen tuple), the predicate (one read the
+// `overflow` shorthand, the other did not), and the evidence (one was covered, the
+// other was not). `primitives/` is the lowest family both consumers sit above and it
+// already owns the DOM-touching seams; `core/` cannot take it, because that family is
 // compiled by a Node-context program with no DOM lib and `Element` does not resolve
 // there.
 //
 // THE LONGHANDS ARE THE AUTHORITY AND THE SHORTHAND IS A FALLBACK, which is the
 // reconciliation neither copy made. `overflow` is a shorthand for `overflow-x` and
-// `overflow-y` (CSS Overflow 3 §3), and CSSOM serializes a shorthand's resolved value
-// FROM its longhands — so on a conformant engine the shorthand can carry nothing the
-// axes do not already say, and when the axes differ it serializes as two
-// space-separated keywords that no single-keyword membership test would match. Read
-// as a third co-equal test, which is how the deck's copy read it, it is dead code on
-// the engine that ships. It is not dead everywhere: `happy-dom`, the document the
+// `overflow-y` (CSS Overflow 3 section 3), and CSSOM serializes a shorthand's resolved
+// value FROM its longhands — so on a conformant engine the shorthand can carry nothing
+// the axes do not already say, and when the axes differ it serializes as two
+// space-separated keywords that no single-keyword membership test would match. Read as
+// a third co-equal test, which is how the deck's copy read it, it is dead code on the
+// engine that ships. It is not dead everywhere: `happy-dom`, the document the
 // `console-unit` tier runs on, expands neither direction — an element with
 // `style.overflow = "auto"` reports the empty string for both axes there, and an
-// `overflow-x`-only element reports the empty string for the shorthand — so the
-// browser copy, which read only the axes, was blind under that tier to exactly the
-// ancestors the deck's suite builds. The axes are therefore read first and the
-// shorthand is consulted only when neither axis is readable at all: a branch no
-// conformant engine reaches, and the only reading a shim like that offers.
+// `overflow-x`-only element reports the empty string for the shorthand — so the browser
+// copy, which read only the axes, was blind under that tier to exactly the ancestors
+// the deck's suite builds. The axes are therefore read first and the shorthand is
+// consulted only when neither axis is readable at all: a branch no conformant engine
+// reaches, and the only reading a shim like that offers.
 
 /**
  * The computed `overflow` values that clip a descendant.

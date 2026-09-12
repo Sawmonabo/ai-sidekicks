@@ -1,10 +1,10 @@
 // The five kinds of nothing, in the two shapes an absence can take.
 //
-// `Spec-023 §Console Design (Meridian)` rule 8: "Five absences render differently
-// because the operator's next move differs for each … A renderer that collapses two
-// of these into one is wrong." The rule is enforced structurally here — the kind set
-// is closed, the traits table below is total over it, and each kind supplies copy,
-// a glyph, and a tone no other kind supplies:
+// The console's design language, rule 8: five absences render differently because the
+// operator's next move differs for each, and a renderer that collapses two of these
+// into one is wrong. The rule is enforced structurally here — the kind set is closed,
+// the traits table below is total over it, and each kind supplies copy, a glyph, and a
+// tone no other kind supplies:
 //
 //   • `not-loaded`  — a skeleton in the row's shape. The read is in flight; the
 //                     operator waits. It says nothing, because there is nothing yet

@@ -1,8 +1,8 @@
 // Window focus as a refresh REASON, bound once per window.
 //
-// `Spec-023 §Rules every console surface obeys` admits a small closed set of reasons a
-// reading may be taken again and forbids interval polling; this module owns one of
-// them for the whole window, so no surface arms a listener of its own to get it.
+// A small closed set of reasons admits a reading being taken again, and interval polling
+// is forbidden; this module owns one of them for the whole window, so no surface arms a
+// listener of its own to get it.
 //
 // THE RE-READ RIDES THE TRANSITION INTO FOCUS RATHER THAN THE EVENT ITSELF. A window
 // that never lost focus missed nothing, so re-reading every open session on a focus

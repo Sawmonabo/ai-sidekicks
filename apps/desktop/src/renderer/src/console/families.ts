@@ -2,12 +2,11 @@
 //
 // WHY THIS FILE EXISTS AT ALL
 //
-// Seven surface families (T-023p-1C-2 … T-023p-1C-8) are built on branches that run
-// at the same time. Each has to become reachable from the entry point, and there is
-// exactly one way to do that without every branch editing the same registry: give
-// each family a SEAT — one line, reserved in advance, that only that family
-// replaces. Each branch then produces one one-line diff at a position no other
-// branch touches, and none of them conflicts.
+// Seven surface families are built on branches that run at the same time. Each has to
+// become reachable from the entry point, and there is exactly one way to do that
+// without every branch editing the same registry: give each family a SEAT — one line,
+// reserved in advance, that only that family replaces. Each branch then produces one
+// one-line diff at a position no other branch touches, and none of them conflicts.
 //
 // SEVEN IS THE ONLY COUNT THIS HEADER STATES, and it is the number of reserved seat
 // lines at the foot of the composition. It was not always: this header spelled the
@@ -204,11 +203,11 @@ export function registerConsoleFamilies(
   // NOTHING BUT SEATS BELOW THIS LINE. A paragraph between two seats reads to a
   // branch exactly like this one does above them, and only one of the two leaves
   // seven one-line diffs at seven distinct positions.
-  registerLedger(surfaces, ledgerComposition); // T-023p-1C-2 ledger
-  registerComposerFamily(projectors, sidebarSections); // T-023p-1C-3 composer
+  registerLedger(surfaces, ledgerComposition); // ledger
+  registerComposerFamily(projectors, sidebarSections); // composer
   registerSessionSurfacesFamily(surfaces, sidebarSections, frameBindings, sessionsMount); // session surfaces
-  registerRepos(sidebarSections, inlineCardSeats); // T-023p-1C-5 repos
-  registerWorkflowSurfaces(surfaces, pinnedRegions); // T-023p-1C-6 workflows
-  // T-023p-1C-7 browser-terminal
-  // T-023p-1C-8 gallery
+  registerRepos(sidebarSections, inlineCardSeats); // repos
+  registerWorkflowSurfaces(surfaces, pinnedRegions); // workflows
+  // browser-terminal
+  // gallery
 }

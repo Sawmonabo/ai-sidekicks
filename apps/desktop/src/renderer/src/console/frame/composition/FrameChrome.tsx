@@ -7,23 +7,21 @@
 // families ship in parallel, and it is why `surfaces` is a prop rather than an
 // import: an import would make the frame depend on all six.
 //
-// Auxiliary windows get NO rail. `Spec-023 §Console Design (Meridian)` §The surface
-// set makes them single-purpose windows with their own bridge instance and no shared
-// store (I-023-12), and a rail whose destinations belong to another window would be
-// three controls that navigate the wrong frame.
+// Auxiliary windows get NO rail. They are single-purpose windows with their own bridge
+// instance and no shared store, and a rail whose destinations belong to another window
+// would be three controls that navigate the wrong frame.
 //
-// THE BACKGROUND WRAPPER IS THE SHELL'S `inert` GUARD, and it is why the rail and
-// the column are wrapped rather than left as direct children. `Spec-023 §Console
-// Libraries` adopts the dialog family under `modal="trap-focus"`, which traps focus
-// and deliberately does not lock the document's scroll — and leaves inerting the app
-// root to the shell, because the dialog cannot know what "the rest of the app" is.
-// Focus containment alone leaves the rail and the whole surface in the accessibility
-// tree, reachable by every reader that navigates by structure rather than by focus.
-// The wrapper carries `display: contents`, so it is a place to hang the attribute
-// and not a box: the frame's grid still places the rail and the column itself, which
-// is what keeps this a one-attribute change rather than a layout one. `overlays`
-// stays OUTSIDE it — inerting the dialog along with the background would leave a
-// person nothing to reach at all.
+// THE BACKGROUND WRAPPER IS THE SHELL'S `inert` GUARD, and it is why the rail and the
+// column are wrapped rather than left as direct children. The adopted dialog family
+// runs under `modal="trap-focus"`, which traps focus and deliberately does not lock the
+// document's scroll — and leaves inerting the app root to the shell, because the dialog
+// cannot know what "the rest of the app" is. Focus containment alone leaves the rail
+// and the whole surface in the accessibility tree, reachable by every reader that
+// navigates by structure rather than by focus. The wrapper carries `display: contents`,
+// so it is a place to hang the attribute and not a box: the frame's grid still places
+// the rail and the column itself, which is what keeps this a one-attribute change
+// rather than a layout one. `overlays` stays OUTSIDE it — inerting the dialog along
+// with the background would leave a person nothing to reach at all.
 //
 // THIS IS A SEPARATE MODULE FROM `AppFrame.tsx` for a reason that is not only the
 // one-component rule: the announcement hook below has to run BELOW the window's

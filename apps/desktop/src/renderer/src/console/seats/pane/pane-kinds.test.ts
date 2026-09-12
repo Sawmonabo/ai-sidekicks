@@ -1,6 +1,6 @@
 // The pane-kind set is the spec's set, in the spec's order.
 //
-// `Spec-023 §Console Design (Meridian)` fixes both. The bullet, verbatim:
+// The console's design fixes both. The bullet, verbatim:
 //
 //   "**Pane kinds, a closed set:** `timeline` (session- or channel-scoped),
 //   `inspector`, `runs`, `approvals`, `diff`, `artifact`, `workflow-run`,
@@ -10,9 +10,9 @@
 // is an ORDERED comparison — a reorder fails here, and a reorder is not cosmetic:
 // `registeredPaneKinds()` answers in declaration order and the gallery renders in
 // it. Reading the spec file itself would be the stronger check and is not
-// available: `node:fs` is banned in renderer programs (`Spec-023 §Trust Stance`),
-// and the governance corpus sits outside this package's Vite root, so the honest
-// arrangement is a transcription that a reviewer can diff against the quote above.
+// available: `node:fs` is banned in renderer programs, and the design documents sit
+// outside this package's Vite root, so the honest arrangement is a transcription that
+// a reviewer can diff against the quote above.
 
 import { describe, expect, it } from "vitest";
 
@@ -40,7 +40,7 @@ const SPEC_PANE_KINDS: readonly string[] = [
   "agent-console",
 ];
 
-describe("pane kinds — the closed set Spec-023 fixes", () => {
+describe("pane kinds — the closed set the design fixes", () => {
   it("carries the spec's members in the spec's order", () => {
     expect([...PANE_KINDS]).toStrictEqual([...SPEC_PANE_KINDS]);
   });
@@ -97,10 +97,10 @@ describe("pane kinds — the guard layout restore drops against", () => {
   });
 });
 
-describe("detachable pane kinds — the two auxiliary windows Spec-023 ships", () => {
-  // `Spec-023 §Console Design (Meridian)` §The surface set, verbatim: "`timeline`
-  // and `agent-console` panes can be moved into their own hardened `BrowserWindow`
-  // — the two windows §Main Process Responsibilities names".
+describe("detachable pane kinds — the two auxiliary windows the console ships", () => {
+  // The two detachable kinds: `timeline` and `agent-console` panes can be moved into
+  // their own hardened `BrowserWindow`, and those are the two auxiliary windows the
+  // main process owns.
   const SPEC_DETACHABLE_KINDS: readonly string[] = ["timeline", "agent-console"];
 
   it("carries exactly the spec's two kinds", () => {

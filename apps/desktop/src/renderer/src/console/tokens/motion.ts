@@ -1,12 +1,11 @@
 // The console's one motion module.
 //
-// `Spec-023 §Console Design (Meridian)` rule 5 fixes what motion may do — settle,
-// never bounce; 120 to 180 ms ease-out; a 2 px rise on entrances; a 240 ms
-// line-grow for attribution threads; `prefers-reduced-motion` collapsing
-// everything to opacity — and `§Console Libraries`' motion row fixes what may
-// implement it: platform primitives (CSS transitions, `@starting-style`, View
-// Transitions, the Web Animations API) with OUR OWN spring sampler emitting
-// `linear()` easings, and no animation library on the render path.
+// Design-language rule 5 fixes what motion may do — settle, never bounce; 120 to 180 ms
+// ease-out; a 2 px rise on entrances; a 240 ms line-grow for attribution threads;
+// `prefers-reduced-motion` collapsing everything to opacity — and the console's motion
+// rules fix what may implement it: platform primitives (CSS transitions,
+// `@starting-style`, View Transitions, the Web Animations API) with OUR OWN spring
+// sampler emitting `linear()` easings, and no animation library on the render path.
 //
 // That row is a rejection with a reason, and the reason is what the sampler is: an
 // animation library on the render path fights the virtualizer. The measured

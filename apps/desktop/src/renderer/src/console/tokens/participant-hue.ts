@@ -1,4 +1,4 @@
-// The participant hue system — `Spec-023 §Console Design (Meridian)` rule 2.
+// The participant hue system — design-language rule 2.
 //
 // Hue answers "who", everywhere: attribution edges, cast-bar rings, typing
 // indicators, pane focus rings, diff-gutter attribution, handoff ticks. It never
@@ -16,10 +16,9 @@
 //      `hash(participantId) mod 12`, so a person tends to keep a color across
 //      sessions without any stored assignment.
 //   3. **Clockwise next-free resolution.** A taken preferred step walks +1 until
-//      a free step is found. `Spec-023 §Console Design (Meridian)` rule 2 puts it
-//      as "two participants adjacent on the wheel in one session are separated by
-//      the next free step": the separation is what matters, and walking one
-//      direction makes it deterministic.
+//      a free step is found. Rule 2 puts it as: two participants adjacent on the
+//      wheel in one session are separated by the next free step. The separation is
+//      what matters, and walking one direction makes it deterministic.
 //   4. **Wrap, distinguished by ring and glyph, not by hue.** Past twelve
 //      participants some step must repeat. Inventing a thirteenth hue would break
 //      the fixed-lightness guarantee the contrast floors rest on, and dimming one

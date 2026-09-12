@@ -25,9 +25,9 @@
 // itself rather than prose about it, so it wears rule 4's provenance signature like every
 // other wire figure on a console surface.
 //
-// NO EDITOR LIBRARY. `Spec-023 §Console Libraries` disqualifies every runtime-compiling
-// schema editor before size is weighed, because this renderer's content policy carries no
-// `unsafe-eval`. A textarea and one `JSON.parse` are the whole mechanism.
+// NO EDITOR LIBRARY. Every runtime-compiling schema editor is disqualified before size is
+// weighed, because this renderer's content policy carries no `unsafe-eval`. A textarea
+// and one `JSON.parse` are the whole mechanism.
 //
 // AND THE EDITOR CARRIES ITS VERDICT THE WAY A DRAWN CONTROL CARRIES ITS OWN. Every drawn
 // field attaches its findings through `aria-describedby` and renders them through

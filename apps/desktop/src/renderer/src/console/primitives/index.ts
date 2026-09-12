@@ -16,10 +16,9 @@
 // after it.
 //
 // `wire-figures.js` is re-exported through the same door on purpose: the formatting
-// rule (`Spec-023 §Console Design (Meridian)` §The eight rules) is that a figure is
-// either wire-verbatim or `Intl`-formatted from the exact wire value, and that
-// module is the only implementation of either. A surface that reaches for its own
-// `toFixed` is a surface that did not know the door was there.
+// rule is that a figure is either wire-verbatim or `Intl`-formatted from the exact wire
+// value, and that module is the only implementation of either. A surface that reaches
+// for its own `toFixed` is a surface that did not know the door was there.
 //
 // `chord-format.js` is here for the same reason and one more: it is the vocabulary
 // `ChordHint` renders, so a caller that wants the STRING form of a chord and a
@@ -57,13 +56,13 @@
 // and not elsewhere in this block: the two share `.meridian-refusal--inline`, and while
 // the cascade there is settled by specificity rather than by order — the partial-read
 // rule is `.meridian-partial-read .meridian-refusal--inline` — the adjacency also keeps
-// the document order the sibling edge used to produce. Measured rather than assumed: holding all sixteen here
-// left eleven sheets misowned under `apps/desktop/AGENTS.md` §Module shape's
-// nearest-barrel rule. No sheet moved onto a chunk
-// root and no class name changed, so no capture in the screenshot tier moves — the only
-// cascade this rearranges is inside this family, and every class two of its sheets
-// declare is settled by specificity, by disjoint properties, or by an identical
-// declaration in both, never by which sheet loaded last.
+// the document order the sibling edge used to produce. Measured rather than assumed:
+// holding all sixteen here left eleven sheets misowned under the nearest-barrel rule in
+// `apps/desktop/AGENTS.md`. No sheet moved onto a chunk root and no class name changed,
+// so no capture in the screenshot tier moves — the only cascade this rearranges is
+// inside this family, and every class two of its sheets declare is settled by
+// specificity, by disjoint properties, or by an identical declaration in both, never by
+// which sheet loaded last.
 
 import "./shared.css";
 import "./accent-fill.css";
@@ -187,29 +186,29 @@ export { ConfirmationDialog } from "./ConfirmationDialog.js";
 // this case and the sentences disagreed, so a family that reached past the barrel for
 // a local copy would be one more of them.
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a view family that has not landed yet */
   PartialReadNotice,
   ReadingState,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a view family that has not landed yet */
   ReadingStateKind,
   RefusalScope,
 } from "./reading/partial-read.js";
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a view family that has not landed yet */
   READING_STATE_KINDS,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a view family that has not landed yet */
   REFUSAL_SCOPES,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a view family that has not landed yet */
   behindProducerReading,
   partialReadNotices,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a view family that has not landed yet */
   readingNoticeFor,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a view family that has not landed yet */
   uncheckedCoverageReading,
   unreadableDeliveryReading,
 } from "./reading/partial-read.js";
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a view family that has not landed yet */
   PartialReadProps,
 } from "./reading/PartialRead.js";
 export { PartialRead } from "./reading/PartialRead.js";
@@ -232,7 +231,7 @@ export { PartialRead } from "./reading/PartialRead.js";
 // the scalar arity's `undefined` leaves it standing — see `sidebar-column-reads.ts`.
 export {
   useAnnounceOncePerSentence,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a view family that has not landed yet */
   useReadingAnnouncement,
   useReadSettlementAnnouncement,
 } from "./announce/reading-announcement.js";
@@ -241,23 +240,23 @@ export {
 // module header for why the two vocabularies sit beside each other rather than one
 // inside the other.
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
+  /** @consumedBy a view family that has not landed yet */
   WindowAbsence,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
+  /** @consumedBy a view family that has not landed yet */
   WindowAbsenceKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
+  /** @consumedBy a view family that has not landed yet */
   WindowAbsenceNotice,
 } from "./absence/window-absence.js";
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
+  /** @consumedBy a view family that has not landed yet */
   WINDOW_ABSENCE_KINDS,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
+  /** @consumedBy a view family that has not landed yet */
   windowAbsenceNotice,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
+  /** @consumedBy a view family that has not landed yet */
   windowAbsenceNotices,
 } from "./absence/window-absence.js";
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
+  /** @consumedBy a view family that has not landed yet */
   WindowAbsencesProps,
 } from "./absence/WindowAbsences.js";
 export { WindowAbsences } from "./absence/WindowAbsences.js";
@@ -285,18 +284,18 @@ export { RefusalRecovery } from "./refusal/RefusalRecovery.js";
 export type { RefusalRecoveryCopy } from "./refusal/refusal-contract.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the
-// terms `apps/desktop/AGENTS.md` sets: the view families (T-023p-1C-2 … 1C-7) reach
-// these primitives through this door, and until a family lands its import nothing
-// does. The tag rides the barrel specifier because that is the export knip reports;
-// the family that first imports a symbol deletes its tag in the same commit.
+// terms `apps/desktop/AGENTS.md` sets: the view families reach these primitives through
+// this door, and until a family lands its import nothing does. The tag rides the barrel
+// specifier because that is the export knip reports; the family that first imports a
+// symbol deletes its tag in the same commit.
 
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a view family that has not landed yet */
   ChipProps,
   ChipTone,
 } from "./figures/Chip.js";
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a view family that has not landed yet */
   CHIP_TONES,
   Chip,
 } from "./figures/Chip.js";
@@ -306,12 +305,12 @@ export {
 // way, and a family that wrote its own row is a family whose reader is told the list
 // is as long as the window.
 //
-// FOUR SYMBOLS, AND THAT IS THE WHOLE SEAM. `T-023p-1C-5` landed the two windowed
-// lists this primitive exists for — `repos/diff-pane/DiffFileList.tsx` and
-// `primitives/restore/WindowedRestorePathList.tsx` — and both compose the row, the hook,
-// and the one type a delegating row's renderer hands its child: the row's own props
-// type is inferred from the element, the two ARIA marker names are written by the row
-// rather than by its caller, and the index arithmetic is what the hook returns. The
+// FOUR SYMBOLS, AND THAT IS THE WHOLE SEAM. The two windowed lists this primitive
+// exists for have landed — `repos/diff-pane/DiffFileList.tsx` and
+// `primitives/restore/WindowedRestorePathList.tsx` — and both compose the row, the
+// hook, and the one type a delegating row's renderer hands its child: the row's own
+// props type is inferred from the element, the two ARIA marker names are written by the
+// row rather than by its caller, and the index arithmetic is what the hook returns. The
 // target-props type leaves through this door rather than being read back off the
 // component, because a family deriving it again would hold a second closed set that
 // agrees with this one only until the marker attribute is renamed on one side.
@@ -323,16 +322,16 @@ export {
 // type makes one step along, and a second spelling of it would be a measurement taken
 // against an attribute the row had stopped writing.
 //
-// The eight door lines that had carried `@consumedBy T-023p-1C-5` alongside these four
-// named a consumer that has now shipped without importing any of them, so they were
-// door lines with no production reader — the class `apps/desktop/AGENTS.md` §Module
-// shape rejects and the dead-code gate cannot see, since the tag legitimately suppressed
-// the finding. They are deleted rather than re-tagged; the co-located tests that do
-// exercise those symbols read the module that declares them, which is what that rule
-// asks.
+// The eight door lines that had carried a consumer tag alongside these four named a
+// consumer that has now shipped without importing any of them, so they were door lines
+// with no production reader — the class the module-shape rule in
+// `apps/desktop/AGENTS.md` rejects and the dead-code gate cannot see, since the tag
+// legitimately suppressed the finding. They are deleted rather than re-tagged; the
+// co-located tests that do exercise those symbols read the module that declares them,
+// which is what that rule asks.
 //
-// AND THE SAME RULE WAS THEN APPLIED TO THE REST OF THAT TASK'S CLAIMS. The eight
-// lines above went first; every other claim naming that task — on this door, on `core/`, and
+// AND THE SAME RULE WAS THEN APPLIED TO THE REST OF THAT CONSUMER'S CLAIMS. The eight
+// lines above went first; every other claim naming it — on this door, on `core/`, and
 // on `seats/` — was then re-checked the same way, against what the family's shipped
 // modules actually import through the door rather than against who might want the
 // symbol.
@@ -341,10 +340,10 @@ export {
 // describe a set spread over three trees that no merge preserves, so a reader here
 // cannot re-derive it and a stale one reads as a fact — the failure the counts in this
 // header were rewritten to stop. What stands in its place is the RULE the sweep ran,
-// which any reader can re-run against the tree in front of them: a task claim is a
-// claim about a READER, so it is checked against what that family's shipped modules
-// import through the door, and it is deleted when they import none. It is not a census
-// of the tree and never was — `seats/` has since landed reservations naming this task
+// which any reader can re-run against the tree in front of them: a tag claim is a claim
+// about a READER, so it is checked against what that family's shipped modules import
+// through the door, and it is deleted when they import none. It is not a census of the
+// tree and never was — `seats/` has since landed reservations naming that consumer
 // whose symbols this family does not import, and those stand exactly as the tag rule
 // says they do, until the commit whose import deletes them.
 export { WindowedListRow } from "./windowing/WindowedListRow.js";
@@ -353,17 +352,17 @@ export { useWindowedRovingIndex } from "./windowing/windowed-row-index.js";
 export { WINDOWED_ROW_INDEX_ATTRIBUTE } from "./windowing/windowed-row-markers.js";
 
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a view family that has not landed yet */
   LedgerRowProps,
 } from "./figures/LedgerRow.js";
 export { LedgerRow } from "./figures/LedgerRow.js";
 
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a view family that has not landed yet */
   DerivedFigureProps,
 } from "./figures/DerivedFigure.js";
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a view family that has not landed yet */
   WireFigureProps,
 } from "./figures/WireFigure.js";
 // Rule 4's mono provenance signature. Through the door because the frame renders
@@ -384,9 +383,9 @@ export { WireFigure } from "./figures/WireFigure.js";
 export { WireChoiceList } from "./figures/WireChoiceList.js";
 
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a view family that has not landed yet */
   ByteUnitLabel,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a view family that has not landed yet */
   FormattedByteQuantity,
 } from "./figures/wire-figures.js";
 export {
@@ -398,11 +397,11 @@ export {
   formatDuration,
   formatCentsAsCurrency,
   formatPercent,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a view family that has not landed yet */
   formatRate,
   formatRelativeTime,
   formatWireDescriptor,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
+  /** @consumedBy a view family that has not landed yet */
   formatWireString,
 } from "./figures/wire-figures.js";
 
@@ -420,13 +419,13 @@ export { ExecutionPostureChip } from "./posture/ExecutionPostureChip.js";
 // mount the chip above, but a second sentence for one fact is the copy this
 // family owns being written twice.
 export { POSTURE_ABSENT_DETAIL } from "./posture/posture-copy.js";
-// THE RESTORE LEAVES AS A LOADER AND NOT AS A COMPONENT, and the two lines below are one
-// seam rather than two exports. A door line is a static edge, and this door is on the
-// renderer's own entry graph — so naming the component here put the disclosure, both
-// enumeration lists, the windowed path list, the cell and their sheet on the document of
-// every session, for a body only a rewind that touched the working tree ever draws. That
-// is the case `apps/desktop/AGENTS.md` §Module shape names: a symbol reachable both
-// statically and dynamically is assigned to the STATIC chunk.
+// THE RESTORE LEAVES AS A LOADER AND NOT AS A COMPONENT, and the two lines below are
+// one seam rather than two exports. A door line is a static edge, and this door is on
+// the renderer's own entry graph — so naming the component here put the disclosure,
+// both enumeration lists, the windowed path list, the cell and their sheet on the
+// document of every session, for a body only a rewind that touched the working tree
+// ever draws. That is the case the module-shape rule in `apps/desktop/AGENTS.md` names:
+// a symbol reachable both statically and dynamically is assigned to the STATIC chunk.
 //
 // The cross-family rule is untouched by the fix — a reader still imports this door and
 // nothing under it — because the boundary moves INTO the door's own module rather than
@@ -439,14 +438,14 @@ export { POSTURE_ABSENT_DETAIL } from "./posture/posture-copy.js";
 export { loadFileRestoreDisclosure } from "./restore/file-restore-disclosure-loader.js";
 export type { FileRestoreDisclosureProps } from "./restore/FileRestoreDisclosure.js";
 
-// The overlay shells, each registering what it mounts in the window's airspace
-// (`Spec-023 §Console Design (Meridian)` 12.3 — "at the primitive layer, never per
-// overlay instance"): the anchored four register their popup, the two modal wrappers
-// register the backdrop beside it through the one helper that owns that difference
-// (`overlay/modal-airspace.ts`, off this door — its only callers are those two), and
-// the hook is published for the surface that IS airspace and mounts no popup. Reaching
-// it is registering AT the door; 12.3's Never bullet forbids registering AROUND one,
-// which is a hand `register` on the accessor and is what review rejects.
+// The overlay shells, each registering what it mounts in the window's airspace — at the
+// primitive layer, never per overlay instance: the anchored four register their popup,
+// the two modal wrappers register the backdrop beside it through the one helper that
+// owns that difference (`overlay/modal-airspace.ts`, off this door — its only callers
+// are those two), and the hook is published for the surface that IS airspace and mounts
+// no popup. Reaching it is registering AT the door; the airspace rule forbids
+// registering AROUND one, which is a hand `register` on the accessor and is what review
+// rejects.
 export { useAirspaceRegistration } from "./airspace-registration.js";
 export { OverlayAlertDialogPopup } from "./overlay/OverlayAlertDialogPopup.js";
 export { OverlayComboboxPopup } from "./overlay/OverlayComboboxPopup.js";

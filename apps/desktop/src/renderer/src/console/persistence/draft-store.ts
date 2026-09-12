@@ -1,11 +1,10 @@
 // Drafts: participant-authored text, held in this window's memory and nowhere else.
 //
-// `Spec-023 §Console Design (Meridian)` §Persistence on the renderer scheme:
-// "Composer drafts are deliberately NOT persisted — they are participant-authored
+// Composer drafts are deliberately NOT persisted — they are participant-authored
 // content, and the composer says so on first focus after a restart rather than
-// silently losing them."
+// silently losing them.
 //
-// This class is the whole implementation of that sentence, and it is deliberately
+// This class is the whole implementation of that rule, and it is deliberately
 // NOT built on `UiStateStore`. It could not be: draft text is prose, so the write
 // chokepoint's identifier-shaped rule refuses it by construction. That is the
 // design working, not an obstacle to route around — the two classes are separate
@@ -15,11 +14,10 @@
 // contradiction: this directory owns what the console does about durability, and
 // what it does about drafts is refuse. A `Map` and a disclosure, no adapter, no
 // import at all — the file imports nothing, and it must never start, because acquiring
-// an adapter here is the first move of persisting a
-// draft. A durable copy would need the encrypted, PII-mapped storage `Spec-022`
-// specifies for participant-authored content, which the renderer does not have; an
-// IndexedDB copy would put a person's prose in an unencrypted origin-scoped
-// database outside every erasure selector the corpus defines.
+// an adapter here is the first move of persisting a draft. A durable copy would need
+// the encrypted, PII-mapped storage participant-authored content requires, which the
+// renderer does not have; an IndexedDB copy would put a person's prose in an
+// unencrypted origin-scoped database outside every erasure selector there is.
 //
 // The one durable thing a draft leaves behind is the DISCLOSURE. `restartNotice`
 // is armed at construction and cleared the first time a composer is focused, so the

@@ -1,9 +1,9 @@
 // WHICH CONTROL A MEMBER SHAPE DRAWS, AND WHAT THAT CONTROL PUTS IN THE ANSWER.
 //
 // One of three suites over the drawn form, split when the single file reached the size at
-// which `apps/desktop/AGENTS.md` §Module shape says it is doing two jobs. The clusters are
-// the ones the cases already formed: this file owns the leaf controls and the values they
-// compose, `SchemaForm.groups.test.tsx` owns the group fieldset, and
+// which the module-shape rule in `apps/desktop/AGENTS.md` says it is doing two jobs. The
+// clusters are the ones the cases already formed: this file owns the leaf controls and
+// the values they compose, `SchemaForm.groups.test.tsx` owns the group fieldset, and
 // `SchemaForm.findings.test.tsx` owns where a description and a finding are attached. The
 // collection surface is `SchemaFieldList.test.tsx`; the arm that draws no controls at all
 // is `SchemaJsonEditor.test.tsx`.

@@ -10,8 +10,8 @@
  * the box it rings: one class has one owning sheet, so a state added to the choice
  * later cannot land in a second file and be decided by load order.
  *
- * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 3, the
- * focus ring; and the tokens rule — every value here reads back out of `tokens/`.
+ * Design-language rules that govern this sheet: rule 3, the focus ring; and the tokens
+ * rule — every value here reads back out of `tokens/`.
  */
 
 .meridian-choice-list {

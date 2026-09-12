@@ -1,10 +1,10 @@
 // The refusal grammar — three shapes, one contract.
 //
-// `Spec-023 §Console Design (Meridian)` rule 9: "Controls are offered; refusals are
-// rendered, in one of three shapes — **inline** on the control that was pressed …
-// as a **card** in the ledger when the refusal changes history, or as a **banner**
-// across the workspace when it changes what the whole room can do. A refusal never
-// hides the control that produced it and never re-derives the daemon's rule."
+// Design-language rule 9: controls are offered; refusals are rendered, in one of three
+// shapes — **inline** on the control that was pressed, as a **card** in the ledger when
+// the refusal changes history, or as a **banner** across the workspace when it changes
+// what the whole room can do. A refusal never hides the control that produced it and
+// never re-derives the daemon's rule.
 //
 // Which shape a call site picks is a question about blast radius, not about
 // severity: what did this refusal change for whom?

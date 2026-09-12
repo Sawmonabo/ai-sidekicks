@@ -1,10 +1,9 @@
 // The ledger row — the console's signature shape.
 //
-// `Spec-023 §Console Design (Meridian)` rule 1: "Timeline rows are flush-left ledger
-// lines: a 2 px attribution edge in the author's hue, author and timestamp in a
-// fixed gutter, content in a single measure. No bubbles, no left-and-right
-// alternation, no avatars in the flow. The screen reads as a work log because it is
-// one."
+// Design-language rule 1: timeline rows are flush-left ledger lines — a 2 px
+// attribution edge in the author's hue, author and timestamp in a fixed gutter, content
+// in a single measure. No bubbles, no left-and-right alternation, no avatars in the
+// flow. The screen reads as a work log because it is one.
 //
 // Three decisions this component makes, each of which the design forces:
 //

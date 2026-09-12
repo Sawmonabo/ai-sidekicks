@@ -45,19 +45,19 @@
 //
 // WHY THERE IS NO LOST-EVENT ARM, AND WHAT WOULD RE-ARM ONE
 //
-// The canonical sentence's third clause — `decode(acknowledged) < decode(earliest)`
-// means events were lost — names `decode` as the inverse of an `encode` Plan-006 owns
-// and PUBLISHES NEITHER. `packages/contracts/src/session.ts` says the cursor is
-// opaque in as many words: "its internal structure (sequence + monotonic_ns) is owned
-// by Plan-006", the schema is a bounded non-empty string, and "any non-empty bounded
-// string is accepted" until that format is published. So this console has no ordering
-// to take, and reading one out of a cursor's leading characters is not a narrow
-// reading of the contract — it is an ordering invented for bytes the contract calls
-// opaque. It also mis-fires on the cursor that is on the wire TODAY: the client SDK
-// synthesizes every cursor from an event's UUID, and a leading-integer scan orders two
-// UUIDs by whichever hex digits they happen to start with — then discards a live
-// projection on a loss nothing established. And the comparison needs a floor the
-// shipped reply does not carry at all, which is the paragraph above.
+// The canonical sentence's third clause — `decode(acknowledged) < decode(earliest)` means
+// events were lost — names `decode` as the inverse of an `encode` the daemon owns and
+// PUBLISHES NEITHER. `packages/contracts/src/session.ts` says the cursor is opaque in as
+// many words: its internal structure (sequence + monotonic_ns) is the daemon's, the
+// schema is a bounded non-empty string, and any non-empty bounded string is accepted
+// until that format is published. So this console has no ordering to take, and reading
+// one out of a cursor's leading characters is not a narrow reading of the contract — it
+// is an ordering invented for bytes the contract calls opaque. It also mis-fires on the
+// cursor that is on the wire TODAY: the client SDK synthesizes every cursor from an
+// event's UUID, and a leading-integer scan orders two UUIDs by whichever hex digits they
+// happen to start with — then discards a live projection on a loss nothing established.
+// And the comparison needs a floor the shipped reply does not carry at all, which is the
+// paragraph above.
 //
 // WHAT RE-ARMS IT. Either half is enough, and neither is a renderer's to invent:
 //

@@ -12,8 +12,8 @@
  * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
  * and reads every value back out as a custom property.
  *
- * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 2's type
- * scale; the palette renders these and formats them nowhere else.
+ * Design-language rules that govern this sheet: rule 2's type scale; the palette
+ * renders these and formats them nowhere else.
  */
 
 .meridian-chord {

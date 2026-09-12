@@ -1,11 +1,10 @@
 // The composer seat: what the workspace hands the message input.
 //
-// `Spec-023 §Signature Feature Composition Sketches` §The Session Composer calls
-// the composer "the shell chrome every session view already contains". Two
-// families meet on it: the workspace (T-023p-1C-2) mounts it under the deck, and
-// the composer family (T-023p-1C-3) fills it. Neither imports the other — the
-// workspace reads `composerSeatRenderer()` and renders whatever is there, and an
-// empty seat renders nothing rather than a placeholder that looks broken.
+// The composer is the shell chrome every session view already contains. Two
+// families meet on it: the workspace mounts it under the deck, and the composer
+// family fills it. Neither imports the other — the workspace reads
+// `composerSeatRenderer()` and renders whatever is there, and an empty seat renders
+// nothing rather than a placeholder that looks broken.
 //
 // WHY THE PROPS ARE A CONTRACT AND NOT AN ARGUMENT THE MOUNT INVENTS
 //
@@ -42,9 +41,9 @@ export interface ComposerSeatProps {
   readonly frameStore: FrameStore;
   /**
    * Where the unsent message body lives. Drafts are the draft store's and never
-   * the persistence chokepoint's: `Spec-023 §Console Design (Meridian)` keeps
-   * drafts out of durable storage, so the composer is handed this one rather than
-   * left to reach for the persistence door and find the wrong chokepoint there.
+   * the persistence chokepoint's: drafts stay out of durable storage, so the
+   * composer is handed this one rather than left to reach for the persistence door
+   * and find the wrong chokepoint there.
    */
   readonly draftStore: DraftStore;
   readonly route: ConsoleRoute;
@@ -76,7 +75,6 @@ export interface ComposerSeatProps {
   readonly focusedPaneId?: string | undefined;
 }
 
-// Consumed by T-023p-1C-2, T-023p-1C-3
 /** The composer body. Returns `React.ReactNode` so the mount can render it directly. */
 export type ComposerSeatRenderer = (props: ComposerSeatProps) => React.ReactNode;
 
@@ -90,7 +88,6 @@ export function registerComposerSeat(owner: string, render: ComposerSeatRenderer
   composerSeat.register({ owner, render });
 }
 
-// Consumed by T-023p-1C-2, T-023p-1C-3
 /**
  * Release the seat.
  *

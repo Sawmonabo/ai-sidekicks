@@ -1,11 +1,10 @@
 // One refusal shape for the whole console.
 //
-// `Spec-023 §Console Design (Meridian)` rule 9 gives refusals three RENDERINGS —
-// inline on the control, a card in the surface, a banner across the workspace —
-// and `RefusalBanner` / `InlineRefusal` / `RefusalCard` all consume the same two
-// fields. What the console lacked was one refusal VALUE for them to consume: the
-// growth port, the fixture bridge, the when-clause parser, the key-binding table,
-// and the palette each minted their own vocabulary, so a surface that wanted to
+// A refusal has three RENDERINGS — inline on the control, a card in the surface, a banner
+// across the workspace — and `RefusalBanner` / `InlineRefusal` / `RefusalCard` all
+// consume the same two fields. What the console lacked was one refusal VALUE for them to
+// consume: the growth port, the fixture bridge, the when-clause parser, the key-binding
+// table, and the palette each minted their own vocabulary, so a surface that wanted to
 // render two of them had to translate between five shapes to reach three renderers.
 //
 // Three fields, and each earns its place:

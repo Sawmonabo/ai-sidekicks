@@ -1,11 +1,10 @@
 // What a console opens into the very first time somebody launches it.
 //
-// `Spec-023 §The four bars`, Richness, names the composition — "The first sixty
-// seconds and the flagship frame are designed compositions, regression-tested by
-// screenshot" — and the scenario that composes it has existed since the ledger
-// family landed. What did not exist was any route into it: a fresh console opened at
-// the sessions list, so the one surface designed to demonstrate the product before
-// asking for anything was reachable only by typing a fixture id into a query string.
+// The first sixty seconds and the flagship frame are designed compositions, and the
+// scenario that composes it has existed since the ledger family landed. What did not
+// exist was any route into it: a fresh console opened at the sessions list, so the one
+// surface designed to demonstrate the product before asking for anything was reachable
+// only by typing a fixture id into a query string.
 //
 // THE RULE, AND ITS FOUR CONJUNCTS. A window opens into the demo session when all
 // four hold, and at the sessions list otherwise:
@@ -30,7 +29,7 @@
 //      first-run one included — so a session's existence cannot tell the two apart.
 //   4. **This install has not seen it.** Once is the whole point — the demo is how a
 //      console introduces itself, and a console that reintroduced itself on every
-//      launch would be a tour, which `Spec-023` and the design both refuse.
+//      launch would be a tour, which the design refuses.
 //
 // WHY THE MARK IS A `selection` AND NOT A CLASS OF ITS OWN. The durable store's value
 // classes are closed at seven and each is a KIND of UI state rather than a feature's

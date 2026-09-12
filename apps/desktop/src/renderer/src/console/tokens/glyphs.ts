@@ -1,12 +1,12 @@
 // The console's glyph vocabulary — the NAMES, and the geometry every face is
 // held to.
 //
-// `Spec-023 §Console Design (Meridian)` §Layout grammar asks for "a single-stroke
-// set … plus our own signature glyphs for participants, runs, and provenance kinds
-// in the same collection", and `§Console Libraries` admits the Tabler set through
-// `unplugin-icons` at build time. Both halves of that pairing now ship: a name is
-// drawn either by a Tabler face or by one of our own SVGs, and `primitives/
-// glyph-faces.ts` is where each name's answer is written down, one line each.
+// The design language's layout grammar asks for a single-stroke set plus our own
+// signature glyphs for participants, runs, and provenance kinds in the same collection,
+// and the library rules admit the Tabler set through `unplugin-icons` at build time.
+// Both halves of that pairing now ship: a name is drawn either by a Tabler face or by
+// one of our own SVGs, and `primitives/figures/glyph-faces.ts` is where each name's
+// answer is written down, one line each.
 //
 // WHY THE NAMES LIVE HERE AND THE FACES LIVE ONE FAMILY UP. `tokens/` is below
 // `primitives/` on the console DAG, so this module cannot import a component and
@@ -40,10 +40,10 @@
 //      which is what keeps "a coherent icon family, not a grab-bag" checkable
 //      rather than aspirational.
 //
-// The set is deliberately small. Each name below is either a rail destination, a
-// pane kind (`Spec-023 §Console Design (Meridian)` fixes those as a closed set), a
-// sidebar section's entity kind, one of the five kinds of nothing, or a control
-// verb the console actually offers. Nothing is here "in case".
+// The set is deliberately small. Each name below is either a rail destination, a pane
+// kind (the design language fixes those as a closed set), a sidebar section's entity
+// kind, one of the five kinds of nothing, or a control verb the console actually
+// offers. Nothing is here "in case".
 
 /** The box the family's own faces are drawn in. Both axes; square by construction. */
 export const GLYPH_VIEWBOX_SIZE = 16;
@@ -111,8 +111,8 @@ export const GLYPH_SIZE_CHROME = 14;
  * set is CLOSED; the face map's totality over it is what the compiler checks.
  */
 export const GLYPH_NAMES = [
-  // --- The top-level destinations (`Spec-023 §Console Design (Meridian)` §The
-  // surface set) and the session workspace reached from the first of them.
+  // --- The top-level destinations (the design language's surface set) and the session
+  // workspace reached from the first of them.
   "sessions",
   "workspace",
   "settings",

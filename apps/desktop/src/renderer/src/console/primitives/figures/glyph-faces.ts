@@ -8,15 +8,14 @@
 // `Record<GlyphName, …>`, so a name added to `GLYPH_NAMES` with no row here
 // fails the typecheck rather than rendering nothing at runtime.
 //
-// THE RULE THAT DECIDED EACH ROW, stated once so the rows can be one line each.
-// `Spec-023 §Console Design (Meridian)` §Layout grammar reserves our own faces
-// for participants, runs, and provenance kinds; `tokens/glyphs.ts` rule 2 fixes
-// the vocabulary of parts the rest of the family is drawn from. So a name takes
-// the Tabler face when Tabler publishes the same picture out of those parts, and
-// stays signature when the governing text reserves it, when Tabler softens a
-// corner with an explicit radius instead of with the stroke join, or when
-// Tabler's icon of that name is a different picture. Eleven names are borrowed;
-// twenty-five are ours.
+// THE RULE THAT DECIDED EACH ROW, stated once so the rows can be one line each. The
+// design language's layout grammar reserves our own faces for participants, runs, and
+// provenance kinds; `tokens/glyphs.ts` rule 2 fixes the vocabulary of parts the rest of
+// the family is drawn from. So a name takes the Tabler face when Tabler publishes the
+// same picture out of those parts, and stays signature when the governing text reserves
+// it, when Tabler softens a corner with an explicit radius instead of with the stroke
+// join, or when Tabler's icon of that name is a different picture. Eleven names are
+// borrowed; twenty-five are ours.
 //
 // BOTH HALVES COMPILE THE SAME WAY. `~icons/signature/<name>` resolves against
 // `glyph-faces/signature/<name>.svg` and `~icons/tabler/<name>` against the

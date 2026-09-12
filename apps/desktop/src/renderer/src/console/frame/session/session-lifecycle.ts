@@ -21,8 +21,8 @@
 // and no stream is bound at all. `createWindowSessionPlumbing` below carries that
 // reasoning.
 //
-// Two rules from `Spec-023 §Console Design (Meridian)` decide the shape here, and
-// both are about the render phase:
+// Two of the console's own rules decide the shape here, and both are about the render
+// phase:
 //
 //   • **No component constructs a store.** A component RESOLVES one through
 //     `useOpenSessionStore`, which is a read. Nothing here calls `open` during
@@ -128,8 +128,8 @@ export function useSessionStoreRegistry(
 ): SessionStoreRegistry {
   // Resolved from context rather than taken as an argument, so every caller of this
   // hook gets the same bridge the rest of the frame renders against and no surface
-  // has to thread one through. `Spec-023`'s "the bridge is provided, never reached
-  // for" is the same rule one layer down.
+  // has to thread one through. The bridge is provided, never reached for, which is the
+  // same rule one layer down.
   const bridge = useConsoleBridge();
   // The bridge alone is the subject, and the projector registry deliberately is not:
   // the plumbing takes a SNAPSHOT of that table at construction, exactly so a later

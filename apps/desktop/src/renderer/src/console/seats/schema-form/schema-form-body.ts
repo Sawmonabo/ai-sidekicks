@@ -6,12 +6,12 @@
 // input-ask card's structured arm behind them — all arrive as loader-backed bodies of
 // their own, so every module in this directory is reached from a lazy chunk and from
 // nowhere else. It rode the initial graph anyway, because the seats door re-exported the
-// two composed surfaces statically and `apps/desktop/AGENTS.md` §Module shape states
-// exactly what that costs: a symbol reachable both statically and dynamically is
-// assigned to the STATIC chunk, so a door line for a body only a lazy chunk reads
-// defeats the boundary while looking tidy. Measured, it put thirty-one modules of this
-// directory and the JSON-Schema validator behind them on the document every session
-// downloads, whether or not a form was ever drawn.
+// two composed surfaces statically and the module-shape rule in
+// `apps/desktop/AGENTS.md` states exactly what that costs: a symbol reachable both
+// statically and dynamically is assigned to the STATIC chunk, so a door line for a body
+// only a lazy chunk reads defeats the boundary while looking tidy. Measured, it put
+// thirty-one modules of this directory and the JSON-Schema validator behind them on the
+// document every session downloads, whether or not a form was ever drawn.
 //
 // So the seats door publishes `schema-form-mounts.ts` instead, and that module reaches
 // this one through `import()` and through nothing else. This module is therefore the

@@ -27,10 +27,11 @@
 // between here and the view families — the palette may open a pane, and the frame may
 // hold the board — while neither can be reached from a seat.
 //
-// ONE BARREL. `apps/desktop/AGENTS.md` §Module shape: "Every console family carries
-// exactly one `index.ts`. Cross-family imports go through it; intra-family imports
-// are deep. A barrel re-exports only its own family — no re-export chains." This file
-// is that one barrel, and the seat modules beside it are the family.
+// ONE BARREL, on the module-shape rule in `apps/desktop/AGENTS.md`: "Every console
+// family carries exactly one `index.ts`. Cross-family imports go through it;
+// intra-family imports are deep. A barrel re-exports only its own family — no
+// re-export chains." This file is that one barrel, and the seat modules beside it are
+// the family.
 //
 // WHY EVERY OTHER CROSS-FAMILY EDGE STILL RUNS DOWNWARD. A view family imports
 // `core/`, `tokens/`, `routing/`, `primitives/`, `store/`, `persistence/`,
@@ -147,7 +148,7 @@ export type { ConsoleSurfaceContext } from "./surface/surface-context.js";
 // module reads is one the barrel census fails, so the sets leave rather than being
 // tagged. Their two predicates stay, because the deck asks both of them.
 export {
-  /** @consumedBy T-023p-1C-2 */
+  /** @consumedBy a view family that has not landed yet */
   DETACHABLE_PANE_KINDS,
   isDetachablePaneKind,
   isEphemeralPaneKind,
@@ -156,13 +157,13 @@ export {
 } from "./pane/pane-kinds.js";
 
 export {
-  // Consumed by T-023p-1C-3: the composer's own attach-menu suite empties the registry
-  // between cases. Reached from a test rather than from a shipped module, so the line
-  // carries the claim and not the exemption — knip needs none.
+  // The composer's own attach-menu suite empties the registry between cases. Reached
+  // from a test rather than from a shipped module, so the line carries the claim and
+  // not the exemption — knip needs none.
   clearComposerAttachMenu,
   composerAttachMenuEntries,
   registerComposerAttachMenuEntry,
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy a view family that has not landed yet */
   type ComposerAttachMenuContext,
   type ComposerArtifactAttachment,
   type ComposerAttachMenuEntry,
@@ -170,26 +171,26 @@ export {
 } from "./composer/composer-attach-menu.js";
 
 export {
-  /** @consumedBy T-023p-1C-2 */
+  /** @consumedBy a view family that has not landed yet */
   panesForLayoutSnapshot,
-  /** @consumedBy T-023p-1C-2 */
+  /** @consumedBy a view family that has not landed yet */
   panesFromLayoutSnapshot,
-  /** @consumedBy T-023p-1C-2 */
+  /** @consumedBy a view family that has not landed yet */
   type LayoutPaneDrop,
-  /** @consumedBy T-023p-1C-2 */
+  /** @consumedBy a view family that has not landed yet */
   type LayoutPaneDropCode,
-  /** @consumedBy T-023p-1C-2 */
+  /** @consumedBy a view family that has not landed yet */
   type LayoutRestoreReading,
 } from "./pane/layout-snapshot.js";
 
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
+  /** @consumedBy a view family that has not landed yet */
   paneEntityScopeFor,
   type ConsolePaneAddress,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
+  /** @consumedBy a view family that has not landed yet */
   type ConsolePaneLink,
   type ConsolePaneOpener,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
+  /** @consumedBy a view family that has not landed yet */
   type PaneEntityScopeDeclaration,
 } from "./pane/pane-address.js";
 
@@ -198,7 +199,7 @@ export { parseConsolePaneAddress } from "./pane/pane-address-parse.js";
 export {
   ConsolePaneRegistry,
   consolePaneRegistry,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-8 */
+  /** @consumedBy a view family that has not landed yet */
   registeredPaneKinds,
   type ConsolePaneDescriptor,
   type ConsolePaneRegistration,
@@ -229,11 +230,12 @@ export {
 // expires with the same change: it had exactly one reader outside this directory and that
 // reader was a test — the screenshot tier's capture helper, which refuses to photograph a
 // half-loaded body — so a door line would have been a specifier no shipped module reads,
-// which `apps/desktop/AGENTS.md` §Module shape rejects rather than tolerates. A settings page
-// waiting on its chunk is the same hazard the marker exists for, so the attribute now has
-// a production reader and a door line is what it is owed. `pendingPaneKindsIn` and
-// `pendingPaneBodiesIn` still have none and still take the leaf directly, for the reason
-// above: their only consumer outside this directory is that helper.
+// which the module-shape rule in `apps/desktop/AGENTS.md` rejects rather than tolerates.
+// A settings page waiting on its chunk is the same hazard the marker exists for, so the
+// attribute now has a production reader and a door line is what it is owed.
+// `pendingPaneKindsIn` and `pendingPaneBodiesIn` still have none and still take the
+// leaf directly, for the reason above: their only consumer outside this directory is
+// that helper.
 //
 // `reservedBodyRegion` is on the same line for the same reason and one more: the bodies
 // that take it are a view family's own overlay cards, so the attribute and the element
@@ -263,10 +265,10 @@ export {
 export {
   composerSeatRenderer,
   registerComposerSeat,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
+  /** @consumedBy a view family that has not landed yet */
   unregisterComposerSeat,
   type ComposerSeatProps,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
+  /** @consumedBy a view family that has not landed yet */
   type ComposerSeatRenderer,
 } from "./composer/composer-seat.js";
 // The other direction: a surface that told a person to type something asking the
@@ -308,7 +310,7 @@ export {
 } from "./slots/sidebar-sections.js";
 
 export {
-  /** @consumedBy T-023p-1C-2 */
+  /** @consumedBy a view family that has not landed yet */
   TIMELINE_ROW_DENSITIES,
   registerTimelineRowRenderer,
   timelineRowRenderer,
@@ -321,7 +323,7 @@ export {
 // registration, the ledger's mount, and the two types both name. Its slot contract,
 // its row-type tuple, and its release call are read by its own suite alone, which
 // reaches the declaring module directly — a door line without a production reader is
-// what `apps/desktop/AGENTS.md` §Module shape rejects.
+// what the module-shape rule in `apps/desktop/AGENTS.md` rejects.
 export {
   registerTimelineRowFooterRenderer,
   rowTakesFooter,
@@ -334,7 +336,7 @@ export {
 // object literal and `inlineCardBody` answers already narrowed, so the reservation that
 // held the line named a task that landed and imported it nowhere.
 export {
-  /** @consumedBy T-023p-1C-2 */
+  /** @consumedBy a view family that has not landed yet */
   INLINE_CARD_KINDS,
   InlineCardSeatRegistry,
   inlineCardBody,
@@ -342,11 +344,11 @@ export {
   type ArtifactInlineCardProps,
   type AttachmentInlineCardProps,
   type DiffInlineCardProps,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
+  /** @consumedBy a view family that has not landed yet */
   type InlineCardAttachmentRef,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
+  /** @consumedBy a view family that has not landed yet */
   type InlineCardKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
+  /** @consumedBy a view family that has not landed yet */
   type InlineCardPropsByKind,
   type InlineCardSeatProps,
 } from "./slots/inline-card-seats.js";
@@ -507,8 +509,8 @@ export {
 } from "./identity/caller-participant.js";
 
 // The console's single copy of the daemon-EVENT cast. The brand
-// `SidekicksBridge.daemon.subscribe` takes is `never`-shaped until Plan-007 narrows
-// it, and every caller casts; one module casts, and the day the brand narrows one
+// `SidekicksBridge.daemon.subscribe` takes is `never`-shaped until the daemon method
+// union narrows it, and every caller casts; one module casts, and the day it narrows one
 // file changes. Its call-side twin is gone — `bridge/daemon/daemon-reply.ts` names the
 // methods and parses both directions, so no seat casts a call any more.
 export { subscribeDaemonEvent } from "./read/wire-access.js";
@@ -602,8 +604,8 @@ export {
 //
 // AND ALL THREE LEAVE THROUGH A LOADER, which is the one thing about this seat that is
 // not like the others. Every surface that draws a schema is itself a loader-backed body,
-// so a static line here would assign the whole kit to the STATIC chunk on the rule
-// `apps/desktop/AGENTS.md` §Module shape states — every module of that directory, the
+// so a static line here would assign the whole kit to the STATIC chunk on the
+// module-shape rule in `apps/desktop/AGENTS.md` — every module of that directory, the
 // JSON-Schema validator behind them and the zod entry point it reaches, and its
 // stylesheet, on the document of every session that never opens a form. Count-free
 // deliberately: a number written here is a claim about a directory that goes stale the

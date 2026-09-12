@@ -1,11 +1,10 @@
 // One owner per pane kind, and the declaration order the deck answers in.
 //
-// The deck rule `Spec-023 §Console Design (Meridian)` states structurally — "a
-// single mount door and a tripwire that fails on a second" — is enforced by the
-// registry's `"owner-scoped"` policy. Six families claim pane kinds on six
-// branches, so the failure this file exists for is two of them claiming one kind:
-// without the refusal, which body mounts would depend on module evaluation order,
-// and the loser would be a feature that silently stopped existing.
+// The deck rule stated structurally — a single mount door and a tripwire that fails
+// on a second — is enforced by the registry's `"owner-scoped"` policy. Six families
+// claim pane kinds on six branches, so the failure this file exists for is two of them
+// claiming one kind: without the refusal, which body mounts would depend on module
+// evaluation order, and the loser would be a feature that silently stopped existing.
 
 import { describe, expect, it } from "vitest";
 

@@ -2,16 +2,16 @@
 //
 // The console owns `ReadTriggerTarget`, `RefreshScheduler`, `GenerationLatch` and
 // `Emitter`, and it owns two COMPOSED read seats — `seats/read/growth-read.ts`
-// (ask-once-per-subject) and `seats/read/push-driven-read.ts` (a read whose answer moves).
-// It owned no seat for the shape most of the tree actually has: a scheduled read
-// PUBLISHED TO SUBSCRIBERS. So sixteen classes across eight view families and the
-// bridge each wrote the same skeleton — the emitter, the scheduler with its `onError`
-// arm, the latch, `#hasStarted`, `#isDisposed`, `snapshot()`, `subscribe()`,
-// `start()`, `requestRead()`, `dispose()` — and the revisioned publisher was
-// character-for-character identical in three unrelated families. That is what
-// `apps/desktop/AGENTS.md` §Shared code forbids, and it is invisible to both
-// mechanical gates: knip sees reachable modules and dependency-cruiser sees legal
-// edges, so neither can see one job implemented sixteen times.
+// (ask-once-per-subject) and `seats/read/push-driven-read.ts` (a read whose answer
+// moves). It owned no seat for the shape most of the tree actually has: a scheduled read
+// PUBLISHED TO SUBSCRIBERS. So sixteen classes across eight view families and the bridge
+// each wrote the same skeleton — the emitter, the scheduler with its `onError` arm, the
+// latch, `#hasStarted`, `#isDisposed`, `snapshot()`, `subscribe()`, `start()`,
+// `requestRead()`, `dispose()` — and the revisioned publisher was character-for-character
+// identical in three unrelated families. That is what the package's shared-code rule
+// forbids, and it is invisible to both mechanical gates: knip sees reachable modules and
+// dependency-cruiser sees legal edges, so neither can see one job implemented sixteen
+// times.
 //
 // WHY `store/` AND NOT `seats/`. Every member this base needs — `RefreshScheduler`,
 // `GenerationLatch`, `ReadTriggerTarget`, `Emitter` — is declared at or below this
@@ -137,10 +137,10 @@ export interface ScheduledReadingOptions<TSnapshot> {
 /**
  * A read that is scheduled, single-flighted, and published to subscribers.
  *
- * A class with private fields rather than a pair of `useState` cells, per
- * `apps/desktop/AGENTS.md` §State and views. The React binding is the subclass's — a
- * `useSubjectScopedResource` mint plus `useSyncExternalStore` over
- * {@link subscribe} and {@link snapshot} — and holds nothing of its own.
+ * A class with private fields rather than a pair of `useState` cells, on the package's
+ * state-and-views rule. The React binding is the subclass's — a
+ * `useSubjectScopedResource` mint plus `useSyncExternalStore` over {@link subscribe} and
+ * {@link snapshot} — and holds nothing of its own.
  */
 export abstract class ScheduledReading<TSnapshot> implements ReadTriggerTarget {
   /**

@@ -4,12 +4,12 @@
 // shell's own state), their React hooks, the entity vocabulary they project into,
 // and the two schedulers that decide WHEN a store notifies.
 //
-// WHY THE HOOKS SHIP THROUGH THE SAME DOOR AS THE STORES. A surface that reads a
-// store through `useSyncExternalStore` itself would be a second subscription path
-// with its own equality rule, and the whole point of `session/session-hooks.ts` and
-// `shell/frame-hooks.ts` is that there is exactly one — `Spec-023 §Console Design (Meridian)` §The eight rules, rule 6:
-// a store is read through its selector and never by reaching into its state.
-// Exporting the stores without the hooks would quietly invite the second path.
+// WHY THE HOOKS SHIP THROUGH THE SAME DOOR AS THE STORES. A surface that reads a store
+// through `useSyncExternalStore` itself would be a second subscription path with its own
+// equality rule, and the whole point of `session/session-hooks.ts` and
+// `shell/frame-hooks.ts` is that there is exactly one: a store is read through its
+// selector and never by reaching into its state. Exporting the stores without the hooks
+// would quietly invite the second path.
 //
 // `readable.ts` narrows a `zustand` store to the two methods a consumer needs, so
 // nothing outside this family holds a handle that can also WRITE.
@@ -280,7 +280,8 @@ export { SessionRefreshTriggers } from "./read/refresh-triggers.js";
 // through this door would reach for `useSyncExternalStore` and become the second
 // subscription path with its own equality rule. `SessionStoreState` travels with
 // it because a caller hoisting a selector to module scope has to name the state
-// it selects from — and until T-023p-1C-7 every caller of that second act lived
+// it selects from — and until the browser-terminal family landed every caller of that
+// second act lived
 // inside this family, so the one path now serves a view family too.
 //
 // `useSessionInitialised` and `useSessionDegradedCause` are the two absences a
@@ -351,9 +352,9 @@ export { earliestFutureDeadline, useDeadlineWake } from "./subject-scoped/deadli
 //
 // The `@consumedBy` tags are the dead-code gate's one exemption, on this package's
 // terms: they name the task that imports the symbol, and they are deleted in the PR
-// that does. See `apps/desktop/AGENTS.md` §Mechanical gates.
+// that does. The package's mechanical-gate rules say so.
 export {
-  /** @consumedBy T-023p-1C-8 */
+  /** @consumedBy a view family that has not landed yet */
   SubjectScopedHolder,
 } from "./subject-scoped/subject-scoped-holder.js";
 export { useSubjectScopedState } from "./subject-scoped/subject-scoped-state.js";

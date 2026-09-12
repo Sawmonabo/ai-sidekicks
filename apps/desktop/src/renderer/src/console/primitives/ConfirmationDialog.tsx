@@ -51,12 +51,12 @@ const CONFIRM_TONE_CLASSES: Readonly<Record<ConfirmationTone, string>> = {
  * document would reject and the browser would silently re-parent.
  *
  * THE POPUP SHELL IS `overlay/OverlayAlertDialogPopup.tsx`'S, and that is what puts
- * every confirming act in the window's airspace (`Spec-023 §Console Design (Meridian)`
- * 12.3): a native browser-pane view yields to what is registered there, and a
- * confirmation it painted over is the one thing 12.3 forbids outright. Composing the
- * portal, the backdrop and the popup here instead would register nothing, and the
- * three callers below would each lose the yield without a line of theirs changing —
- * which is why the shell is taken rather than restated.
+ * every confirming act in the window's airspace: a native browser-pane view yields to
+ * what is registered there, and a confirmation it painted over is the one thing the
+ * airspace rule forbids outright. Composing the portal, the backdrop and the popup here
+ * instead would register nothing, and the three callers below would each lose the yield
+ * without a line of theirs changing — which is why the shell is taken rather than
+ * restated.
  */
 export function ConfirmationDialog(props: {
   /** The words on the button that opens this dialog. */

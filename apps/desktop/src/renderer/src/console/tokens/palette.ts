@@ -1,12 +1,12 @@
 // The Meridian palette — the single source of truth for every console color.
 //
-// `Spec-023 §Console Design (Meridian)` rule 2 (the participant hue system),
-// rule 3 (the two-hue rule and its WCAG 2.2 AA contrast floors) and rule 4
-// (type and figures) are realised here and nowhere else: `meridian.css` is
-// GENERATED from this module by `generate-css.ts` and byte-diffed against it by
-// the console's assets tier, so a color edited in CSS alone fails the build.
+// Design-language rule 2 (the participant hue system), rule 3 (the two-hue rule and its
+// WCAG 2.2 AA contrast floors) and rule 4 (type and figures) are realised here and
+// nowhere else: `meridian.css` is GENERATED from this module by `generate-css.ts` and
+// byte-diffed against it by the console's assets tier, so a color edited in CSS alone
+// fails the build.
 //
-// Authoring rules this file obeys, each of them a rule the spec states:
+// Authoring rules this file obeys, each of them a design-language rule:
 //
 //   • Hue answers "who" and never "how urgent". The twelve participant steps
 //     below are one scheme-independent set, because a person's identity does not
@@ -217,7 +217,7 @@ export const TOKEN_ALIASES: Readonly<Record<string, string>> = {
   "ansi-bright-white": "text",
 };
 
-/** Steps on the participant wheel. Twelve, per `Spec-023 §Console Design (Meridian)` rule 2. */
+/** Steps on the participant wheel. Twelve, per design-language rule 2. */
 export const PARTICIPANT_HUE_STEPS = 12;
 
 /**

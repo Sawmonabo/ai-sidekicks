@@ -1,9 +1,9 @@
 // The icon rail: three destinations, always in the same place.
 //
-// `Spec-023 §Console Design (Meridian)` §The surface set gives the main window a
-// narrow rail with a fixed set of destinations. Fixed is the point — a rail whose
-// contents change with context is a rail nobody builds muscle memory for, and the
-// design's whole claim about the console is that a person stops looking for things.
+// The main window has a narrow rail with a fixed set of destinations. Fixed is the
+// point — a rail whose contents change with context is a rail nobody builds muscle
+// memory for, and the design's whole claim about the console is that a person stops
+// looking for things.
 //
 // Two rules show up here in miniature:
 //
@@ -33,12 +33,12 @@ export interface RailEntry extends RailEntryTemplate {
   /**
    * How many things behind this destination are waiting for a person.
    *
-   * A COUNT AND NOT A FLAG, which `Spec-023 §The surface set` asks for and which
-   * the rail can honour without becoming a second source of truth: the number is
-   * published by whoever performed the read, and this component renders it.
-   * Absent means either nothing is waiting or nothing is currently reading — two
-   * conditions the rail deliberately does not distinguish, because it has the same
-   * thing to say about both: nothing.
+   * A COUNT AND NOT A FLAG, which the surface set asks for and which the rail can
+   * honour without becoming a second source of truth: the number is published by
+   * whoever performed the read, and this component renders it. Absent means either
+   * nothing is waiting or nothing is currently reading — two conditions the rail
+   * deliberately does not distinguish, because it has the same thing to say about both:
+   * nothing.
    */
   readonly attentionCount?: number;
 }

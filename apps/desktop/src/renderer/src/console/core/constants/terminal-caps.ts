@@ -10,10 +10,9 @@
 /**
  * Lines of scrollback one terminal keeps.
  *
- * `Spec-023 §Console Libraries` records that a buffer line eagerly allocates twelve
- * bytes per cell regardless of content, and §Budgets bounds one pane's retained
- * memory. Ten thousand lines at a working width is the figure that budget was
- * measured at, so moving this moves what the budget means.
+ * A buffer line eagerly allocates twelve bytes per cell regardless of content, and the
+ * budget bounds one pane's retained memory. Ten thousand lines at a working width is
+ * the figure that budget was measured at, so moving this moves what the budget means.
  */
 export const TERMINAL_DEFAULT_SCROLLBACK_LINES = 10_000;
 

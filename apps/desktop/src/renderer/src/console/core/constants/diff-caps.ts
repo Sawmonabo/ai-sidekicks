@@ -4,11 +4,11 @@
 /**
  * How tall an inline diff card is before it offers to grow.
  *
- * `Spec-023 §Meridian, the design language` rule 7 puts diff cards in the timeline at
- * "a height cap and then offer 'show all'", and `InlineDiffCard.tsx` has the card open
- * EXPANDED to that cap rather than collapsed. The figure is about fifteen rows —
- * a hunk's worth of reading, which is what makes the card useful in place — while
- * still leaving the turn that produced it visible above and below.
+ * A diff card in the timeline gets a height cap and then offers "show all", and
+ * `InlineDiffCard.tsx` has the card open EXPANDED to that cap rather than collapsed. The
+ * figure is about fifteen rows — a hunk's worth of reading, which is what makes the card
+ * useful in place — while still leaving the turn that produced it visible above and
+ * below.
  */
 export const INLINE_DIFF_CARD_HEIGHT_CAP_PX = 300;
 
