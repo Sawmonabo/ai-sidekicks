@@ -59,17 +59,9 @@
 // a script that has not said. That is why the served set names this operation and the
 // answer is still conditional: the operation IS scripted here, and whether a given
 // scenario scripts the fact is the scenario's business. `wire-truth.ts` holds a stated
-// viewer to the roster, so the served arm can never answer with an identity no surface
-// could resolve a role from.
-//
-// AND THE ANSWER IS RESOLVABLE, WHICH IT WAS NOT. Being in the roster made the
-// identity well-formed and left it unusable: the base state carried no entities and
-// the composition root registers no `membership.*` projector, so `membershipRoleOf`
-// found nothing for the viewer under any scenario and every owner- and
-// collaborator-gated control rendered closed against a store that had never held a
-// participant — which looks, on screen, exactly like a member with no elevated role.
-// The roster now arrives with the base state (`session-snapshot.ts`), so the identity
-// this read serves resolves to the role the scenario declares for it.
+// viewer to the roster, so the served arm can never answer with an identity the store
+// has never held: the roster arrives with the base state (`session-snapshot.ts`), so a
+// surface that renders this identity beside the store's own rows finds it there.
 
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
 

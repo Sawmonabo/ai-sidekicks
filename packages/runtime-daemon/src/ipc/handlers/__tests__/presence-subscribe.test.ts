@@ -656,10 +656,13 @@ describe("durable presence-state-change events round-trip to real session_events
     // round-trip unchanged. An emitter that invents a category instead of
     // looking one up breaks the integrity hash chain rather than failing a
     // parse, so this is pinned against the registry and never against a
-    // literal.
+    // literal. The definedness assertion is what keeps the comparison from
+    // passing vacuously: an unregistered type looks up `undefined`, and a row
+    // that stored no category at all would then match it.
     for (const row of presenceRows) {
-      expect(row.category).toBe(SESSION_EVENT_CATEGORY_BY_TYPE.get(row.type as SessionEventType));
-      expect(row.category).not.toBe("presence");
+      const registered = SESSION_EVENT_CATEGORY_BY_TYPE.get(row.type as SessionEventType);
+      expect(registered).toBeDefined();
+      expect(row.category).toBe(registered);
     }
 
     // The 4 canonical type strings are all present (online appears twice —

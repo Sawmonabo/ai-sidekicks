@@ -2,8 +2,7 @@
 // session's callback-tool registry.
 //
 // One plane of `GROWTH_OPERATIONS`, composed into it by `index.ts`. The section
-// comment below is the single table's own, kept with the rows it heads — including
-// the standing statement that no participant-role row will join them.
+// comment below is the single table's own, kept with the rows it heads.
 
 import type { GrowthOperationEntry, GrowthOperationId } from "../growth-port/growth-entry.js";
 import { op } from "./operation-entry.js";
@@ -29,13 +28,6 @@ export const IDENTITY_GROWTH_OPERATIONS: Readonly<
   // registers a method string anywhere, so neither entry names one — the corpus has
   // the daemon RESOLVE a caller's principal and never return it, and has the
   // callback-tool registry ride spawn with no read seam at all.
-  //
-  // THERE IS NO `participant-role-read` ROW, AND THERE WILL NOT BE ONE. The role is
-  // a lookup, not a read: `store/session/selectors.ts`'s `membershipRoleOf` answers it from
-  // the roster this session's own store already holds, and `store/session/caller-membership-role.ts`'s
-  // `useCallerMembershipRole` chains this operation to it. A slate row for the role
-  // would be asking a second wire for a fact a shipped partition owns, and the two
-  // could disagree with nothing able to say which was right.
   callerParticipantRead: op("callerParticipantRead", "caller-participant-identity", "method"),
   callbackToolRegistryRead: op("callbackToolRegistryRead", "callback-tool-registry-read", "method"),
   // The per-device fan-out behind the aggregated presence summary. It DOES name a

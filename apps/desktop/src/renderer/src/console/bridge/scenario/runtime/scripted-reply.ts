@@ -142,7 +142,7 @@ export async function settleScriptedReply(
     // than before it: a computed reply that answers about a lifetime has to be
     // asked at the moment its answer is delivered, so a reply parked on a scripted
     // latency answers for the tick it comes due at and not the tick it was asked at.
-    // The engine's own clock, so the reply and the beats share one timeline.
+    // The engine's own clock, so the reply and the beats share a single ordering.
     //
     // The ordinal is taken in the same breath, and it counts ASKINGS of this call's
     // computed reply rather than answers to it: a reply that answers `undefined` for

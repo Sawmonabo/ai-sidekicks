@@ -100,7 +100,7 @@ export const TIMELINE_METHOD_NAMES: readonly TimelineMethodName[] = Object.freez
 ] as const);
 
 /**
- * What a registrar needs to bind one timeline method: the name, the procedure
+ * What a registrar needs to bind a single timeline method: the name, the procedure
  * type, the version-gate `mutating` flag, and the schema pair the registry
  * validates params and result against.
  *

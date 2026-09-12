@@ -39,7 +39,7 @@ function countingBridge(): { readonly bridge: ConsoleBridge; readonly rosterRead
   return { bridge, rosterReads: () => reads };
 }
 
-/** One timeline event of whatever kind the case is about. */
+/** A single timeline event, of whatever kind the case is about. */
 function sessionEvent(kind: string, sequence: number): ConsoleSessionEvent {
   return {
     id: `event-${String(sequence)}`,
