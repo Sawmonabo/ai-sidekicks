@@ -570,13 +570,13 @@ describe("pre-commit-runner — index-first lane membership", () => {
       "",
       "```mermaid",
       "graph TB",
-      "  NS01[NS-01: a]:::ready",
-      "  NS22[NS-22: b]:::ready",
+      "  ZZ01[ZZ-01: a]:::ready",
+      "  ZZ22[ZZ-22: b]:::ready",
       "",
       "  classDef ready fill:#9f9,stroke:#0a0,color:#000",
       "```",
       "",
-      "The ready set (NS-01) shares no code paths.",
+      "The ready set (ZZ-01) shares no code paths.",
       "",
     ].join("\n");
     const { root, cleanup } = setupRepo({

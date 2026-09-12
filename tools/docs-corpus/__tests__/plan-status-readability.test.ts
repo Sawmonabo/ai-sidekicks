@@ -82,7 +82,7 @@ function runCheck(root: string): ReturnType<typeof checkPlanStatusReadability> {
 // One matrix, used by BOTH the unit assertions and the drift assertion, so the
 // two can never be checking different populations.
 const READABLE_CELL = "| **Status** | `approved` |";
-const ANNOTATED_CELL = "| **Status** | `approved` (restored 2026-08-26, NS-84) |";
+const ANNOTATED_CELL = "| **Status** | `approved` (restored 2026-08-26, ZZ-84) |";
 
 const MATRIX: { name: string; source: string; expected: string | null }[] = [
   { name: "backticked approved", source: plan(READABLE_CELL), expected: "approved" },

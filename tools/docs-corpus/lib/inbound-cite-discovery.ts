@@ -31,9 +31,9 @@ import { extractCites, type FileContentReader } from "./cite-target-existence.ts
 // child with SIGTERM and returns `status: null` with TRUNCATED stdout — it
 // does not throw. A caller that only checks `status !== 0` therefore sees a
 // generic failure, and a caller that reads stdout without checking sees a
-// silently truncated file. Both are reachable here: this repo's own
-// cross-plan-dependencies.md passed 1 MiB in 2026-08, so `git show :<path>`
-// on it began failing for every consumer of the runner. Every subprocess in
+// silently truncated file. Both are reachable here: this repo's own plan
+// documents pass 1 MiB, so `git show :<path>` on one of them began failing
+// for every consumer of the runner. Every subprocess in
 // this module reads repo-scale content (a whole file, a whole ls-files
 // listing, a whole grep result), so all of them take the same explicit bound
 // rather than the 1 MiB default that no call site here can satisfy for long.
@@ -164,8 +164,8 @@ export function makeIndexAwareReader(
             const relPath = toRepoRelative(repoRoot, absolutePath);
             const result = spawnSync("git", ["-C", repoRoot, "show", `:${relPath}`], {
               encoding: "utf8",
-              // The governance corpus already holds a doc past 1 MB
-              // (cross-plan-dependencies.md), and spawnSync's default maxBuffer is exactly
+              // The governance corpus already holds docs past 1 MB, and
+              // spawnSync's default maxBuffer is exactly
               // 1 MB. Overflow returns status null with an EMPTY stderr, so the gate died
               // with an unreadable message instead of reading the file — and any staged set
               // that reached this index path rather than the staged-file path crashed the

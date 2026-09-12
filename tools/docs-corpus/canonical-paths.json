@@ -30,7 +30,7 @@
         ".claude/scratch/**",
         "**/tools/docs-corpus/**"
       ],
-      "note": "Plan-005 owns the provider driver tree at packages/runtime-daemon/src/provider/drivers/ per cross-plan-dependencies.md section 2. The deprecated spelling never existed on disk -- it entered Plan-005 T3.16 at the 2026-08-18 provider-account amendment and was repaired 2026-08-25 by the provider-bound text-neutrality amendment; the registry guards a canonicalization, which the schema's own description admits alongside renames and moves. The deprecated form carries the full packages/runtime-daemon/ prefix on purpose: git grep -F is a substring match, so the bare src/drivers/ fragment used in erratum-explaining prose does not match, and neither does the canonical form, which has provider/ between src/ and drivers."
+      "note": "Plan-005 owns the provider driver tree at packages/runtime-daemon/src/provider/drivers/. The deprecated spelling never existed on disk -- it entered Plan-005 T3.16 at the 2026-08-18 provider-account amendment and was repaired 2026-08-25 by the provider-bound text-neutrality amendment; the registry guards a canonicalization, which the schema's own description admits alongside renames and moves. The deprecated form carries the full packages/runtime-daemon/ prefix on purpose: git grep -F is a substring match, so the bare src/drivers/ fragment used in erratum-explaining prose does not match, and neither does the canonical form, which has provider/ between src/ and drivers."
     },
     {
       "canonical": "packages/runtime-daemon/src/provider/",
