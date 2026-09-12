@@ -36,6 +36,7 @@ import { EventLogAnchorStore, UnknownAnchorSessionError } from "../anchor-store.
 // ----------------------------------------------------------------------------
 
 const SESSION_ID = "01970000-0000-7000-8000-00000000a001" as SessionId;
+const SESSION_OWNER_ID = "01970000-0000-7000-8000-00000000b0ff";
 const ABSENT_SESSION_ID = "01970000-0000-7000-8000-00000000dead" as SessionId;
 const NODE_ID = "node-alpha" as NodeId;
 const ANCHORED_AT = "2026-08-04T00:00:00.000Z";
@@ -111,7 +112,12 @@ beforeEach(async () => {
   // Canonical runner — this file's subject is the STORE, so it wants the full
   // registered schema rather than a hand-stepped subset.
   await applyMigrations(querier);
-  await querier.query("INSERT INTO sessions (id) VALUES ($1)", [SESSION_ID]);
+  // A session needs the user who owns it — `owner_user_id` is NOT NULL.
+  await querier.query("INSERT INTO participants (id) VALUES ($1)", [SESSION_OWNER_ID]);
+  await querier.query("INSERT INTO sessions (id, owner_user_id) VALUES ($1, $2)", [
+    SESSION_ID,
+    SESSION_OWNER_ID,
+  ]);
   ctx = { pg, querier, store: new EventLogAnchorStore(querier) };
 });
 

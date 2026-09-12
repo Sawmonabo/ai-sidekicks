@@ -97,8 +97,8 @@ async function buildHarness() {
   const pg = new PGlite();
   const querier = adaptPGlite(pg);
   await applyMigrations(querier);
-  // Seed both participants — the FK constraint on sessions/memberships
-  // requires the row to exist before any directory-service call references it.
+  // Seed both users — the owner FK on `sessions` requires the row to exist
+  // before any directory-service call references it.
   await querier.query("INSERT INTO participants (id) VALUES ($1), ($2)", [
     OWNER_PARTICIPANT_ID,
     SECOND_PARTICIPANT_ID,
@@ -115,7 +115,7 @@ async function buildHarness() {
 
   const router = createSessionRouter(deps);
   const caller = t.createCallerFactory(router)({ requestId: "test-req-1" });
-  return { pg, router, caller };
+  return { pg, querier, router, caller };
 }
 
 type Harness = Awaited<ReturnType<typeof buildHarness>>;
@@ -146,6 +146,11 @@ describe("session.create — end-to-end tRPC roundtrip via pglite", () => {
     // post-attach — the directory layer never owns the active transition.
     expect(response.state).toBe("provisioning");
     expect(response.channels).toEqual([]);
+    const ownerProbe = await harness.querier.query<{ owner_user_id: string }>(
+      "SELECT owner_user_id FROM sessions WHERE id = $1",
+      [SESSION_ID],
+    );
+    expect(ownerProbe.rows[0]?.owner_user_id).toBe(OWNER_PARTICIPANT_ID);
   });
 
   it("is idempotent across repeated calls — second create returns the first row", async () => {
@@ -157,6 +162,13 @@ describe("session.create — end-to-end tRPC roundtrip via pglite", () => {
     const second = await harness.caller.session.create({});
     expect(second.sessionId).toBe(first.sessionId);
     expect(second.state).toBe(first.state);
+    // Exactly one row survives both calls — the ON CONFLICT (id) DO UPDATE
+    // branch returned the pre-existing row instead of forking a duplicate.
+    const countProbe = await harness.querier.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM sessions WHERE id = $1",
+      [SESSION_ID],
+    );
+    expect(countProbe.rows[0]?.count).toBe("1");
   });
 
   it("rejects malformed input (Zod validation surfaces as TRPCError BAD_REQUEST)", async () => {

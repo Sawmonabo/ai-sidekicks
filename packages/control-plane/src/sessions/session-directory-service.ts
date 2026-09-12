@@ -8,6 +8,12 @@
 //   * readSession    — point-lookup by sessionId, returns the snapshot
 //                      shape the wire contract publishes.
 //
+// Ownership model: a session has exactly one owner, recorded in
+// `sessions.owner_user_id` and bound at the first successful create. There is
+// no membership table and no role ladder — the owner is the user, and every
+// other actor on a session is one of that user's own devices or the system
+// itself.
+//
 // What this service does NOT do:
 //   * Session-event payload storage — the shared Postgres store holds
 //     coordination metadata only; per-node local SQLite is authoritative for
@@ -59,21 +65,12 @@ const CONTROL_PLANE_PLACEHOLDER_CURSOR: EventCursor =
 
 interface SessionRow {
   readonly id: string;
+  readonly owner_user_id: string;
   readonly state: string;
   readonly config: Record<string, unknown>;
   readonly metadata: Record<string, unknown>;
   readonly min_client_version: string | null;
   readonly created_at: Date | string;
-  readonly updated_at: Date | string;
-}
-
-interface MembershipRow {
-  readonly id: string;
-  readonly session_id: string;
-  readonly participant_id: string;
-  readonly role: string;
-  readonly state: string;
-  readonly joined_at: Date | string | null;
   readonly updated_at: Date | string;
 }
 
@@ -90,30 +87,12 @@ interface MembershipRow {
  * row (admin provisioning); Plan-001 PR #4's create path always supplies
  * the id explicitly.
  *
- * `ownerParticipantId` is REQUIRED. The schema doc
- * (`docs/architecture/schemas/shared-postgres-schema.md` §participants)
- * states "no participant rows are inserted before Plan-018's registration
- * flow lands — the anchor table exists only so FK constraints in Plan-001/
- * 002/003 tables can be declared at migration time". This service is a
- * faithful Postgres adapter; identity resolution belongs upstream. Until
- * Plan-018 lands the registration flow, the wire-layer SDK in Plan-001
- * PR #5 is responsible for resolving identity to a `participantId` before
- * invoking this service. (An earlier draft of PR #4 minted a fresh
- * participant row inline when this field was omitted; that path violated
- * the schema-doc invariant AND opened a concurrency window where two
- * concurrent retries with the same `sessionId` minted two participant
- * rows and inserted two `owner` membership rows — UNIQUE(session_id,
- * participant_id) does not collide on different participant ids. R1
- * dropped the auto-mint, closing the most-likely path; the residual
- * UNIQUE-shape gap — an explicit caller passing a mismatched
- * `ownerParticipantId` on retry — is closed by the owner-mismatch
- * guard inside `createSession`'s transaction; see that method for the
- * full trace. R4 closed the final residual — concurrent createSession
- * callers racing the owner-mismatch probe under READ COMMITTED — by
- * adding an explicit `SELECT ... FOR UPDATE` row lock between the
- * session upsert and the probe so T1 and T2 serialize on the lock
- * instead of both observing an empty owner set in their respective
- * snapshots.)
+ * `ownerParticipantId` is REQUIRED and lands verbatim in
+ * `sessions.owner_user_id`. This service is a faithful Postgres adapter;
+ * identity resolution belongs upstream, so the caller is responsible for
+ * resolving identity to a participantId before invoking it. The column carries
+ * no DEFAULT, so an owner this service failed to supply would be rejected by
+ * the database rather than materialize an ownerless session.
  *
  * Forward-declared columns (not in this input shape):
  *   * `min_client_version` — Plan-003 owns attach-flow enforcement per
@@ -147,66 +126,36 @@ export class SessionDirectoryService {
    * attempt, letting the caller distinguish retry-after-crash from silent
    * write loss. `DO NOTHING` would skip RETURNING on conflict.
    *
-   * On second create with the same `sessionId` and SAME `ownerParticipantId`:
-   *   * The existing row's `created_at` and id are preserved.
+   * On second create with the same `sessionId` and the SAME owner:
+   *   * The existing row's `created_at`, `id`, and `owner_user_id` are
+   *     preserved.
    *   * The `updated_at` value is preserved (the no-op assignment).
-   *   * The owner-membership row is also `ON CONFLICT (session_id,
-   *     participant_id) DO UPDATE SET updated_at = ...` — no silent
-   *     duplicate membership.
-   *   * The response shape mirrors a first-create call so the caller's
-   *     state machine doesn't need a retry-detect branch.
+   *   * The response shape mirrors a first-create call so the caller's state
+   *     machine doesn't need a retry-detect branch.
    *
-   * On second create with the same `sessionId` but a DIFFERENT
-   * `ownerParticipantId`: throws (BL-069 invariant #4 — owner identity is
-   * bound at the first create via TOFU). Without this guard the membership
-   * upsert's UNIQUE(session_id, participant_id) conflict target — which
-   * keys on the (session, participant) PAIR, not on the role — would
-   * silently INSERT a second `(S, P2, 'owner')` row, granting P2 owner
-   * privileges without invitation/elevation. See the in-method
-   * "Owner-mismatch guard" comment for the full failure trace; Plan-002
-   * owns ownership transfer / co-owner promotion flows separately.
+   * On second create with the same `sessionId` but a DIFFERENT owner: throws.
+   * Owner identity is bound at the first create and never rewritten.
    *
-   * Atomicity: the session upsert, the explicit `SELECT ... FOR UPDATE`
-   * row lock, the owner-mismatch probe, and the owner-membership upsert
-   * all run inside a single `Querier.transaction(...)` block. Without the
-   * transaction wrapper, a failure on the membership upsert (FK violation
-   * on a stale `ownerParticipantId`, connection drop, process crash
-   * between statements) would leave a committed `sessions` row with no
-   * owner-membership — orphaned, visible to `readSession` and admin
-   * queries, and undetectable from a retry (which would re-run the same
-   * upsert pair as a no-op on the now-committed session row, then succeed
-   * on the membership and present the orphan as if it were the canonical
-   * state). The transaction collapses all four statements to one commit
-   * boundary so a partial failure leaves the directory unchanged.
+   * The guard is exact rather than advisory because the conflict clause does
+   * not assign `owner_user_id` — so `RETURNING owner_user_id` yields the
+   * PERSISTED owner, which is the row that was there before this call. A
+   * mismatch between that value and the caller's `ownerParticipantId` is a
+   * caller trying to take over someone else's session, and it is rejected
+   * before the transaction commits.
    *
-   * Concurrent createSession callers: two transactions T1(sessionId=S,
-   * owner=P1) and T2(sessionId=S, owner=P2) racing on the same `S` are
-   * serialized at the explicit `SELECT id FROM sessions WHERE id = $1 FOR
-   * UPDATE` issued between the session upsert and the owner-mismatch
-   * probe. Under Postgres `READ COMMITTED` (the default), without a
-   * holder-side row lock the owner-mismatch probe in T2 can read its
-   * snapshot before T1 commits its `(S, P1, 'owner')` membership row,
-   * see no existing owners, and proceed to INSERT `(S, P2, 'owner')` —
-   * UNIQUE(session_id, participant_id) does not collide on different
-   * participants. The implicit row lock acquired by the `INSERT ... ON
-   * CONFLICT DO UPDATE` session upsert *should* serialize T2 against T1
-   * in the same way; the explicit FOR UPDATE here makes the serialization
-   * intent visible to reviewers, inoculates against future schema changes
-   * (DEFAULTs, triggers, INSTEAD OF rules) that could alter the implicit
-   * lock semantics, and closes the gap regardless of which driver
-   * (pglite, pg.Pool) backs the `Querier`. The lock is released at the
-   * transaction's COMMIT/ROLLBACK.
+   * Concurrency: two transactions T1(sessionId=S, owner=P1) and
+   * T2(sessionId=S, owner=P2) racing on the same `S` are serialized by the row
+   * lock the `INSERT ... ON CONFLICT DO UPDATE` upsert itself acquires on the
+   * `sessions` row. The loser observes the winner's committed `owner_user_id`
+   * in its own `RETURNING` clause and throws. There is no read-then-write
+   * window to lose, because the read IS the write's own output — which is why
+   * collapsing the owner into a column on the session row removed a whole class
+   * of race the separate-table shape needed an explicit `SELECT ... FOR UPDATE`
+   * to close.
    *
-   * Lock-acquisition order: this service acquires `sessions` (via the
-   * explicit `SELECT ... FOR UPDATE`) BEFORE writing to
-   * `session_memberships`. Downstream flows that touch both tables in
-   * one transaction — Plan-002's ownership-transfer and co-owner
-   * promotion paths in particular — MUST follow the same order
-   * (`sessions` → `session_memberships`) to avoid a cross-flow deadlock
-   * where T1 holds `sessions` waiting for `session_memberships` while
-   * T2 holds `session_memberships` waiting for `sessions`. Deviating
-   * from this order requires a coordinated change to this service's
-   * lock order, not just to the deviating caller.
+   * The single statement runs inside `Querier.transaction(...)` so the mismatch
+   * throw rolls back rather than leaving a half-applied create, and so the
+   * pg.Pool adapter pins it to one checked-out connection.
    *
    * Why no error-handler around `transaction(...)`: PGlite's
    * `pg.transaction(fn)` (and the `pg`-side equivalent that PR #5 will
@@ -216,9 +165,6 @@ export class SessionDirectoryService {
    * driver-supplied semantics.
    */
   async createSession(input: CreateSessionInput): Promise<SessionCreateResponse> {
-    // Both writes share one commit boundary — see method-level docstring
-    // for the orphan-session rationale.
-    //
     // The transaction callback receives a `Querier` bound to the same
     // connection so the routing concern (which connection to use) stays
     // encapsulated inside the adapter; the service body sees the same
@@ -231,13 +177,17 @@ export class SessionDirectoryService {
       // object directly (the driver serializes via JSON.stringify). The
       // `COALESCE(... , '{}'::jsonb)` lets the column DEFAULT apply when
       // the caller omits the field (we pass NULL in that case).
+      //
+      // `owner_user_id` is deliberately absent from the DO UPDATE assignment
+      // list: an existing session's owner is never rewritten by a create.
       const sessionUpsert = await tx.query<SessionRow>(
-        `INSERT INTO sessions (id, config, metadata)
-         VALUES ($1, COALESCE($2, '{}'::jsonb), COALESCE($3, '{}'::jsonb))
+        `INSERT INTO sessions (id, owner_user_id, config, metadata)
+         VALUES ($1, $2, COALESCE($3, '{}'::jsonb), COALESCE($4, '{}'::jsonb))
          ON CONFLICT (id) DO UPDATE SET updated_at = sessions.updated_at
-         RETURNING id, state, config, metadata, min_client_version, created_at, updated_at`,
+         RETURNING id, owner_user_id, state, config, metadata, min_client_version, created_at, updated_at`,
         [
           input.sessionId,
+          input.ownerParticipantId,
           input.config !== undefined ? JSON.stringify(input.config) : null,
           input.metadata !== undefined ? JSON.stringify(input.metadata) : null,
         ],
@@ -249,102 +199,19 @@ export class SessionDirectoryService {
         );
       }
 
-      // Explicit row lock — see method docstring §"Concurrent
-      // createSession callers" for the READ COMMITTED race rationale and
-      // §"Lock-acquisition order" for the cross-plan order constraint
-      // Plan-002 must honor.
-      await tx.query("SELECT id FROM sessions WHERE id = $1 FOR UPDATE", [input.sessionId]);
-
-      // Owner-mismatch guard (Codex P1, residual of B1).
+      // Owner-mismatch guard.
       //
-      // BL-069 invariant #4: "owner identity is bound at the first
-      // authenticated RPC via PASETO v4 trust-on-first-use." The session
-      // upsert above is idempotent on `sessions.id`, but the owner-
-      // membership upsert below collides on UNIQUE(session_id,
-      // participant_id) — a conflict target that cares about the
-      // (session, participant) PAIR, not the role. Without this probe a
-      // second `createSession({sessionId: S, ownerParticipantId: P2})`
-      // for an existing session S already owned by P1 would INSERT a
-      // SECOND `(S, P2, 'owner')` row instead of conflicting; P2 would
-      // silently obtain owner privileges without going through any
-      // promotion / elevation flow. R1 dropped the auto-mint participant
-      // (B1) which closed the most-likely path to that bug, but the
-      // residual UNIQUE-shape gap survived: an explicit caller passing a
-      // mismatched ownerParticipantId would still escalate.
-      //
-      // The probe is INSIDE the same `tx` so it sees the same snapshot
-      // the membership upsert below will write into — a concurrent
-      // racer cannot slip a contradicting owner row in between probe
-      // and insert. We probe `session_memberships` (not `sessions`)
-      // because the question is about owner identity, not session
-      // existence; the session row was just upserted moments ago in the
-      // same tx, so a `sessions`-side probe wouldn't tell us anything
-      // useful about the owner.
-      //
-      // Same-owner re-create stays idempotent — when the probe returns
-      // rows that include this `ownerParticipantId`, we proceed and let
-      // the upsert below DO UPDATE the existing row. Only a true
-      // mismatch (existing owners do NOT include this participantId)
-      // throws.
-      //
-      // Plan-002 owns ownership transfer / co-owner flows. Those flows
-      // will go through their own promotion / elevation paths; this
-      // create-time guard does NOT impose a "single owner forever"
-      // invariant — it only enforces the create-time TOFU rule per
-      // BL-069 §4 + Spec-001 §Default Behavior ("A newly created
-      // session defaults to one `owner` membership for the creator").
-      const existingOwners = await tx.query<{ participant_id: string }>(
-        `SELECT participant_id FROM session_memberships
-          WHERE session_id = $1 AND role = 'owner'`,
-        [input.sessionId],
-      );
-      if (existingOwners.rows.length > 0) {
-        // UUID-casing normalization (Codex P2, round 5).
-        //
-        // RFC 9562 §4 specifies UUIDs are case-insensitive, but Postgres
-        // stores them in canonical lowercase form and returns them as
-        // lowercase strings (the `uuid` type's text-output convention).
-        // A caller passing `ParticipantId` with uppercase hex digits —
-        // valid per the brand's RFC 9562 parser, which accepts both
-        // cases — would fail strict string equality against the
-        // lowercase row value, falsely tripping the owner-mismatch
-        // throw on a same-owner re-create. Normalizing both sides to
-        // lowercase before equality preserves idempotency for the
-        // logical UUID. We chose the in-TypeScript approach (vs an
-        // SQL-side `participant_id <> $2::uuid`) so the rejection-path
-        // test can drive the comparison through plain TypeScript and
-        // doesn't need to rely on the substrate's UUID-cast semantics.
-        // Both sides are normalized symmetrically as defense against
-        // substrate drift — Postgres returns canonical lowercase today,
-        // but a future driver/substrate that does not could falsely
-        // trip this guard from the row side.
-        const inputLower = input.ownerParticipantId.toLowerCase();
-        const matchedExisting = existingOwners.rows.some(
-          (row) => row.participant_id.toLowerCase() === inputLower,
-        );
-        if (!matchedExisting) {
-          throw new Error(
-            `SessionDirectoryService.createSession: session ${String(input.sessionId)} already exists with a different owner; createSession is idempotent only when called with the same ownerParticipantId. Owner promotion/transfer is owned by Plan-002.`,
-          );
-        }
-        // Same owner re-creating — fall through to the idempotent
-        // membership upsert (DO UPDATE no-op on conflict).
-      }
-
-      // Owner-membership upsert. Same DO UPDATE pattern so RETURNING *
-      // yields a row regardless of first-create vs retry.
-      // UNIQUE(session_id, participant_id) is the conflict target.
-      const membershipUpsert = await tx.query<MembershipRow>(
-        `INSERT INTO session_memberships (session_id, participant_id, role, state, joined_at)
-         VALUES ($1, $2, 'owner', 'active', now())
-         ON CONFLICT (session_id, participant_id)
-         DO UPDATE SET updated_at = session_memberships.updated_at
-         RETURNING id, session_id, participant_id, role, state, joined_at, updated_at`,
-        [input.sessionId, input.ownerParticipantId],
-      );
-      if (membershipUpsert.rows[0] === undefined) {
+      // RFC 9562 §4 specifies UUIDs are case-insensitive, but Postgres stores
+      // them in canonical lowercase form and returns them as lowercase
+      // strings. A caller passing an id with uppercase hex digits — valid per
+      // the brand's parser, which accepts both cases — would fail strict
+      // string equality against the row value and falsely trip this throw on a
+      // same-owner re-create. Both sides are normalized symmetrically: the row
+      // side too, as defense against a future driver or substrate that does
+      // not return the canonical form.
+      if (session.owner_user_id.toLowerCase() !== input.ownerParticipantId.toLowerCase()) {
         throw new Error(
-          `SessionDirectoryService.createSession: owner-membership upsert returned no row for session=${String(input.sessionId)} owner=${String(input.ownerParticipantId)}`,
+          `SessionDirectoryService.createSession: session ${String(input.sessionId)} already exists with a different owner; createSession is idempotent only when called with the same ownerParticipantId.`,
         );
       }
 
@@ -354,12 +221,11 @@ export class SessionDirectoryService {
     // Channels are NOT a control-plane concern — channel metadata is
     // owned by the per-daemon local event log (see
     // `packages/runtime-daemon/src/session/session-projector.ts`). The
-    // wire contract requires a `channels: ChannelSummary[]` field; PR #4
-    // returns an empty array as the canonical "control plane has no
-    // channel metadata" signal. PR #5's SDK composition layer will merge
-    // the daemon's projected channels with this empty list — the merge
-    // step is what produces the user-visible channel list (always
-    // including the synthesized "main" channel per AC1).
+    // wire contract requires a `channels: ChannelSummary[]` field; this
+    // service returns an empty array as the canonical "control plane has no
+    // channel metadata" signal. The SDK composition layer merges the daemon's
+    // projected channels with this empty list — the merge step is what
+    // produces the user-visible channel list.
     const channels: ChannelSummary[] = [];
 
     return {
@@ -386,7 +252,7 @@ export class SessionDirectoryService {
    */
   async readSession(sessionId: SessionId): Promise<SessionReadResponse | null> {
     const probe = await this.#querier.query<SessionRow>(
-      `SELECT id, state, config, metadata, min_client_version, created_at, updated_at
+      `SELECT id, owner_user_id, state, config, metadata, min_client_version, created_at, updated_at
          FROM sessions
         WHERE id = $1`,
       [sessionId],
@@ -395,6 +261,10 @@ export class SessionDirectoryService {
     if (row === undefined) {
       return null;
     }
+    // `owner_user_id` and `min_client_version` are both read here and both
+    // absent from the published snapshot: the row shape mirrors the table so
+    // one hydration path serves every reader, and the wire shape is narrower
+    // than the row on purpose.
     const session: SessionSnapshot = hydrateSessionSnapshot(row);
     return {
       session,

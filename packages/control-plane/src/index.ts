@@ -32,7 +32,6 @@ export { HeartbeatService } from "./runtime-nodes/heartbeat-service.js";
 export { EventLogAnchorStore } from "./event-anchors/anchor-store.js";
 export { applyMigrations, type Querier } from "./sessions/migration-runner.js";
 export { INITIAL_MIGRATION_SQL } from "./migrations/0001-initial.js";
-export { SESSION_INVITES_MIGRATION_SQL } from "./migrations/0002-session-invites.js";
 
 // Plan-008 Phase 1 — HTTP/SSE substrate. The handler factory is the
 // integration boundary the F-008b-1-09 unblock test (T-008b-1-T12) drives

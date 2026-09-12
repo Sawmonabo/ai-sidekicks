@@ -144,13 +144,21 @@ async function seedSession(
   // No min_client_version => NULL floor ("no floor") — the default for the
   // transport-mounting tests, whose focus is mounting not the floor verdict. A
   // supplied floor seeds the version-floor write-refusal catch-arm test.
+  // The owning user must exist before the session's owner FK can resolve, and
+  // some tests seed several sessions, so the insert is conflict-tolerant.
+  await querier.query("INSERT INTO participants (id) VALUES ($1) ON CONFLICT DO NOTHING", [
+    PARTICIPANT_ID,
+  ]);
   if (minClientVersion === undefined) {
-    await querier.query("INSERT INTO sessions (id, state) VALUES ($1, 'active')", [sessionId]);
+    await querier.query(
+      "INSERT INTO sessions (id, owner_user_id, state) VALUES ($1, $2, 'active')",
+      [sessionId, PARTICIPANT_ID],
+    );
     return;
   }
   await querier.query(
-    "INSERT INTO sessions (id, state, min_client_version) VALUES ($1, 'active', $2)",
-    [sessionId, minClientVersion],
+    "INSERT INTO sessions (id, owner_user_id, state, min_client_version) VALUES ($1, $2, 'active', $3)",
+    [sessionId, PARTICIPANT_ID, minClientVersion],
   );
 }
 

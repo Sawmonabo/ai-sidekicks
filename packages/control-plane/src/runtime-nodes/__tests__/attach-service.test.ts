@@ -49,17 +49,14 @@
 //     `revoked` state for THIS session is refused with the typed
 //     `RuntimeNodeAttachRevokedException` — never reactivated.
 //
-// P7 / P8 (I-003-3, attach-membership separation — Plan-003 test matrix):
-//     P7 (`Spec-003 §Required Behavior` — `RuntimeNodeAttach MUST NOT mutate
-//         session_memberships`) is verified by the shipped attach I-003-3 test
-//         (the "leaves a co-resident session_memberships row byte-for-byte
-//         unchanged after a successful attach" block below) — no separate P7 test
-//         is added here, the existing attach test IS P7.
-//     P8 (`Spec-003 §Required Behavior` — `RuntimeNodeDetach leaves session_memberships
-//         unchanged`; an offline/detached node retains its membership) is the new
-//         detach happy-path test below. Asserted along the SAME two disjoint
-//         mutation modes as the attach I-003-3 test (byte-identity snapshot +
-//         total count).
+// P7 / P8 (attach-directory separation — the runtime-node test matrix):
+//     P7 (`RuntimeNodeAttach` MUST NOT mutate the session directory) is verified
+//         by the shipped attach test (the "leaves the session row byte-for-byte
+//         unchanged after a successful attach" block below) — no separate P7
+//         test is added here, the existing attach test IS P7.
+//     P8 (`RuntimeNodeDetach` leaves the session row unchanged) is the detach
+//         happy-path test below. Asserted along the SAME two disjoint mutation
+//         modes as the attach test (byte-identity snapshot + total count).
 //
 // detach correctness (T3.7, `Spec-003 §Default Behavior` "an explicit `detach` retires the
 //     node"; I-003-5 single-active resolution): detach writes the terminal state
@@ -69,8 +66,8 @@
 //     protects P10 revocation-terminality), idempotent re-detach, the never-
 //     attached no-op, and the presence-absent UPDATE-only no-op.
 //
-// I-003-3 (attach must not mutate session_memberships): a successful attach
-//     leaves the `session_memberships` table untouched. Asserted along TWO
+// Attach must not mutate the session directory: a successful attach leaves the
+//     `sessions` table untouched. Asserted along TWO
 //     disjoint mutation modes — (1) a before/after byte-identity snapshot of a
 //     co-resident row's mutable columns catches an in-place UPDATE (which a
 //     count check misses), and (2) an unchanged total row count catches a stray
@@ -244,20 +241,28 @@ async function seedParticipant(querier: Querier, participantId: ParticipantId): 
   await querier.query("INSERT INTO participants (id) VALUES ($1)", [participantId]);
 }
 
-// Seed a session. `minClientVersion` omitted => the column stays SQL NULL
-// ("no floor") — the P1 unconditional-admission shape.
+// Seed a session owned by `PARTICIPANT_ID` — every caller seeds that user
+// first, and `sessions.owner_user_id` is NOT NULL, so the owner is not an
+// argument the call sites need to repeat. `minClientVersion` omitted => the
+// column stays SQL NULL ("no floor") — the P1 unconditional-admission shape.
 async function seedSession(
   querier: Querier,
   sessionId: SessionId,
   minClientVersion?: string,
 ): Promise<void> {
+  await querier.query("INSERT INTO participants (id) VALUES ($1) ON CONFLICT DO NOTHING", [
+    PARTICIPANT_ID,
+  ]);
   if (minClientVersion === undefined) {
-    await querier.query("INSERT INTO sessions (id, state) VALUES ($1, 'active')", [sessionId]);
+    await querier.query(
+      "INSERT INTO sessions (id, owner_user_id, state) VALUES ($1, $2, 'active')",
+      [sessionId, PARTICIPANT_ID],
+    );
     return;
   }
   await querier.query(
-    "INSERT INTO sessions (id, state, min_client_version) VALUES ($1, 'active', $2)",
-    [sessionId, minClientVersion],
+    "INSERT INTO sessions (id, owner_user_id, state, min_client_version) VALUES ($1, $2, 'active', $3)",
+    [sessionId, PARTICIPANT_ID, minClientVersion],
   );
 }
 
@@ -286,25 +291,6 @@ async function seedAttachment(
   const row: { id: string } | undefined = inserted.rows[0];
   if (row === undefined) {
     throw new Error("seedAttachment: INSERT returned no row");
-  }
-  return row.id;
-}
-
-// Seed a membership row for the I-003-3 no-mutation guard. `joined_at` is cast
-// to a concrete value so the byte-identity snapshot is stable.
-async function seedMembership(
-  querier: Querier,
-  args: { sessionId: SessionId; participantId: ParticipantId; role: string; state: string },
-): Promise<string> {
-  const inserted = await querier.query<{ id: string }>(
-    `INSERT INTO session_memberships (session_id, participant_id, role, state, joined_at)
-     VALUES ($1, $2, $3, $4, now())
-     RETURNING id`,
-    [args.sessionId, args.participantId, args.role, args.state],
-  );
-  const row: { id: string } | undefined = inserted.rows[0];
-  if (row === undefined) {
-    throw new Error("seedMembership: INSERT returned no row");
   }
   return row.id;
 }
@@ -369,23 +355,33 @@ async function readAttachmentRowWithTimestamp(
   return probe.rows[0];
 }
 
-// Snapshot a membership row's mutable columns for the I-003-3 byte-identity
-// assertion. `::text` casts normalize TIMESTAMPTZ across pg/PGlite.
-async function readMembershipRow(
+// Snapshot a session row's mutable columns for the byte-identity assertion —
+// the attach flow must leave the session directory exactly as it found it.
+// `::text` casts normalize TIMESTAMPTZ across pg/PGlite.
+async function readSessionRow(
   querier: Querier,
-  membershipId: string,
+  sessionId: SessionId,
 ): Promise<
-  { role: string; state: string; joined_at: string | null; updated_at: string } | undefined
+  | {
+      owner_user_id: string;
+      state: string;
+      min_client_version: string | null;
+      created_at: string;
+      updated_at: string;
+    }
+  | undefined
 > {
   const probe = await querier.query<{
-    role: string;
+    owner_user_id: string;
     state: string;
-    joined_at: string | null;
+    min_client_version: string | null;
+    created_at: string;
     updated_at: string;
   }>(
-    `SELECT role, state, joined_at::text AS joined_at, updated_at::text AS updated_at
-       FROM session_memberships WHERE id = $1`,
-    [membershipId],
+    `SELECT owner_user_id, state, min_client_version,
+            created_at::text AS created_at, updated_at::text AS updated_at
+       FROM sessions WHERE id = $1`,
+    [sessionId],
   );
   return probe.rows[0];
 }
@@ -436,7 +432,7 @@ async function countAttachments(querier: Querier): Promise<number> {
 // Total runtime_node_presence row count — the same second mutation mode for the
 // presence table (readPresenceRow inspects only the ONE node's row, so it cannot
 // see a stray INSERT/DELETE of a DIFFERENT presence row; this count closes that
-// gap, exactly as countMemberships does for session_memberships).
+// gap, exactly as countSessions does for sessions).
 async function countPresence(querier: Querier): Promise<number> {
   const probe = await querier.query<{ n: number }>(
     "SELECT COUNT(*)::int AS n FROM runtime_node_presence",
@@ -444,15 +440,12 @@ async function countPresence(querier: Querier): Promise<number> {
   return probe.rows[0]?.n ?? -1;
 }
 
-// Total session_memberships row count for the I-003-3 no-mutation guard. The
-// byte-identity snapshot (readMembershipRow) only inspects the ONE seeded row,
-// so it cannot see a stray INSERT/DELETE of a DIFFERENT membership row; this
-// count closes that second, disjoint mutation mode ("must not mutate" the table,
-// not just the seeded row).
-async function countMemberships(querier: Querier): Promise<number> {
-  const probe = await querier.query<{ n: number }>(
-    "SELECT COUNT(*)::int AS n FROM session_memberships",
-  );
+// Total sessions row count for the no-mutation guard. The byte-identity
+// snapshot (readSessionRow) only inspects the ONE seeded row, so it cannot see a
+// stray INSERT/DELETE of a DIFFERENT session row; this count closes that second,
+// disjoint mutation mode ("must not mutate" the table, not just the seeded row).
+async function countSessions(querier: Querier): Promise<number> {
+  const probe = await querier.query<{ n: number }>("SELECT COUNT(*)::int AS n FROM sessions");
   return probe.rows[0]?.n ?? -1;
 }
 
@@ -1125,63 +1118,24 @@ describe("AttachService — P5 (multi-node coexistence, `Spec-003 §Required Beh
     );
     expect(sessionCountAfterProbe.rows[0]?.n).toBe(1);
   });
-
-  it("leaves a co-resident session_memberships row byte-for-byte unchanged when two nodes attach to the session (I-003-3, multi-node)", async () => {
-    // The multi-node complement to T3.2's single-attach I-003-3 test: even when
-    // SEVERAL nodes attach to a session, the attach domain stays disjoint from
-    // the membership domain (cross-plan-dependencies.md §1) — no node's attach
-    // reads-for-update, inserts, updates, or deletes any session_memberships row.
-    await seedParticipant(ctx.querier, PARTICIPANT_ID);
-    await seedSession(ctx.querier, SESSION_ID);
-    const membershipId = await seedMembership(ctx.querier, {
-      sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
-      role: "owner",
-      state: "active",
-    });
-
-    const before = await readMembershipRow(ctx.querier, membershipId);
-    expect(before).toBeDefined();
-    // Exactly the one seeded membership row exists going in.
-    expect(await countMemberships(ctx.querier)).toBe(1);
-
-    // Two distinct nodes attach to the same session.
-    await ctx.service.attach(buildAttachRequest());
-    await ctx.service.attach(buildAttachRequest({ nodeId: NODE_ID_BETA }));
-
-    // Two disjoint mutation modes, two assertions (mirroring T3.2's I-003-3
-    // test): (1) byte-for-byte identity of the seeded row catches an in-place
-    // UPDATE; (2) unchanged total count catches a stray INSERT/DELETE of a
-    // DIFFERENT membership row. Neither moves under multi-node attach.
-    const after = await readMembershipRow(ctx.querier, membershipId);
-    expect(after).toEqual(before);
-    expect(await countMemberships(ctx.querier)).toBe(1);
-  });
 });
 
 // ----------------------------------------------------------------------------
-// I-003-3 — attach must not mutate session_memberships
+// Attach must not mutate the session directory
 // ----------------------------------------------------------------------------
 
-describe("AttachService — I-003-3 (attach must not mutate session_memberships)", () => {
-  it("leaves a co-resident session_memberships row byte-for-byte unchanged after a successful attach", async () => {
+describe("AttachService — attach must not mutate the session directory", () => {
+  it("leaves the session row byte-for-byte unchanged after a successful attach", async () => {
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    // The attach flow must touch ONLY runtime_node_attachments — never
+    // read-for-update, insert, or update the session row it attaches to. The
+    // runtime-node attach domain is disjoint from the session directory.
     await seedSession(ctx.querier, SESSION_ID);
-    // A membership row co-resident in the same session. The attach flow must
-    // touch ONLY runtime_node_attachments — never read-for-update, insert, or
-    // update this row (the runtime-node attach domain is disjoint from the
-    // membership domain; cross-plan-dependencies.md §1).
-    const membershipId = await seedMembership(ctx.querier, {
-      sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
-      role: "owner",
-      state: "active",
-    });
 
-    const before = await readMembershipRow(ctx.querier, membershipId);
+    const before = await readSessionRow(ctx.querier, SESSION_ID);
     expect(before).toBeDefined();
-    // Exactly the one seeded membership row exists going in.
-    expect(await countMemberships(ctx.querier)).toBe(1);
+    // Exactly the one seeded session row exists going in.
+    expect(await countSessions(ctx.querier)).toBe(1);
 
     const response = await ctx.service.attach(buildAttachRequest());
     expect(response.state).toBe("registering");
@@ -1190,12 +1144,12 @@ describe("AttachService — I-003-3 (attach must not mutate session_memberships)
     //   (1) Byte-for-byte identity of the seeded row catches an in-place UPDATE
     //       (which a count check would miss — the count doesn't move).
     //   (2) Unchanged total row count catches a stray INSERT/DELETE of a
-    //       DIFFERENT membership row (which the byte-identity check would miss —
+    //       DIFFERENT session row (which the byte-identity check would miss —
     //       it only inspects the seeded row's id). Together they cover the full
-    //       "attach must not mutate session_memberships" invariant statement.
-    const after = await readMembershipRow(ctx.querier, membershipId);
+    //       "attach must not mutate the session directory" statement.
+    const after = await readSessionRow(ctx.querier, SESSION_ID);
     expect(after).toEqual(before);
-    expect(await countMemberships(ctx.querier)).toBe(1);
+    expect(await countSessions(ctx.querier)).toBe(1);
   });
 });
 
@@ -1213,13 +1167,13 @@ describe("AttachService — I-003-3 (attach must not mutate session_memberships)
 // orthogonal axes — the SLOT axis (`runtime_node_attachments.state`) and the
 // LIVENESS axis (`runtime_node_presence.health_state`) — and returns `null` (the
 // no-content wire response). The five cases below pin: (a) the P8 happy path +
-// membership no-mutation; (b) the LOAD-BEARING revoked-not-flipped guard; (c)
-// idempotent re-detach; (d) the never-attached no-op; (e) the presence-absent
-// UPDATE-only no-op. P7 (attach must not mutate session_memberships, Spec-003
-// `Spec-003 §Required Behavior`) is the SHIPPED attach I-003-3 test above — not re-tested here.
+// session-directory no-mutation; (b) the LOAD-BEARING revoked-not-flipped guard;
+// (c) idempotent re-detach; (d) the never-attached no-op; (e) the
+// presence-absent UPDATE-only no-op. P7 (attach must not mutate the session
+// directory) is the SHIPPED attach test above — not re-tested here.
 
-describe("AttachService — P7/P8 + detach (offline transition, T3.7)", () => {
-  it("retires an active node to offline on both axes and leaves session_memberships byte-for-byte unchanged (P8, `Spec-003 §Required Behavior` / I-003-3)", async () => {
+describe("AttachService — P7/P8 + detach (offline transition)", () => {
+  it("retires an active node to offline on both axes and leaves the session row byte-for-byte unchanged (P8)", async () => {
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID);
     // An ACTIVE attachment (slot axis) + a presence row (liveness axis), both
@@ -1234,16 +1188,10 @@ describe("AttachService — P7/P8 + detach (offline transition, T3.7)", () => {
     // A membership row co-resident in the session. `Spec-003 §Required Behavior`: an explicit
     // detach (or offline) must NOT revoke this membership — the detach flow must
     // touch ONLY runtime_node_attachments + runtime_node_presence.
-    const membershipId = await seedMembership(ctx.querier, {
-      sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
-      role: "owner",
-      state: "active",
-    });
 
-    const membershipBefore = await readMembershipRow(ctx.querier, membershipId);
-    expect(membershipBefore).toBeDefined();
-    expect(await countMemberships(ctx.querier)).toBe(1);
+    const sessionRowBefore = await readSessionRow(ctx.querier, SESSION_ID);
+    expect(sessionRowBefore).toBeDefined();
+    expect(await countSessions(ctx.querier)).toBe(1);
 
     // Capture presence BEFORE detach so we can prove the health-only UPDATE
     // (`SET health_state = $2`) never touches the heartbeat clock — the
@@ -1273,9 +1221,9 @@ describe("AttachService — P7/P8 + detach (offline transition, T3.7)", () => {
     // the total membership count is unchanged — the two disjoint mutation modes
     // (in-place UPDATE vs stray INSERT/DELETE), mirroring the attach I-003-3 test.
     // An offline/detached node retains its membership (`Spec-003 §Required Behavior`).
-    const membershipAfter = await readMembershipRow(ctx.querier, membershipId);
-    expect(membershipAfter).toEqual(membershipBefore);
-    expect(await countMemberships(ctx.querier)).toBe(1);
+    const sessionRowAfter = await readSessionRow(ctx.querier, SESSION_ID);
+    expect(sessionRowAfter).toEqual(sessionRowBefore);
+    expect(await countSessions(ctx.querier)).toBe(1);
   });
 
   it("does NOT flip a revoked attachment to offline — the active-state guard protects revocation-terminality (LOAD-BEARING, P10-adjacent)", async () => {
@@ -1371,7 +1319,7 @@ describe("AttachService — P7/P8 + detach (offline transition, T3.7)", () => {
 // (capability-validation failure leaves the node `degraded`) + `Spec-003 §Required Behavior` / `Spec-003 §Default Behavior` (the
 // control plane is NOT the daemon-side capability-declaration authority) +
 // Plan-003 §Invariants I-003-2 (cannot drive registering -> online) / I-003-3
-// (no session_memberships mutation) / I-003-5 (single active attachment) +
+// (no session-directory mutation) / I-003-5 (single active attachment) +
 // ADR-017 (no control-plane event log).
 //
 // updateCapabilities refreshes the `capabilities` JSONB snapshot (the discovery
@@ -1707,13 +1655,12 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh, T3.9
     expect(inactiveAfter).toEqual(inactiveBefore);
   });
 
-  it("leaves a co-resident session_memberships row byte-for-byte unchanged (I-003-3)", async () => {
-    // I-003-3: the runtime-node domain is disjoint from the membership domain
-    // (cross-plan-dependencies.md §1). A capability update must touch ONLY
-    // runtime_node_attachments — never read-for-update, insert, update, or delete
-    // a session_memberships row. Asserted along the SAME two disjoint mutation
-    // modes as the attach / detach I-003-3 tests (byte-identity snapshot + total
-    // count).
+  it("leaves the session row byte-for-byte unchanged", async () => {
+    // The runtime-node domain is disjoint from the session directory. A
+    // capability update must touch ONLY runtime_node_attachments — never
+    // read-for-update, insert, update, or delete a `sessions` row. Asserted
+    // along the SAME two disjoint mutation modes as the attach and detach tests
+    // (byte-identity snapshot + total count).
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID);
     await seedAttachment(ctx.querier, {
@@ -1722,16 +1669,10 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh, T3.9
       nodeId: NODE_ID,
       state: "online",
     });
-    const membershipId = await seedMembership(ctx.querier, {
-      sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
-      role: "owner",
-      state: "active",
-    });
 
-    const before = await readMembershipRow(ctx.querier, membershipId);
+    const before = await readSessionRow(ctx.querier, SESSION_ID);
     expect(before).toBeDefined();
-    expect(await countMemberships(ctx.querier)).toBe(1);
+    expect(await countSessions(ctx.querier)).toBe(1);
 
     await ctx.service.updateCapabilities(
       buildCapabilityUpdateRequest({ healthChanges: { state: "degraded" } }),
@@ -1739,9 +1680,9 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh, T3.9
 
     // (1) Byte-for-byte identity of the seeded row catches an in-place UPDATE;
     // (2) unchanged total count catches a stray INSERT/DELETE of a DIFFERENT row.
-    const after = await readMembershipRow(ctx.querier, membershipId);
+    const after = await readSessionRow(ctx.querier, SESSION_ID);
     expect(after).toEqual(before);
-    expect(await countMemberships(ctx.querier)).toBe(1);
+    expect(await countSessions(ctx.querier)).toBe(1);
   });
 
   it("emits no durable event and confines its write surface to runtime_node_attachments (ADR-017)", async () => {
@@ -1753,7 +1694,7 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh, T3.9
     // by confining the write surface: an active capability update with a health
     // change writes runtime_node_attachments (the slot row) and touches NEITHER
     // runtime_node_presence (the liveness axis stays heartbeat-owned, T3.6 — the
-    // axes are orthogonal) NOR session_memberships. (There is no events table to
+    // axes are orthogonal) NOR the `sessions` row. (There is no events table to
     // assert against — inventing one would be inventing a control-plane event
     // log ADR-017 forbids.)
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
@@ -1778,9 +1719,9 @@ describe("AttachService — updateCapabilities (discovery-snapshot refresh, T3.9
     // ...while NO presence row was created (the liveness axis is untouched —
     // a heartbeat-owned table the capability update never writes)...
     expect(await readPresenceRow(ctx.querier, NODE_ID)).toBeUndefined();
-    // ...and NO session_memberships row was created (I-003-3 — the membership
-    // domain is disjoint).
-    expect(await countMemberships(ctx.querier)).toBe(0);
+    // ...and the session directory still holds exactly the one seeded row (the
+    // capability update neither created nor removed a session).
+    expect(await countSessions(ctx.querier)).toBe(1);
   });
 });
 
@@ -1978,9 +1919,9 @@ describe("AttachService — updateCapabilities version-floor write-refusal (P4 /
 // of admit-not-eject), and carries BOTH health axes verbatim with no collapsed
 // scalar (`Spec-003 §Default Behavior` — reconciliation is the client's render-time concern). The
 // read NEVER derives staleness (the T3.6 sweep stays the single
-// liveness-derivation writer) and writes NOTHING (I-003-3: no
-// session_memberships access; ADR-017: no durable event — structural, the
-// control plane has no event log).
+// liveness-derivation writer) and writes NOTHING: it mutates no `sessions` row,
+// and writes no durable event — structural, the control plane has no event
+// log.
 //
 // The blocks below pin: all-five-states visibility (offline/revoked included);
 // attach -> roster end-to-end multi-node coexistence (AC3 / `Spec-003 §Required Behavior`);
@@ -2314,13 +2255,13 @@ describe("AttachService — readRoster (roster projection, T5.0c)", () => {
     expect(roster.controlHolder).toBeNull();
   });
 
-  it("writes NOTHING — attachments, presence, and session_memberships are byte-for-byte unchanged across a roster read (I-003-3; ADR-017)", async () => {
+  it("writes NOTHING — attachments, presence, and the session row are byte-for-byte unchanged across a roster read", async () => {
     // The read-only-projection property, asserted across the FULL write
     // surface with the suite's standard two disjoint mutation modes
     // (byte-identity snapshot + total count): the attachment row, the presence
-    // row, and a co-resident membership row all survive a roster read
-    // byte-for-byte, and no table gains or loses a row. The no-durable-event
-    // property is STRUCTURAL, exactly as the updateCapabilities ADR-017 test
+    // row, and the session row all survive a roster read byte-for-byte, and no
+    // table gains or loses a row. The no-durable-event property is STRUCTURAL,
+    // exactly as the updateCapabilities no-event-log test
     // pins it: AttachService takes ONLY a Querier (no event-emitter
     // dependency) and the control plane has no event log/table to write — the
     // roster read PROJECTS coordination records, colliding with nothing the
@@ -2334,19 +2275,13 @@ describe("AttachService — readRoster (roster projection, T5.0c)", () => {
       state: "online",
     });
     await seedPresence(ctx.querier, { nodeId: NODE_ID, healthState: "online" });
-    const membershipId = await seedMembership(ctx.querier, {
-      sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
-      role: "owner",
-      state: "active",
-    });
 
     const attachmentBefore = await readAttachmentRowWithTimestamp(ctx.querier, NODE_ID, SESSION_ID);
     const presenceBefore = await readPresenceRow(ctx.querier, NODE_ID);
-    const membershipBefore = await readMembershipRow(ctx.querier, membershipId);
+    const sessionRowBefore = await readSessionRow(ctx.querier, SESSION_ID);
     expect(attachmentBefore).toBeDefined();
     expect(presenceBefore).toBeDefined();
-    expect(membershipBefore).toBeDefined();
+    expect(sessionRowBefore).toBeDefined();
 
     const response = await ctx.service.readRoster({ sessionId: SESSION_ID });
     expect(response.nodes).toHaveLength(1);
@@ -2356,11 +2291,11 @@ describe("AttachService — readRoster (roster projection, T5.0c)", () => {
       attachmentBefore,
     );
     expect(await readPresenceRow(ctx.querier, NODE_ID)).toEqual(presenceBefore);
-    expect(await readMembershipRow(ctx.querier, membershipId)).toEqual(membershipBefore);
+    expect(await readSessionRow(ctx.querier, SESSION_ID)).toEqual(sessionRowBefore);
     // ...and unchanged totals (mode 2 — no stray INSERT/DELETE anywhere).
     expect(await countAttachments(ctx.querier)).toBe(1);
     expect(await countPresence(ctx.querier)).toBe(1);
-    expect(await countMemberships(ctx.querier)).toBe(1);
+    expect(await countSessions(ctx.querier)).toBe(1);
   });
 
   it("fails CLOSED on a corrupted stored client_version — the read boundary parses, never casts", async () => {

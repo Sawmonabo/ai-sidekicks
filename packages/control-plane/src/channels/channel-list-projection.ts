@@ -25,8 +25,8 @@
 //   who created them; because the bootstrap main channel always exists
 //   logically for any session that exists, this projection SYNTHESIZES exactly
 //   that one channel from the control plane's OWN data (the `sessions` row's
-//   existence plus the membership count) and stamps its id with the shared
-//   `deriveMainChannelId`. It does not — and must not — add a channels table
+//   existence) and stamps its id with the shared `deriveMainChannelId`. It
+//   does not — and must not — add a channels table
 //   or depend on `@ai-sidekicks/runtime-daemon`; runtime channel creation
 //   (`ChannelCreate`, additional channels) is owned by the daemon.
 //
@@ -42,7 +42,6 @@ import type {
   ChannelListResponse,
   ChannelListResponseChannel,
   ChannelState,
-  MembershipState,
 } from "@ai-sidekicks/contracts";
 
 import type { Querier } from "../sessions/migration-runner.js";
@@ -74,14 +73,16 @@ const MAIN_CHANNEL_STATE: ChannelState = "active";
 // derived channel id never collide).
 
 /**
- * Membership-state filter for `participantCount`.
+ * `participantCount` for the bootstrap channel.
  *
- * The count reflects participants ACTUALLY present in the channel, so it
- * counts only `active` memberships. `createSession` inserts the owner row with
- * `state = 'active'`; any non-`active` row is not present in the channel, so
- * `state = 'active'` is the correct "currently present" predicate.
+ * One user owns a session and no other person is ever on it, so the count of
+ * people present in the channel is the owner alone. It is a constant rather
+ * than a query because the session row's existence — already probed below — is
+ * the whole of the evidence: the owner is bound at create time on that same
+ * row and cannot leave. A count of the user's connected DEVICES is a different
+ * figure and belongs to the device-presence surface, not here.
  */
-const ACTIVE_MEMBERSHIP_STATE: MembershipState = "active";
+const OWNER_PARTICIPANT_COUNT = 1;
 
 // --------------------------------------------------------------------------
 // Internal row shapes
@@ -89,13 +90,6 @@ const ACTIVE_MEMBERSHIP_STATE: MembershipState = "active";
 
 interface SessionExistenceRow {
   readonly id: string;
-}
-
-interface ParticipantCountRow {
-  // `SELECT COUNT(*)::int AS n` — the `::int` cast keeps the value a JS number
-  // (Postgres returns BIGINT for COUNT(*), which `pg` would otherwise hydrate
-  // as a string).
-  readonly n: number;
 }
 
 export class ChannelListProjection {
@@ -131,18 +125,7 @@ export class ChannelListProjection {
       return null;
     }
 
-    // 2. Count participants actually present in the channel. `state = 'active'`
-    //    — see `ACTIVE_MEMBERSHIP_STATE` docstring for the filter rationale.
-    const countProbe = await this.#querier.query<ParticipantCountRow>(
-      "SELECT COUNT(*)::int AS n FROM session_memberships WHERE session_id = $1 AND state = $2",
-      [request.sessionId, ACTIVE_MEMBERSHIP_STATE],
-    );
-    // `?? 0` defends the empty-result edge (a count query always returns one
-    // row in practice, but `noUncheckedIndexedAccess` makes the optional
-    // access explicit, and 0 is the correct floor for "no active members").
-    const participantCount: number = countProbe.rows[0]?.n ?? 0;
-
-    // 3. Synthesize the single bootstrap "main" channel.
+    // 2. Synthesize the single bootstrap "main" channel.
     const mainChannel: ChannelListResponseChannel = {
       id: deriveMainChannelId(request.sessionId),
       // Always present — the bootstrap channel is never unnamed. We set the
@@ -150,7 +133,7 @@ export class ChannelListProjection {
       // `exactOptionalPropertyTypes`.
       name: MAIN_CHANNEL_NAME,
       state: MAIN_CHANNEL_STATE,
-      participantCount,
+      participantCount: OWNER_PARTICIPANT_COUNT,
     };
 
     return { channels: [mainChannel] };

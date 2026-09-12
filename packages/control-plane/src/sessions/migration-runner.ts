@@ -1,15 +1,13 @@
-// Schema migration runner for the Collaboration Control Plane Postgres
-// database.
+// Schema migration runner for the control-plane Postgres database.
 //
-// Plan-001 PR #4 ships migration version 1 (`migrations/0001-initial.ts`);
-// Plan-002 PR #102 ships migration version 2 (`migrations/0002-session-invites.ts`)
-// via cross-plan Amendment 2 (see `docs/plans/002-invite-membership-and-presence.md`
-// §Cross-Plan Amendments); Plan-003 PR #145 ships migration version 3
-// (`migrations/0003-runtime-nodes.ts` — the `runtime_node_attachments` +
-// `runtime_node_presence` tables). The runner iterates the `MIGRATIONS` array declared
-// below — to register a v3+ migration, add `{ version: N, sql: ... }` in
-// ascending version order. Subsequent plans (003, 006, 015, 022...) will
-// register additional migrations the same way.
+// Version 1 is `migrations/0001-initial.ts` (the identity anchor and the
+// session directory); version 3 is `migrations/0003-runtime-nodes.ts` (the
+// `runtime_node_attachments` + `runtime_node_presence` tables); version 4 is
+// `migrations/0004-event-log-anchors.ts`. Version 2 was the invite table and
+// is gone — the runner probes each registered version independently, so the
+// gap in the sequence costs nothing. The runner iterates the `MIGRATIONS`
+// array declared below; to register a new migration, add
+// `{ version: N, sql: ... }` in ascending version order.
 //
 // SQL is sourced as a TypeScript string constant (not a sibling .sql file)
 // because `tsc -b` does not copy non-TS assets into `dist/` and `package.json`
@@ -44,12 +42,11 @@
 // the imports).
 //
 // Cross-process production migrations are still expected to run via the
-// release pipeline (ADR-023 owns release automation), but concurrent
+// release pipeline, but concurrent
 // daemon-boot calls into `applyMigrations` are no longer required to
 // avoid the race externally — the runner now closes it at the source.
 
 import { INITIAL_MIGRATION_SQL } from "../migrations/0001-initial.js";
-import { SESSION_INVITES_MIGRATION_SQL } from "../migrations/0002-session-invites.js";
 import { RUNTIME_NODES_MIGRATION_SQL } from "../migrations/0003-runtime-nodes.js";
 import { EVENT_LOG_ANCHORS_MIGRATION_SQL } from "../migrations/0004-event-log-anchors.js";
 
@@ -68,27 +65,20 @@ import { EVENT_LOG_ANCHORS_MIGRATION_SQL } from "../migrations/0004-event-log-an
 //      entries — production databases will have applied them in the order
 //      shown.
 //
-// Plan-002 Amendment 2 added v2 (`SESSION_INVITES_MIGRATION_SQL`); prior to
-// Amendment 2 the runner was hardcoded to v1 only and `0002-session-invites`
-// would have shipped as an orphan migration on `develop` until Plan-002
-// Phase 2's service-layer wiring landed. Wiring v2 into the runner at the
-// same commit as the SQL file removes that gap.
-//
-// Plan-006 T3.3 added v4 (`EVENT_LOG_ANCHORS_MIGRATION_SQL`) under that same
-// same-commit rule, which is why its registration is in the change set that
-// introduced the SQL file rather than a follow-up: an `event_log_anchors` table
+// A migration's SQL file and its registration here land in the SAME commit.
+// A file that exists on disk but not in this array is an orphan: an
+// `event_log_anchors` table
 // that exists on disk but not in this array is a table the anchor-upload
 // procedure writes to and no deployer has.
 //
 // Version values are plain `number` (not `bigint`): the `schema_migrations.version`
 // column is `integer` (see `migrations/0001-initial.ts`), version values are
-// small monotone integers (1, 2, 3, ...), and `hasMigrationApplied` takes
+// small monotone integers, and `hasMigrationApplied` takes
 // `version: number`. The `MIGRATION_LOCK_ID` constant below is `bigint`
 // because `pg_advisory_xact_lock($1)` takes a Postgres `bigint`; that is the
 // only place BigInt is load-bearing in this module.
 const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly sql: string }> = [
   { version: 1, sql: INITIAL_MIGRATION_SQL },
-  { version: 2, sql: SESSION_INVITES_MIGRATION_SQL },
   { version: 3, sql: RUNTIME_NODES_MIGRATION_SQL },
   { version: 4, sql: EVENT_LOG_ANCHORS_MIGRATION_SQL },
 ];
@@ -96,8 +86,8 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly sql: string
 // Stable advisory-lock ID for ai-sidekicks control-plane migrations.
 // `pg_advisory_xact_lock` takes a bigint; the value must be unique
 // relative to ALL OTHER advisory-lock callers in the same Postgres
-// database. We own the database today (Plan-001), so collision is
-// impossible — but a future plan that adds an additional advisory-lock
+// database. We own the database today, so collision is
+// impossible — but a future caller that adds an additional advisory-lock
 // caller (e.g. for cross-replica coordination of a recurring job) MUST
 // pick a distinct constant. `9_000_000_001` was chosen as a memorable
 // value well outside the typical application id-space (most apps key on
@@ -106,7 +96,7 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly sql: string
 // would silently permit the race the lock is meant to prevent. See the
 // "Advisory Lock ID Registry" subsection in
 // `docs/architecture/schemas/shared-postgres-schema.md` for the
-// cross-plan ID-space allocation.
+// ID-space allocation.
 const MIGRATION_LOCK_ID = 9_000_000_001n;
 
 /**

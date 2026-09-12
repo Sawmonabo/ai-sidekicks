@@ -17,7 +17,7 @@
 //   * I-003-3 (registration records a node without mutating membership): a
 //     successful register touches `node_trust_state` + `session_events` ONLY,
 //     and the timeline event is the audit-distinct `runtime_node.registered`
-//     type. (Membership lives in control-plane Postgres `session_memberships`,
+//     type. (Session ownership lives in control-plane Postgres `sessions`,
 //     NOT in the daemon's Local SQLite schema — so the daemon registry is
 //     STRUCTURALLY incapable of mutating it: the table is absent here, asserted
 //     below. The end-to-end no-membership-mutation proof is a Phase-3
@@ -139,7 +139,7 @@ function capabilityRowCount(db: DatabaseType, nodeId: string): number {
   return row.count;
 }
 
-// Count the Local SQLite tables touched by registration. `session_memberships`
+// Count the Local SQLite tables touched by registration. `sessions`
 // is intentionally NOT one of them — it is a control-plane Postgres table, not
 // part of this daemon schema (see migrations/0001-initial.ts).
 function tableExists(db: DatabaseType, tableName: string): boolean {
@@ -269,17 +269,17 @@ describe("NodeRegistry — D1 (durable identity across DB reopen)", () => {
 });
 
 // ----------------------------------------------------------------------------
-// I-003-3 — registration records a node without mutating membership
+// Registration records a node without mutating the session directory
 // ----------------------------------------------------------------------------
 
-describe("NodeRegistry — I-003-3 (registration does not mutate session_memberships)", () => {
-  it("writes only node_trust_state + a distinct runtime_node.registered event; membership is structurally untouchable here", async () => {
+describe("NodeRegistry — registration does not mutate the session directory", () => {
+  it("writes only node_trust_state + a distinct runtime_node.registered event; the directory is structurally untouchable here", async () => {
     const registry: NodeRegistry = makeRegistry();
 
-    // Structural proof: the daemon Local SQLite schema has NO session_memberships
-    // table (it is a control-plane Postgres surface), so the registry CANNOT
-    // mutate membership — there is nothing here to mutate.
-    expect(tableExists(ctx.db, "session_memberships")).toBe(false);
+    // Structural proof: the daemon Local SQLite schema has NO `sessions` table
+    // (it is a control-plane Postgres surface), so the registry CANNOT mutate
+    // the session directory — there is nothing here to mutate.
+    expect(tableExists(ctx.db, "sessions")).toBe(false);
 
     // Capture the row counts of the tables that DO exist before registering, so
     // we can prove registration touched only the two expected tables.

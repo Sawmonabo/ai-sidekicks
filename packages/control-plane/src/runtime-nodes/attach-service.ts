@@ -39,7 +39,7 @@
 //     carries no `sessionId`). Idempotent: a node with no active attachment is a
 //     clean `null` no-op (presence untouched). Writes the terminal state
 //     `offline` ONLY — it is NOT a `revoked` producer (see the detach scope note
-//     under Cross-task boundaries). Never touches `session_memberships` (I-003-3).
+//     under Cross-task boundaries). Never touches `sessions`.
 //   * updateCapabilities — the capability-declaration refresh (T3.9; Spec-003
 //     `Spec-003 §Default Behavior` "the node declares its capabilities"). Resolves the node's SINGLE
 //     active attachment by `nodeId` (I-003-5 — the request carries no
@@ -79,23 +79,19 @@
 //     — the namespace's FIRST (and only) query, control-plane tRPC ONLY.
 //
 // Invariant fidelity (this task's `verifies_invariant`):
-//   * I-003-3 (attach must not mutate session_memberships): the attach flow
-//     writes ONLY `runtime_node_attachments` and acquires NO `session_memberships`
-//     lock — it never references, SELECTs FOR UPDATE, or UPDATEs that table. The
-//     runtime-node attach domain is entirely disjoint from the membership domain
-//     Plan-001/Plan-002 own (cross-plan-dependencies.md §1; 0003-runtime-nodes.ts
-//     header "Cross-plan boundary"). T3.2's test asserts the byte-for-byte
-//     no-mutation property by re-SELECTing a seeded membership row's columns
-//     after a successful attach. The DETACH path holds the same invariant: it
-//     writes ONLY the two runtime-node tables (`runtime_node_attachments` +
-//     `runtime_node_presence`) and never references `session_memberships`, so an
-//     offline/detached node retains its membership (`Spec-003 §Required Behavior`). P8 asserts
-//     the byte-for-byte membership no-mutation across a detach (snapshot + count,
-//     the same two disjoint mutation modes as the attach test). The ROSTER READ
-//     (T5.0c) holds the invariant by the same disjointness: readRoster's single
-//     SELECT touches only the two runtime-node tables plus the `sessions` floor
-//     column and never references `session_memberships` — asserted by the same
-//     snapshot + count pattern across a roster read.
+//   * Attach must not mutate the session directory: the attach flow writes
+//     ONLY `runtime_node_attachments` and acquires NO `sessions` lock — it
+//     never SELECTs that table FOR UPDATE and never UPDATEs it. The
+//     runtime-node attach domain is entirely disjoint from the session
+//     directory (see the 0003-runtime-nodes.ts header "Cross-plan boundary").
+//     The test asserts the byte-for-byte no-mutation property by re-SELECTing
+//     a seeded session row's columns after a successful attach. The DETACH
+//     path holds the same property: it writes ONLY the two runtime-node
+//     tables (`runtime_node_attachments` + `runtime_node_presence`), so a
+//     detached node leaves the session row exactly as it found it. The ROSTER
+//     READ holds it by the same disjointness: readRoster's single SELECT
+//     touches only the two runtime-node tables plus the `sessions` floor
+//     column and writes nothing.
 //   * I-003-5 (single active attachment): enforced at the DATABASE layer by the
 //     partial-unique `idx_node_attachments_active` (one active-state row per
 //     node across all sessions). The service does not re-check this in
@@ -179,8 +175,7 @@
 // presence / derived readOnly / never-mask / ADR-017 non-collision); Plan-003 §Invariants
 // I-003-1 (admit below-floor read-only,
 // write-refuse, never eject) / I-003-2 (the control plane cannot drive a node
-// registering -> online — the updateCapabilities guard) / I-003-3 (no
-// session_memberships mutation, attach AND detach AND the roster read) /
+// registering -> online — the updateCapabilities guard) /
 // I-003-5 (single active
 // attachment — detach AND updateCapabilities resolve the one active row by
 // `nodeId`) + T3.2 (P1 / P9 / P10) + T3.3 (P2 / P3 floor comparison) + T3.7
@@ -601,12 +596,12 @@ export class AttachService {
    *   2. On one retired row, set presence `health_state -> offline` (liveness
    *      axis) — UPDATE-only, a no-op when the node never heartbeated.
    *
-   * I-003-3 (attach-membership separation): detach writes ONLY
+   * Attach-directory separation: detach writes ONLY
    * `runtime_node_attachments` + `runtime_node_presence`. It NEVER references,
-   * SELECTs FOR UPDATE, INSERTs, UPDATEs, or DELETEs `session_memberships` — an
-   * offline/detached node retains its membership (`Spec-003 §Required Behavior`). The attach
-   * domain is disjoint from the membership domain. P8 asserts the
-   * byte-for-byte no-mutation property across a detach (snapshot + count).
+   * SELECTs FOR UPDATE, INSERTs, UPDATEs, or DELETEs `sessions` — a detached
+   * node leaves the session row exactly as it found it. The attach domain is
+   * disjoint from the session directory, and the test asserts the
+   * byte-for-byte no-mutation property across a detach.
    */
   async detach(request: RuntimeNodeDetachRequest): Promise<null> {
     // Trust-boundary validation — parse rather than trust the caller, mirroring
@@ -744,10 +739,10 @@ export class AttachService {
    *
    * Write surface — `runtime_node_attachments` ONLY. It writes NO
    * `runtime_node_presence` row and bumps NO `last_heartbeat_at` (the liveness
-   * clock is heartbeat-owned, T3.6 — the axes stay orthogonal), mutates NO
-   * `session_memberships` (I-003-3 — the runtime-node domain is disjoint from the
-   * membership domain), and emits NO durable `runtime_node.*` event (ADR-017 —
-   * no control-plane event log). A thrown refusal rolls the transaction back, so
+   * clock is heartbeat-owned — the axes stay orthogonal), mutates NO
+   * `sessions` row (the runtime-node domain is disjoint from the session
+   * directory), and emits NO durable `runtime_node.*` event (the control plane
+   * has no event log). A thrown refusal rolls the transaction back, so
    * a refused update leaves `runtime_node_attachments` byte-for-byte unchanged.
    *
    * Floor-gate scope: the version-floor write-refusal (step 3) lives ONLY here,
@@ -975,8 +970,8 @@ export class AttachService {
    * `Querier.transaction(...)`, no `FOR UPDATE` (a single statement is already
    * a consistent snapshot, and locking a read would serialize against the
    * attach / detach / capability writers for zero integrity gain). It writes
-   * NOTHING: no `session_memberships` access at all (I-003-3), and no durable
-   * `runtime_node.*` event (ADR-017 — the control plane has no event log; the
+   * NOTHING: it mutates no `sessions` row, and writes no durable
+   * `runtime_node.*` event (the control plane has no event log; the
    * read PROJECTS coordination records, so it does not collide with the
    * ADR-017 §Server-Derived Runtime-Node Lifecycle Events V1.1 gate, which
    * governs durable event AUTHORSHIP, not coordination-record reads).

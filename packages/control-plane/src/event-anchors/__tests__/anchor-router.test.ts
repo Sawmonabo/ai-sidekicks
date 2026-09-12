@@ -40,6 +40,7 @@ import { applyMigrations, type Querier } from "../../sessions/migration-runner.j
 // ----------------------------------------------------------------------------
 
 const SESSION_ID = "01970000-0000-7000-8000-00000000a001" as SessionId;
+const SESSION_OWNER_ID = "01970000-0000-7000-8000-00000000b0ff";
 const ABSENT_SESSION_ID = "01970000-0000-7000-8000-00000000dead" as SessionId;
 const CURRENT_PARTICIPANT_ID = "01970000-0000-7000-8000-00000000b001" as ParticipantId;
 const NEXT_SESSION_ID = "01970000-0000-7000-8000-00000000a002" as SessionId;
@@ -127,7 +128,12 @@ beforeEach(async () => {
   pg = new PGlite();
   const querier: Querier = adaptPGlite(pg);
   await applyMigrations(querier);
-  await querier.query("INSERT INTO sessions (id) VALUES ($1)", [SESSION_ID]);
+  // A session needs the user who owns it — `owner_user_id` is NOT NULL.
+  await querier.query("INSERT INTO participants (id) VALUES ($1)", [SESSION_OWNER_ID]);
+  await querier.query("INSERT INTO sessions (id, owner_user_id) VALUES ($1, $2)", [
+    SESSION_ID,
+    SESSION_OWNER_ID,
+  ]);
   handler = buildControlPlaneFetchHandler(
     makePassThroughDeps({
       querier,

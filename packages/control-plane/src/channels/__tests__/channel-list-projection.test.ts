@@ -8,8 +8,8 @@
 //     of the session id via the shared `deriveMainChannelId`); it is NOT born
 //     from a `ChannelCreated` event. The control plane has no channels table;
 //     the projection SYNTHESIZES this channel from its own data (the
-//     `sessions` row + the membership count), which is correct because every
-//     session that exists has the bootstrap main channel by that invariant.
+//     `sessions` row's existence), which is correct because every session that
+//     exists has the bootstrap main channel by that invariant.
 //     See the channel-list-projection.ts header.
 //   * The default-channel projection is LIVE (non-empty) the moment the
 //     session exists — it is NOT gated behind any "channel created" event.
@@ -17,13 +17,7 @@
 //     `ChannelListResponseSchema`.
 //   * Determinism: the same `sessionId` yields a byte-identical channel `id`
 //     across two separate `list()` calls (the projection holds no state).
-//   * participantCount: a session with N active members reports
-//     `participantCount === N`; adding an active member is reflected.
-//   * participantCount filter: only `active` memberships are counted —
-//     `pending` / `suspended` / `revoked` rows are excluded (pins the
-//     `state = 'active'` filter choice documented in
-//     channel-list-projection.ts; a regression to "count all rows" must fail
-//     here).
+//   * participantCount: the owner alone, on every session.
 //   * Absent session: a `sessionId` with no row returns `null` — mirroring
 //     `readSession`'s null-on-absent convention exactly.
 //
@@ -33,7 +27,7 @@
 // `adaptPGlite`/`wrap` PGlite -> Querier adapter. Sessions are seeded via
 // `SessionDirectoryService.createSession` (the real create path) rather than
 // hand-rolled INSERTs, so the test exercises the projection against rows shaped
-// exactly as production writes them (owner membership at `state = 'active'`).
+// exactly as production writes them.
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -60,8 +54,6 @@ const ABSENT_SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000d4099" as S
 const OWNER_PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-0000000d4b01" as ParticipantId;
 const SECOND_PARTICIPANT_ID: ParticipantId =
   "01970000-0000-7000-8000-0000000d4b02" as ParticipantId;
-const PENDING_PARTICIPANT_ID: ParticipantId =
-  "01970000-0000-7000-8000-0000000d4b03" as ParticipantId;
 
 // RFC 9562 §4: a canonical UUID string. The projection's derived id is a
 // version-8 (custom/deterministic) UUID; this regex pins the 8-4-4-4-12 hex
@@ -146,44 +138,25 @@ beforeEach(async () => {
   };
 });
 
-// Seed an identity-anchor row in `participants`. `session_memberships`
-// declares `participant_id UUID NOT NULL REFERENCES participants(id)`
-// a non-deferrable FK, so any participant id used in a membership row MUST
-// pre-exist in `participants` — the same seeding the directory-service suite
-// does before every createSession. Real participant registration lives
-// elsewhere; tests insert the bare id anchor directly. `ON CONFLICT (id)
-// DO NOTHING` keeps the helper idempotent so a participant can be seeded once
-// and reused across helpers within a test.
+// Seed an identity-anchor row in `participants`. `sessions` declares
+// `owner_user_id UUID NOT NULL REFERENCES participants(id)`, a non-deferrable
+// FK, so a session's owner MUST pre-exist in `participants` — the same seeding
+// the directory-service suite does before every createSession. Real user
+// registration lives elsewhere; tests insert the bare id anchor directly.
+// `ON CONFLICT (id) DO NOTHING` keeps the helper idempotent so a user can be
+// seeded once and reused across helpers within a test.
 async function seedParticipant(participantId: ParticipantId): Promise<void> {
   await ctx.querier.query("INSERT INTO participants (id) VALUES ($1) ON CONFLICT (id) DO NOTHING", [
     participantId,
   ]);
 }
 
-// Seed a session with its owner membership via the real create path, so the
-// projection runs against rows shaped exactly as production writes them. The
-// owner participant anchor is seeded first to satisfy the membership FK.
+// Seed a session via the real create path, so the projection runs against rows
+// shaped exactly as production writes them. The owner anchor is seeded first to
+// satisfy the session's owner FK.
 async function createSession(sessionId: SessionId, ownerId: ParticipantId): Promise<void> {
   await seedParticipant(ownerId);
   await ctx.directory.createSession({ sessionId, ownerParticipantId: ownerId });
-}
-
-// Insert a membership row directly at an arbitrary state — used to seed
-// rows that the public service surface (createSession) never produces, so the
-// `state = 'active'` count filter can be exercised against
-// `pending`/`suspended`/`revoked` rows, and a second active member can be
-// added. Seeds the participant anchor first to satisfy the FK.
-async function insertMembership(
-  sessionId: SessionId,
-  participantId: ParticipantId,
-  state: string,
-): Promise<void> {
-  await seedParticipant(participantId);
-  await ctx.querier.query(
-    `INSERT INTO session_memberships (session_id, participant_id, role, state, joined_at)
-     VALUES ($1, $2, 'viewer', $3, now())`,
-    [sessionId, participantId, state],
-  );
 }
 
 describe("ChannelListProjection.list", () => {
@@ -268,38 +241,21 @@ describe("ChannelListProjection.list", () => {
     expect(first!.channels[0]!.id).not.toBe(other!.channels[0]!.id);
   });
 
-  it("participantCount reflects the number of active members", async () => {
+  it("participantCount is the owner alone, for every session", async () => {
+    // One user owns a session and no other person is ever on it, so the count
+    // of people in the channel is 1 on every session and cannot be moved by
+    // anything the projection reads. A regression that reintroduced a count
+    // query — over a table that no longer exists — would fail here rather than
+    // silently reporting 0.
+    const OTHER_SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000d4003" as SessionId;
     await createSession(SESSION_ID, OWNER_PARTICIPANT_ID);
+    await createSession(OTHER_SESSION_ID, SECOND_PARTICIPANT_ID);
 
-    // Owner only → 1.
-    const beforeSecondMember = await ctx.projection.list({ sessionId: SESSION_ID });
-    expect(beforeSecondMember!.channels[0]!.participantCount).toBe(1);
+    const first = await ctx.projection.list({ sessionId: SESSION_ID });
+    const other = await ctx.projection.list({ sessionId: OTHER_SESSION_ID });
 
-    // Add a second active member → 2.
-    await insertMembership(SESSION_ID, SECOND_PARTICIPANT_ID, "active");
-    const afterSecondMember = await ctx.projection.list({ sessionId: SESSION_ID });
-    expect(afterSecondMember!.channels[0]!.participantCount).toBe(2);
-  });
-
-  it("participantCount counts ONLY active memberships (excludes pending/suspended/revoked)", async () => {
-    // Pins the `state = 'active'` filter choice: a `pending`, a `suspended`,
-    // and a `revoked` membership row are NOT present in the channel and MUST
-    // NOT inflate the live participant count. A regression to
-    // "count all rows" would report 4 here instead of 1 and fail this test.
-    await createSession(SESSION_ID, OWNER_PARTICIPANT_ID); // owner: active
-
-    await insertMembership(SESSION_ID, PENDING_PARTICIPANT_ID, "pending");
-    await insertMembership(SESSION_ID, SECOND_PARTICIPANT_ID, "suspended");
-    await insertMembership(
-      SESSION_ID,
-      "01970000-0000-7000-8000-0000000d4b04" as ParticipantId,
-      "revoked",
-    );
-
-    const result = await ctx.projection.list({ sessionId: SESSION_ID });
-
-    // Only the owner's `active` membership is counted.
-    expect(result!.channels[0]!.participantCount).toBe(1);
+    expect(first!.channels[0]!.participantCount).toBe(1);
+    expect(other!.channels[0]!.participantCount).toBe(1);
   });
 
   it("returns null for a session that does not exist (mirrors readSession's null-on-absent)", async () => {

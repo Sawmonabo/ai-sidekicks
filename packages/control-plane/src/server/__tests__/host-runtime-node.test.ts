@@ -70,6 +70,12 @@ const NEXT_SESSION_ID: SessionId = "01970000-0000-7000-8000-0000000e0001" as Ses
 // `NEXT_SESSION_ID`; `NODE_ID` is a daemon-minted opaque TEXT scalar (not a UUID).
 const SESSION_ID: SessionId = NEXT_SESSION_ID;
 const PARTICIPANT_ID: ParticipantId = CURRENT_PARTICIPANT_ID;
+
+// The user who owns the seeded sessions. Distinct from `CURRENT_PARTICIPANT_ID`
+// so the seed does not accidentally pre-register the caller the dispatches act
+// as; `sessions.owner_user_id` is NOT NULL, so every session seed needs one.
+const SESSION_OWNER_PARTICIPANT_ID: ParticipantId =
+  "01970000-0000-7000-8000-0000000f00ff" as ParticipantId;
 const NODE_ID: NodeId = "node-alpha-01" as NodeId;
 
 // A second session id for the attach cross-session-conflict projection: the node
@@ -161,14 +167,20 @@ function buildAttachRequest(): Request {
 // Seed helpers for the projection dispatches — bypass the services to set up the
 // rows the capabilityupdate refusals exercise (mirrors runtime-node-router.test.ts).
 async function seedParticipant(querier: Querier, participantId: ParticipantId): Promise<void> {
-  await querier.query("INSERT INTO participants (id) VALUES ($1)", [participantId]);
+  await querier.query("INSERT INTO participants (id) VALUES ($1) ON CONFLICT DO NOTHING", [
+    participantId,
+  ]);
 }
 
 // Seed a session with NO floor (NULL `min_client_version`) — the attach
 // conflict/revoked refusals do not exercise the floor, so the
 // default-no-floor session is the minimal precondition.
 async function seedSession(querier: Querier, sessionId: SessionId): Promise<void> {
-  await querier.query("INSERT INTO sessions (id, state) VALUES ($1, 'active')", [sessionId]);
+  await seedParticipant(querier, SESSION_OWNER_PARTICIPANT_ID);
+  await querier.query("INSERT INTO sessions (id, owner_user_id, state) VALUES ($1, $2, 'active')", [
+    sessionId,
+    SESSION_OWNER_PARTICIPANT_ID,
+  ]);
 }
 
 // Seed a session with an explicit `min_client_version` floor (the floored
@@ -178,9 +190,10 @@ async function seedFlooredSession(
   sessionId: SessionId,
   minClientVersion: string,
 ): Promise<void> {
+  await seedParticipant(querier, SESSION_OWNER_PARTICIPANT_ID);
   await querier.query(
-    "INSERT INTO sessions (id, state, min_client_version) VALUES ($1, 'active', $2)",
-    [sessionId, minClientVersion],
+    "INSERT INTO sessions (id, owner_user_id, state, min_client_version) VALUES ($1, $2, 'active', $3)",
+    [sessionId, SESSION_OWNER_PARTICIPANT_ID, minClientVersion],
   );
 }
 

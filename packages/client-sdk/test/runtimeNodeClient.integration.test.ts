@@ -240,29 +240,21 @@ async function seedSession(
   sessionId: SessionId,
   minClientVersion?: string,
 ): Promise<void> {
+  // The owning user must exist before the session's owner FK can resolve, and
+  // some tests seed several sessions, so the insert is conflict-tolerant.
+  await querier.query("INSERT INTO participants (id) VALUES ($1) ON CONFLICT DO NOTHING", [
+    PARTICIPANT_ID,
+  ]);
   if (minClientVersion === undefined) {
-    await querier.query("INSERT INTO sessions (id, state) VALUES ($1, 'active')", [sessionId]);
+    await querier.query(
+      "INSERT INTO sessions (id, owner_user_id, state) VALUES ($1, $2, 'active')",
+      [sessionId, PARTICIPANT_ID],
+    );
     return;
   }
   await querier.query(
-    "INSERT INTO sessions (id, state, min_client_version) VALUES ($1, 'active', $2)",
-    [sessionId, minClientVersion],
-  );
-}
-
-// Seed an ACTIVE membership row (the "has joined a live session" precondition
-// in `Spec-003 §Acceptance Criteria` (AC1)). Direct INSERT bypassing joinSession; mirrors
-// host-runtime-node.test.ts's `seedMembership`. The attach path never reads it
-// (attach is a SEPARATE step from membership — `Spec-003 §Required Behavior`), but seeding it
-// keeps the scenario faithful to AC1's wording.
-async function seedMembership(
-  querier: Querier,
-  args: { sessionId: SessionId; participantId: ParticipantId; role: string; state: string },
-): Promise<void> {
-  await querier.query(
-    `INSERT INTO session_memberships (session_id, participant_id, role, state, joined_at)
-     VALUES ($1, $2, $3, $4, now())`,
-    [args.sessionId, args.participantId, args.role, args.state],
+    "INSERT INTO sessions (id, owner_user_id, state, min_client_version) VALUES ($1, $2, 'active', $3)",
+    [sessionId, PARTICIPANT_ID, minClientVersion],
   );
 }
 
@@ -538,12 +530,6 @@ describe("I1 / `Spec-003 §Acceptance Criteria` (AC1) + `Spec-003 §Required Beh
     // INSERTs — the SDK has no session-create surface.
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID);
-    await seedMembership(ctx.querier, {
-      sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
-      role: "owner",
-      state: "active",
-    });
 
     // Capture the session identity BEFORE attach: the whole row (byte-identity
     // target) and the count (no-recreation target). Exactly one session exists.
@@ -628,12 +614,6 @@ describe("I2 / `Spec-003 §Acceptance Criteria` (AC2) + `Spec-003 §Fallback Beh
     // SDK has no session-create surface.
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID);
-    await seedMembership(ctx.querier, {
-      sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
-      role: "owner",
-      state: "active",
-    });
 
     const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
 
@@ -731,12 +711,6 @@ describe("I2 / `Spec-003 §Acceptance Criteria` (AC2) + `Spec-003 §Fallback Beh
   it("control-plane transport: heartbeat resolves null and lands the presence row; the liveness axis stays independent of the capability axis", async () => {
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID);
-    await seedMembership(ctx.querier, {
-      sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
-      role: "owner",
-      state: "active",
-    });
 
     const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
     const attachResponse = await sdk.attach({
@@ -839,12 +813,6 @@ describe("I3 / `Spec-003 §Acceptance Criteria` (AC4) + I-003-1 — mixed-versio
     // (see the I3 fixture block).
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID, CLIENT_VERSION);
-    await seedMembership(ctx.querier, {
-      sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
-      role: "owner",
-      state: "active",
-    });
 
     const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
 
@@ -1000,12 +968,6 @@ describe("Detach lifecycle / `Spec-003 §Interfaces And Contracts` + `Spec-003 �
     // attach the subject node. Direct INSERTs, as in I1/I2/I3.
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID);
-    await seedMembership(ctx.querier, {
-      sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
-      role: "owner",
-      state: "active",
-    });
 
     const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
     const attachResponse = await sdk.attach({
@@ -1119,19 +1081,7 @@ describe("Roster read (T5.0d) / `Spec-003 §Acceptance Criteria` (AC2 + AC3 + AC
     // never reads them — `Spec-003 §Required Behavior`).
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID, CLIENT_VERSION);
-    await seedMembership(ctx.querier, {
-      sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
-      role: "owner",
-      state: "active",
-    });
     await seedSession(ctx.querier, OTHER_SESSION_ID);
-    await seedMembership(ctx.querier, {
-      sessionId: OTHER_SESSION_ID,
-      participantId: PARTICIPANT_ID,
-      role: "owner",
-      state: "active",
-    });
 
     const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
 
@@ -1238,12 +1188,6 @@ describe("Roster read (T5.0d) / `Spec-003 §Acceptance Criteria` (AC2 + AC3 + AC
     // AC2's.
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID);
-    await seedMembership(ctx.querier, {
-      sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
-      role: "owner",
-      state: "active",
-    });
 
     const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
 
@@ -1358,12 +1302,6 @@ describe("Roster read (T5.0d) / `Spec-003 §Acceptance Criteria` (AC2 + AC3 + AC
   it("control-plane transport: a corrupted stored client_version surfaces as a typed RuntimeNodeControlPlaneError via the untyped INTERNAL_SERVER_ERROR fallback branch", async () => {
     await seedParticipant(ctx.querier, PARTICIPANT_ID);
     await seedSession(ctx.querier, SESSION_ID);
-    await seedMembership(ctx.querier, {
-      sessionId: SESSION_ID,
-      participantId: PARTICIPANT_ID,
-      role: "owner",
-      state: "active",
-    });
 
     const sdk = buildControlPlaneRuntimeNodeClient(buildRuntimeNodeDeps(ctx.querier));
     await sdk.attach({
