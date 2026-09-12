@@ -30,7 +30,7 @@ function attachedController(): { controller: LedgerViewportController } {
 
 describe("the virtualizer seams — what the library is allowed to reach", () => {
   it("routes the library's own scroll write through the chokepoint, named", () => {
-    // `Spec-023 §Console Libraries` adopts this library because its scroller is ours.
+    // This library is adopted because its scroller is ours.
     // The default `scrollToFn` calls `scrollElement.scrollTo`, which names neither a
     // caller nor an amount — exactly the write the chokepoint exists to prevent.
     const { controller } = attachedController();

@@ -27,8 +27,8 @@
 //     supposed to work. The feed reads the store's assignment at the row it draws.
 //   • `isSuperseded` — a rollback ranking over the rows AROUND a row, which is
 //     `SupersededIndex`'s answer and never a member the row carries.
-//   • `density` — the list's collapse state, which is `Spec-023 §Console Design
-//     (Meridian)` rule 7: a terminal run's chapter folds and the live one stays open.
+//   • `density` — the list's collapse state: a terminal run's chapter folds and the
+//     live one stays open.
 //
 // WHAT THIS MODULE PRODUCES IS THE UNFURLED WINDOW — every member row of every
 // chapter, before any fold. The fold is `ledger-chapter-fold.ts`', and it is a

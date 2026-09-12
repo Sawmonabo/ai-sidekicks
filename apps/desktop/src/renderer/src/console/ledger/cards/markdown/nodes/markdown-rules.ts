@@ -1,6 +1,5 @@
-// The markdown rules — `Spec-023 §Console Libraries`' streaming-markdown and
-// math-and-diagrams rows as decisions rather than as prose, plus the two rules this
-// console owns because no committed document states them.
+// The markdown rules — the streaming-markdown and math-and-diagram constraints as
+// decisions rather than as prose, plus the two rules this console owns outright.
 //
 // The PIPELINE lives under `markdown/`: the segmenter, the parse, the mapper, the
 // footnote registry, the highlighter. This module is the policy that pipeline obeys,
@@ -26,9 +25,9 @@
 //      nothing is ever parsed as markup. A sanitizer here would be the console
 //      claiming it renders model HTML safely, which it does not do at all.
 //   4. **Path links come only from wire-validated path references.** Today there are
-//      none: `Plan-023 §Console growth slate` carries `timeline-path-reference`
-//      ("validated path-reference member on timeline rows", owned by Spec-013,
-//      `wireRegistered: false`). This module's own fallback is then binding — a
+//      none: the growth slate carries `timeline-path-reference`, a validated
+//      path-reference member on timeline rows, with `wireRegistered: false`. This
+//      module's own fallback is then binding — a
 //      surface with no validated allowlist ships no path links — so a link renders as
 //      its own text and nothing is clickable.
 //   5. **Footnotes resolve through one registry keyed by source**, so a definition
@@ -80,9 +79,9 @@ export function arePathLinksRenderable(): boolean {
  * node with the `mermaid` language — so the set is keyed by the fence's INFO STRING,
  * which is the only place either declares itself.
  *
- * Mermaid sits here permanently rather than until a renderer arrives.
- * `Spec-023 §Console Libraries` makes diagrams "opt-in, lazy, strict, user-triggered",
- * and opt-in plus user-triggered together mean a diagram is never drawn because a
+ * Mermaid sits here permanently rather than until a renderer arrives. Diagrams are
+ * opt-in, lazy, strict, and user-triggered, and opt-in plus user-triggered together mean
+ * a diagram is never drawn because a
  * message contained one. This console ships no control that asks for one, so a mermaid
  * fence renders as its source — which is exactly what deferral already does for it,
  * and why no mermaid dependency is on this package.

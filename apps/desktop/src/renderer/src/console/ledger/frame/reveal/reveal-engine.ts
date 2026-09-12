@@ -1,9 +1,8 @@
 // The reveal engine — N lanes streaming at once, none of them teleporting.
 //
-// `Spec-023 §The four bars`, Light on the machine: "streaming paints through a bounded
-// reveal budget so four concurrent lanes cost one frame", and `Spec-023 §Console Test
-// Tiers` puts "reveal monotonicity" in the browser tier. THE SENTENCE THIS MODULE ADDS,
-// because no committed document states it: stream N agents at once so every lane moves
+// Streaming paints through a bounded reveal budget so four concurrent lanes cost one
+// frame, and reveal monotonicity is checked in the browser test tier. THE SENTENCE THIS
+// MODULE ADDS: stream N agents at once so every lane moves
 // continuously and no lane teleports, with the visible text never regressing. Four
 // decisions carry it:
 //

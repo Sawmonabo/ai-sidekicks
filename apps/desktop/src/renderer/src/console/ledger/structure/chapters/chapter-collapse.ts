@@ -2,9 +2,9 @@
 // auto-collapse is conjunctive on.
 //
 // Its own module beside `chapters.ts` because the two change on different clocks: the
-// fold changes when rows arrive and this changes when a person clicks. `Spec-023
-// §Meridian, the design language` rule 7 fixes the behaviour — "run chapters collapse
-// once terminal and the live chapter stays open" — and the live arm here answers
+// fold changes when rows arrive and this changes when a person clicks. The behaviour is
+// fixed — run chapters collapse once terminal and the live chapter stays open — and the
+// live arm here answers
 // before any stored state is read, so that rule is a branch a caller cannot reach
 // rather than one they have to remember.
 //

@@ -22,7 +22,7 @@
 //
 // THE ANCHORED PART IS THE PRIMITIVE'S. `primitives/overlay/OverlayMenuPopup.tsx` owns
 // the portal, the positioner, and the popup, and registers the popup in the window's
-// airspace (`Spec-023 §Console Design (Meridian)` 12.3). A menu that mounted its own
+// airspace. A menu that mounted its own
 // portal would be one a native browser-pane view paints over and takes the presses of,
 // and it would be invisible to the registry, because the consumer never touches the
 // registration at all.

@@ -1,9 +1,8 @@
 // The console's own shiki theme, and the token families it collapses to.
 //
-// `Spec-023 §Console Libraries`, syntax-highlighting row: "own theme JSON from Meridian
-// tokens … never the preset bundles", with a "byte-bounded token cache". THIS MODULE
-// ADDS THE PROPERTY THAT MAKES THAT CACHE WORK, because no committed document states
-// it: the cache is theme-independent and content-addressed, token families are
+// The highlighter takes own theme JSON built from Meridian tokens, never the preset
+// bundles, and a byte-bounded token cache. THIS MODULE ADDS THE PROPERTY THAT MAKES THAT
+// CACHE WORK: the cache is theme-independent and content-addressed, token families are
 // collapsed inside the theme rather than by a pass after it, and a test cross-checks
 // the families against the theme CSS.
 //
@@ -36,8 +35,8 @@ import type { ThemeRegistrationRaw } from "shiki/types";
  * work log, and a code block inside it competes with the prose around it for a reader's
  * attention. Nine families are enough to make structure legible — what is a name, what
  * is a literal, what is an aside — and few enough that the block does not become the
- * loudest thing on the screen, which `Spec-023 §Console Design (Meridian)` rule 3 spends
- * the console's whole colour budget avoiding elsewhere.
+ * loudest thing on the screen, which the console's whole colour budget is spent avoiding
+ * elsewhere.
  */
 export const CODE_TOKEN_FAMILIES = [
   "plain",

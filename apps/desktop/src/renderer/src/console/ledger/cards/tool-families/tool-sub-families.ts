@@ -18,8 +18,8 @@
 // worth having before the member exists. An ABSENT declaration reads as no sub-family
 // at all, which is every row the daemon sends today and is exactly the tool layout
 // this console already draws. An UNRECOGNIZED one reads as unrecognized and says so —
-// `Spec-023 §Rules every console surface obeys` requires an unknown enum member to
-// render as the explicit unrecognized badge and never as a guess, and collapsing it
+// an unknown enum member renders as the explicit unrecognized badge and never as a
+// guess, and collapsing it
 // into "no sub-family" would be that guess wearing an absence's clothes.
 
 import { readWireString } from "../../../core/index.js";

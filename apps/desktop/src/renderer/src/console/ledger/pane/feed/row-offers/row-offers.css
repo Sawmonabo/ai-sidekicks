@@ -2,8 +2,8 @@
  *
  * ONE SHEET PER DIRECTORY, imported by this directory's own door, which is the shape
  * `ledger/ledger.css` states for the family: a rule sits beside the code that renders
- * it, and a door reaching into a directory that owns its own sheet is what
- * `apps/desktop/AGENTS.md` §Module shape forbids.
+ * it, and a door reaching into a directory that owns its own sheet is what this
+ * package forbids.
  *
  * WHAT IS DELIBERATELY NOT HERE: the reveal. `primitives/figures/ledger-row.css` owns
  * `meridian-ledger-row__revealed` — the row decides WHEN a secondary control appears

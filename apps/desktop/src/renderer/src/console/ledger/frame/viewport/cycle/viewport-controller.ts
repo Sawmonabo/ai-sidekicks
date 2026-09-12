@@ -7,9 +7,9 @@
 // virtualizer knows every row's offset and the anchor is the only thing that knows
 // which offset matters. This class is that wiring and nothing else.
 //
-// WHAT THE LIBRARY OWNS AND WHAT THIS CLASS OWNS.
-// `Spec-023 §Console Libraries` adopts `@tanstack/react-virtual` "under our own
-// scroll controller". The library owns the measurements, the offsets, the total
+// WHAT THE LIBRARY OWNS AND WHAT THIS CLASS OWNS. `@tanstack/react-virtual` is adopted
+// under our own scroll controller. The library owns the measurements, the offsets, the
+// total
 // size, and which indexes are inside the fold; `virtualizer-seams.ts` owns every way
 // it reaches the outside world; this class owns when the four objects below are
 // asked anything, and what the tree is told afterwards.

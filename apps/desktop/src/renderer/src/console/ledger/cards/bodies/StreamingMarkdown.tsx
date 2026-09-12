@@ -1,7 +1,7 @@
 // Streaming markdown — the committed-and-volatile split, mounted.
 //
-// `Spec-023 §Console Libraries`, streaming-markdown row: "settled blocks parse once with
-// a two-block settle lag". `markdown-rules.ts` rule 1 owns the rest of the split — the
+// Settled blocks parse once, with a two-block settle lag. `markdown-rules.ts` rule 1
+// owns the rest of the split — the
 // committed prefix is memoised and stable, the volatile tail is the reveal engine's, and
 // an incomplete construct never mounts.
 //
@@ -28,9 +28,8 @@
 //
 // THE MEMOISATION IS WHERE IT PAYS. A settled block's parse is cached by its own text, so
 // its node array is referentially stable across every later frame and `SettledBlock`'s
-// comparison is a pointer check that skips the whole subtree. Under
-// `Spec-023 §References` D.2's measurements that is the difference between 0.30–1.31 ms
-// per frame and a re-parse linear in the whole message.
+// comparison is a pointer check that skips the whole subtree. Measured, that is the
+// difference between 0.30–1.31 ms per frame and a re-parse linear in the whole message.
 //
 // THE KEY RULE, WHICH THE MEMOISATION RESTS ON. A settled block is keyed by its POSITION
 // in the committed prefix together with its own text. The position is what makes the key

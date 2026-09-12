@@ -4,8 +4,8 @@
 // WHAT WAS BROKEN, and what each case below pins. `reveal-engine.ts` was constructed
 // by nothing in production, no path handed a lane's text to a row, and the feed told
 // the viewport `isRevealDraining: false` as a LITERAL — a default standing in for a
-// reading, which `Spec-023 §Meridian, the design language` rule 8 refuses in the same
-// words. Every case here would have passed against the old code only if the flag were
+// reading, which the console's absence rule refuses in the same words. Every case here
+// would have passed against the old code only if the flag were
 // a constant, which is why each carries the reading that a constant cannot produce.
 //
 // `ManualClock` is the instrument for the same reason `reveal-engine.test.ts` gives:

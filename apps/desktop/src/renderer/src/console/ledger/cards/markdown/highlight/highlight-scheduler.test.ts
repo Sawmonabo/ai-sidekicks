@@ -22,8 +22,8 @@ const schedulers: CodeHighlightScheduler[] = [];
 const NEVER_SETTLED = "never-settled";
 
 /**
- * The retained-token-to-source ratio `Spec-023 §Console Libraries` measures, and the
- * budget it is measured against. Here rather than beside the constant because they are
+ * The measured retained-token-to-source ratio, and the budget it is measured against.
+ * Here rather than beside the constant because they are
  * what it is DERIVED from — a module that exported its own derivation inputs would let a
  * future edit move both together and still call the result checked.
  */

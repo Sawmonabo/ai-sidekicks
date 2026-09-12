@@ -11,8 +11,8 @@
 // ledger's own treatments". Two indexes would be two passes over one window for two
 // lookups that are always both performed.
 //
-// A HANDOFF IS A PROJECTION ENTRY AND NEVER AN EVENT TYPE. `Spec-013 §Timeline Entry
-// Types` names `handoff` as an entry the projection produces; no `handoff` event type
+// A HANDOFF IS A PROJECTION ENTRY AND NEVER AN EVENT TYPE. `handoff` is an entry the
+// projection produces; no `handoff` event type
 // is registered anywhere and nothing here looks for one. What the console has is the
 // set of wire types that mean work changed hands, and this directory is that set's
 // one home: it is the only surface that draws a handoff, so the vocabulary sits

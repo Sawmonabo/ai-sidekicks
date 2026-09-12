@@ -1,8 +1,7 @@
 // Filters and jumps over the loaded window.
 //
-// `Spec-023 §Console Design (Meridian)`: "Filter by participant and by event
-// family, jump to event by id, scroll to tail: renderer-local over the loaded
-// window and cursors."
+// Filter by participant and by event family, jump to event by id, scroll to tail: all
+// renderer-local over the loaded window and cursors.
 //
 // ONE RULE IS LOAD-BEARING AND IT IS NOT A CONVENIENCE: "a filtered subscription
 // still receives `rollback_boundary` rows for any run whose rows the filter

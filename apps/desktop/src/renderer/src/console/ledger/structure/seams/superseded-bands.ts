@@ -193,8 +193,8 @@ function epochKeyOf(runId: string, epoch: number): string {
 /**
  * The cutoff that supersedes this row, or `undefined` when none does.
  *
- * EXCEEDS, not "at or above": `Spec-013 §Required Behavior` marks rows "whose
- * carried run position exceeds the carried rewind cutoff", so the row AT the
+ * EXCEEDS, not "at or above": the rows marked are those whose carried run position
+ * exceeds the carried rewind cutoff, so the row AT the
  * cutoff is the retained floor and survives. Getting this boundary wrong dims the
  * one turn a person rewound to, which is the turn they are looking at.
  */

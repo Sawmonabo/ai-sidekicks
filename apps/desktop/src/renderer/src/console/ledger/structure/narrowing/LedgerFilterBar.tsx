@@ -1,7 +1,7 @@
 // The facet bar — the only surface that can narrow this ledger.
 //
-// `Spec-023 §Console Design (Meridian)` names filtering by participant and by event
-// family as a timeline interaction over the loaded window. `filters.ts` has held the
+// Filtering by participant and by event family is a timeline interaction over the
+// loaded window. `filters.ts` has held the
 // whole narrowing model since it was written; this is the control that reaches it,
 // and until it existed the model was unreachable from anywhere in the application.
 //

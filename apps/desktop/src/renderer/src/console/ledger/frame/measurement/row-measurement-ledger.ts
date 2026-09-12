@@ -1,11 +1,10 @@
 // The residuals the virtualizer does not cover.
 //
-// `Spec-023 §Console Libraries` adopts `@tanstack/react-virtual` for the timeline's
-// virtualization "under our own scroll controller", and names the acceptance tests
-// the adoption owes: "documented total-size cost, no hit-test per scroll event while
-// following, epsilon compare on measurements, a bounded prior ceiling, display
-// settings in the prior validity key, and duplicate keys degrading rather than
-// discarding the window."
+// `@tanstack/react-virtual` is adopted for the timeline's virtualization under our own
+// scroll controller, and the adoption owes a named set of acceptance tests: documented
+// total-size cost, no hit-test per scroll event while following, epsilon compare on
+// measurements, a bounded prior ceiling, display settings in the prior validity key, and
+// duplicate keys degrading rather than discarding the window.
 //
 // The library answers two of those on its own — the total size is a memoized prefix
 // walk over its own measurements, and our `observeElementOffset` hands it an offset

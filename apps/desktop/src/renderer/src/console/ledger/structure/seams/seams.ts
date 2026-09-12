@@ -31,10 +31,10 @@ import {
 /**
  * One seam, decomposed into the parts the frame lays on a line.
  *
- * Every wire-sourced member is carried VERBATIM and typed `string`, which is
- * `Spec-023 §Rules every console surface obeys`' fail-closed projection ("an unknown
- * enum member renders as the explicit unrecognized row or badge, never as a guess")
- * expressed in the type: a closed union here would have to decide what
+ * Every wire-sourced member is carried VERBATIM and typed `string`, which is the
+ * fail-closed projection rule — an unknown enum member renders as the explicit
+ * unrecognized row or badge, never as a guess — expressed in the type: a closed union
+ * here would have to decide what
  * to do with a value it did not know, and the only fail-closed answers are to drop
  * it or to guess.
  */

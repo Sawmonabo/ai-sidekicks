@@ -1,8 +1,8 @@
 // The React binding for the ledger frame: the virtualizer, and what a view reads.
 //
 // `viewport-controller.ts` holds the policy; this module holds the React side of it.
-// The split is not cosmetic — the two options `Spec-023 §Console Libraries` requires
-// of this adoption, `useFlushSync: false` and `directDomUpdates`, exist only on
+// The split is not cosmetic — the two options this adoption requires, `useFlushSync:
+// false` and `directDomUpdates`, exist only on
 // `@tanstack/react-virtual`'s hook and nowhere on the core `Virtualizer`, so the
 // instance HAS to be minted inside a hook. Everything it is minted WITH is the
 // controller's, which is why the option list below is almost entirely method

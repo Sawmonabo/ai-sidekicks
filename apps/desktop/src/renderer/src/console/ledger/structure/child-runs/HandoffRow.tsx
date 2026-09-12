@@ -1,8 +1,8 @@
 // Work changing hands, drawn as structure rather than as a message.
 //
-// `Spec-013 §Timeline Entry Types` makes `handoff` a projection entry with four
-// members and the blueprint requires it to be "visually distinct from a message".
-// Before this row the feed had no treatment for one, so work changing hands showed as
+// `handoff` is a projection entry with four members, and it has to be visually distinct
+// from a message. Before this row the feed had no treatment for one, so work changing
+// hands showed as
 // an ordinary receipt in the log beside every other row.
 //
 // FROM AND TO ARE AN ARROW, NOT A SENTENCE. The two actors are rendered as themselves

@@ -1,11 +1,10 @@
 // The reading anchor — the ledger's promise that it will not move the page you are
 // reading.
 //
-// THE PROMISE IS THIS MODULE'S, because no committed document states it: never take the
-// reading position away from a person while agents work. `Spec-023 §Console Libraries`'
-// timeline-virtualization row puts the mechanism here rather than in a library — "the
-// reading anchor, follow, and window-cap controller is own-build (no library has a
-// sub-row reading anchor)" — and every rule below is that promise made mechanical:
+// THE PROMISE IS THIS MODULE'S: never take the reading position away from a person
+// while agents work. The mechanism is here rather than in a library — the reading
+// anchor, follow, and window-cap controller are own-built, because no library has a
+// sub-row reading anchor — and every rule below is that promise made mechanical:
 //
 //   • **Following is a STATE, not a default.** The ledger follows the tail only
 //     while the viewport is at the tail. The moment a person scrolls up, appends

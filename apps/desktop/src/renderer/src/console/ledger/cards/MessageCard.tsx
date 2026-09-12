@@ -1,9 +1,9 @@
 // The message card — a participant's words, an agent's reply, and an agent's reasoning.
 //
 // Three of `card-family.ts`'s five families live here and share one layout: the body is
-// open, the attribution edge carries the author's hue (`Spec-023 §Meridian, the design
-// language` rules 1 and 2), and the row's affordances are revealed on hover rather than
-// parked in the log — rule 7's "secondary controls live one click away".
+// open, the attribution edge carries the author's hue, and the row's affordances are
+// revealed on hover rather than parked in the log, because secondary controls live one
+// click away.
 //
 // WHERE EACH BODY COMES FROM, which is the one thing about this card that is not
 // obvious:

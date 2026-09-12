@@ -1,8 +1,8 @@
 // A child run, summarized on one line of the parent's ledger.
 //
-// `Spec-013 §Default Behavior` keeps background work summarized and expands it only
-// when somebody asks, and the blueprint's ledger chapter fixes what the summary says:
-// the child agent's hue, its state, how many entries it holds, and which node produced
+// Background work stays summarized and expands only when somebody asks, and what the
+// summary says is fixed: the child agent's hue, its state, how many entries it holds,
+// and which node produced
 // it. Before this row, all of that reached the screen as a single incompleteness
 // marker on the chapter header — a child run that failed was indistinguishable from
 // one that had barely started, and a child run that succeeded was invisible.
@@ -20,8 +20,8 @@
 //
 // THE EXPAND CONTROL IS FAIL-CLOSED IN BOTH DIRECTIONS. It offers the act and renders
 // whatever came back; it decides no eligibility of its own, and a failed expansion
-// keeps the summary on screen with the refusal beside it — `Spec-013 §Fallback
-// Behavior`'s rule, drawn rather than merely obeyed.
+// keeps the summary on screen with the refusal beside it — the fallback rule, drawn
+// rather than merely obeyed.
 //
 // AND AN EXPANSION SHOWS THE CHILD'S OWN WORK, WHICH IS THE WHOLE POINT OF ASKING FOR
 // ONE. `timeline.childRunExpand` answers with the child run's rows, and this row used
@@ -273,8 +273,8 @@ function renderExpansion(
  * The child run's own rows, each through the ledger's row body seat.
  *
  * DENSITY IS `collapsed` FOR EVERY ONE OF THEM, and that is a reading of the design
- * rather than a default taken for want of one: `Spec-013 §Default Behavior` keeps
- * background work summarized, so a child run opened inside a parent's line shows its
+ * rather than a default taken for want of one: background work stays summarized, so a
+ * child run opened inside a parent's line shows its
  * rows at the density the rule gives them. There is no lease to consult — the lease
  * table is keyed by the rows of the list, and these rows are not in it.
  *

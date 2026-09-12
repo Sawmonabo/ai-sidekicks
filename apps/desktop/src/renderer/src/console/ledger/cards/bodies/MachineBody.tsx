@@ -1,14 +1,13 @@
 // A machine-authored body, rendered honestly — its two dispositions, both here.
 //
-// THE RULE IS THIS MODULE'S, because no committed document states it: a TRUNCATED body
-// renders its prefix and says "truncated at N of M bytes", naming the declared loss; an
+// THE RULE IS THIS MODULE'S: a TRUNCATED body renders its prefix and says "truncated
+// at N of M bytes", naming the declared loss; an
 // UNREADABLE body renders the turn AT ITS POSITION with an empty body and the
 // unavailable marker. Neither disposition is silent, and that is the whole
 // point — an empty body alone reads as "the author said nothing" and a dropped row
-// reads as "the turn never happened", and both are false. `Spec-023 §Meridian, the
-// design language` rule 6 is why they are both said out loud ("absences name their kind
-// and their escape hatch") and rule 8 is why they are two and not one ("a renderer that
-// collapses two of these into one is wrong").
+// reads as "the turn never happened", and both are false. Absences name their kind and
+// their escape hatch, which is why both are said out loud, and a renderer that collapses
+// two kinds of nothing into one is wrong, which is why they are two and not one.
 //
 // THE DISPOSITIONS ARE TWO MODULES AND THE CHOICE BETWEEN THEM IS THIS ONE.
 // `UnavailableBody.tsx` and `TruncationNotice.tsx` each own one, with the marker name

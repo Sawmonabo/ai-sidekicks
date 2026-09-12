@@ -10,8 +10,8 @@
 // is what parsing or tokenising that text produced. The console cannot measure a node
 // tree's retained size without walking it, and walking it on every insert would cost
 // more than the cache saves; the source length is exact, free, and proportional to
-// what the value costs — `Spec-023 §Console Libraries` measures shiki's retained
-// tokens at 21.5x their source precisely because that ratio holds. The BOUND is
+// what the value costs — shiki's retained tokens measure 21.5x their source precisely
+// because that ratio holds. The BOUND is
 // therefore stated in source bytes and each caller's own constant is sized with its
 // own ratio in mind.
 //
@@ -21,9 +21,9 @@
 // alternative — a timestamp per entry and a scan — costs a scan per insert to answer
 // the same question `Map` iteration order already answers.
 
-// The console's one byte measurement, taken from the door that publishes it.
-// `apps/desktop/AGENTS.md` §Chokepoints: one byte-measurement function serves every
-// cap. This cache spent a second one for a while, and the two justified themselves
+// The console's one byte measurement, taken from the door that publishes it. One
+// byte-measurement function serves every cap. This cache spent a second one for a while,
+// and the two justified themselves
 // against each other in their own doc comments — which is what a drift reads like
 // before the two answers separate on the first body neither was tested with.
 import { measureUtf8ByteLength } from "../../../../persistence/index.js";

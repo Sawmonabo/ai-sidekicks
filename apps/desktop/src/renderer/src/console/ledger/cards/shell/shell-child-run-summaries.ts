@@ -11,8 +11,8 @@
 // supply.
 //
 // WHAT THE LOG ACTUALLY SUPPORTS, WHICH IS WHY THIS IS A DERIVATION RATHER THAN AN
-// INVENTION. `Spec-006 §Run Lifecycle (run_lifecycle)` puts the orchestration linkage
-// on the BIRTH beat — `run.queued` carries `{agentId?, parentRunId?, linkType?,
+// INVENTION. The run lifecycle puts the orchestration linkage on the BIRTH beat —
+// `run.queued` carries `{agentId?, parentRunId?, linkType?,
 // internalHelper?, producingNodeId?}` — so a run whose creation row names a parent IS
 // a child run, said by the daemon rather than guessed here. Every member of the
 // summary then comes off that same log:

@@ -14,8 +14,8 @@
 // THE ANCHORED PART OF THE POPOVER IS THE PRIMITIVE'S. `Popover.Root` and the render
 // prop stay here because which definition is open is this host's state, but the
 // portal, the positioner, and the popup are `primitives/overlay/OverlayPopoverPopup.tsx`'s
-// — that is what puts the popup in the window's airspace (`Spec-023 §Console Design
-// (Meridian)` 12.3), and a card that mounted its own portal would be a note a native
+// — that is what puts the popup in the window's airspace, and a card that mounted its own
+// portal would be a note a native
 // browser-pane view paints over. The popup's id still travels from here: the marker
 // names it through `aria-controls`, so one id is minted once and spent in two places.
 //

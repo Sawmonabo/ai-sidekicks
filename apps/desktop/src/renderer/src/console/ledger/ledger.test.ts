@@ -142,8 +142,8 @@ describe("the ledger — which slots it holds", () => {
 
 describe("the ledger — what it mounts", () => {
   it("mounts the registered timeline pane in the full-screen window, at full width", () => {
-    // `Spec-023 §The surface set`: an auxiliary window loads "the same renderer
-    // bundle at a window route" for one moved pane, so this slot mounts the pane
+    // An auxiliary window loads the same renderer bundle at a window route for one
+    // moved pane, so this slot mounts the pane
     // ALONE — no deck around it and no composer.
     composedPaneRegistry.register({
       kind: "timeline",

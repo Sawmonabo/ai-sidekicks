@@ -1,8 +1,7 @@
 // The math block — the console's ONE `dangerouslySetInnerHTML` site.
 //
-// `Spec-023 §Console Test Tiers` names, among the console's static tripwires, "no
-// `dangerouslySetInnerHTML` outside the math-owned node". This is that node, and
-// `apps/desktop/AGENTS.md` is where the rule lives: a second occurrence anywhere under
+// One of the console's static tripwires is that there is no `dangerouslySetInnerHTML`
+// outside the math-owned node. This is that node: a second occurrence anywhere under
 // `console/` is a review rejection.
 //
 // WHY THE EXCEPTION IS HERE AND NOWHERE ELSE. KaTeX's whole interface is a string of
@@ -11,9 +10,9 @@
 // removed. Everything else the console renders — markdown, code, ANSI — arrives as data,
 // which is why those paths need no exception and are forbidden one.
 //
-// FOUR CONSTRAINTS, EACH FROM `Spec-023 §Console Libraries`' math row —
-// "ADOPT-with-constraints KaTeX (lazy, settled blocks only, `trust: false`, MathML output
-// first)" — and each of them load-bearing rather than cautious:
+// FOUR CONSTRAINTS ON THE ADOPTED TYPESETTER — KaTeX, lazy, settled blocks only,
+// `trust: false`, MathML output first — and each of them load-bearing rather than
+// cautious:
 //
 //   • **`trust: false`** is KaTeX's own default and is passed explicitly anyway. It is
 //     what disables `\href`, `\url`, `\includegraphics`, and `\htmlClass`, the commands
@@ -95,8 +94,8 @@ type MathRenderState =
 /**
  * KaTeX's markup for this source, loaded on first use.
  *
- * The import is dynamic because the row says lazy, and the measurement in
- * `Spec-023 §References` D.2 is why it matters: KaTeX is 261 KB of JavaScript and 28 KB
+ * The import is dynamic because the constraint says lazy, and the measurement is why it
+ * matters: KaTeX is 261 KB of JavaScript and 28 KB
  * of CSS, which alone would be more than half the renderer's whole initial budget for a
  * capability most sessions never reach.
  */

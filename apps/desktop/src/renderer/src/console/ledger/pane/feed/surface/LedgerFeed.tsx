@@ -13,7 +13,7 @@
 // the row host the pane mounts. The log fixtures two of them share stay at `feed/`, the
 // directory that owns both. Every edge runs one way, surface to model — measured with
 // the parser, seven edges out of `surface/` and none back — which is exactly the
-// condition `apps/desktop/AGENTS.md` §Module shape puts a sub-module door on, so this
+// condition this package puts a sub-module door on, so this
 // side reads through `../model/index.js` and `surface/` stays doorless because nothing
 // reads it. `model/index.ts` states what it publishes and why nothing else is on it.
 //

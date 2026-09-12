@@ -1,10 +1,9 @@
 // The ledger window — what the log keeps, what it lets go, and when it is allowed
 // to let go of it.
 //
-// `Spec-023 §Console Libraries`, timeline-virtualization row, puts this module on the
-// own-build side and says why it exists at all: "Chromium caps element height at
-// 33,554,431 px, so the window cap is a ceiling, not a nicety." THE SEMANTICS ARE THIS
-// MODULE'S, because no committed document states them: the window caps top-level rows
+// This module is own-built, and why it exists at all is a platform fact: Chromium caps
+// element height at 33,554,431 px, so the window cap is a ceiling, not a nicety. THE
+// SEMANTICS ARE THIS MODULE'S: the window caps top-level rows
 // and chapters, mirroring `timeline.read` window semantics; children never trip the cap.
 // Prune is deferred during an active turn, vetoed by the scroll controller, never lands
 // during a reveal drain, can never orphan a child (ancestor closure), and re-parks
@@ -135,9 +134,9 @@ export class LedgerWindow {
    * repeats a key is a defect, and a map would silently collapse the repeat into
    * one row: the reader would lose an entry and nothing anywhere would say so. The
    * array carries both, and `RowWindow` is the layer that reports the repeat and
-   * draws it at an estimated height — `Spec-023 §Console Libraries`' timeline-
-   * virtualization row asks for "stable keys", and this console's answer to a
-   * projection that breaks that is to degrade rather than discard the window.
+   * draws it at an estimated height — the virtualization adoption asks for stable keys,
+   * and this console's answer to a projection that breaks that is to degrade rather than
+   * discard the window.
    */
   #rows: LedgerWindowRow[] = [];
 

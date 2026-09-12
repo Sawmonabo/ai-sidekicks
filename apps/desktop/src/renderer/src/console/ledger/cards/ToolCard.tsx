@@ -1,7 +1,7 @@
 // The tool card — one line until opened.
 //
-// `Spec-023 §Meridian, the design language` rule 7: "Tool rows render as one line until
-// opened." `card-family.ts` owns the five states that one line reports, and the density
+// Tool rows render as one line until opened. `card-family.ts` owns the five states that
+// one line reports, and the density
 // budget puts the collapse state in the LIST's hands rather than the row's. So this card renders
 // exactly what its `density` prop says and owns no open state: two rows disagreeing
 // about whether they are open is a bug a fixture would never surface and a long session

@@ -1,7 +1,7 @@
 // Where a subagent's rows hang — the anchor, and the three ways it must not move.
 //
-// `Spec-016 §Provider-Native Subagents` keys a provider-attributed subagent by the
-// triple `(runId, provider, subagentId)`, and the ledger draws that child's activity
+// A provider-attributed subagent is keyed by the triple `(runId, provider,
+// subagentId)`, and the ledger draws that child's activity
 // against ONE row: the row that launched it. That anchor has to be reference-stable,
 // because everything above it is keyed on it — the thread the feed draws, the card
 // the frame memoizes, and the position a reader is holding while the log grows under

@@ -64,9 +64,9 @@ export function useLedgerFilter(ledgerWindow: LedgerWindowModel): LedgerFilterSt
  * Narrow the UNFURLED projection, before anything downstream of it has seen it.
  *
  * THE ORDER IS THE WHOLE DESIGN: narrow, then fold the chapters, then the viewport,
- * then the visible window. The narrowing runs on the
- * unfurled projection because that is what `Spec-023 §Console Design (Meridian)`
- * narrows — the loaded log, every row of it — and everything after it then holds
+ * then the visible window. The narrowing runs on the unfurled projection because that
+ * is what find narrows — the loaded log, every row of it — and everything after it then
+ * holds
  * without restatement. The fold runs on what the narrowing admitted, the cap prunes
  * what the fold left, and find keeps reading only rows the one scroll writer can
  * reach.

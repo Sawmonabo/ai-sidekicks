@@ -1,7 +1,7 @@
 // The highlight worker — a module worker whose whole job is `tokenizeCode`.
 //
-// `Spec-023 §Console Libraries` puts shiki "in a Worker above about 4 kB of source", and
-// `Spec-023 §Console Design (Meridian)`'s frame budget is why: the JavaScript regex
+// Shiki runs in a Worker above about 4 kB of source, and the frame budget is why: the
+// JavaScript regex
 // engine costs about 8.1 ms per 2,700 bytes, so a 65,536-byte block is 183 ms — eleven
 // frames if it runs where the ledger is drawing.
 //

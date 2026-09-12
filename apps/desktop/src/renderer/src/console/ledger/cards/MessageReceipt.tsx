@@ -15,8 +15,8 @@ export interface MessageReceiptProps {
 /**
  * What the row itself recorded about its body, on one line.
  *
- * `Spec-023 §Console Design (Meridian)`'s receipt rule is that an action lands as a
- * record of what happened, so this line reports only what the row itself carries — the
+ * The receipt rule is that an action lands as a record of what happened, so this line
+ * reports only what the row itself carries — the
  * body's recorded size and the media type its producer set.
  *
  * A turn that carries neither renders no receipt at all, rather than a line saying

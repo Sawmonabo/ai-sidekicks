@@ -6,11 +6,11 @@
 // and both sit outside the scroll surface at the end of the log they are about, so
 // neither is a row and neither moves when the window does.
 //
-// OFFERED ONLY WHILE THERE IS SOMETHING TO READ. `Spec-023 §Meridian, the design
-// language` rule 8 — an absence names its cause — is met here by the control's own
-// absence being the ordinary case: a window that opens at the beginning of the log has
-// no earlier rows, and a control that offered to fetch them would promise a read that
-// answers nothing. What rule 8 does apply to is the REFUSAL, which is rendered inline
+// OFFERED ONLY WHILE THERE IS SOMETHING TO READ. An absence names its cause, which is
+// met here by the control's own absence being the ordinary case: a window that opens at
+// the beginning of the log has no earlier rows, and a control that offered to fetch them
+// would promise a read that answers nothing. What that rule does apply to is the
+// REFUSAL, which is rendered inline
 // on the control through the console's one refusal renderer rather than as a sentence
 // this file wrote.
 //

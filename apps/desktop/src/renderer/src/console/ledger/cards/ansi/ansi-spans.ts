@@ -1,7 +1,7 @@
 // ANSI command output, as spans — the mapper, with no HTML string anywhere on the path.
 //
-// `Spec-023 §Console Libraries`' ANSI row is ADOPT-with-constraints: "`anser`
-// (`ansiToJson` only, own span mapper, never an HTML-string path)". This module is the
+// `anser` is adopted with constraints: `ansiToJson` only, an own span mapper, and never
+// an HTML-string path. This module is the
 // own span mapper, and the constraint is the whole reason it exists — `ansiToHtml`
 // would hand the console a markup string to inject, which is the one thing the ledger
 // never does with content a tool produced.
@@ -15,8 +15,8 @@
 //
 // WHAT IS DELIBERATELY NOT REPRODUCED, and why each is a decision rather than a gap:
 //
-//   • **Blink.** `Spec-023 §Console Design (Meridian)`'s motion rule admits opacity and
-//     2-4 px translation and nothing else; a blinking span is neither, and a console
+//   • **Blink.** The motion rule admits opacity and 2-4 px translation and nothing
+//     else; a blinking span is neither, and a console
 //     that let a tool's bytes start an animation would have handed the surface's motion
 //     budget to a subprocess.
 //   • **Conceal.** A console that hid bytes a tool printed would be misreporting what

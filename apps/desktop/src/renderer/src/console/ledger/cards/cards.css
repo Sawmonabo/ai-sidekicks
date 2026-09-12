@@ -30,7 +30,7 @@
  * They were `oklch()` literals here. Nothing fitted them into the sRGB gamut, so the
  * browser was remapping several to a colour no file stated, and nothing measured
  * them against this well, so six of the light scheme's bright names sat below the
- * 4.5:1 floor `Spec-023 §Console Design (Meridian)` rule 3 sets.
+ * console's 4.5:1 contrast floor.
  */
 
 .meridian-ansi__body {
