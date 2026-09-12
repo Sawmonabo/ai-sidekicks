@@ -1,28 +1,24 @@
-// `presence.read` JSON-RPC handler test suite — Plan-002 Phase 3 (T3.3).
+// `presence.read` JSON-RPC handler test suite.
 //
-// Spec coverage:
-//   * `Spec-002 §Interfaces And Contracts` — `PresenceRead`
-//     (JSON-RPC, local IPC): local clients read current presence state for
-//     a session. This suite exercises the handler's registry-binding
-//     boundary (round-trip through `MethodRegistry.dispatch`, correct
-//     `mutating` flag, schema-validates-before-dispatch).
-//   * Plan-002 §Phase 3 (CP-002-2) — `presence.*` namespace registered
-//     under the Plan-007-partial wire substrate.
+// `presence.read` lets a local client read the current device-presence state
+// for a session — per-device liveness of the one user's linked devices. This
+// suite exercises the handler's registry-binding boundary: round-trip through
+// `MethodRegistry.dispatch`, the correct `mutating` flag, and
+// schema-validates-before-dispatch.
 //
-// Invariants verified (canonical text in
-// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-9):
-//   * I-007-6 — duplicate `registerPresenceRead` throws
+// Invariants verified:
+//   * Duplicate `registerPresenceRead` throws
 //     `RegistryRegistrationError("duplicate_method")` at register-time.
-//   * I-007-7 — schema-validates-before-dispatch: a malformed `presence.read`
-//     payload short-circuits at the registry's `safeParse(params)` step and
-//     the handler closure is NEVER invoked (verified via spy call count).
+//   * Schema-validates-before-dispatch: a malformed `presence.read` payload
+//     short-circuits at the registry's `safeParse(params)` step and the
+//     handler closure is NEVER invoked (verified via spy call count).
 //
-// Test-fixture posture (mirrors session-handlers.test.ts lines 64-74):
-//   The round-trip + mutating arms register against the REAL contract
-//   schemas (`PresenceReadRequestSchema` / `PresenceReadResponseSchema`)
-//   because the registry's `safeParse` machinery delegates to each schema's
-//   native runtime `safeParse`. The runtime-daemon does NOT depend on zod;
-//   the contract schemas already implement the duck-typed interface.
+// Test-fixture posture (mirrors session-handlers.test.ts):
+//   The round-trip + mutating arms register against the REAL contract schemas
+//   (`PresenceReadRequestSchema` / `PresenceReadResponseSchema`) because the
+//   registry's `safeParse` machinery delegates to each schema's native runtime
+//   `safeParse`. The runtime-daemon does NOT depend on zod; the contract
+//   schemas already implement the duck-typed interface.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -53,13 +49,13 @@ const TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440000" as SessionId;
 const TEST_PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001" as ParticipantId;
 
 /**
- * Build a canonical-shape `PresenceReadResponse` matching every required
- * field on `PresenceReadResponseSchema`. The mock `readPresence` returns
- * this verbatim so the registry's step-4 `safeParse(result)` succeeds and
- * the dispatched value reaches the test assertion intact.
+ * Build a canonical-shape `PresenceReadResponse` matching every required field
+ * on `PresenceReadResponseSchema`. The mock `readPresence` returns this
+ * verbatim so the registry's step-4 `safeParse(result)` succeeds and the
+ * dispatched value reaches the test assertion intact.
  *
- * `lastSeen` is an RFC 3339 timestamp with an explicit offset — the schema
- * uses `z.iso.datetime({ offset: true })` per the presence.ts wire contract.
+ * The liveness timestamp is RFC 3339 with an explicit offset — the schema uses
+ * `z.iso.datetime({ offset: true })` per the presence.ts wire contract.
  */
 function buildPresenceReadResponse(): PresenceReadResponse {
   return {
@@ -100,17 +96,17 @@ describe("presence.read — round-trip through MethodRegistry dispatch", () => {
     expect(result).toStrictEqual(expectedResponse);
   });
 
-  it("returns an empty roster `{participants: []}` unchanged (a session with no live presence is a valid projection, not an error)", async () => {
+  it("returns an empty projection unchanged — no reachable device is a valid answer, not an error", async () => {
     const registry = new MethodRegistryImpl();
-    const emptyRoster: PresenceReadResponse = { participants: [] };
+    const noLiveDevices: PresenceReadResponse = { participants: [] };
     const mockReadPresence = vi.fn<(request: PresenceReadRequest) => Promise<PresenceReadResponse>>(
-      async () => emptyRoster,
+      async () => noLiveDevices,
     );
     const deps: PresenceReadDeps = { readPresence: mockReadPresence };
     registerPresenceRead(registry, deps);
 
     const result = await registry.dispatch("presence.read", { sessionId: TEST_SESSION_ID }, {});
-    expect(result).toStrictEqual(emptyRoster);
+    expect(result).toStrictEqual(noLiveDevices);
   });
 
   it("registers `presence.read` with mutating: false (read-only; pre-handshake gate lets it through)", () => {
@@ -126,10 +122,11 @@ describe("presence.read — round-trip through MethodRegistry dispatch", () => {
 });
 
 // ----------------------------------------------------------------------------
-// I-007-7 — schema-validates-before-dispatch (handler NEVER runs on malformed)
+// Schema-validates-before-dispatch (the handler NEVER runs on a malformed
+// payload)
 // ----------------------------------------------------------------------------
 
-describe("presence.read — I-007-7 schema-validates-before-dispatch", () => {
+describe("presence.read — schema-validates-before-dispatch", () => {
   it("malformed payload rejects with `RegistryDispatchError(invalid_params)`; handler is NEVER invoked", async () => {
     const registry = new MethodRegistryImpl();
     const mockReadPresence = vi.fn<(request: PresenceReadRequest) => Promise<PresenceReadResponse>>(
@@ -156,18 +153,18 @@ describe("presence.read — I-007-7 schema-validates-before-dispatch", () => {
       expect((caught.issues ?? []).length).toBeGreaterThan(0);
     }
 
-    // CRITICAL I-007-7 ASSERTION — the handler closure must NEVER have run.
-    // A regression that moved the schema check after handler invocation
-    // would fail this assertion.
+    // THE CRITICAL ASSERTION — the handler closure must NEVER have run. A
+    // regression that moved the schema check after handler invocation would
+    // fail this assertion.
     expect(mockReadPresence).not.toHaveBeenCalled();
   });
 });
 
 // ----------------------------------------------------------------------------
-// I-007-6 — duplicate registration rejected at register-time
+// Duplicate registration rejected at register-time
 // ----------------------------------------------------------------------------
 
-describe("presence.read — I-007-6 duplicate registration rejected at register-time", () => {
+describe("presence.read — duplicate registration rejected at register-time", () => {
   it("calling registerPresenceRead twice on the same registry throws `RegistryRegistrationError(duplicate_method)`", () => {
     const registry = new MethodRegistryImpl();
     const deps: PresenceReadDeps = { readPresence: async () => buildPresenceReadResponse() };

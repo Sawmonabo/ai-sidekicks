@@ -1,11 +1,11 @@
-// D1: Single SessionCreated event yields snapshot with owner membership
-// and main channel — bootstrap projection (Spec-001 AC1).
+// Bootstrap projection — a single `session.created` event yields a snapshot
+// naming the session's owner and carrying the main channel.
 //
 // Pure projector test — no SQLite, no service. Constructs a `StoredEvent`
-// in-memory and calls `replay()` directly. The projector synthesizes the
-// owner membership from the envelope's `actor` and the main channel from
-// projector defaults; the `session.created` payload itself does not need
-// to enumerate either.
+// in-memory and calls `replay()` directly. The projector reads the owner off
+// the envelope's `actor` and synthesizes the main channel from projector
+// defaults; the `session.created` payload itself does not need to enumerate
+// either.
 
 import { describe, expect, it } from "vitest";
 
@@ -15,8 +15,7 @@ import { projectEvent, replay } from "../session-projector.js";
 import type { DaemonSessionSnapshot, StoredEvent } from "../types.js";
 
 const SESSION_ID: string = "01J0SE5510NN5J5J5J5J5J5J5J";
-const OWNER_PARTICIPANT_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
-const SECOND_PARTICIPANT_ID: string = "01J0PA1111NN5J5J5J5J5J5J5J";
+const OWNER_ACTOR_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
 const OCCURRED_AT: string = "2026-04-27T12:00:00.000Z";
 
 function makeCreatedEvent(): StoredEvent {
@@ -28,7 +27,7 @@ function makeCreatedEvent(): StoredEvent {
     monotonicNs: 1_000_000_000n,
     category: "session_lifecycle",
     type: "session.created",
-    actor: OWNER_PARTICIPANT_ID,
+    actor: OWNER_ACTOR_ID,
     payload: { sessionId: SESSION_ID, name: "test-session" },
     correlationId: null,
     causationId: null,
@@ -36,31 +35,28 @@ function makeCreatedEvent(): StoredEvent {
   };
 }
 
-describe("session-projector — D1 (bootstrap projection)", () => {
-  it("synthesizes owner membership and main channel from a single session.created event", () => {
+describe("session-projector — bootstrap projection", () => {
+  it("records the owner and synthesizes the main channel from a single session.created event", () => {
     const snapshot: DaemonSessionSnapshot | null = replay([makeCreatedEvent()]);
     expect(snapshot).not.toBeNull();
     if (snapshot === null) return; // type guard for TS
 
     expect(snapshot.sessionId).toBe(SESSION_ID);
-    // `Spec-001 §Default Behavior`: a newly created session starts in `provisioning`.
-    // Plan-006 will land the `session.activated` event handler that
-    // transitions to `active`.
+    // A newly created session starts in `provisioning`; the
+    // `session.activated` handler that transitions it to `active` has not
+    // landed yet.
     expect(snapshot.state).toBe("provisioning");
     expect(snapshot.createdAt).toBe(OCCURRED_AT);
     expect(snapshot.asOfSequence).toBe(0);
 
-    expect(snapshot.memberships).toHaveLength(1);
-    expect(snapshot.memberships[0]).toEqual({
-      participantId: OWNER_PARTICIPANT_ID,
-      role: "owner",
-      joinedAt: OCCURRED_AT,
-    });
+    // The owner is the bootstrap envelope's `actor` and nothing else.
+    expect(snapshot.ownerActor).toBe(OWNER_ACTOR_ID);
 
     // The main channel id is the shared deterministic `deriveMainChannelId`
     // (`@ai-sidekicks/contracts`, RFC 9562 §5.8 UUIDv8). The contracts
-    // `ChannelIdSchema` (the RFC 9562 predicate + `.brand<"ChannelId">()`) validates this shape
-    // at PR #5's mapping seam, so a non-UUID id would be rejected there.
+    // `ChannelIdSchema` (the RFC 9562 predicate + `.brand<"ChannelId">()`)
+    // validates this shape at the IPC mapping seam, so a non-UUID id would
+    // be rejected there.
     expect(snapshot.channels).toHaveLength(1);
     const expectedMainChannelId: string = deriveMainChannelId(SESSION_ID);
     expect(snapshot.channels[0]).toEqual({
@@ -81,10 +77,10 @@ describe("session-projector — D1 (bootstrap projection)", () => {
       sequence: 0,
       occurredAt: OCCURRED_AT,
       monotonicNs: 1_000_000_000n,
-      category: "membership_change",
-      type: "membership.created",
-      actor: OWNER_PARTICIPANT_ID,
-      payload: { participantId: SECOND_PARTICIPANT_ID, role: "collaborator" },
+      category: "session_lifecycle",
+      type: "channel.created",
+      actor: OWNER_ACTOR_ID,
+      payload: { channelId: "01970000-0000-7000-8000-00000000BEEF", name: "stranded" },
       correlationId: null,
       causationId: null,
       version: "1.0",
@@ -92,8 +88,33 @@ describe("session-projector — D1 (bootstrap projection)", () => {
     expect(() => replay([stranded])).toThrow(/expected first event type 'session.created'/);
   });
 
+  it("reports ownerActor as null when the bootstrap envelope names no actor", () => {
+    // `actor: null` is legal on every wire variant, so a system-emitted
+    // bootstrap names nobody. The projector reports that rather than
+    // inventing an owner — there is no other signed place to read one from.
+    const systemEmitted: StoredEvent = { ...makeCreatedEvent(), actor: null };
+    const snapshot: DaemonSessionSnapshot | null = replay([systemEmitted]);
+    expect(snapshot).not.toBeNull();
+    if (snapshot === null) return;
+
+    expect(snapshot.ownerActor).toBeNull();
+    // The main channel is synthesized regardless of who emitted the event.
+    expect(snapshot.channels).toHaveLength(1);
+  });
+
+  it("normalizes an empty-string actor to a null ownerActor", () => {
+    // An empty owner is an absent owner. Collapsing the two here means no
+    // reader has to check both.
+    const blankActor: StoredEvent = { ...makeCreatedEvent(), actor: "" };
+    const snapshot: DaemonSessionSnapshot | null = replay([blankActor]);
+    expect(snapshot).not.toBeNull();
+    if (snapshot === null) return;
+
+    expect(snapshot.ownerActor).toBeNull();
+  });
+
   // -----------------------------------------------------------------------
-  // P3 — replay() must reject a session.created at sequence > 0
+  // replay() must reject a session.created at sequence > 0
   // -----------------------------------------------------------------------
   //
   // The bootstrap path's sequence-0 invariant must match `projectEvent`'s
@@ -132,17 +153,15 @@ describe("session-projector — D1 (bootstrap projection)", () => {
 });
 
 // --------------------------------------------------------------------------
-// D5 — explicit channel.created with the synthesized main-channel id is a
+// An explicit channel.created with the synthesized main-channel id is a
 // no-op (the alreadyExists guard in applyChannelCreated is load-bearing).
 // --------------------------------------------------------------------------
 //
 // The bootstrap projection synthesizes the implicit main channel from
 // `session.created` rather than waiting for an explicit `channel.created`
-// envelope. This matches the `Plan-001 §Test And Verification Plan` D1 row ("single SessionCreated
-// event yields snapshot with owner membership and main channel"). Plan-006
-// may later emit an explicit `channel.created` for the main channel as
-// part of a real audit-log flow — when that happens, the projector MUST
-// not double-create. This test pins the no-op invariant.
+// envelope. A real audit-log flow may later emit an explicit
+// `channel.created` for the main channel — when that happens, the projector
+// MUST not double-create. This test pins the no-op invariant.
 
 describe("session-projector — main-channel projection invariants", () => {
   it("treats a subsequent channel.created with the derived main-channel id as an idempotent no-op", () => {
@@ -171,8 +190,8 @@ describe("session-projector — main-channel projection invariants", () => {
     if (snapshot === null) return;
 
     // Still exactly one channel; the explicit event's `name` is discarded
-    // (deliberately — the synthesized name is canonical until Plan-006
-    // makes channel.created authoritative).
+    // (deliberately — the synthesized name is canonical until
+    // `channel.created` becomes authoritative for the main channel).
     expect(snapshot.channels).toHaveLength(1);
     expect(snapshot.channels[0]?.channelId).toBe(expectedMainChannelId);
     expect(snapshot.channels[0]?.name).toBe("main");
@@ -182,7 +201,7 @@ describe("session-projector — main-channel projection invariants", () => {
   });
 
   // -----------------------------------------------------------------------
-  // P1 — applyChannelCreated must accept the wire-optional `name`
+  // applyChannelCreated must accept the wire-optional `name`
   //
   // The wire schema (`channelCreatedPayloadSchema` in
   // `packages/contracts/src/event.ts`) declares
@@ -230,8 +249,8 @@ describe("session-projector — main-channel projection invariants", () => {
     if (projectedNew === undefined) return;
     // `name` is OMITTED from the projection (mirrors the wire absence)
     // — NOT coerced to null, NOT defaulted to a synthesized string.
-    // Treating absent-as-absent is the contract; PR #5's IPC mapping
-    // seam owns any UI-side fallback (e.g. label-by-channelId).
+    // Treating absent-as-absent is the contract; the IPC mapping seam owns
+    // any UI-side fallback (e.g. label-by-channelId).
     expect(projectedNew.name).toBeUndefined();
     expect("name" in projectedNew).toBe(false);
     expect(after.asOfSequence).toBe(1);
@@ -243,7 +262,7 @@ describe("session-projector — main-channel projection invariants", () => {
   });
 
   it("treats a duplicate-main-channel event with omitted name as an idempotent no-op (alreadyExists check runs before optional-name validation)", () => {
-    // P1's failure mode in the original code: the validation throw at
+    // The failure mode in the original code: the validation throw at
     // `payload.name must be a non-empty string` ran BEFORE the
     // alreadyExists guard, so even a perfectly-valid duplicate
     // envelope (matching id of the bootstrap-synthesized main channel)
@@ -319,68 +338,4 @@ describe("session-projector — main-channel projection invariants", () => {
   // bootstrap-projection assertions above (each compares the projected
   // main-channel id against `deriveMainChannelId(SESSION_ID)`), so this file
   // does not re-test the contracts function.
-});
-
-// --------------------------------------------------------------------------
-// projectEvent — membership.created role propagation
-// --------------------------------------------------------------------------
-//
-// The projector reads `payload.role` directly so every variant of the
-// canonical `MembershipRole` union (`@ai-sidekicks/contracts`) round-
-// trips through projection without daemon-side narrowing.
-
-describe("projectEvent — membership.created", () => {
-  it("propagates payload.role into the projection (full MembershipRole union)", () => {
-    const created: StoredEvent = makeCreatedEvent();
-    const initial: DaemonSessionSnapshot | null = replay([created]);
-    expect(initial).not.toBeNull();
-    if (initial === null) return;
-
-    const collaboratorJoined: StoredEvent = {
-      id: "01J0EV0002NN5J5J5J5J5J5J5J",
-      sessionId: SESSION_ID,
-      sequence: 1,
-      occurredAt: "2026-04-27T12:01:00.000Z",
-      monotonicNs: 2_000_000_000n,
-      category: "membership_change",
-      type: "membership.created",
-      actor: OWNER_PARTICIPANT_ID,
-      payload: { participantId: SECOND_PARTICIPANT_ID, role: "collaborator" },
-      correlationId: null,
-      causationId: null,
-      version: "1.0",
-    };
-
-    const after: DaemonSessionSnapshot = projectEvent(initial, collaboratorJoined);
-    expect(after.memberships).toHaveLength(2);
-    expect(after.memberships[1]).toEqual({
-      participantId: SECOND_PARTICIPANT_ID,
-      role: "collaborator",
-      joinedAt: "2026-04-27T12:01:00.000Z",
-    });
-  });
-
-  it("rejects a membership.created event missing payload.role", () => {
-    const created: StoredEvent = makeCreatedEvent();
-    const initial: DaemonSessionSnapshot | null = replay([created]);
-    expect(initial).not.toBeNull();
-    if (initial === null) return;
-
-    const malformed: StoredEvent = {
-      id: "01J0EV0003NN5J5J5J5J5J5J5J",
-      sessionId: SESSION_ID,
-      sequence: 1,
-      occurredAt: "2026-04-27T12:01:00.000Z",
-      monotonicNs: 2_000_000_000n,
-      category: "membership_change",
-      type: "membership.created",
-      actor: OWNER_PARTICIPANT_ID,
-      payload: { participantId: SECOND_PARTICIPANT_ID },
-      correlationId: null,
-      causationId: null,
-      version: "1.0",
-    };
-
-    expect(() => projectEvent(initial, malformed)).toThrow(/payload\.role must be one of/);
-  });
 });

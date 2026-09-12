@@ -16,9 +16,9 @@
 // WHAT THE HEX FIXTURES ARE, AND ARE NOT. Two different kinds of constant live
 // here and they carry different authority:
 //
-//   • RFC 8032 §7.1 keypairs (TEST 1 for the daemon, TEST 2 for the
-//     participant) — EXTERNALLY published. `DAEMON_PUBLIC_KEY` is asserted to
-//     equal the RFC's published public key, so the key-derivation leg is
+//   • RFC 8032 §7.1 keypairs (TEST 1 for this daemon, TEST 2 standing in for
+//     another node's) — EXTERNALLY published. `DAEMON_PUBLIC_KEY` is asserted
+//     to equal the RFC's published public key, so the key-derivation leg is
 //     genuinely conformance-checked rather than self-consistent.
 //   • Row digests and signatures — implementation-pinned REGRESSION constants.
 //     No RFC publishes what an AI-Sidekicks row must hash to. Each is therefore
@@ -37,13 +37,7 @@ import { blake3 } from "@noble/hashes/blake3.js";
 import { describe, expect, it } from "vitest";
 import { canonicalizeJson } from "../canonicalizer.js";
 import type { CanonicalBytes } from "../canonicalizer.js";
-import {
-  GENESIS_PREV_HASH,
-  mintParticipantSignature,
-  signRow,
-  verifyParticipantSignature,
-  verifyRow,
-} from "../signer.js";
+import { GENESIS_PREV_HASH, signRow, verifyRow } from "../signer.js";
 import type { Ed25519PrivateKey, Ed25519PublicKey, SignedRow } from "../signer.js";
 
 // --------------------------------------------------------------------------
@@ -119,11 +113,14 @@ const DAEMON_PUBLIC_KEY: Ed25519PublicKey = ed25519.getPublicKey(
   DAEMON_SIGNING_KEY,
 ) as Ed25519PublicKey;
 
-const PARTICIPANT_SIGNING_KEY: Ed25519PrivateKey = hexToBytes(
+// A SECOND, unrelated daemon signing key. Nothing in production hands this
+// suite two keys at once — it stands in for a different node's key, which is
+// what makes the cross-validation refusals below meaningful.
+const OTHER_SIGNING_KEY: Ed25519PrivateKey = hexToBytes(
   RFC_8032_TEST_2_SEED_HEX,
 ) as Ed25519PrivateKey;
-const PARTICIPANT_PUBLIC_KEY: Ed25519PublicKey = ed25519.getPublicKey(
-  PARTICIPANT_SIGNING_KEY,
+const OTHER_PUBLIC_KEY: Ed25519PublicKey = ed25519.getPublicKey(
+  OTHER_SIGNING_KEY,
 ) as Ed25519PublicKey;
 
 // --------------------------------------------------------------------------
@@ -147,9 +144,6 @@ const EXPECTED_GENESIS_ROW_HASH_HEX =
 const EXPECTED_DAEMON_SIGNATURE_HEX =
   "fdf7891150a2ae0268141c22a32bff2464ea578a7ab3e437e16d9ce995b2b98b" +
   "b8c7464c96e84672b10684d75fbb4dc2eba8acfd2e04b35eaedd33f9b16e5c02";
-const EXPECTED_PARTICIPANT_SIGNATURE_HEX =
-  "889f46a0ebd2d0790d831e102e14fc5c743d0cdbce6aa3580d34ecb8cf0b97b6" +
-  "45455308532c3d6e2a7e388f3efb2383ed516132f689f70e7bbead3d1f657d0a";
 
 /** Mints the reference row fresh per test, so no test can observe another's mutation. */
 function signReferenceRow(): SignedRow {
@@ -165,7 +159,7 @@ describe("signRow — deterministic commitments over one canonicalization", () =
     // Anchors the key material to an external publication, so the row
     // signatures below are traceable rather than arbitrary.
     expect(bytesToHex(DAEMON_PUBLIC_KEY)).toBe(RFC_8032_TEST_1_PUBLIC_KEY_HEX);
-    expect(bytesToHex(PARTICIPANT_PUBLIC_KEY)).toBe(RFC_8032_TEST_2_PUBLIC_KEY_HEX);
+    expect(bytesToHex(OTHER_PUBLIC_KEY)).toBe(RFC_8032_TEST_2_PUBLIC_KEY_HEX);
   });
 
   it("canonicalizes the reference row to the expected bytes", () => {
@@ -232,7 +226,7 @@ describe("signRow — deterministic commitments over one canonicalization", () =
     );
     expect(bytesToHex(differentPrevHash.rowHash)).not.toBe(bytesToHex(first.rowHash));
 
-    const differentKey = signRow(CANONICAL_ROW, hexToBytes(PREV_HASH_HEX), PARTICIPANT_SIGNING_KEY);
+    const differentKey = signRow(CANONICAL_ROW, hexToBytes(PREV_HASH_HEX), OTHER_SIGNING_KEY);
     expect(bytesToHex(differentKey.daemonSignature)).not.toBe(bytesToHex(first.daemonSignature));
   });
 
@@ -641,7 +635,7 @@ describe("verifyRow — the zero-fill placeholder verdict", () => {
 
     // FOR THE PLACEHOLDER TRIO, `verifyRow` depends on none of that: stage 2
     // returns the named verdict before any curve arithmetic runs, so the answer
-    // is the same whichever key the roster resolves. That key-independence is
+    // is the same whichever key the registry resolves. That key-independence is
     // the guarantee the explicit check buys, and it is what "incidental" versus
     // "guaranteed" means in concrete terms.
     expect(verifyRow(CANONICAL_ROW, buildPlaceholderRow(), DAEMON_PUBLIC_KEY)).toStrictEqual({
@@ -659,9 +653,10 @@ describe("verifyRow — the zero-fill placeholder verdict", () => {
     // on `{ zip215: false }`: against the order-4 key, noble's DEFAULT returns
     // `true` (third assertion above) and this row would verify as `valid: true`
     // without that option. Not a hole this test papers over — the caller
-    // RESOLVES `daemonPublicKey` from the participant roster, a small-order key
-    // in the roster is its own bug, and `{ zip215: false }` is independently
-    // pinned by the ZIP-215 block below. It is recorded because widening stage
+    // RESOLVES `daemonPublicKey` from the session's registered signing keys, a
+    // small-order key there is its own bug, and `{ zip215: false }` is
+    // independently pinned by the ZIP-215 block below. It is recorded because
+    // widening stage
     // 2 to all three columns MOVED this case out from behind it, and the next
     // reader should not have to rediscover that.
     const honestChainZeroSignature: SignedRow = {
@@ -738,7 +733,7 @@ describe("ZIP-215 — the forgery `{ zip215: false }` exists to refuse", () => {
     // Under those rules a small-order public key makes the `[8][k]A` term vanish
     // from the cofactored verification equation, so this ONE fixed (R, S) pair
     // verifies against ANY message: universal forgery for whichever `NodeId` has
-    // that key on the roster. A daemon could then disown any row it had signed.
+    // that key in the registry. A daemon could then disown any row it signed.
     //
     // `signer.ts` passes `{ zip215: false }` to refuse it. That option is the
     // entire fix. Without this assertion the module-level assertions below would
@@ -775,16 +770,6 @@ describe("ZIP-215 — the forgery `{ zip215: false }` exists to refuse", () => {
     });
   });
 
-  it("verifyParticipantSignature refuses the same triple", () => {
-    expect(
-      verifyParticipantSignature(
-        CANONICAL_ROW,
-        IDENTITY_POINT_FORGED_SIGNATURE,
-        ORDER_ONE_IDENTITY_PUBLIC_KEY,
-      ),
-    ).toBe(false);
-  });
-
   it("does not reject any honestly-produced signature — strictness is a pure tightening", () => {
     // noble's `sign` always emits a canonical R and a reduced S, and a public
     // key derived from a clamped scalar is never small-order, so every honest
@@ -797,11 +782,11 @@ describe("ZIP-215 — the forgery `{ zip215: false }` exists to refuse", () => {
     ).toBe(true);
     expect(verifyRow(CANONICAL_ROW, signed, DAEMON_PUBLIC_KEY)).toStrictEqual({ valid: true });
 
-    const participantSignature = mintParticipantSignature(CANONICAL_ROW, PARTICIPANT_SIGNING_KEY);
-    expect(ed25519.verify(participantSignature, CANONICAL_ROW, PARTICIPANT_PUBLIC_KEY)).toBe(true);
-    expect(
-      verifyParticipantSignature(CANONICAL_ROW, participantSignature, PARTICIPANT_PUBLIC_KEY),
-    ).toBe(true);
+    // The same control under the second key, so the tightening is shown not to
+    // depend on which key produced the signature.
+    const otherSigned = signRow(CANONICAL_ROW, hexToBytes(PREV_HASH_HEX), OTHER_SIGNING_KEY);
+    expect(ed25519.verify(otherSigned.daemonSignature, CANONICAL_ROW, OTHER_PUBLIC_KEY)).toBe(true);
+    expect(verifyRow(CANONICAL_ROW, otherSigned, OTHER_PUBLIC_KEY)).toStrictEqual({ valid: true });
   });
 });
 
@@ -811,11 +796,12 @@ describe("ZIP-215 — the forgery `{ zip215: false }` exists to refuse", () => {
 
 describe("error channels — a throw and a verdict mean different things", () => {
   it("THROWS on a wrong-length public key — a key-resolution bug, not a tamper signal", () => {
-    // The caller RESOLVES the public key from the participant roster, so a
-    // wrong-shaped one is a plumbing bug (a truncated keystore read, a
-    // mis-sliced roster record, T2.7's unvalidated cast). Folding it into
-    // `signature_mismatch` would make T4.1 emit `audit_integrity_failed` on
-    // EVERY row of EVERY session and discard the real cause.
+    // The caller RESOLVES the public key from the session's registered signing
+    // keys, so a wrong-shaped one is a plumbing bug (a truncated keystore read,
+    // a mis-sliced registry record, an unvalidated cast). Folding it into
+    // `signature_mismatch` would make the range verifier emit
+    // `audit_integrity_failed` on EVERY row of EVERY session and discard the
+    // real cause.
     const truncatedPublicKey = DAEMON_PUBLIC_KEY.slice(0, 31) as Ed25519PublicKey;
     const signed = signReferenceRow();
 
@@ -824,12 +810,6 @@ describe("error channels — a throw and a verdict mean different things", () =>
     );
     expect(rowMessage).toMatch(/requires a 32-byte Uint8Array public key/);
     expect(rowMessage).toMatch(/key-resolution bug, not a tampered row/);
-
-    expect(
-      captureThrownMessage(() =>
-        verifyParticipantSignature(CANONICAL_ROW, signed.daemonSignature, truncatedPublicKey),
-      ),
-    ).toMatch(/requires a 32-byte Uint8Array public key/);
   });
 
   it("RETURNS signature_mismatch for a wrong-length signature — the asymmetry is deliberate", () => {
@@ -844,13 +824,6 @@ describe("error channels — a throw and a verdict mean different things", () =>
       valid: false,
       failureMode: "signature_mismatch",
     });
-    expect(
-      verifyParticipantSignature(
-        CANONICAL_ROW,
-        signReferenceRow().daemonSignature.slice(0, 63),
-        DAEMON_PUBLIC_KEY,
-      ),
-    ).toBe(false);
   });
 
   it("maps a NON-BYTE stored row_hash to hash_mismatch without throwing", () => {
@@ -1022,52 +995,40 @@ describe("equalBytes — the upstream refusal stage 1's byte-ness clause is argu
 });
 
 // --------------------------------------------------------------------------
-// Participant attestation — the two signature domains must not cross-validate.
+// A signature is bound to the key that minted it — two keys never cross-
+// validate.
 // --------------------------------------------------------------------------
 
-describe("daemon and participant signatures do not cross-validate", () => {
-  it("mints a participant signature over the same canonical bytes (I-006-2-06)", () => {
-    expect(bytesToHex(mintParticipantSignature(CANONICAL_ROW, PARTICIPANT_SIGNING_KEY))).toBe(
-      EXPECTED_PARTICIPANT_SIGNATURE_HEX,
+describe("a daemon_signature does not verify under a different key", () => {
+  it("reports signature_mismatch for a row signed by a key the verifier did not resolve", () => {
+    // Stands in for a mis-routed composition root: the row was signed by one
+    // node's key and verified against another's. The chain columns are honest,
+    // so execution reaches the signature stage, which is the check under test.
+    const otherKeyedRow: SignedRow = signRow(
+      CANONICAL_ROW,
+      hexToBytes(PREV_HASH_HEX),
+      OTHER_SIGNING_KEY,
     );
-    expect(
-      verifyParticipantSignature(
-        CANONICAL_ROW,
-        mintParticipantSignature(CANONICAL_ROW, PARTICIPANT_SIGNING_KEY),
-        PARTICIPANT_PUBLIC_KEY,
-      ),
-    ).toBe(true);
-  });
-
-  it("fails verifyParticipantSignature for a signature minted with the DAEMON key", () => {
-    // The documented key-confusion residue: mis-plumbing the daemon key into
-    // `mintParticipantSignature` is FAIL-CLOSED rather than a silent forgery,
-    // because the read side resolves the PARTICIPANT's public key. Pinning it
-    // keeps that argument true.
-    const daemonKeyedAttestation = mintParticipantSignature(CANONICAL_ROW, DAEMON_SIGNING_KEY);
-    expect(
-      verifyParticipantSignature(CANONICAL_ROW, daemonKeyedAttestation, PARTICIPANT_PUBLIC_KEY),
-    ).toBe(false);
-    // Control: it is a VALID signature — just under the wrong domain's key.
-    expect(
-      verifyParticipantSignature(CANONICAL_ROW, daemonKeyedAttestation, DAEMON_PUBLIC_KEY),
-    ).toBe(true);
-  });
-
-  it("fails verifyRow for a daemon_signature minted with the PARTICIPANT key", () => {
-    // The mirror direction. `signRow` holds no participant key, so this row is
-    // assembled by hand to stand in for a mis-routed composition root.
-    const participantKeyedRow: SignedRow = {
-      ...signReferenceRow(),
-      daemonSignature: mintParticipantSignature(CANONICAL_ROW, PARTICIPANT_SIGNING_KEY),
-    };
-    expect(verifyRow(CANONICAL_ROW, participantKeyedRow, DAEMON_PUBLIC_KEY)).toStrictEqual({
+    expect(verifyRow(CANONICAL_ROW, otherKeyedRow, DAEMON_PUBLIC_KEY)).toStrictEqual({
       valid: false,
       failureMode: "signature_mismatch",
     });
-    // Control: the same bytes verify under the participant's own key.
-    expect(verifyRow(CANONICAL_ROW, participantKeyedRow, PARTICIPANT_PUBLIC_KEY)).toStrictEqual({
+    // Control: the same bytes verify under the key that actually minted them,
+    // so the refusal above is about key binding and not about the row.
+    expect(verifyRow(CANONICAL_ROW, otherKeyedRow, OTHER_PUBLIC_KEY)).toStrictEqual({
       valid: true,
     });
+  });
+
+  it("mints a DIFFERENT signature under each key over the same canonical bytes", () => {
+    // The false-negative control on the refusal above: if both keys produced
+    // the same 64 bytes there would be nothing for the verifier to separate.
+    const daemonKeyed = signRow(CANONICAL_ROW, hexToBytes(PREV_HASH_HEX), DAEMON_SIGNING_KEY);
+    const otherKeyed = signRow(CANONICAL_ROW, hexToBytes(PREV_HASH_HEX), OTHER_SIGNING_KEY);
+    expect(bytesToHex(otherKeyed.daemonSignature)).not.toBe(
+      bytesToHex(daemonKeyed.daemonSignature),
+    );
+    // Both commit to the same chain digest — only the signature differs.
+    expect(bytesToHex(otherKeyed.rowHash)).toBe(bytesToHex(daemonKeyed.rowHash));
   });
 });

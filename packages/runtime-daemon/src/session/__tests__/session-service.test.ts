@@ -1,11 +1,11 @@
-// D2/D3/D4: SessionService — append + replay over Local SQLite.
+// SessionService — append + replay over Local SQLite.
 //
-// D2: Replay reads events by sequence ASC and reproduces snapshot
-//     deterministically (Spec-001 AC6).
-// D3: Replay uses sequence not monotonic_ns even when monotonic_ns is
-//     non-monotonic across rows (clock-skew defense; Spec-001 AC6).
-// D4: Snapshot survives daemon restart and yields identical projection
-//     on rehydrate (durability across restart; Spec-001 AC2 + AC6).
+//   * Replay reads events by sequence ASC and reproduces the snapshot
+//     deterministically.
+//   * Replay uses sequence not monotonic_ns even when monotonic_ns is
+//     non-monotonic across rows (clock-skew defense).
+//   * The snapshot survives a daemon restart and yields an identical
+//     projection on rehydrate.
 //
 // Append-guard coverage (the `Plan-006 §T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback` precondition):
 //   * `append()` refuses on a default-constructed service; reads need
@@ -55,7 +55,6 @@ import type { AppendableEvent } from "../types.js";
 
 const SESSION_ID: string = "01J0SE5510NN5J5J5J5J5J5J5J";
 const OWNER_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
-const SECOND_PARTICIPANT_ID: string = "01J0PA1111NN5J5J5J5J5J5J5J";
 
 function makeCreatedEvent(): AppendableEvent {
   return {
@@ -68,26 +67,6 @@ function makeCreatedEvent(): AppendableEvent {
     type: "session.created",
     actor: OWNER_ID,
     payload: { sessionId: SESSION_ID, name: "test-session" },
-    correlationId: null,
-    causationId: null,
-    version: "1.0",
-  };
-}
-
-function makeMembershipCreatedEvent(sequence: number, monotonicNs: bigint): AppendableEvent {
-  return {
-    id: `01J0EV0001NN5J5J5J5J5J5J0${sequence.toString()}`,
-    sessionId: SESSION_ID,
-    sequence,
-    occurredAt: "2026-04-27T12:01:00.000Z",
-    monotonicNs,
-    category: "membership_change",
-    type: "membership.created",
-    actor: OWNER_ID,
-    // `role` is required by `MembershipRoleSchema` per the contracts —
-    // the projection mirrors the full wire union (`MembershipRole` in
-    // `@ai-sidekicks/contracts`), so fixtures must specify a real role.
-    payload: { participantId: SECOND_PARTICIPANT_ID, role: "collaborator" },
     correlationId: null,
     causationId: null,
     version: "1.0",
@@ -157,28 +136,33 @@ afterEach(() => {
 });
 
 // ----------------------------------------------------------------------------
-// D2 — sequence-ASC replay
+// Sequence-ASC replay
 // ----------------------------------------------------------------------------
 
-describe("SessionService — D2 (replay reads events by sequence ASC)", () => {
+describe("SessionService — replay reads events by sequence ASC", () => {
   it("reproduces the snapshot deterministically when events are inserted in scrambled sequence order", () => {
     // Insert events in deliberately scrambled order. SQLite's
     // UNIQUE(session_id, sequence) constraint will tolerate any insert
     // order; the canonical ordering is established by the read path's
     // ORDER BY sequence ASC.
     const created: AppendableEvent = makeCreatedEvent();
-    const joined: AppendableEvent = makeMembershipCreatedEvent(1, 2_000_000_000n);
-    const channel: AppendableEvent = makeChannelCreatedEvent(
-      2,
-      3_000_000_000n,
+    const firstChannel: AppendableEvent = makeChannelCreatedEvent(
+      1,
+      2_000_000_000n,
       "01970000-0000-7000-8000-000000000001",
       "Design Review",
     );
+    const secondChannel: AppendableEvent = makeChannelCreatedEvent(
+      2,
+      3_000_000_000n,
+      "01970000-0000-7000-8000-000000000002",
+      "Release Notes",
+    );
 
     // Append sequence=2 first, then 0, then 1.
-    ctx.service.append(channel);
+    ctx.service.append(secondChannel);
     ctx.service.append(created);
-    ctx.service.append(joined);
+    ctx.service.append(firstChannel);
 
     const events = ctx.service.readEvents(SESSION_ID);
     // Events come back in sequence-ASC order regardless of insert order.
@@ -188,24 +172,25 @@ describe("SessionService — D2 (replay reads events by sequence ASC)", () => {
     expect(snapshot).not.toBeNull();
     if (snapshot === null) return;
     expect(snapshot.asOfSequence).toBe(2);
-    expect(snapshot.memberships).toHaveLength(2); // owner + second participant
-    expect(snapshot.memberships.map((m) => m.participantId).sort()).toEqual(
-      [OWNER_ID, SECOND_PARTICIPANT_ID].sort(),
-    );
+    expect(snapshot.ownerActor).toBe(OWNER_ID);
     // Channels: synthesized "main" (id from the shared `deriveMainChannelId`)
-    // + the explicit one above.
-    expect(snapshot.channels).toHaveLength(2);
+    // + the two explicit ones above.
+    expect(snapshot.channels).toHaveLength(3);
     expect(snapshot.channels.map((c) => c.channelId).sort()).toEqual(
-      ["01970000-0000-7000-8000-000000000001", deriveMainChannelId(SESSION_ID)].sort(),
+      [
+        "01970000-0000-7000-8000-000000000001",
+        "01970000-0000-7000-8000-000000000002",
+        deriveMainChannelId(SESSION_ID),
+      ].sort(),
     );
   });
 });
 
 // ----------------------------------------------------------------------------
-// D3 — sequence not monotonic_ns
+// Sequence, not monotonic_ns
 // ----------------------------------------------------------------------------
 
-describe("SessionService — D3 (replay uses sequence not monotonic_ns)", () => {
+describe("SessionService — replay uses sequence not monotonic_ns", () => {
   it("orders events by sequence even when monotonic_ns goes backwards across rows", () => {
     // Construct events where monotonic_ns is *deliberately non-
     // monotonic* relative to sequence:
@@ -217,11 +202,16 @@ describe("SessionService — D3 (replay uses sequence not monotonic_ns)", () => 
     // data; sequence is the canonical replay key. Replay MUST produce
     // sequence=[0, 1, 2] regardless of monotonic_ns clock skew.
     const e0: AppendableEvent = { ...makeCreatedEvent(), monotonicNs: 5_000_000_000n };
-    const e1: AppendableEvent = makeMembershipCreatedEvent(1, 1_000_000_000n);
+    const e1: AppendableEvent = makeChannelCreatedEvent(
+      1,
+      1_000_000_000n,
+      "01970000-0000-7000-8000-000000000021",
+      "Back Channel",
+    );
     const e2: AppendableEvent = makeChannelCreatedEvent(
       2,
       3_000_000_000n,
-      "01970000-0000-7000-8000-000000000002",
+      "01970000-0000-7000-8000-000000000022",
       "Side Channel",
     );
 
@@ -294,24 +284,29 @@ describe("SessionService — D3 (replay uses sequence not monotonic_ns)", () => 
 });
 
 // ----------------------------------------------------------------------------
-// D4 — durability across daemon restart
+// Durability across daemon restart
 // ----------------------------------------------------------------------------
 
-describe("SessionService — D4 (snapshot survives daemon restart)", () => {
+describe("SessionService — snapshot survives daemon restart", () => {
   it("yields identical projection after closing and reopening the database file", () => {
-    // First "process": create session, add a member and a channel.
+    // First "process": create the session and add two channels.
     const created: AppendableEvent = makeCreatedEvent();
-    const joined: AppendableEvent = makeMembershipCreatedEvent(1, 2_000_000_000n);
-    const channel: AppendableEvent = makeChannelCreatedEvent(
+    const firstChannel: AppendableEvent = makeChannelCreatedEvent(
+      1,
+      2_000_000_000n,
+      "01970000-0000-7000-8000-000000000031",
+      "Design Review",
+    );
+    const secondChannel: AppendableEvent = makeChannelCreatedEvent(
       2,
       3_000_000_000n,
       "01970000-0000-7000-8000-000000000003",
-      "Design Review",
+      "Release Notes",
     );
 
     ctx.service.append(created);
-    ctx.service.append(joined);
-    ctx.service.append(channel);
+    ctx.service.append(firstChannel);
+    ctx.service.append(secondChannel);
 
     const beforeRestart = ctx.service.replay(SESSION_ID);
     expect(beforeRestart).not.toBeNull();
@@ -339,14 +334,16 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
     // monotonic_ns roundtrip which happens identically on both sides.
     expect(afterRestart).toEqual(beforeRestart);
 
-    // Spot-check the membership & channel content survived. (Belt &
-    // braces — toEqual would already catch a divergence.)
+    // Spot-check the owner & channel content survived. (Belt & braces —
+    // toEqual would already catch a divergence.)
     if (afterRestart === null) return;
-    expect(afterRestart.memberships.map((m) => m.participantId).sort()).toEqual(
-      [OWNER_ID, SECOND_PARTICIPANT_ID].sort(),
-    );
+    expect(afterRestart.ownerActor).toBe(OWNER_ID);
     expect(afterRestart.channels.map((c) => c.channelId).sort()).toEqual(
-      ["01970000-0000-7000-8000-000000000003", deriveMainChannelId(SESSION_ID)].sort(),
+      [
+        "01970000-0000-7000-8000-000000000003",
+        "01970000-0000-7000-8000-000000000031",
+        deriveMainChannelId(SESSION_ID),
+      ].sort(),
     );
     expect(afterRestart.asOfSequence).toBe(2);
   });
@@ -1052,7 +1049,7 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
 });
 
 // ----------------------------------------------------------------------------
-// P2 — openDatabase failure-mode cleanup
+// openDatabase failure-mode cleanup
 // ----------------------------------------------------------------------------
 //
 // `openDatabase` is the canonical handle factory. Production callers

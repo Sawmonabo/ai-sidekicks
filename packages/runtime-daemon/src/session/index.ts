@@ -1,9 +1,8 @@
 // Public surface of the runtime-daemon `session` module.
 //
-// Plan-001 PR #3 ships the storage + projection slice. PR #4 (control-
-// plane directory) and PR #5 (client SDK + IPC) consume these exports
-// over IPC; nothing here is wire-stable until PR #5 lands the IPC
-// contract translation layer.
+// The storage + projection slice. The control-plane directory and the
+// client SDK consume these exports over IPC; nothing here is wire-stable
+// until the IPC contract translation layer says so.
 
 export { SessionService } from "./session-service.js";
 export type { SessionServiceOptions } from "./session-service.js";
@@ -23,7 +22,5 @@ export type {
   AppendableEvent,
   ChannelProjection,
   DaemonSessionSnapshot,
-  MembershipProjection,
-  MembershipRole,
   StoredEvent,
 } from "./types.js";

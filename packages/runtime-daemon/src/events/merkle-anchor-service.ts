@@ -92,8 +92,7 @@
 // (base64, the upload wire spelling), nodeId, sessionId, startSequence} — and
 // never the raw root alone. Under the root-only preimage every coordinate that
 // makes a root meaningful (whose log, which span) was writable by whoever
-// stored or carried the record, and `Spec-008 §Peer History Backfill On Join
-// (V1)`'s entry-carried covering anchor made that a live relabeling attack: an
+// stored or carried the record, which made relabeling a live attack: an
 // authentic root re-presentable over any range. The claim puts the coordinates
 // inside the signature; `anchored_at` stays outside deliberately (a receipt
 // timestamp, not an integrity coordinate), and the claim's member set is

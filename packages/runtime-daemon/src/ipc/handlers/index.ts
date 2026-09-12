@@ -4,9 +4,10 @@
 // start.
 //
 //   * `session.*` (`create` / `read` / `subscribe`).
-//   * `presence.*` (`subscribe` / `read`) — Plan-002 Phase 3 (T3.3). The
-//     `presence.subscribe` binder pushes `PresenceUpdate` values over the
-//     streaming primitive; see `presence-subscribe.ts` for the rationale.
+//   * `presence.*` (`subscribe` / `read`) — per-device liveness of the one
+//     user's linked devices. The `presence.subscribe` binder pushes
+//     `PresenceUpdate` values over the streaming primitive; see
+//     `presence-subscribe.ts` for the rationale.
 //   * `driver.*` (nine client-facing verbs) — Plan-005 Phase 4. The eight
 //     request/response verbs bind from `driver-handlers.ts` (T4.1's six plus
 //     T4.9's two console-parity verbs); the ninth,
