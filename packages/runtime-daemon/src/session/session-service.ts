@@ -190,12 +190,12 @@ export class SessionService {
          id, session_id, sequence, occurred_at, monotonic_ns,
          category, type, actor, payload, pii_payload,
          correlation_id, causation_id, version,
-         prev_hash, row_hash, daemon_signature, participant_signature
+         prev_hash, row_hash, daemon_signature
        ) VALUES (
          @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
          @category, @type, @actor, @payload, NULL,
          @correlation_id, @causation_id, @version,
-         @prev_hash, @row_hash, @daemon_signature, NULL
+         @prev_hash, @row_hash, @daemon_signature
        )`,
     );
     this.#replayStmt = db

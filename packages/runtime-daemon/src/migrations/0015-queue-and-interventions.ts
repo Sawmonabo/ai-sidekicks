@@ -127,10 +127,7 @@ CREATE TABLE queue_items (
   admitting_intervention_id TEXT,             -- row-anchored linkage to the interventions row whose
                                               -- admission created this item: NULL on ordinary participant
                                               -- sends, stamped beside target_run_id in the composite's
-                                              -- single durable transaction. The resume-time drain reads it
-                                              -- to resolve the drained turn's admitting principal -- a run
-                                              -- accumulates interventions over its life, so the resolution
-                                              -- is durable on the row and never inferred from run history
+                                              -- single durable transaction
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
 );
@@ -157,18 +154,13 @@ CREATE TABLE interventions (
   client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (participant client or daemon system-origination); replay-or-conflict intervention dedupe
   pii_payload            BLOB,                       -- encrypted per-participant AES-256-GCM via Plan-006's PiiEncryptor: the participant-authored intervention body -- the rollback replacementSend body and the steer directive text; same-key parity with session_events.pii_payload, so the Plan-022 Path-1 key deletion shreds every copy identically; NULLed by the daemon retention pass past the 90-day full-retention bound (no digest binding attaches, unlike session_events)
   pii_participant_id     TEXT,                       -- PII owner stamp: the requesting participant whose key encrypts pii_payload; NULL on rows carrying no PII leg
-  origin                 TEXT NOT NULL               -- daemon-resolved admission-path discriminator: 'participant' for a request admitted over an identity-carrying transport, 'system' for the in-process orchestration entrypoint below the wire authz boundary. NO DEFAULT by design -- a default would fail OPEN for the system path, so every insert site declares. Deliberately NOT inferred from initiator_id IS NULL: initiator_id is client-supplied and informational, so its absence proves nothing about how the request was admitted
+  origin                 TEXT NOT NULL               -- daemon-resolved admission-path discriminator: 'participant' for a request admitted over an identity-carrying transport, 'system' for the in-process orchestration entrypoint below the wire authz boundary. NO DEFAULT by design -- a default would fail OPEN for the system path, so every insert site declares
                          CHECK(origin IN ('participant', 'system')),
-  admitting_principal_id TEXT,                       -- participant recorded as the intervention's admitting principal, daemon-resolved at acceptance (node-owner binding on the local socket; verified PASETO sub on authenticated surfaces; caller_token.sub on the cross-node arm). NEVER read from the wire: a body-supplied actor disagreeing with the verified identity refuses as auth.principal_mismatch. Read by the turn-scoped effective-principal resolution
   result                 TEXT,                       -- JSON: outcome details
   rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) -- replay-durable: the wire contract forbids result on rejected, so an idempotent replay reconstructs rejectionReason from this column
-  initiator_id           TEXT,                       -- participant or system -- routing/audit metadata only, never an authorization input (see admitting_principal_id)
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,
-  UNIQUE(target_run_id, client_idempotency_key),     -- identical retry replays the recorded outcome; key reuse with a differing payload rejects as intervention.idempotency_conflict -- the PII body compared by decrypt-and-compare under the requester's live key, never by ciphertext or persisted digest -- distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)
-  CHECK((origin = 'participant' AND admitting_principal_id IS NOT NULL)
-        OR (origin = 'system' AND admitting_principal_id IS NULL))
-                                                     -- principal required iff participant-origin: the participant arm can never persist without its verified identity, and the system arm can never smuggle one in. Enforced by the engine, not by convention
+  UNIQUE(target_run_id, client_idempotency_key)      -- identical retry replays the recorded outcome; key reuse with a differing payload rejects as intervention.idempotency_conflict -- the PII body compared by decrypt-and-compare under the requester's live key, never by ciphertext or persisted digest -- distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)
 );
 
 CREATE INDEX idx_interventions_run ON interventions(target_run_id);

@@ -1159,9 +1159,8 @@ describe("openDatabase — failure-mode cleanup (closes handle if init throws)",
 // ----------------------------------------------------------------------------
 //
 // The Plan-001 migration declares CHECK(length(prev_hash) = 32 AND
-// length(row_hash) = 32 AND length(daemon_signature) = 64 AND
-// (participant_signature IS NULL OR length(participant_signature) = 64))
-// on session_events. Without these CHECKs, wrong-length placeholder
+// length(row_hash) = 32 AND length(daemon_signature) = 64) on
+// session_events. Without these CHECKs, wrong-length placeholder
 // bytes (e.g. Buffer.alloc(0)) would silently succeed and surface as a
 // chain-recompute failure later, in Plan-006 verification territory.
 // These tests pin the constraints at INSERT time.
@@ -1221,36 +1220,6 @@ describe("session_events integrity-column CHECK constraints", () => {
         prev_hash: Buffer.alloc(32),
         row_hash: Buffer.alloc(32),
         daemon_signature: Buffer.alloc(63), // Wrong: 63 bytes instead of 64.
-      }),
-    ).toThrow(/CHECK constraint failed/);
-  });
-
-  it("rejects an INSERT with an empty Buffer for participant_signature (NULL or 64 bytes only)", () => {
-    const stmt = ctx.db.prepare(
-      `INSERT INTO session_events (
-        id, session_id, sequence, occurred_at, monotonic_ns,
-        category, type, payload,
-        prev_hash, row_hash, daemon_signature, participant_signature
-      ) VALUES (
-        @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
-        @category, @type, @payload,
-        @prev_hash, @row_hash, @daemon_signature, @participant_signature
-      )`,
-    );
-    expect(() =>
-      stmt.run({
-        id: "01J0EV9992NN5J5J5J5J5J5J5J",
-        session_id: SESSION_ID,
-        sequence: 0,
-        occurred_at: "2026-04-27T12:00:00.000Z",
-        monotonic_ns: 1n,
-        category: "session_lifecycle",
-        type: "session.created",
-        payload: "{}",
-        prev_hash: Buffer.alloc(32),
-        row_hash: Buffer.alloc(32),
-        daemon_signature: Buffer.alloc(64),
-        participant_signature: Buffer.alloc(0), // Wrong: empty buffer is neither NULL nor 64 bytes.
       }),
     ).toThrow(/CHECK constraint failed/);
   });

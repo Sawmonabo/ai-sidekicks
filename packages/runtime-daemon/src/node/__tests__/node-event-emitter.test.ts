@@ -157,14 +157,13 @@ interface IntegrityRow {
   readonly prev_hash: Buffer;
   readonly row_hash: Buffer;
   readonly daemon_signature: Buffer;
-  readonly participant_signature: Buffer | null;
 }
 
 function readRawRows(db: DatabaseType, sessionId: string): ReadonlyArray<IntegrityRow> {
   return db
     .prepare(
       `SELECT sequence, type, category, version, actor, occurred_at, monotonic_ns,
-              payload, prev_hash, row_hash, daemon_signature, participant_signature
+              payload, prev_hash, row_hash, daemon_signature
          FROM session_events
         WHERE session_id = ?
         ORDER BY sequence ASC`,
@@ -287,9 +286,6 @@ describe("RuntimeNodeEventEmitter — D5 (monotonic_ns + materialized integrity 
     expect(row.prev_hash.equals(Buffer.alloc(CHAIN_HASH_LEN))).toBe(true);
     expect(row.row_hash.equals(Buffer.alloc(CHAIN_HASH_LEN))).toBe(false);
     expect(row.daemon_signature.equals(Buffer.alloc(DAEMON_SIGNATURE_LEN))).toBe(false);
-    // Still NULL: T3.1 mints no participant signature (the column is nullable
-    // and no V1 producer supplies one).
-    expect(row.participant_signature).toBeNull();
 
     // The row carries the runtime-node type + the Plan-001-owned category.
     expect(row.type).toBe("runtime_node.registered");

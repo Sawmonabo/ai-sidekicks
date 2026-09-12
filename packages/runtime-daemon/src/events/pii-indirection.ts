@@ -956,8 +956,7 @@ type SealableEventInput = PiiCarryingEventInput | ContentOnlyEventInput;
  *
  * Composed rather than an extension of `SignedRow`: that type documents itself
  * as "exactly what {@link signRow} computes, no more", and hanging an envelope
- * and a ciphertext off it would make it lie about its own shape — the same
- * reasoning by which it omits `participantSignature`.
+ * and a ciphertext off it would make it lie about its own shape.
  *
  * CALLER OBLIGATION — PERSIST THESE FOUR AS A UNIT. `envelope` supplies
  * `payload` (carrying the digest and the owner stamp) and the normalized

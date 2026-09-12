@@ -1026,7 +1026,7 @@ export class Compactor {
     // There is no `content_owner_stamp` counterpart to NULL — the content
     // partition is session-scoped, and `session_id` is already canonical and
     // signed. NOT in the SET list, and load-bearing that they are not:
-    // `prev_hash`, `row_hash`, `daemon_signature`, `participant_signature`,
+    // `prev_hash`, `row_hash`, `daemon_signature`,
     // `monotonic_ns`, `version` (I-006-3-03 freezes the chain commitment) and
     // `category` / `type` (naming them would trip the de-scope leg of
     // `trg_run_terminal_key_update`, and the scalar-binding check reads them as
