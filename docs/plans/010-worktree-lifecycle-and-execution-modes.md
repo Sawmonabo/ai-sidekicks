@@ -172,7 +172,7 @@ preconditions:
   - **Tests:** parse-accept/reject per enum; brand inequality (a `WorktreeId` does not accept a raw string without parse); union registration — each of the 5 event types parses through `SessionEventSchema` with a `worktreeId`-bearing payload; a `worktree.failed` literal is REJECTED by the union (D-010-11 pin); a worktree payload carrying a base-vocabulary state (e.g. `attached`) is REJECTED by `WorktreeLifecyclePayloadSchema` (exact per-family vocabulary pin, PR #250 round 4).
   - **Spec coverage:** Spec-010 line 50 (six worktree lifecycle states), Spec-010 line 128 (contract distinguishes the four canonical modes — via the imported `ExecutionMode`), Spec-010 line 144 (no-new-event-types carve-out)
   - **Verifies invariant:** I-010-1, I-010-13 (registration half)
-  - **Consumes:** `brandedUuidIdSchema` ← `packages/contracts/src/internal/branded.ts` (package-internal helper on the Plan-001-owned `packages/contracts/src/` path; authored by Plan-002 under the [§Ownership Rule](../architecture/cross-plan-dependencies.md#ownership-rule) Housekeeping Exception, shipped Tier 2); `ExecutionMode`/`WorkspaceState`/`RepoMountId`/`WorkspaceId`/`buildRepoWorkspaceLifecyclePayloadSchema` + its `RepoWorkspaceLifecyclePayloadOf` return alias ← Plan-009 Phase 1 T1.1 (CP-010-1; PR #250 round 4 — the factory replaces reuse-as-is of the two-vocabulary schema); `SessionEventSchema` union seam + category registry ← Plan-006 Phase 1 T1.2 (CP-010-5, additive-MINOR EXTEND)
+  - **Consumes:** `brandedUuidIdSchema` ← `packages/contracts/src/internal/branded.ts` (package-internal helper on the Plan-001-owned `packages/contracts/src/` path, shipped Tier 2); `ExecutionMode`/`WorkspaceState`/`RepoMountId`/`WorkspaceId`/`buildRepoWorkspaceLifecyclePayloadSchema` + its `RepoWorkspaceLifecyclePayloadOf` return alias ← Plan-009 Phase 1 T1.1 (CP-010-1; PR #250 round 4 — the factory replaces reuse-as-is of the two-vocabulary schema); `SessionEventSchema` union seam + category registry ← Plan-006 Phase 1 T1.2 (CP-010-5, additive-MINOR EXTEND)
 - **T1.2 — Seven wire request/response pairs.**
   - **Files:** `packages/contracts/src/worktree.ts` (EXTEND)
   - Zod schemas + inferred types implementing api-payload-contracts.md §Plan-010 verbatim: `ExecutionModeSelectRequest/Response`; `ExecutionRootPrepareRequest/Response` (incl. `baseRef?`, `reuseWorktreeId?`, `acknowledgeDirtyCandidate?` — D-010-8/D-010-15; no wire `runId` — run binding is gate-supplied service-side; `branchName?` stays schema-optional, but a writable-mode wire prepare without it draws the service-side `workspace.branch_name_required` refusal — D-010-19); `WorktreeReuseCheckRequest/Response` (singular candidate; `reason?` populated when not clean or not compatible); `EphemeralClonePrepareRequest/Response` (no TTL on the wire — D-010-2; request requires `branchName` — wire calls are pre-run and carry no slug-rule seed, D-010-19; response reports effective `cleanupPolicy` + `expiresAt` + `branchName`); `EphemeralCloneDisposeRequest/Response`; `WorktreeRetireRequest/Response` (`Extract`-typed `retired`); `WorktreeStatusReadRequest/Response` (provenance-bearing arrays).
@@ -348,12 +348,12 @@ preconditions:
 
 ### Phase 4 — Desktop execution-mode picker + worktree status UI
 
-**Goal.** The `execution-mode-picker/` renderer subtree: explicit one-mutation mode switching, worktree/clone status with provenance, and the explicit reuse probe — all bridge-only projections with mock-bridge test coverage now (the Plan-002 P6 mock-bridge pattern on the shipped renderer vitest project) and the Tier-8 manual leg dispositioned.
+**Goal.** The `execution-mode-picker/` renderer subtree: explicit one-mutation mode switching, worktree/clone status with provenance, and the explicit reuse probe — all bridge-only projections with mock-bridge test coverage now (the shipped mock-bridge pattern on the renderer vitest project) and the Tier-8 manual leg dispositioned.
 
 **Preconditions.**
 
 - [ ] Phase 3 merged
-- [x] Plan-023-partial renderer substrate + bridge stub shipped (Tier 1); the renderer vitest project shipped with Plan-001 Phase 5 T5.2 and the per-suite mock-bridge pattern with Plan-002 Phase 6 T6.3 (test-now posture)
+- [x] Plan-023-partial renderer substrate + bridge stub shipped (Tier 1); the renderer vitest project shipped with Plan-001 Phase 5 T5.2 and the per-suite mock-bridge pattern shipped with it (test-now posture)
 - [x] D-010-17 status-read + `lastError` carriers ratified (Tier-6 audit)
 
 <!-- prettier-ignore -->
@@ -371,7 +371,7 @@ preconditions:
   - **Tests:** covered by T4.4.
   - **Spec coverage:** Spec-010 line 75 (one selection mutation per explicit switch), Spec-010 line 49 (unavailable modes render as restrictions, never silently substituted)
   - **Verifies invariant:** I-010-17, I-010-18, I-010-20
-  - **Consumes:** `repo.executionModeCapabilitiesRead` ← Plan-009 Phase 3 (D-009-1); `repo.executionModeSelect` ← Phase 3 (D-010-3); `ExecutionModeSelectRequest`/`Response` + `ExecutionMode` ← Phase 1; `window.sidekicks.daemon.call` ← Plan-023-partial (shipped stub; live ← Tier 8 per CP-010-10); ambient `window.sidekicks` type ← Plan-002 Phase 6 T6.0 (shipped — `apps/desktop/src/renderer/src/sidekicks-bridge.d.ts`)
+  - **Consumes:** `repo.executionModeCapabilitiesRead` ← Plan-009 Phase 3 (D-009-1); `repo.executionModeSelect` ← Phase 3 (D-010-3); `ExecutionModeSelectRequest`/`Response` + `ExecutionMode` ← Phase 1; `window.sidekicks.daemon.call` ← Plan-023-partial (shipped stub; live ← Tier 8 per CP-010-10); ambient `window.sidekicks` type ← shipped (`apps/desktop/src/renderer/src/sidekicks-bridge.d.ts`)
 - **T4.2 — `WorktreeStatusView.tsx`.**
   - **Files:** `apps/desktop/src/renderer/src/execution-mode-picker/WorktreeStatusView.tsx` (CREATE)
   - Snapshot-read `repo.worktreeStatusRead` (`loading | loaded | error` — the NodeRoster posture precedent) rendering EVERY worktree + clone row verbatim: state, branch, provenance (`createdBySessionId`, `createdByRunId`), clone policy + `expiresAt` (no client expiry math — I-010-20); `failed`/`retired` rows render labeled, never filtered (I-010-19). The stale owning-workspace context renders the write-blocked label with `lastError` when `repo.workspaceList` carries it (D-010-17). Subscribes to the `workspace.*` + five `worktree.*` daemon events as OPAQUE re-read signals (payload never decoded — the Plan-009 WorkspaceListView precedent); V1 accepts no push signal for TTL retirement (freshness rides re-reads, D-010-11 disposition).
@@ -388,11 +388,11 @@ preconditions:
   - **Consumes:** `repo.worktreeReuseCheck` ← Phase 3 (D-010-3); schemas ← Phase 1; bridge ← Plan-023-partial (CP-010-10)
 - **T4.4 — Mock-bridge component test suites.**
   - **Files:** `apps/desktop/src/renderer/src/execution-mode-picker/__tests__/ExecutionModePicker.test.tsx`, `apps/desktop/src/renderer/src/execution-mode-picker/__tests__/WorktreeStatusView.test.tsx`, `apps/desktop/src/renderer/src/execution-mode-picker/__tests__/WorktreeReuseCheckView.test.tsx` (CREATE ×3)
-  - Per-suite mock `window.sidekicks` bridge (Plan-002 P6 / Plan-009 Phase 4 precedent): the picker fires exactly one select per click + renders provisioning verbatim + restriction-disabled options; the status view renders the all-states fixture incl. failed/retired + `lastError` labeling + re-read on event signal; the reuse view renders dirty/incompatible verdicts + never auto-fires prepare; every rejected branch surfaces the typed code.
+  - Per-suite mock `window.sidekicks` bridge (the Plan-009 Phase 4 precedent): the picker fires exactly one select per click + renders provisioning verbatim + restriction-disabled options; the status view renders the all-states fixture incl. failed/retired + `lastError` labeling + re-read on event signal; the reuse view renders dirty/incompatible verdicts + never auto-fires prepare; every rejected branch surfaces the typed code.
   - **Tests:** the suites ARE the tests.
   - **Spec coverage:** Spec-010 line 128 (AC2 — all four modes distinguished in the rendered contract), Spec-010 line 130 (AC4 — reuse linkage rendered from daemon truth)
   - **Verifies invariant:** I-010-17, I-010-18, I-010-19, I-010-20
-  - **Consumes:** views ← T4.1, T4.2, T4.3; vitest `renderer` project ← Plan-001 Phase 5 T5.2 (shipped Tier 1 — `apps/desktop/vitest.config.ts`, happy-dom environment, `globals: true`, include glob auto-discovers these files); per-suite mock-bridge install/teardown pattern ← Plan-002 Phase 6 T6.3 (shipped — duplicated per suite per the standing directive)
+  - **Consumes:** views ← T4.1, T4.2, T4.3; vitest `renderer` project ← Plan-001 Phase 5 T5.2 (shipped Tier 1 — `apps/desktop/vitest.config.ts`, happy-dom environment, `globals: true`, include glob auto-discovers these files); per-suite mock-bridge install/teardown pattern ← shipped (duplicated per suite per the standing directive)
 - **T4.5 — Tier-8 manual-verification disposition record.**
   - **Files:** this plan §Test And Verification Plan (the manual row below)
   - The "manual verification of worktree lifecycle from create through retire" row is executable only when Plan-023 Tier 8 wires the live bridge; per the Plan-003 T5.4 / Plan-009 T4.5 precedent the row is dispositioned NOW (deferred-to-Tier-8, tracked on the Plan-023 remainder) rather than silently skipped.
