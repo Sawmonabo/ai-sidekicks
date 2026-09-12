@@ -1,37 +1,24 @@
-// Plan-003 Phase 5 T5.1 — what the roster PROJECTS, and what it imports.
+// What the roster PROJECTS, and what it imports.
 //
 // One of the two halves this suite splits into, along the component's own seam:
 // this file holds the render — the three states and the row facets — and
 // `NodeRoster.read.test.tsx` holds when they change. Both mount through the shared
 // seam builder in `node-roster.test-support.ts`.
 //
-// BL-131 exit criterion (b), this view's share: bridge-only data access (no
-// `node:*` / `electron` / daemon / control-plane imports), the three render states
-// (loading / loaded / error), and below-floor read-only surfacing of the typed
-// `VERSION_FLOOR_EXCEEDED` refusal. Criterion (c) — the two-client attach E2E that
-// replaces the T5.4 manual smoke — is out of scope here and stays open on Plan-023
-// Tier 8.
+// What the cases hold the view to:
+//   • Below-floor nodes are admitted READ-ONLY and never ejected: the roster renders
+//     a below-floor row with its read-only access label — the node is annotated, not
+//     filtered out, and the `version.floor_exceeded` read-refusal case likewise keeps
+//     the surface legible rather than blanking it.
+//   • The roster is a FAITHFUL projection: every row the wire returns renders, both
+//     health axes verbatim (`state` = the authority/slot axis, `healthState` = the
+//     liveness axis), with no client-side hiding, sorting, or re-derivation.
+//   • The renderer is untrusted, so the view reaches the control plane and the daemon
+//     through no path of its own. That is STRUCTURAL rather than mocked — `reads` is
+//     required and this view resolves no transport — and the untouched-global case
+//     below holds it.
 //
-// Spec coverage:
-//   • `Spec-003 §Acceptance Criteria` AC4 (below-floor nodes are admitted
-//     READ-ONLY and never ejected): the roster renders a below-floor row with its
-//     read-only access label — the node is annotated, not filtered out.
-//   • `Spec-003 §Required Behavior` (the roster is a FAITHFUL projection): every
-//     row the wire returns renders, both health axes verbatim (`state` = the
-//     authority/slot axis, `healthState` = the liveness axis), with no client-side
-//     hiding, sorting, or re-derivation.
-//   • I-003-1 (admit-not-eject): the below-floor row and the
-//     `version.floor_exceeded` read-refusal case both keep the surface legible
-//     rather than blanking it.
-//   • Spec-023 §Trust Stance + `Plan-003 §Cross-Plan Obligations` CP-003-3: the view
-//     reaches the control plane and the daemon through no path of its own. That is
-//     now STRUCTURAL rather than mocked — `reads` is required and this view resolves
-//     no transport — and the two controls below hold it: the untouched-global case
-//     and the bridge-projection source scan.
-//
-// Harness: the Vitest `renderer` project (happy-dom) + `@testing-library/react` —
-// see `ADR-022 §Decision Log` (2026-08-25) for why renderer component tests run
-// there rather than under Browser Mode.
+// Harness: the Vitest `renderer` project (happy-dom) + `@testing-library/react`.
 //
 // RESPONSE DRIFT is caught by the annotated fixtures in the shared support module
 // plus the `expectTypeOf` tripwire below, which makes that protection structural
@@ -159,7 +146,6 @@ describe("NodeRoster", () => {
       expect(belowFloorRow).not.toBeNull();
     });
 
-    // `Spec-003 §Acceptance Criteria` AC4.
     it("renders a below-floor node read-only rather than dropping it", async () => {
       render(<NodeRoster sessionId={FIRST_SESSION_ID} reads={seamServing(FIRST_SNAPSHOT).reads} />);
 

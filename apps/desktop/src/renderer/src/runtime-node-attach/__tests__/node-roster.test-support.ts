@@ -56,8 +56,8 @@ export function buildRosterEntry(
 }
 
 // The first snapshot deliberately spans all three axes the roster projects: an
-// at-floor read-write node, a BELOW-FLOOR read-only node (AC4 — admitted, not
-// ejected), and a `registering` node with NO heartbeat yet (`healthState` and
+// at-floor read-write node, a BELOW-FLOOR read-only node (admitted, not ejected),
+// and a `registering` node with NO heartbeat yet (`healthState` and
 // `lastHeartbeatAt` both null).
 export const FIRST_SNAPSHOT: RuntimeNodeRosterResponse = {
   nodes: [

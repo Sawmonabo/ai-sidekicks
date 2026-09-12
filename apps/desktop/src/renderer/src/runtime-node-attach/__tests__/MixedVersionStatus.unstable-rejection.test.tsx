@@ -11,9 +11,9 @@
 //     data the wire never sent — the `data-write-refusal` facet says
 //     `version.floor_exceeded` while the sentence beside it says something else.
 //   • A member that throws on the second read takes the subtree down. There is no
-//     error boundary in the renderer at this tier, and even a future one would swap
-//     the crash for a fallback that hides the node — an eject-by-render, from the one
-//     component whose whole job is to keep a refused node visible (I-003-1).
+//     error boundary in the renderer, and even a future one would swap the crash for
+//     a fallback that hides the node — an eject-by-render, from the one component
+//     whose whole job is to keep a refused node visible.
 //
 // Its own file rather than a fourth block in `MixedVersionStatus.refusal.test.tsx`,
 // which is about which arm a rejection lands on; this one is about how many times
@@ -75,8 +75,8 @@ describe("MixedVersionStatus — an unstable rejection is read once and rendered
     const refusalAlert = screen.getByRole("alert", { name: "version-floor-write-refusal" });
     expect(refusalAlert.textContent).toContain(VERSION_FLOOR_EXCEEDED_CODE);
     expect(refusalAlert.textContent).toContain(FLOOR_SENTENCE);
-    // The node block still renders beside it: a refusal annotates the node (I-003-1),
-    // and a render that threw would have removed both.
+    // The node block still renders beside it: a refusal annotates the node, and a
+    // render that threw would have removed both.
     expect(screen.getByLabelText("mixed-version-status")).toBeDefined();
   });
 

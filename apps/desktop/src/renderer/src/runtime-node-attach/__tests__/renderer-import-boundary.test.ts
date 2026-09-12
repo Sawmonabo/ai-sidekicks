@@ -1,10 +1,8 @@
-// Plan-003 CP-003-3 renderer-boundary enforcement — BL-131 exit criterion (b),
-// the transitive half.
+// The renderer import boundary, enforced transitively.
 //
-// WHY THIS FILE EXISTS (PR #355 Codex round 1). The four Plan-003 view suites
-// each scan their own component's source text for banned imports. That scan is
-// real but structurally shallow: it sees only DIRECT imports. Refactor a view
-// to call a local helper —
+// WHY THIS FILE EXISTS. The four runtime-node view suites each scan their own
+// component's source text for banned imports. That scan is real but structurally
+// shallow: it sees only DIRECT imports. Refactor a view to call a local helper —
 //
 //     MixedVersionStatus.tsx → ./runtime-node-data.js → @ai-sidekicks/control-plane
 //
@@ -51,15 +49,12 @@
 // covered `__tests__/**`, which is wrong for the reason `packages/contracts`'
 // isomorphism block already documents: the ban keeps Node capability out of
 // the renderer BUNDLE, and tests are never bundled. The config now excludes
-// `__tests__/**` from the builtin ban and re-applies the CP-003-3 workspace-
-// package half to tests in a second block — so this file may import
-// `node:path`, but no renderer test may import the daemon or control-plane
-// package. That asymmetry is itself covered by a case below — as is the
-// flat-config resolution rule that forces the second block to RESTATE the
-// CP-003-3 entries instead of inheriting them.
-//
-// Refs: docs/plans/003-runtime-node-attach.md §Cross-Plan Obligations CP-003-3,
-//       docs/specs/023-desktop-shell-and-renderer.md §Trust Stance.
+// `__tests__/**` from the builtin ban and re-applies the workspace-package half
+// to tests in a second block — so this file may import `node:path`, but no
+// renderer test may import the daemon or control-plane package. That asymmetry
+// is itself covered by a case below — as is the flat-config resolution rule
+// that forces the second block to RESTATE the workspace-package entries
+// instead of inheriting them.
 import { ESLint } from "eslint";
 
 // Paths are derived from `import.meta.url` rather than `node:path`, on purpose.
@@ -159,7 +154,6 @@ const ESLINT_CASE_TIMEOUT_MS = 30_000;
 
 vi.setConfig({ testTimeout: ESLINT_CASE_TIMEOUT_MS });
 
-// Enforces the Plan-003 CP-003-3 renderer import boundary.
 describe("renderer import boundary", () => {
   describe("the rule has teeth (positive controls)", () => {
     // Each case is a shape the per-component source scan would MISS or that a
@@ -194,7 +188,9 @@ describe("renderer import boundary", () => {
       });
       const messages = restrictedImportMessages(results);
       expect(messages.length).toBeGreaterThan(0);
-      expect(messages.join("\n")).toContain("CP-003-3");
+      // The message is the shipped ban's own, not some other rule's: every
+      // renderer-scoped entry states why the import is refused.
+      expect(messages.join("\n")).toContain("renderer is untrusted");
     });
 
     it("reports the helper-hop shape the per-component scans cannot see", async () => {
@@ -226,7 +222,6 @@ describe("renderer import boundary", () => {
     });
   });
 
-  // Plan-003 CP-003-3 package ban.
   it("keeps the package ban on renderer TEST files too", async () => {
     // The builtin ban is lifted for `__tests__/**` (tests are not bundled), but
     // the cross-plan package boundary is not — otherwise the exclusion would
@@ -258,8 +253,8 @@ describe("renderer import boundary", () => {
     // because a later flat-config object that supplies rule OPTIONS replaces the
     // earlier options wholesale — no deep merge, no union of `paths` — no matter
     // how narrow its `files` selector is. That is load-bearing: it is the reason
-    // the `__tests__/**` block restates the CP-003-3 entries rather than relying
-    // on the block above, and the config's header comment now says so.
+    // the `__tests__/**` block restates the workspace-package entries rather
+    // than relying on the block above, and the config's header comment says so.
     //
     // One file class in the shipped config IS matched by two
     // `no-restricted-imports` objects — console and shell source, which the
@@ -297,8 +292,9 @@ describe("renderer import boundary", () => {
     const messages = restrictedImportMessages(results).join("\n");
     // Both halves are load-bearing: without the first the case passes vacuously
     // when the appended block fails to match; without the second it says nothing
-    // about merge-vs-replace.
+    // about merge-vs-replace. The shipped test-file ban names the package it
+    // refuses, so its absence from the messages is how we see it did not fire.
     expect(messages).toContain("SENTINEL");
-    expect(messages).not.toContain("CP-003-3");
+    expect(messages).not.toContain("control-plane");
   });
 });

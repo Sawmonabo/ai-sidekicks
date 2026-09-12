@@ -1,4 +1,4 @@
-// Plan-003 Phase 5 T5.1 — WHEN the roster's rows change, and under which subject.
+// WHEN the roster's rows change, and under which subject.
 //
 // The other half of the split: `NodeRoster.render.test.tsx` holds what the rows say,
 // and this file holds `node-roster-reads.ts` driven through the component — the

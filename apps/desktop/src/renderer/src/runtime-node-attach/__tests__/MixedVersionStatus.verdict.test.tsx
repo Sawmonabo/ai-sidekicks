@@ -1,24 +1,20 @@
-// Plan-003 Phase 5 T5.3 — what access verdict `MixedVersionStatus` renders.
+// What access verdict `MixedVersionStatus` renders.
 //
 // One of the view's two axes. This file is about the verdict the SERVER resolved and
 // this view only projects; which arm a refused write lands on is
 // `MixedVersionStatus.refusal.test.tsx`, over the one entry builder in
 // `mixed-version-status.test-support.ts`.
 //
-// Spec coverage:
-//   • `Spec-003 §Acceptance Criteria` AC4 (a below-floor node is admitted in a
-//     read-only state and is never ejected for the mismatch): the cases pin the
-//     read-only label to the server-resolved `readOnly` axis alone, across every node
-//     state that carries one.
-//   • I-003-1 (admit-not-eject): a below-floor node renders as an ADMITTED entry with
-//     a read-only label, never as an error or an absence.
+// What the cases hold the view to: a below-floor node is admitted in a read-only
+// state and is never ejected for the mismatch. The cases pin the read-only label to
+// the server-resolved `readOnly` axis alone, across every node state that carries
+// one, and such a node renders as an ADMITTED entry with a read-only label, never as
+// an error or an absence.
 //
-// Harness: the Vitest `renderer` project (happy-dom) + `@testing-library/react` — the
-// shipped desktop renderer stack; `ADR-022 §Decision Log` (2026-08-25) records why
-// renderer component tests run there rather than under Browser Mode. Queries are
-// accessible-first (`getByRole` / `getByLabelText`); `data-*` assertions are reserved
-// for the deliberate machine-readable enum tokens the view emits for exactly that
-// purpose.
+// Harness: the Vitest `renderer` project (happy-dom) + `@testing-library/react`, the
+// shipped desktop renderer stack. Queries are accessible-first (`getByRole` /
+// `getByLabelText`); `data-*` assertions are reserved for the deliberate
+// machine-readable enum tokens the view emits for exactly that purpose.
 
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
