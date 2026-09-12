@@ -2,41 +2,41 @@
 
 ## Purpose
 
-Recover the shared Collaboration Control Plane when session join, invites, presence, or shared metadata are failing.
+Recover the Control Plane when device linking, device presence, the session directory, or relay coordination are failing.
 
 ## Symptoms
 
-- Invite issuance or acceptance fails
-- Participants cannot join shared sessions
-- Presence becomes stale across many sessions
-- Scope and blast radius: all collaborative sessions using the affected Collaboration Control Plane
+- A device cannot link to the account, or its registered identity key no longer resolves
+- A linked device cannot read the session directory or open a session the user owns
+- Device presence becomes stale across many sessions
+- Scope and blast radius: every session reached through the affected Control Plane
 
 ## Detection
 
-- Read control-plane health plus failure-category projections for auth, shared database, membership, presence, and relay coordination.
-- Inspect recent invite-create, invite-accept, session-join, and presence-write failure rates.
+- Read control-plane health plus failure-category projections for auth, shared database, the device registry, device presence, and relay coordination.
+- Inspect recent device-link, session-directory read, and presence-write failure rates.
 - Compare the last successful shared write timestamp with current projection freshness for session directory and presence reads.
 
 ## Preconditions
 
-- Operator access to Collaboration Control Plane services and shared Postgres
-- Access to Collaboration Control Plane logs, traces, and deployment controls
-- Ability to pause or rate-limit invite or join traffic if needed
+- Operator access to Control Plane services and shared Postgres
+- Access to Control Plane logs, traces, and deployment controls
+- Ability to pause or rate-limit device-link or session-directory traffic if needed
 
 ## Recovery Steps
 
-1. Confirm whether the primary failure category is auth, shared database, membership service, presence projection, or relay coordination.
+1. Confirm whether the primary failure category is auth, shared database, the device registry, presence projection, or relay coordination.
 2. If shared database connectivity is impaired, restore shared Postgres availability before restarting higher services.
-3. If auth is impaired, recover auth reachability and token validation before accepting new invite or join traffic.
-4. Restart only the unhealthy Collaboration Control Plane services after persistent dependencies are healthy again.
+3. If auth is impaired, recover auth reachability and token validation before accepting new device-link or session-directory traffic.
+4. Restart only the unhealthy Control Plane services after persistent dependencies are healthy again.
 5. Rebuild or refresh session-directory and presence projections if writes recovered but reads remain stale.
-6. Re-run one invite acceptance and one session join verification flow before declaring recovery complete.
+6. Re-run one device-link flow and one session-open flow before declaring recovery complete.
 
 ## Validation
 
-- Invite create and accept succeed
-- Shared session join succeeds for at least one known-good membership
-- Presence updates resume within normal heartbeat windows
+- A device links and its registered identity key resolves
+- A linked device opens at least one known-good session through the directory
+- Device presence updates resume within normal heartbeat windows
 - Session-directory and presence projections show current timestamps after recovery
 
 ## Escalation
@@ -61,8 +61,8 @@ sidekicks cp presence --session <id>
 | API p99 latency            | < 200ms                   |
 | Availability               | 99.9% uptime              |
 | Error rate                 | < 0.1% of requests        |
-| Session join latency (p95) | < 500ms                   |
-| Presence staleness         | < 30s from last heartbeat |
+| Session open latency (p95) | < 500ms                   |
+| Device presence staleness  | < 30s from last heartbeat |
 
 ## On-Call Routing
 

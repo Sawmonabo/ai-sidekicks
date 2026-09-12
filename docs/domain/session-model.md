@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define `Session` as the primary domain object and the durable collaborative boundary for all product activity.
+Define `Session` as the primary domain object and the durable boundary for all product activity.
 
 ## Scope
 
@@ -10,15 +10,14 @@ This document defines what a session contains, how it behaves, and how it relate
 
 ## Definitions
 
-- `Session`: the top-level collaborative container for runtime, membership, communication, and work state.
+- `Session`: the top-level container for runtime, communication, and work state, owned by one user.
 - `SessionState`: the lifecycle state of the session itself, not the state of any specific run.
-- `local-only`: an operating constraint where a session remains usable on one participant-owned local runtime node without current shared control-plane coordination.
+- `local-only`: an operating constraint where a session remains usable on the user's own local runtime node without current control-plane coordination.
 
 ## What This Is
 
 A session is the durable container that holds:
 
-- participants and memberships
 - runtime nodes
 - channels
 - agents
@@ -26,7 +25,6 @@ A session is the durable container that holds:
 - queue items and interventions
 - repo mounts and workspaces
 - approvals and artifacts
-- invites and presence records
 
 ## What This Is Not
 
@@ -38,28 +36,28 @@ A session is the durable container that holds:
 
 ## Invariants
 
-- Every core collaboration and runtime record belongs to exactly one session.
+- Every core runtime and communication record belongs to exactly one session.
 - Session identity remains stable across reconnects, client restarts, and transport changes.
 - A session may host multiple active channels and multiple active runs at the same time.
 - A session may outlive the presence of any currently connected client.
-- Joining a live session must attach to the existing session; it must not clone or fork the session by default.
+- Opening a live session from another of the user's devices must attach to the existing session; it must not clone or fork the session by default.
 - `local-only` continuity must not create a second session identity or a separate session type.
 
 ## Relationships To Adjacent Concepts
 
-- `Participant` and `Membership` describe who belongs in the session.
+- [User And Device Model](./user-and-device-model.md) describes who owns the session and which devices drive it.
 - `RuntimeNode` describes what execution authority is attached to the session.
 - `Channel` describes where communication occurs inside the session.
 - `Agent` and `Run` describe who executes work and which execution episode is in progress.
 - `RepoMount`, `Workspace`, and `Worktree` describe the code-bearing surfaces used by runs inside the session.
-- `local-only` describes a continuity constraint on session use; it does not replace shared-session semantics as the root model.
+- `local-only` describes a continuity constraint on session use; it does not replace the control-plane-connected session as the root model.
 
 ## State Model
 
 | State | Meaning |
 | --- | --- |
-| `provisioning` | The session exists but its initial membership, storage, or control-plane metadata is not yet ready. |
-| `active` | The session is usable for membership, communication, and execution. |
+| `provisioning` | The session exists but its initial storage or control-plane metadata is not yet ready. |
+| `active` | The session is usable for communication and execution. |
 | `archived` | The session is retained for history and replay but no longer accepts normal active work. |
 | `closed` | The session has been intentionally terminated and is not resumable without explicit restoration. |
 | `purge_requested` | A participant or admin has requested data purge. The session is locked against further modification while purge processing is pending. |
@@ -78,21 +76,21 @@ Allowed transitions:
 
 ## Local-Only Reconciliation
 
-Sessions started in `local-only` continuity are domain-identical to shared sessions — only connectivity is partial. Reconciliation to the shared control plane MUST preserve session identity and history:
+Sessions started in `local-only` continuity are domain-identical to control-plane-connected sessions — only connectivity is partial. Reconciliation to the control plane MUST preserve session identity and history:
 
 1. **Session IDs are daemon-assigned UUID v7** per [RFC 9562](https://www.rfc-editor.org/rfc/rfc9562.html) (Standards Track, May 2024). UUID v7 is lexicographically sortable by creation timestamp, so sessions remain orderable even when reconciliation is delayed by minutes, hours, or days. Postgres 18 exposes native `uuidv7()` and `uuid_extract_timestamp()` that reverse-validate any daemon-generated ID.
 2. **The daemon generates the session ID for daemon-originated sessions.** Such sessions are fully functional with zero control-plane contact; the ID is preserved unchanged across later reconciliation. The `sessions` schema's `gen_random_uuid()` default exists only for rare control-plane-originated rows (e.g., admin-provisioned sessions that have no daemon origin); it is not the normal production path.
 3. **First reconciliation executes the `provisioning -> active` transition** once the shared-Postgres row is written. The daemon presents the session ID and the control plane performs an idempotent upsert: `INSERT INTO sessions (id, ...) VALUES (...) ON CONFLICT (id) DO UPDATE SET updated_at = sessions.updated_at RETURNING *`. The `DO UPDATE` clause (not `DO NOTHING`) guarantees `RETURNING *` yields a row on every attempt so the daemon detects retries after a crash without silent data loss.
-4. **Owner identity is bound at the first authenticated RPC.** Until then, the session is attributable to the daemon machine but not to a global participant identity. The first PASETO v4 token received on any session RPC (token format and issuance flows defined in [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)) seeds the `session_memberships` owner row in a trust-on-first-use binding; subsequent tokens MUST match the bound owner. The TOFU-seeding rule itself is established by this invariant — ADR-010 is cited for the underlying token material, not for the seeding rule.
+4. **Owner identity is bound at the first authenticated RPC.** Until then, the session is attributable to the daemon machine but not to a global account identity. The first PASETO v4 token received on any session RPC (token format and issuance flows defined in [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)) seeds `sessions.owner_user_id` on the control plane in a trust-on-first-use binding; subsequent tokens MUST match the bound owner. On the daemon the same fact is derived rather than stored — the owner is the actor on the session's first event ([User And Device Model §Session Ownership](./user-and-device-model.md#session-ownership)). The TOFU-seeding rule itself is established by this invariant — ADR-010 is cited for the underlying token material, not for the seeding rule.
 5. **Reconciliation is never destructive.** A reconnecting daemon never re-assigns a session ID. Unknown IDs cause shared-row creation; known IDs resolve to the existing row via the upsert no-op.
 
 State-machine precedent for the `provisioning -> active` split: Kubernetes Pod (`Pending -> Running`) and Amazon ECS (`PROVISIONING -> PENDING -> ACTIVATING -> RUNNING`) both treat creation-time resource allocation as a distinct pre-ready phase from steady-state operation.
 
 ## Example Flows
 
-- Example: A user creates a new session around a repository, invites a reviewer, attaches a runtime node, and starts an implementation run. All later messages, approvals, diffs, and artifacts remain inside that same session.
-- Example: A participant reconnects after a transport failure. The session remains `active`, and the participant reattaches to the existing session timeline instead of creating a second session.
-- Example: A single participant starts work while shared collaboration services are unavailable. The session remains the same domain object in `local-only` continuity and may later reconnect to shared coordination if product rules allow it.
+- Example: A user creates a new session around a repository, attaches a runtime node, and starts an implementation run. All later messages, approvals, diffs, and artifacts remain inside that same session.
+- Example: A device reconnects after a transport failure. The session remains `active`, and the device reattaches to the existing session instead of creating a second one.
+- Example: A user starts work while the control plane is unreachable. The session remains the same domain object in `local-only` continuity and may later reconnect to control-plane coordination if product rules allow it.
 
 ## Edge Cases
 
