@@ -29,7 +29,6 @@ describe("create channel draft — what a settled create is allowed to clear", (
     readonly apply: (draft: CreateChannelDraft) => void;
   }[] = [
     { field: "name", apply: (draft) => draft.setName("review two") },
-    { field: "audience", apply: (draft) => draft.setAudience("humans-only") },
     { field: "turnsPerAgent", apply: (draft) => draft.setTurnsPerAgent("2") },
     ...CHANNEL_MODERATION_FIELDS.map((field) => ({
       field,

@@ -25,9 +25,8 @@ export interface CreateChannelOverrides {
   readonly sessionId?: string;
 }
 
-/** The three configuration members the form collects, each as its own control. */
+/** The two configuration members the form collects, each as its own control. */
 export interface CreateChannelPolicyControls {
-  readonly audience: HTMLSelectElement;
   readonly turnsPerAgent: HTMLInputElement;
   readonly moderationBoxes: readonly HTMLInputElement[];
 }
@@ -70,12 +69,10 @@ export function typeName(container: HTMLElement, name: string): void {
  * The policy controls, in the order the form declares them.
  *
  * Positional because that order is the form's own and a person meets it that way: the
- * audience is the only select, and the name comes before the per-agent cap among the
- * text fields.
+ * name comes before the per-agent cap among the text fields.
  */
 export function policyFields(container: HTMLElement): CreateChannelPolicyControls {
   return {
-    audience: requiredElement(container, ".meridian-create-channel__select", 0),
     turnsPerAgent: requiredElement(container, ".meridian-create-channel__text", 1),
     moderationBoxes: [...container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')],
   };

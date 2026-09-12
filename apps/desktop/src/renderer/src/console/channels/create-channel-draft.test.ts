@@ -12,11 +12,7 @@ import { SESSION_ID } from "./channels.test-support.js";
 import { missingFrom, namedDraft, requestOf } from "./create-channel-draft.test-support.js";
 
 describe("create channel draft — where the form opens", () => {
-  it("opens with the audience on users", () => {
-    expect(new CreateChannelDraft().audience).toBe("users");
-  });
-
-  it("opens holding nothing else at all", () => {
+  it("opens holding nothing at all", () => {
     // Every other member is the SESSION's default, which is what an absent member on
     // this wire means — a console that pre-picked one would be choosing on a person's
     // behalf and reporting it as their choice.
@@ -58,8 +54,8 @@ describe("create channel draft — the reserved bootstrap name", () => {
 });
 
 describe("create channel draft — what a channel sends", () => {
-  it("sends the audience the form holds and no member nobody touched", () => {
-    expect(requestOf(namedDraft()).config).toStrictEqual({ audience: "users" });
+  it("sends no member nobody touched", () => {
+    expect(requestOf(namedDraft()).config).toBeUndefined();
   });
 
   it("sends a moderation member a person unchecked, rather than dropping it", () => {
@@ -90,12 +86,6 @@ describe("create channel draft — what a channel sends", () => {
     const draft = namedDraft();
     draft.setTurnsPerAgent("3");
     expect(requestOf(draft).config?.turnsPerAgent).toBe(3);
-  });
-
-  it("sends no configuration at all where every member was cleared", () => {
-    const draft = namedDraft();
-    draft.setAudience(undefined);
-    expect(requestOf(draft).config).toBeUndefined();
   });
 });
 
@@ -139,14 +129,12 @@ describe("create channel draft — the per-agent cap a number can actually hold"
 describe("create channel draft — what Cancel does", () => {
   it("puts every field back where the form opened", () => {
     const draft = namedDraft();
-    draft.setAudience("humans-only");
     draft.setTurnsPerAgent("4");
     draft.setModeration("preTurnGate", true);
 
     draft.reset();
 
     expect(draft.name).toBe("");
-    expect(draft.audience).toBe("users");
     expect(draft.turnsPerAgent).toBe("");
     expect(draft.moderationValue("preTurnGate")).toBeUndefined();
   });

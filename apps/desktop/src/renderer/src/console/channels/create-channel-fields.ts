@@ -12,8 +12,6 @@
 // it is the FIELD layer, decided by what a person typed and by nothing the draft holds,
 // so it is drivable without one.
 
-import type { GrowthChannelAudience } from "../bridge/index.js";
-
 /**
  * The moderation members a person can touch, declared once.
  *
@@ -39,7 +37,6 @@ export type ChannelModerationField = (typeof CHANNEL_MODERATION_FIELDS)[number];
  */
 export interface CreateChannelDraftSnapshot {
   readonly name: string;
-  readonly audience: GrowthChannelAudience | undefined;
   readonly turnsPerAgent: string;
   /** One entry per {@link CHANNEL_MODERATION_FIELDS} member, in that order. */
   readonly moderation: readonly (boolean | undefined)[];
@@ -58,7 +55,6 @@ export function draftSnapshotsMatch(
 ): boolean {
   return (
     left.name === right.name &&
-    left.audience === right.audience &&
     left.turnsPerAgent === right.turnsPerAgent &&
     left.moderation.length === right.moderation.length &&
     left.moderation.every((touched, index) => touched === right.moderation[index])

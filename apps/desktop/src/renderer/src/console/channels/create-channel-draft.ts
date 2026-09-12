@@ -20,7 +20,7 @@
 
 import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
 
-import type { GrowthChannelAudience, GrowthChannelConfig } from "../bridge/index.js";
+import type { GrowthChannelConfig } from "../bridge/index.js";
 import { Emitter, type Unsubscribe } from "../core/index.js";
 import type { ChannelCreateRequest } from "./channel-writes.js";
 import {
@@ -50,10 +50,6 @@ export type CreateChannelReadiness =
 export class CreateChannelDraft {
   readonly #changes = new Emitter<void>("create channel draft");
   #name = "";
-  // The one policy member the form opens with a value in: the empty state is audience
-  // `users`, so the draft holds that rather than leaving the reader to infer it
-  // from an unset select.
-  #audience: GrowthChannelAudience | undefined = "users";
   #turnsPerAgent = "";
   #moderation = new Map<ChannelModerationField, boolean>();
 
@@ -66,7 +62,6 @@ export class CreateChannelDraft {
   public snapshot(): CreateChannelDraftSnapshot {
     return {
       name: this.#name,
-      audience: this.#audience,
       turnsPerAgent: this.#turnsPerAgent,
       moderation: CHANNEL_MODERATION_FIELDS.map((field) => this.#moderation.get(field)),
     };
@@ -102,12 +97,10 @@ export class CreateChannelDraft {
    *
    * Renderer-local by definition: nothing was sent, so there is nothing to withdraw,
    * and a Cancel that reached the wire would be inventing an act the plane does not
-   * have. The audience returns to `users` because that is the form's empty
-   * state rather than an absence.
+   * have.
    */
   public reset(): void {
     this.#name = "";
-    this.#audience = "users";
     this.#turnsPerAgent = "";
     this.#moderation = new Map();
     this.#changes.emit();
@@ -119,15 +112,6 @@ export class CreateChannelDraft {
 
   public setName(value: string): void {
     this.#name = value;
-    this.#changes.emit();
-  }
-
-  public get audience(): GrowthChannelAudience | undefined {
-    return this.#audience;
-  }
-
-  public setAudience(value: GrowthChannelAudience | undefined): void {
-    this.#audience = value;
     this.#changes.emit();
   }
 
@@ -196,7 +180,6 @@ export class CreateChannelDraft {
     const moderation = this.#moderationConfig();
     const config: GrowthChannelConfig = {
       ...(moderation === undefined ? {} : { moderation }),
-      ...(this.#audience === undefined ? {} : { audience: this.#audience }),
       ...(typeof turnsPerAgent === "number" ? { turnsPerAgent } : {}),
     };
     return Object.keys(config).length === 0 ? undefined : config;

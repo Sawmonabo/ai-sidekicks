@@ -66,11 +66,6 @@ const CREATE_TIME_DECISIONS: readonly CreateTimeDecision[] = [
     consequence: `Chosen once. \`${MAIN_CHANNEL_NAME}\` is the session's own channel and is not a name a new channel may take.`,
   },
   {
-    label: "Who it is for",
-    consequence:
-      "A channel either includes this session's sidekicks or it is read by none of them. A channel's audience is settled by the daemon at creation and never inferred from what happens to be in it.",
-  },
-  {
     label: "How agents take turns",
     consequence:
       "Moderation and the per-agent turn cap belong to the channel, not to a run inside it. A channel whose rhythm turns out wrong is replaced, not reconfigured.",

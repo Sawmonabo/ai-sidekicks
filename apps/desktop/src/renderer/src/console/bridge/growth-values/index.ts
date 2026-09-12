@@ -147,7 +147,7 @@ export { mcpBindingKeyOf } from "./mcp.js";
 // else. Every one of these is a shape no code package carries, which is what puts them
 // here rather than behind a contracts import.
 //
-// The vocabulary those shapes are built from — the audience tuple, and the per-device
+// The vocabulary those shapes are built from — the per-device
 // reading — is deliberately ABSENT from this door: its only readers are the surfaces
 // that render it, which are outside this family, and a door publishes what a SIBLING
 // takes. It leaves through `bridge/index.ts` from the module that declares it, which is

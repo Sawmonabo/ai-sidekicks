@@ -382,12 +382,8 @@ export type { GrowthOperationSignatures } from "./growth-signatures/signature-ta
 // them: a create form whose every field is one member of `GrowthChannelConfig`, and
 // the receipts the four lifecycle writes answer with. They leave through the module
 // that DECLARES them rather than through `growth-values/index.js`, on the
-// `console-no-barrel-chain` rule — and the audience vocabulary is here rather than on
-// that inner door because its only reader is outside this family, which is exactly
-// what a sub-module door does not publish.
+// `console-no-barrel-chain` rule.
 export {
-  GROWTH_CHANNEL_AUDIENCES,
-  type GrowthChannelAudience,
   type GrowthChannelConfig,
   type GrowthChannelCreateReceipt,
   type GrowthChannelLifecycleReceipt,

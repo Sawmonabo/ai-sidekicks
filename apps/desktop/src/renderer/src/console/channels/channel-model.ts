@@ -7,12 +7,10 @@
 //
 // WHAT THE WIRE ACTUALLY CARRIES, WHICH IS LESS THAN THE SURFACE WANTS.
 // `ChannelListResponseChannel` (`packages/contracts/src/channels.ts`) is exactly
-// `{id, name?, state, userCount}`. There is no audience field, no kind
-// discriminator, and no member pair — so this module classifies rows by the two
-// things it is actually given, `state` and whether the row is the bootstrap
-// channel, and renders nothing about audience or pairing. The console does not
-// derive an audience from a user count; audience is a daemon obligation and
-// a renderer that guessed at one would be asserting a fact nobody sent.
+// `{id, name?, state, userCount}`. There is no kind discriminator and no member
+// pair — so this module classifies rows by the two things it is actually given,
+// `state` and whether the row is the bootstrap channel, and asserts nothing a
+// renderer would have had to guess at.
 //
 // AND A DIRECTORY ANSWER CARRIES WHEN IT WAS ASKED. A lifecycle receipt is the daemon's
 // newest word about one row, and the read that catches up to it is a second call whose

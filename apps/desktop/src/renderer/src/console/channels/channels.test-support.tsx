@@ -67,7 +67,7 @@ export function channel(
     ...(name === undefined ? {} : { name }),
     state,
     // Required on the wire row and rendered by nothing: the directory's rows carry
-    // their own name and state and no audience figure at all.
+    // their own name and state and nothing else the surface reads.
     userCount: 1,
   };
 }

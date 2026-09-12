@@ -3,7 +3,6 @@
 import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import { GROWTH_CHANNEL_AUDIENCES } from "../bridge/index.js";
 import {
   createChannelElement,
   fieldNotes,
@@ -29,7 +28,7 @@ describe("creating a channel — the standing statement", () => {
     const labels = [...container.querySelectorAll(".meridian-create-channel__decision-label")].map(
       (element) => element.textContent ?? "",
     );
-    expect(labels).toStrictEqual(["Name", "Who it is for", "How agents take turns"]);
+    expect(labels).toStrictEqual(["Name", "How agents take turns"]);
   });
 
   it("offers no way to change any of it afterwards", () => {
@@ -47,12 +46,7 @@ describe("creating a channel — the standing statement", () => {
 });
 
 describe("creating a channel — the policy it carries", () => {
-  it("opens with the audience already on users", () => {
-    const { container } = renderCreateChannel();
-    expect(policyFields(container).audience.value).toBe("users");
-  });
-
-  it("puts the three members under one disclosure that opens by default", () => {
+  it("puts both members under one disclosure that opens by default", () => {
     // Open, because a create-time decision hidden behind a closed fold is a decision
     // made by not looking — and this is the only moment any of it can be made.
     const { container } = renderCreateChannel();
@@ -65,11 +59,7 @@ describe("creating a channel — the policy it carries", () => {
   it("collects every member of the configuration, each from its own vocabulary", () => {
     const { container } = renderCreateChannel();
     const fields = policyFields(container);
-    const optionValues = [...fields.audience.options]
-      .map((option) => option.value)
-      .filter((value) => value !== "");
 
-    expect(optionValues).toStrictEqual([...GROWTH_CHANNEL_AUDIENCES]);
     expect(fields.turnsPerAgent.inputMode).toBe("numeric");
     expect(fields.moderationBoxes).toHaveLength(2);
   });
@@ -77,16 +67,7 @@ describe("creating a channel — the policy it carries", () => {
   it("labels every one of them fixed at creation", () => {
     const { container } = renderCreateChannel();
     const notes = fieldNotes(container).filter((note) => note.includes("Fixed at creation"));
-    expect(notes).toHaveLength(3);
-  });
-
-  it("offers the session's own default as an explicit choice rather than pre-picking one", () => {
-    // An absent member on this wire MEANS the session's default, so a console that
-    // filled one in would be choosing on a person's behalf and reporting it as theirs.
-    const { container } = renderCreateChannel();
-    expect(
-      [...policyFields(container).audience.options].map((option) => option.textContent),
-    ).toContain("Session default");
+    expect(notes).toHaveLength(2);
   });
 });
 
