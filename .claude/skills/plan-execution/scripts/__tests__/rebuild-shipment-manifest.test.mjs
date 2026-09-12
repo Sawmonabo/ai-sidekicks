@@ -548,9 +548,9 @@ test("resolvePlanFile: returns the matching plan path", () => {
   const tmp = mkdtempSync(join(tmpdir(), "rsm-plans-"));
   try {
     mkdirSync(join(tmp, "docs", "plans"), { recursive: true });
-    writeFileSync(join(tmp, "docs", "plans", "001-shared-session-core.md"), "# Plan-001\n");
+    writeFileSync(join(tmp, "docs", "plans", "001-session-core.md"), "# Plan-001\n");
     const r = resolvePlanFile({ plan: "001", plansDir: join(tmp, "docs", "plans") });
-    assert.equal(r, join(tmp, "docs", "plans", "001-shared-session-core.md"));
+    assert.equal(r, join(tmp, "docs", "plans", "001-session-core.md"));
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -621,7 +621,7 @@ test("resolvePlanFile: never uses the raw -partial token as the filename prefix"
 
 // ---------- rebuildManifest end-to-end (with fake gh runner) ----------
 
-const PLAN_TEMPLATE = `# Plan-001: Shared Session Core
+const PLAN_TEMPLATE = `# Plan-001: Session Core
 
 ## Progress Log
 
@@ -670,7 +670,7 @@ test("rebuildManifest: dry-run emits YAML, writes nothing", async () => {
   try {
     const planDir = join(tmp, "docs", "plans");
     mkdirSync(planDir, { recursive: true });
-    const planFile = join(planDir, "001-shared-session-core.md");
+    const planFile = join(planDir, "001-session-core.md");
     writeFileSync(planFile, PLAN_TEMPLATE);
 
     const ghRunner = makeGhRunner({
@@ -709,7 +709,7 @@ test("rebuildManifest: write mode appends entries to plan file", async () => {
   try {
     const planDir = join(tmp, "docs", "plans");
     mkdirSync(planDir, { recursive: true });
-    const planFile = join(planDir, "001-shared-session-core.md");
+    const planFile = join(planDir, "001-session-core.md");
     writeFileSync(planFile, PLAN_TEMPLATE);
 
     const ghRunner = makeGhRunner({
@@ -738,7 +738,7 @@ test("rebuildManifest: refuses to overwrite existing entries without --force", a
   try {
     const planDir = join(tmp, "docs", "plans");
     mkdirSync(planDir, { recursive: true });
-    const planFile = join(planDir, "001-shared-session-core.md");
+    const planFile = join(planDir, "001-session-core.md");
     // Pre-existing entry for PR #30.
     const seeded = PLAN_TEMPLATE.replace(
       "shipped: []",
@@ -779,7 +779,7 @@ test("rebuildManifest: --force allows skipping existing entries", async () => {
   try {
     const planDir = join(tmp, "docs", "plans");
     mkdirSync(planDir, { recursive: true });
-    const planFile = join(planDir, "001-shared-session-core.md");
+    const planFile = join(planDir, "001-session-core.md");
     const seeded = PLAN_TEMPLATE.replace(
       "shipped: []",
       `shipped:
@@ -839,7 +839,7 @@ test("rebuildManifest: validation failure on incomplete PR data returns exit 5",
   try {
     const planDir = join(tmp, "docs", "plans");
     mkdirSync(planDir, { recursive: true });
-    const planFile = join(planDir, "001-shared-session-core.md");
+    const planFile = join(planDir, "001-session-core.md");
     writeFileSync(planFile, PLAN_TEMPLATE);
 
     // PR with no merge SHA — fails validateEntry.sha check.
@@ -869,7 +869,7 @@ test("rebuildManifest: empty PR list returns exit 0 with message", async () => {
   try {
     const planDir = join(tmp, "docs", "plans");
     mkdirSync(planDir, { recursive: true });
-    writeFileSync(join(planDir, "001-shared-session-core.md"), PLAN_TEMPLATE);
+    writeFileSync(join(planDir, "001-session-core.md"), PLAN_TEMPLATE);
     const r = await rebuildManifest({
       plan: "001",
       dryRun: true,
@@ -902,7 +902,7 @@ test("rebuildManifest excludes PRs whose title lacks the Plan-NNN token (lane-2 
   try {
     const planDir = join(tmp, "docs", "plans");
     mkdirSync(planDir, { recursive: true });
-    const planFile = join(planDir, "001-shared-session-core.md");
+    const planFile = join(planDir, "001-session-core.md");
     writeFileSync(planFile, PLAN_TEMPLATE);
 
     const ghRunner = makeGhRunner({
@@ -966,7 +966,7 @@ test("rebuildManifest agrees with manifest reconciliation: a tokenizer-only matc
     mkdirSync(planDir, { recursive: true });
     writeFileSync(
       join(planDir, "025-self-hostable-node-relay.md"),
-      PLAN_TEMPLATE.replace("# Plan-001: Shared Session Core", "# Plan-025: Self-Hostable Relay"),
+      PLAN_TEMPLATE.replace("# Plan-001: Session Core", "# Plan-025: Self-Hostable Relay"),
     );
 
     const stdout = makeCaptureStream();
@@ -1063,7 +1063,7 @@ test("rebuildManifest emits no non_shipment_prs line when the plan has none", as
   try {
     const planDir = join(tmp, "docs", "plans");
     mkdirSync(planDir, { recursive: true });
-    writeFileSync(join(planDir, "001-shared-session-core.md"), PLAN_TEMPLATE);
+    writeFileSync(join(planDir, "001-session-core.md"), PLAN_TEMPLATE);
 
     const stdout = makeCaptureStream();
     const r = await rebuildManifest({
@@ -1087,7 +1087,7 @@ test("rebuildManifest skips a body-only PR before the truncation-sensitive detai
   try {
     const planDir = join(tmp, "docs", "plans");
     mkdirSync(planDir, { recursive: true });
-    const planFile = join(planDir, "001-shared-session-core.md");
+    const planFile = join(planDir, "001-session-core.md");
     writeFileSync(planFile, PLAN_TEMPLATE);
 
     const ghRunner = makeGhRunner({
@@ -1147,7 +1147,7 @@ test("rebuildManifest reuses the on-disk entry for a body-only PR the manifest r
   try {
     const planDir = join(tmp, "docs", "plans");
     mkdirSync(planDir, { recursive: true });
-    const planFile = join(planDir, "001-shared-session-core.md");
+    const planFile = join(planDir, "001-session-core.md");
     writeFileSync(
       planFile,
       PLAN_TEMPLATE.replace(
@@ -1199,7 +1199,7 @@ test("rebuildManifest --include-body-matches admits parseable body-only PRs for 
   try {
     const planDir = join(tmp, "docs", "plans");
     mkdirSync(planDir, { recursive: true });
-    const planFile = join(planDir, "001-shared-session-core.md");
+    const planFile = join(planDir, "001-session-core.md");
     writeFileSync(planFile, PLAN_TEMPLATE);
 
     const ghRunner = makeGhRunner({
@@ -1233,7 +1233,7 @@ test("rebuildManifest --include-body-matches emits operator-confirmation YAML fo
   try {
     const planDir = join(tmp, "docs", "plans");
     mkdirSync(planDir, { recursive: true });
-    const planFile = join(planDir, "001-shared-session-core.md");
+    const planFile = join(planDir, "001-session-core.md");
     writeFileSync(planFile, PLAN_TEMPLATE);
 
     const ghRunner = makeGhRunner({
@@ -1277,7 +1277,7 @@ test("CLI --dry-run keeps stdout a pure YAML stream (summary on stderr)", () => 
   try {
     const planDir = join(tmp, "docs", "plans");
     mkdirSync(planDir, { recursive: true });
-    writeFileSync(join(planDir, "001-shared-session-core.md"), PLAN_TEMPLATE);
+    writeFileSync(join(planDir, "001-session-core.md"), PLAN_TEMPLATE);
 
     // PATH-shimmed gh: the CLI path uses defaultGhRunner (real shell-outs),
     // so the fake binary serves the four command shapes the script issues.
@@ -1324,7 +1324,7 @@ test("rebuildManifest --include-body-matches routes an above-ceiling candidate t
   try {
     const planDir = join(tmp, "docs", "plans");
     mkdirSync(planDir, { recursive: true });
-    const planFile = join(planDir, "001-shared-session-core.md");
+    const planFile = join(planDir, "001-session-core.md");
     writeFileSync(planFile, PLAN_TEMPLATE);
 
     // Body-only, and past the file endpoint's own 3000-file ceiling — the one
@@ -1374,7 +1374,7 @@ test("rebuildManifest emits all 263 sorted paths for a PR the GraphQL page would
   try {
     const planDir = join(tmp, "docs", "plans");
     mkdirSync(planDir, { recursive: true });
-    writeFileSync(join(planDir, "001-shared-session-core.md"), PLAN_TEMPLATE);
+    writeFileSync(join(planDir, "001-session-core.md"), PLAN_TEMPLATE);
 
     // Deliberately emitted in reverse order: the walk preserves the endpoint's
     // order and buildEntryFromPr is what sorts, so a fixture already in order
@@ -1429,7 +1429,7 @@ test("rebuildManifest skips a no-token/no-material closure PR instead of validat
   try {
     const planDir = join(tmp, "docs", "plans");
     mkdirSync(planDir, { recursive: true });
-    writeFileSync(join(planDir, "001-shared-session-core.md"), PLAN_TEMPLATE);
+    writeFileSync(join(planDir, "001-session-core.md"), PLAN_TEMPLATE);
 
     const ghRunner = makeGhRunner({
       prList: [30, 61],
@@ -1497,7 +1497,7 @@ test("rebuildManifest reuses the on-disk entry for a skipped closure PR instead 
     notes: |
       Ground-truth entry the classifier must not outrank.`,
     );
-    writeFileSync(join(planDir, "001-shared-session-core.md"), planWithEntry);
+    writeFileSync(join(planDir, "001-session-core.md"), planWithEntry);
 
     const ghRunner = makeGhRunner({
       prList: [61],
@@ -1592,7 +1592,7 @@ test("rebuildManifest does NOT skip a root-config shipment (Plan-001 T1.1 class 
   try {
     const planDir = join(tmp, "docs", "plans");
     mkdirSync(planDir, { recursive: true });
-    writeFileSync(join(planDir, "001-shared-session-core.md"), PLAN_TEMPLATE);
+    writeFileSync(join(planDir, "001-session-core.md"), PLAN_TEMPLATE);
 
     const ghRunner = makeGhRunner({
       prList: [90],
@@ -1606,7 +1606,7 @@ test("rebuildManifest does NOT skip a root-config shipment (Plan-001 T1.1 class 
           files: [
             { path: "package.json" },
             { path: "pnpm-workspace.yaml" },
-            { path: "docs/plans/001-shared-session-core.md" },
+            { path: "docs/plans/001-session-core.md" },
           ],
         },
       },
@@ -1642,7 +1642,7 @@ test("rebuildManifest does NOT skip a deploy/-only shipment (token path; deploy/
   try {
     const planDir = join(tmp, "docs", "plans");
     mkdirSync(planDir, { recursive: true });
-    writeFileSync(join(planDir, "001-shared-session-core.md"), PLAN_TEMPLATE);
+    writeFileSync(join(planDir, "001-session-core.md"), PLAN_TEMPLATE);
 
     const ghRunner = makeGhRunner({
       prList: [88],
@@ -1689,7 +1689,7 @@ test("rebuildManifest validation-fails a token-less deploy/-only candidate loudl
   try {
     const planDir = join(tmp, "docs", "plans");
     mkdirSync(planDir, { recursive: true });
-    writeFileSync(join(planDir, "001-shared-session-core.md"), PLAN_TEMPLATE);
+    writeFileSync(join(planDir, "001-session-core.md"), PLAN_TEMPLATE);
 
     const ghRunner = makeGhRunner({
       prList: [91],

@@ -137,8 +137,8 @@ Hosted execution fails the product's local-execution requirement and increases t
 
 ### Related Specs
 
-- [Shared Session Core](../specs/001-shared-session-core.md)
-- [Runtime Node Attach](../specs/003-runtime-node-attach.md)
+- [Session Core](../specs/001-session-core.md)
+- [Runtime Node Attach](../specs/002-runtime-node-attach.md)
 
 ### Related ADRs
 

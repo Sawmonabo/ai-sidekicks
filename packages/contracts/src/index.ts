@@ -1,6 +1,6 @@
 // @ai-sidekicks/contracts — public API surface.
 //
-// The shared session core:
+// The session core:
 //   • session.ts — branded ID schemas, shared enums + projection types,
 //     SessionCreate / SessionRead / SessionSubscribe payloads
 //   • event.ts   — the SessionEvent discriminated union, seeded with the

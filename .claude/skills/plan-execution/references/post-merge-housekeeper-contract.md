@@ -12,11 +12,11 @@ Written to `.agents/tmp/housekeeper-manifest-PR<N>.json`:
   "pr_number": 30,
   "plan": "024",
   "phase": "1",
-  "task_id": "T-024-1-1",
+  "task_id": "T-022-1-1",
   "script_exit_code": 0,
   "proposed_manifest_entry": {
     "phase": 1,
-    "task": "T-024-1-1",
+    "task": "T-022-1-1",
     "pr": 30,
     "sha": "abc1234",
     "merged_at": "2026-05-03",
@@ -34,7 +34,7 @@ Written to `.agents/tmp/housekeeper-manifest-PR<N>.json`:
 | Field | Source | Notes |
 | --- | --- | --- |
 | `phase` | `--phase` flag (script) | Coerced to integer; a non-numeric phase (Tier-A style) makes the script return `proposed_manifest_entry: null`. |
-| `task` | `--task` flag (script) | String form; legacy multi-task PRs use array form (Plan-007 PR #19). |
+| `task` | `--task` flag (script) | String form; legacy multi-task PRs use array form (Plan-006 PR #19). |
 | `pr` | positional `<PR#>` (script) | Integer. |
 | `sha` | `--squash-sha` flag (orchestrator-supplied) | Abbreviated hex (7+ chars). Source: `git rev-parse --short HEAD` in Phase D.5 step 5. |
 | `merged_at` | `--merged-at` flag (orchestrator-supplied) | ISO date `YYYY-MM-DD`. Source: `gh pr view <PR#> --json mergedAt -q .mergedAt \| cut -dT -f1`. |

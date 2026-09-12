@@ -20,7 +20,7 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `Channel` | A communication surface inside a session where the user and agents, or agents and other agents, exchange messages or coordination events. |
 | `Agent` | A configured execution persona bound to a runtime node and used to perform runs. |
 | `Run` | A single execution episode performed by one agent inside one session. |
-| `RuntimeBinding` | An association between a `Run` and a specific provider driver instance. Fields: `driver_name`, `contract_version`, `resume_handle`, `runtime_metadata`. Persists recovery handles so a run can be resumed after interruption. Created by Plan-005 (provider driver contract), extended by Plan-015 for recovery. Stored in the `runtime_bindings` SQLite table. See [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md) and [Spec-015](../specs/015-persistence-recovery-and-replay.md). |
+| `RuntimeBinding` | An association between a `Run` and a specific provider driver instance. Fields: `driver_name`, `contract_version`, `resume_handle`, `runtime_metadata`. Persists recovery handles so a run can be resumed after interruption. Created by Plan-004 (provider driver contract), extended by Plan-013 for recovery. Stored in the `runtime_bindings` SQLite table. See [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) and [Spec-013](../specs/013-persistence-recovery-and-replay.md). |
 | `QueueItem` | A persisted unit of deferred work awaiting admission into the run engine. |
 | `Intervention` | An auditable control action that changes, redirects, pauses, resumes, or cancels active or queued work. |
 | `RepoMount` | A repository attached to a session as a source of work and artifacts. |
@@ -82,14 +82,14 @@ The glossary is versioned through canonical doc updates. A term becomes stable o
 
 ## Related Specs
 
-- [Shared Session Core](../specs/001-shared-session-core.md)
-- [Runtime Node Attach](../specs/003-runtime-node-attach.md)
-- [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md)
-- [Repo Attachment And Workspace Binding](../specs/009-repo-attachment-and-workspace-binding.md)
-- [Provider Driver Contract And Capabilities](../specs/005-provider-driver-contract-and-capabilities.md)
-- [Approvals Permissions And Trust Boundaries](../specs/012-approvals-permissions-and-trust-boundaries.md)
-- [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md)
-- [Workflow Authoring And Execution](../specs/017-workflow-authoring-and-execution.md)
+- [Session Core](../specs/001-session-core.md)
+- [Runtime Node Attach](../specs/002-runtime-node-attach.md)
+- [Queue Steer Pause Resume](../specs/003-queue-steer-pause-resume.md)
+- [Repo Attachment And Workspace Binding](../specs/007-repo-attachment-and-workspace-binding.md)
+- [Provider Driver Contract And Capabilities](../specs/004-provider-driver-contract-and-capabilities.md)
+- [Approvals Permissions And Trust Boundaries](../specs/010-approvals-permissions-and-trust-boundaries.md)
+- [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md)
+- [Workflow Authoring And Execution](../specs/015-workflow-authoring-and-execution.md)
 
 ## Related ADRs
 

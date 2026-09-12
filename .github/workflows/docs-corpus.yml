@@ -260,7 +260,7 @@ jobs:
         # clean when the screen actually reached every plan. ARMED:
         # `--survey --enforce-cites` folds citeAnomalies into the exit, so a new or
         # edited plan carrying a malformed Gate-4 cite fails the gate. The one
-        # compact-inline legacy plan (Plan-023) is diverted via
+        # compact-inline legacy plan (Plan-021) is diverted via
         # LEGACY_INLINE_CITE_EXEMPT in preflight.mjs — its debt prints as visible
         # but non-blocking, and the stale-exemption ratchet fails the moment it is
         # re-authored clean. See preflight-contract.md § Survey mode exit contract.

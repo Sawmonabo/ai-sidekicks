@@ -2,13 +2,13 @@
 // a non-empty line of a file with at least NNN lines.
 //
 // Catches the FLOOR of line-citation drift: truncation, file rename / delete,
-// empty-line-targeting. Does NOT catch semantic drift (Spec-027:6 → :5 — both
+// empty-line-targeting. Does NOT catch semantic drift (Spec-024:6 → :5 — both
 // lines exist, both non-empty). Semantic drift is residual; see
 // docs/operations/failure-mode-catalog.md row CAT-07.
 //
 // Citation forms recognized:
-//   - [Plan-001](../plans/001-shared-session-core.md):12         (markdown link with trailing :N)
-//   - [Plan-001](../plans/001-shared-session-core.md):12, 55, 121
+//   - [Plan-001](../plans/001-session-core.md):12         (markdown link with trailing :N)
+//   - [Plan-001](../plans/001-session-core.md):12, 55, 121
 //   - `session.ts:408`             (inline-code with :N — legacy docs→docs-only
 //                                   form; a code target under packages/|apps/
 //                                   cited this way is DENIED)

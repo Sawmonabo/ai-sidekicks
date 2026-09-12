@@ -20,7 +20,7 @@ Dispatched in isolation: you see only the orchestrator's brief and the on-disk c
 
 The orchestrator passes you (via the `prompt` parameter):
 
-- Task id: `T<#>` (matches the DAG node id, e.g., `T5.1`, `T-007p-1-1`).
+- Task id: `T<#>` (matches the DAG node id, e.g., `T5.1`, `T-006p-1-1`).
 - Title: the one-line task title from the DAG.
 - Target paths: the ONLY files you may create or modify (from DAG `target_paths`).
 - Spec coverage: the `Spec-NNN` rows this task implements (from DAG `spec_coverage`). Tests MUST exercise these, not just the plan ACs.

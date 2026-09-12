@@ -79,7 +79,7 @@ Every finding carries exactly one label — a finding without a label is a contr
 
 - Per-task reviewers cleared individual tasks; you find cross-task spec drift (task A's contract differs from what task B consumes).
 - Missing PR-level acceptance criteria (a test-plan item no task's AC covers even though each task passed its own).
-- For each §Cross-Plan Obligation in this plan, verify the consuming plan cites it back. Asymmetric forward-deps are the Plan-007 cyclic-dep defect class; raise as ACTIONABLE.
+- For each §Cross-Plan Obligation in this plan, verify the consuming plan cites it back. Asymmetric forward-deps are the Plan-006 cyclic-dep defect class; raise as ACTIONABLE.
 - Task-level findings reappear only if they reproduce at PR scope.
 
 ## What you do NOT check

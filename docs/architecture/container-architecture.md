@@ -85,8 +85,8 @@ The canonical monorepo layout for implementation is:
 
 ## Related Specs
 
-- [Local IPC And Daemon Control](../specs/007-local-ipc-and-daemon-control.md)
-- [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md)
+- [Local IPC And Daemon Control](../specs/006-local-ipc-and-daemon-control.md)
+- [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md)
 
 ## Related ADRs
 

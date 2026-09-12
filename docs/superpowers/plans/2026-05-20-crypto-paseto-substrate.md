@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship the `@ai-sidekicks/crypto-paseto` workspace package — PASETO v4.public + v4.local primitives, PAE helper, and in-memory KeyRing — as the cryptographic substrate that Plan-002 invite-token minting (CP-002-4) and Plan-018 refresh-token issuance depend on.
+**Goal:** Ship the `@ai-sidekicks/crypto-paseto` workspace package — PASETO v4.public + v4.local primitives, PAE helper, and in-memory KeyRing — as the cryptographic substrate that the retired invite-membership-and-presence plan invite-token minting (cross-plan row 4 of the retired invite-membership-and-presence plan) and Plan-016 refresh-token issuance depend on.
 
 **Architecture:** In-house TypeScript library built directly on `@noble/curves` (Ed25519), `@noble/ciphers` (XChaCha20), and `@noble/hashes` (BLAKE2b + `equalBytes` + `randomBytes`). No upstream `paseto`/`paseto-js` dependency — satisfies ADR-010:129–136 in-house-lib mandate. Surface is a flat barrel (`src/index.ts`) mirroring `packages/contracts/`. A test-only `encryptV4LocalDeterministic` seam under `src/internal/` enables RFC vector encrypt round-trips without exposing nonce-injection to production callers.
 
@@ -16,12 +16,12 @@
 | --- | --- |
 | [Design spec](../specs/2026-05-20-crypto-paseto-substrate-design.md) | Public surface contract; threat model; invariants I1–I6 |
 | [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md):129–136 | In-house lib mandate; dual-primitive coverage; audited deps; RFC conformance release gate |
-| [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md):29 | Plan-018 v4.local dependency declared |
-| Plan-025 §Tier 1 Partial PR Sequence (lines 256–297) | Owning plan; carves Phase 1 substrate out from Tier 7 relay implementation |
-| Spec-025 | Context only; `spec_coverage: []` (Spec-025 governs the relay surface, not package primitives) |
-| Cross-plan dependencies §5 + Plan-025 Substrate-vs-Namespace Carve-Out | Names Plan-018 Tier 5 as the persistence owner for KeyRing |
+| [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md):29 | Plan-016 v4.local dependency declared |
+| the retired self-hostable-node-relay plan §Tier 1 Partial PR Sequence (lines 256–297) | Owning plan; carves Phase 1 substrate out from Tier 6 relay implementation |
+| the retired self-hostable-node-relay spec | Context only; `spec_coverage: []` (the retired self-hostable-node-relay spec governs the relay surface, not package primitives) |
+| Cross-plan dependencies §5 + the retired self-hostable-node-relay plan Substrate-vs-Namespace Carve-Out | Names Plan-016 Tier 4 as the persistence owner for KeyRing |
 | [Plan-implementation readiness-audit runbook](../../operations/plan-implementation-readiness-audit-runbook.md) §Per-Phase Audit Semantics | Admits `substrate_exempt` for this phase |
-| Plan-002 Phase 2 precondition | Downstream consumer (CP-002-4) — invite-token minting |
+| the retired invite-membership-and-presence plan Phase 2 precondition | Downstream consumer (cross-plan row 4 of the retired invite-membership-and-presence plan) — invite-token minting |
 | [CONTRIBUTING.md](../../../CONTRIBUTING.md) | GitFlow-lite; Conventional Branch; Conventional Commits |
 | [AGENTS.md](../../../AGENTS.md) | Primary-source citation discipline |
 
@@ -58,16 +58,16 @@ Plan-readiness audit gates G1–G7 do not apply. ADR-010 acceptance criteria app
 
 ## Branch & PR shape
 
-- **Branch**: `feat/plan-025-tier-1-partial-crypto-paseto` (Conventional Branch 2-segment)
+- **Branch**: `feat/plan-node-relay-tier-1-partial-crypto-paseto` (Conventional Branch 2-segment)
 - **Base**: `develop` (GitFlow-lite per CONTRIBUTING.md)
 - **Merge**: squash-merge into `develop`
 - **Scope**: `crypto-paseto` (REQUIRES adding to `commitlint.config.mjs` `scope-enum` — Task 1)
-- **Squash subject template**: `feat(crypto-paseto): ship PASETO v4 substrate (Plan-025 Tier 1 Partial)` (≤72 chars)
-- **Footer trailers**: `Refs: ADR-010, Plan-025`
+- **Squash subject template**: `feat(crypto-paseto): ship PASETO v4 substrate (the retired self-hostable-node-relay plan Tier 1 Partial)` (≤72 chars)
+- **Footer trailers**: `Refs: ADR-010, the retired self-hostable-node-relay plan`
 
-### Plan-025 doc-drift acknowledgement (carried forward from design spec §4.3)
+### the retired self-hostable-node-relay plan doc-drift acknowledgement (carried forward from design spec §4.3)
 
-The PASETO v4.local algorithm is **XChaCha20 stream cipher + BLAKE2b-MAC over PAE**, NOT XChaCha20-Poly1305 AEAD as Plan-025 §Implementation Steps 2 narrates. Implementation follows the primary spec (paseto-standard/paseto-spec §v4.local). File `BL-NNN` after this PR merges to amend the Plan-025 doc.
+The PASETO v4.local algorithm is **XChaCha20 stream cipher + BLAKE2b-MAC over PAE**, NOT XChaCha20-Poly1305 AEAD as the retired self-hostable-node-relay plan §Implementation Steps 2 narrates. Implementation follows the primary spec (paseto-standard/paseto-spec §v4.local). File `BL-NNN` after this PR merges to amend the the retired self-hostable-node-relay plan doc.
 
 ---
 
@@ -134,7 +134,7 @@ The PASETO v4.local algorithm is **XChaCha20 stream cipher + BLAKE2b-MAC over PA
 
 ```bash
 git checkout develop && git pull origin develop
-git checkout -b feat/plan-025-tier-1-partial-crypto-paseto
+git checkout -b feat/plan-node-relay-tier-1-partial-crypto-paseto
 ```
 
 Expected: branch created, working tree clean.
@@ -147,7 +147,7 @@ Expected: branch created, working tree clean.
   "version": "0.0.0",
   "type": "module",
   "license": "Apache-2.0",
-  "description": "PASETO v4.public + v4.local primitives for AI Sidekicks (substrate for Plan-002 / Plan-018 auth).",
+  "description": "PASETO v4.public + v4.local primitives for AI Sidekicks (substrate for the retired invite-membership-and-presence plan / Plan-016 auth).",
   "engines": {
     "node": ">=22.12.0"
   },
@@ -315,7 +315,7 @@ project references, and Vitest config — mirrors packages/contracts/.
 Append crypto-paseto to commitlint.config.mjs scope-enum so future
 feat(crypto-paseto): commits pass the pre-commit gate.
 
-Refs: ADR-010, Plan-025
+Refs: ADR-010, the retired self-hostable-node-relay plan
 EOF
 )"
 ```
@@ -480,13 +480,13 @@ Expected: PASS — all 5 tests green.
 ```bash
 git add packages/crypto-paseto/src/pae.ts packages/crypto-paseto/src/__tests__/pae.test.ts
 git commit -m "$(cat <<'EOF'
-feat(crypto-paseto): add PAE encoder (Plan-025 P1)
+feat(crypto-paseto): add PAE encoder (the retired self-hostable-node-relay plan P1)
 
 Implement Pre-Authentication Encoding per paseto-spec Common.md §3.
 LE64 length prefix has bit 63 cleared as specified. Unit tests cover
 empty / single / two-piece cases plus high-bit-clear verification.
 
-Refs: ADR-010, Plan-025
+Refs: ADR-010, the retired self-hostable-node-relay plan
 EOF
 )"
 ```
@@ -844,7 +844,7 @@ MacMismatchError (extends InvalidTokenError so consumers can catch
 all token-verification failures uniformly). No secret bytes in error
 messages (invariant I4).
 
-Refs: ADR-010, Plan-025
+Refs: ADR-010, the retired self-hostable-node-relay plan
 EOF
 )"
 ```
@@ -859,7 +859,7 @@ EOF
 - Create: `packages/crypto-paseto/src/internal/v4-local-deterministic.ts`
 - Create: `packages/crypto-paseto/src/__tests__/v4-local.test.ts`
 
-**Spec source**: `paseto-spec/docs/01-Protocol-Versions/Version4.md` §v4.local. Algorithm (NOT AEAD — see Plan-025 doc-drift):
+**Spec source**: `paseto-spec/docs/01-Protocol-Versions/Version4.md` §v4.local. Algorithm (NOT AEAD — see the retired self-hostable-node-relay plan doc-drift):
 
 ```
 1. h = "v4.local."
@@ -1210,14 +1210,14 @@ git commit -m "$(cat <<'EOF'
 feat(crypto-paseto): add v4.local encrypt/decrypt + det. nonce seam
 
 XChaCha20 stream cipher + BLAKE2b-MAC per paseto-spec §v4.local
-(NOT XChaCha20-Poly1305 AEAD — Plan-025 doc-drift item).
+(NOT XChaCha20-Poly1305 AEAD — the retired self-hostable-node-relay plan doc-drift item).
 MAC-verify-before-decrypt (invariant I2). Constant-time tag compare
 via @noble/hashes equalBytes (I1). Fresh 32-byte random nonce per
 encrypt (I3). Test-only deterministic-nonce variant under src/internal/
 is NOT re-exported via src/index.ts — production path is nonce-safe
 by construction.
 
-Refs: ADR-010, Plan-025
+Refs: ADR-010, the retired self-hostable-node-relay plan
 EOF
 )"
 ```
@@ -1351,7 +1351,7 @@ export interface KeyRingEntry {
 /**
  * In-memory key ring with rotation semantics.
  *
- * Phase 1 scope: no persistence, no I/O. Plan-018 Tier 5 will load entries
+ * Phase 1 scope: no persistence, no I/O. Plan-016 Tier 4 will load entries
  * from its storage backend and hand them to the constructor.
  *
  * Constructor invariants (design spec §3.3):
@@ -1426,9 +1426,9 @@ feat(crypto-paseto): add in-memory KeyRing with rotation
 KeyRing constructor enforces exactly-one-active invariant. rotate(next)
 is immutable — returns a new instance with the prior active entry's
 retiredAt set to the rotation timestamp. No persistence at this layer;
-Plan-018 Tier 5 owns the storage backend per cross-plan-deps §5.
+Plan-016 Tier 4 owns the storage backend per cross-plan-deps §5.
 
-Refs: ADR-010, Plan-025
+Refs: ADR-010, the retired self-hostable-node-relay plan
 EOF
 )"
 ```
@@ -1558,7 +1558,7 @@ Cross-module tests assert undefined ≡ Uint8Array(0) for both
 v4.public and v4.local, plus expected/actual footer mismatch
 rejections. Locks in design spec §6 canonicalization rule.
 
-Refs: ADR-010, Plan-025
+Refs: ADR-010, the retired self-hostable-node-relay plan
 EOF
 )"
 ```
@@ -1620,7 +1620,7 @@ v4.local, KeyRing, and the error taxonomy. The src/internal/
 deterministic-nonce seam is NOT re-exported — production callers
 cannot inject a nonce.
 
-Refs: ADR-010, Plan-025
+Refs: ADR-010, the retired self-hostable-node-relay plan
 EOF
 )"
 ```
@@ -1693,9 +1693,9 @@ When upstream publishes new vectors:
 
 ## Audit log
 
-| Date       | Commit SHA       | sha256             | Reason                                     |
-| ---------- | ---------------- | ------------------ | ------------------------------------------ |
-| 2026-05-20 | `<UPSTREAM_SHA>` | `<FIXTURE_SHA256>` | Initial vendor for Plan-025 Tier 1 Partial |
+| Date | Commit SHA | sha256 | Reason |
+| --- | --- | --- | --- |
+| 2026-05-20 | `<UPSTREAM_SHA>` | `<FIXTURE_SHA256>` | Initial vendor for the retired self-hostable-node-relay plan Tier 1 Partial |
 ```
 
 - [ ] **Step 3: Stage the fixture and run gitleaks locally**
@@ -1741,7 +1741,7 @@ SHA recorded in PROVENANCE.md alongside sha256. Hermetic CI — no
 network calls from test runs. Updates handled by follow-up PRs that
 bump the SHA in PROVENANCE.md.
 
-Refs: ADR-010, Plan-025
+Refs: ADR-010, the retired self-hostable-node-relay plan
 EOF
 )"
 ```
@@ -1905,7 +1905,7 @@ recorded token byte-exact (Ed25519 is deterministic). Negative
 vectors assert verify throws InvalidTokenError. Non-zero-count
 guard defends against an accidentally-empty filter.
 
-Refs: ADR-010, Plan-025
+Refs: ADR-010, the retired self-hostable-node-relay plan
 EOF
 )"
 ```
@@ -2038,7 +2038,7 @@ accidentally-empty filter.
 
 Closes the ADR-010 "RFC conformance gating release" criterion.
 
-Refs: ADR-010, Plan-025
+Refs: ADR-010, the retired self-hostable-node-relay plan
 EOF
 )"
 ```
@@ -2089,14 +2089,14 @@ Expected: `crypto-paseto barrel resolves`. Exit code 0.
 - [ ] **Step 3: Push the branch and open the PR**
 
 ```bash
-git push -u origin feat/plan-025-tier-1-partial-crypto-paseto
+git push -u origin feat/plan-node-relay-tier-1-partial-crypto-paseto
 ```
 
 Then create the PR with `gh`:
 
 ```bash
 gh pr create --base develop \
-  --title "feat(crypto-paseto): ship PASETO v4 substrate (Plan-025 Tier 1 Partial)" \
+  --title "feat(crypto-paseto): ship PASETO v4 substrate (the retired self-hostable-node-relay plan Tier 1 Partial)" \
   --body "$(cat <<'EOF'
 ## Summary
 
@@ -2104,9 +2104,9 @@ gh pr create --base develop \
 - Implements ADR-010:129–136 in-house-lib mandate; no upstream PASETO library consumed.
 - RFC v4 vector conformance suites (`4-S-*` and `4-E-*`) gate the release per ADR-010 acceptance criterion.
 
-## Plan-025 doc-drift acknowledgement
+## the retired self-hostable-node-relay plan doc-drift acknowledgement
 
-The PASETO v4.local algorithm is **XChaCha20 stream cipher + BLAKE2b-MAC** — NOT XChaCha20-Poly1305 AEAD as Plan-025 §Implementation Steps 2 narrates. Implementation follows the primary spec (paseto-standard/paseto-spec §v4.local). Follow-up: file `BL-NNN` post-merge to amend Plan-025.
+The PASETO v4.local algorithm is **XChaCha20 stream cipher + BLAKE2b-MAC** — NOT XChaCha20-Poly1305 AEAD as the retired self-hostable-node-relay plan §Implementation Steps 2 narrates. Implementation follows the primary spec (paseto-standard/paseto-spec §v4.local). Follow-up: file `BL-NNN` post-merge to amend the retired self-hostable-node-relay plan.
 
 ## Noble 2.x override
 
@@ -2129,11 +2129,11 @@ Dependencies use `@noble/curves@^2`, `@noble/ciphers@^2`, `@noble/hashes@^2` (Pa
 
 ## Governance
 
-- Carve-out: Plan-025 Tier 1 Partial Phase 1, `audit_status: substrate_exempt`. Plan-readiness audit gates G1–G7 do not apply; ADR-010 ACs apply at code-review time. Carve-out governance landed in PR #86.
+- Carve-out: the retired self-hostable-node-relay plan Tier 1 Partial Phase 1, `audit_status: substrate_exempt`. Plan-readiness audit gates G1–G7 do not apply; ADR-010 ACs apply at code-review time. Carve-out governance landed in PR #86.
 - Design spec: `docs/superpowers/specs/2026-05-20-crypto-paseto-substrate-design.md`.
 - Implementation plan: `docs/superpowers/plans/2026-05-20-crypto-paseto-substrate.md`.
 
-Refs: ADR-010, Plan-025
+Refs: ADR-010, the retired self-hostable-node-relay plan
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
@@ -2148,29 +2148,29 @@ Expected: PR URL printed. Mark PR ready (`gh pr ready <num>`) so Codex auto-revi
 
 This task is **not** part of the code PR — it's the doc-only follow-ups owed after the substrate merges. Track via the workflow below; each item gets its own `docs(repo): …` PR per CONTRIBUTING.md.
 
-- [ ] **Item 1: Plan-002 Phase 2 precondition update**
+- [ ] **Item 1: the retired invite-membership-and-presence plan Phase 2 precondition update**
 
-File: Plan-002. Phase 2 precondition reads "Plan-025 Tier 1 Partial merged". Update its satisfaction state and cite this PR's squash-merge SHA on `develop`.
+File: the retired invite-membership-and-presence plan. Phase 2 precondition reads "the retired self-hostable-node-relay plan Tier 1 Partial merged". Update its satisfaction state and cite this PR's squash-merge SHA on `develop`.
 
-- [ ] **Item 2: File `BL-NNN` — Plan-025 doc drift**
+- [ ] **Item 2: File `BL-NNN` — the retired self-hostable-node-relay plan doc drift**
 
 Open a new backlog item under `docs/backlog.md` with:
 
-- Title: `Plan-025 narrative drift: v4.local algorithm + test-dir + vector-file shape`
-- References: Plan-025 lines 72–74 (cf. design spec §4.3 + this plan's Phase-level Doc-drift acknowledgement)
-- Exit criteria: Plan-025 §Implementation Steps 2 amended to "XChaCha20 stream cipher + BLAKE2b-MAC over PAE"; §Target Areas amended to `src/__tests__/` and single `v4.json` filtered by name prefix.
+- Title: `the retired self-hostable-node-relay plan narrative drift: v4.local algorithm + test-dir + vector-file shape`
+- References: the retired self-hostable-node-relay plan lines 72–74 (cf. design spec §4.3 + this plan's Phase-level Doc-drift acknowledgement)
+- Exit criteria: the retired self-hostable-node-relay plan §Implementation Steps 2 amended to "XChaCha20 stream cipher + BLAKE2b-MAC over PAE"; §Target Areas amended to `src/__tests__/` and single `v4.json` filtered by name prefix.
 
 - [ ] **Item 3: Cross-plan dependencies changelog**
 
-File: `docs/architecture/cross-plan-dependencies.md` §6. Append a changelog entry noting Plan-025 Tier 1 Partial Phase 1 substrate merged with the squash-merge SHA.
+File: `docs/architecture/cross-plan-dependencies.md` §6. Append a changelog entry noting the retired self-hostable-node-relay plan Tier 1 Partial Phase 1 substrate merged with the squash-merge SHA.
 
-- [ ] **Item 4: Plan-025 Tier 7 unblock note**
+- [ ] **Item 4: the retired self-hostable-node-relay plan Tier 6 unblock note**
 
-No code change; just record in §6 changelog that the Tier 7 relay-server work (Fastify, WebSocket, `/healthz`/`/readyz`/`/metrics`, rate-limiter, Docker/Caddyfile, operator runbook, Spec-027 rows) is unblocked against the substrate but explicitly out of scope for this PR.
+No code change; just record in §6 changelog that the Tier 6 relay-server work (Fastify, WebSocket, `/healthz`/`/readyz`/`/metrics`, rate-limiter, Docker/Caddyfile, operator runbook, Spec-024 rows) is unblocked against the substrate but explicitly out of scope for this PR.
 
-- [ ] **Item 5: (Optional) Plan-018 reference**
+- [ ] **Item 5: (Optional) Plan-016 reference**
 
-No change required — ADR-010:29 already declares the dependency. Plan-018 will pick up the workspace dep when its Tier 5 phase starts.
+No change required — ADR-010:29 already declares the dependency. Plan-016 will pick up the workspace dep when its Tier 4 phase starts.
 
 ---
 
@@ -2179,10 +2179,10 @@ No change required — ADR-010:29 already declares the dependency. Plan-018 will
 | Risk | Mitigation |
 | --- | --- |
 | Noble 2.x self-audit only (vs. externally Cure53/Kudelski-audited 1.x line) | User-confirmed override. PR description calls this out so reviewer acks. Re-evaluate at V1.1 if/when 2.x gets external audit. |
-| Plan-025 narrative says XChaCha20-Poly1305 AEAD; actual spec is XChaCha20 + BLAKE2b-MAC | Implementation follows primary spec. File `BL-NNN` post-merge per Task 12 Item 2. |
+| the retired self-hostable-node-relay plan narrative says XChaCha20-Poly1305 AEAD; actual spec is XChaCha20 + BLAKE2b-MAC | Implementation follows primary spec. File `BL-NNN` post-merge per Task 12 Item 2. |
 | Vendored vector file lifecycle (upstream updates) | Pinned to specific commit SHA in `PROVENANCE.md`; updates handled by follow-up PRs with auditable diff. |
 | Constant-time discipline in TypeScript (compiler does not enforce) | Use `equalBytes` for all MAC/signature compares; never `===` or `Buffer.compare` on secret material. Code-review checklist enforces. |
 | Supply-chain on `@noble/*` | Pinned to `^2`; `pnpm-workspace.yaml` has `minimumReleaseAge: 1440` + `blockExoticSubdeps: true`. SBOM coverage in CI. |
 | Key material in test fixtures triggers gitleaks | Allow-list scoped narrowly to `packages/crypto-paseto/src/__tests__/__fixtures__/v4.json` per Task 8 Step 4 (conditional). |
-| KeyRing persistence pre-empting Plan-018 Tier 5 | In-memory only; constructor accepts pre-loaded entries — no DB/file I/O at this layer. |
+| KeyRing persistence pre-empting Plan-016 Tier 4 | In-memory only; constructor accepts pre-loaded entries — no DB/file I/O at this layer. |
 | Test vectors might assume PASETO 2.x library behavior incompatible with noble 2.x | Tasks 9 + 10 surface mismatches as test failures; file `BL-NNN` before merge if any vector diverges. |

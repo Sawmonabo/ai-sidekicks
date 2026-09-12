@@ -26,7 +26,7 @@ Supported topologies:
 | --- | --- |
 | `Single-Device Local` | Desktop or CLI plus one local daemon on the same machine, operating in `local-only` continuity. No control-plane dependency. |
 | `Hosted Control Plane` | A user's devices and machines connect to one hosted control plane for the device registry, liveness, relay, and session metadata. Project-operated hosted offering per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md). |
-| `Self-Hosted Control Plane` | Same architecture as hosted, but the control plane is self-managed by the deploying user or organization. The free OSS deployment path per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md); ships the same 21-feature V1 surface as hosted. Secure-defaults posture for this topology is normative per [Spec-027: Self-Host Secure Defaults](../specs/027-self-host-secure-defaults.md) with operator-facing companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-027 Acceptance Criterion). |
+| `Self-Hosted Control Plane` | Same architecture as hosted, but the control plane is self-managed by the deploying user or organization. The free OSS deployment path per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md); ships the same 21-feature V1 surface as hosted. Secure-defaults posture for this topology is normative per [Spec-024: Self-Host Secure Defaults](../specs/024-self-host-secure-defaults.md) with operator-facing companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-024 Acceptance Criterion). |
 | `Relay-Assisted Remote Access` | A device or node reaches the session through relay coordination without moving execution into the control plane. |
 
 ## Data Flow
@@ -48,11 +48,11 @@ Rate limiting uses a deployment-aware abstraction with identical limits across a
 
 | Deployment | Edge Layer | Application Layer |
 | --- | --- | --- |
-| `Hosted Control Plane` (Cloudflare) | CF Workers native `rate_limit` binding (sliding-window counters, zero added latency) | Per-identity `RateLimitEscalationDO` Durable Object — escalation-block authority + authoritative window state, consulted on every check (eager-DO, [Plan-021 D-021-3](../plans/021-rate-limiting-policy.md#ratified-design-decisions-tier-6-audit)) |
+| `Hosted Control Plane` (Cloudflare) | CF Workers native `rate_limit` binding (sliding-window counters, zero added latency) | Per-identity `RateLimitEscalationDO` Durable Object — escalation-block authority + authoritative window state, consulted on every check (eager-DO, [Plan-019 D-019-3](../plans/019-rate-limiting-policy.md#ratified-design-decisions-tier-5-audit)) |
 | `Self-Hosted Control Plane` | `rate-limiter-flexible` with Postgres backend | `rate-limiter-flexible` with Postgres backend + `rate_limit_escalations` table |
 | `Single-Device Local` | No rate limiting (trusted by socket reachability) | No rate limiting |
 
-The rate limiting interface is identical regardless of deployment. Implementation swaps via configuration (`AIS_RATELIMIT_BACKEND`). Self-hosted deployments use `rate-limiter-flexible` (Postgres backend in V1) to achieve the same semantics as the Cloudflare native binding; both compose the same admission pipeline (admin ban → escalation block → sliding-window counter, Plan-021 I-021-1).
+The rate limiting interface is identical regardless of deployment. Implementation swaps via configuration (`AIS_RATELIMIT_BACKEND`). Self-hosted deployments use `rate-limiter-flexible` (Postgres backend in V1) to achieve the same semantics as the Cloudflare native binding; both compose the same admission pipeline (admin ban → escalation block → sliding-window counter, Plan-019 I-019-1).
 
 ## Relay Scaling Strategy
 
@@ -70,7 +70,7 @@ The relay uses Cloudflare Durable Objects, one object per session.
 | Input | Value | Source |
 | --- | --- | --- |
 | Events/sec/connection (p95, streaming agent output + MLS control frames) | ~100 | AI Sidekicks load-model assumption — **unverified in CF docs**; must be validated in pre-launch load test |
-| MLS encrypt + storage write cost per event | ~1 DO request | Spec-006 relay data-path |
+| MLS encrypt + storage write cost per event | ~1 DO request | Spec-005 relay data-path |
 | Safety headroom vs. 1,000 rps soft cap | 2.5× | Intentional — CF guidance places complex ops in the 200–500 rps band ([Rules of DO][do-rules]) |
 
 Envelope (batching is a design baseline, not a future enhancement), budgeted against a deliberately generous **10 concurrent connections per session** — well above the runtime node plus two or three devices a real session carries: **10 conns × 100 events/sec of raw traffic ÷ ~6 events per batched DO request ≈ 170 rps/DO**. That operating point sits below CF's 200–500 rps "complex op" band and leaves ~6× headroom vs the 1,000 rps overloaded-error threshold. Without batching the same raw envelope would yield ~1,000 rps/DO, which sits exactly at the soft cap — so **batched WebSocket messages are assumed at design time**, enabled by the 2025-10-31 raise of WebSocket message size from 1 MiB to 32 MiB ([DO changelog][do-changelog]). The 100 events/sec/connection figure and the ~6:1 batching ratio are internal load-model assumptions — CF does not publish a per-connection event-rate model or a batching-ratio model.
@@ -83,7 +83,7 @@ Envelope (batching is a design baseline, not a future enhancement), budgeted aga
 2. Sessions routinely carry more than ~10 concurrent connections — many linked devices open at once, or a later feature that attaches more than one runtime node to a live session.
 3. Cloudflare raises or lowers the per-DO rps soft cap ([monitor DO changelog][do-changelog]).
 4. Batching is lost or the ~6:1 batching ratio drops materially. The un-batched envelope lands at the 1,000 rps soft cap with no margin, so a batching regression is a launch blocker pending root-cause fix.
-5. MLS encrypt cost per event materially changes (e.g., Spec-006 revision, new ciphersuite).
+5. MLS encrypt cost per event materially changes (e.g., Spec-005 revision, new ciphersuite).
 
 **Pre-launch requirement:** a load-test spike of 1,000 concurrent sessions — each one runtime node plus three connected devices, running 10 concurrent runs of streaming events — must pass, and must measure actual events/sec/connection to validate the 100 events/sec assumption, before V1 production launch.
 
@@ -100,7 +100,7 @@ Envelope (batching is a design baseline, not a future enhancement), budgeted aga
 
 ## Horizontal Scaling Strategy
 
-**Control plane:** stateless Node.js processes behind a load balancer. Session affinity is not required because all state lives in Postgres or the artifact-relay blob store (digest-addressed object storage per [Spec-014 §Cross-Node Artifact Relay (V1)](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1)) — neither is process-local. Scale horizontally by adding processes.
+**Control plane:** stateless Node.js processes behind a load balancer. Session affinity is not required because all state lives in Postgres or the artifact-relay blob store (digest-addressed object storage per [Spec-012 §Cross-Node Artifact Relay (V1)](../specs/012-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1)) — neither is process-local. Scale horizontally by adding processes.
 
 **Relay:** stateless WebSocket proxies for the message path — E2EE frames (pairwise X25519 + XChaCha20-Poly1305 in V1 per [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)) mean the relay processes hold no session state. The artifact relay's pinned ciphertext is durable state, but it lives in the shared blob store (object storage), not in proxy processes — blob reachability follows the shared store, not instance affinity. Scale by adding relay instances with DNS-based routing.
 
@@ -114,7 +114,7 @@ Envelope (batching is a design baseline, not a future enhancement), budgeted aga
 
 **Connection pool sizing:** 10 connections per control-plane process, max 100 total.
 
-**Backup:** automated daily snapshots + WAL archiving for point-in-time recovery — with one carve-out for `artifact_relay_recipients` wrapped-CEK rows: because PITR/WAL archiving is database-wide (rows cannot be excluded), either the backup/PITR retention window is bounded at or below the erasure SLA (≤ the 30 d relay-TTL ceiling), or the wrapped-CEK envelopes are stored under a separately-destroyable KEK so restored backups yield unusable ciphertext (the `Spec-022 §Daemon Master Key` custody precedent) — so a GDPR erasure cannot be resurrected from backup ([Spec-014 §State And Data Implications](../specs/014-artifacts-files-and-attachments.md#state-and-data-implications); the matching exclusion note sits on the table in [shared-postgres-schema.md §Artifact Relay Blob Store](./schemas/shared-postgres-schema.md#artifact-relay-blob-store-plan-014)).
+**Backup:** automated daily snapshots + WAL archiving for point-in-time recovery — with one carve-out for `artifact_relay_recipients` wrapped-CEK rows: because PITR/WAL archiving is database-wide (rows cannot be excluded), either the backup/PITR retention window is bounded at or below the erasure SLA (≤ the 30 d relay-TTL ceiling), or the wrapped-CEK envelopes are stored under a separately-destroyable KEK so restored backups yield unusable ciphertext (the `Spec-020 §Daemon Master Key` custody precedent) — so a GDPR erasure cannot be resurrected from backup ([Spec-012 §State And Data Implications](../specs/012-artifacts-files-and-attachments.md#state-and-data-implications); the matching exclusion note sits on the table in [shared-postgres-schema.md §Artifact Relay Blob Store](./schemas/shared-postgres-schema.md#artifact-relay-blob-store-plan-012)).
 
 ## Capacity Targets
 
@@ -126,8 +126,8 @@ Envelope (batching is a design baseline, not a future enhancement), budgeted aga
 | Events per second (write) | 500 |
 | Events per second (read) | 2,000 |
 | Relay connections | 2,000 concurrent |
-| Session event log size | 100,000 events/session lifetime (50,000 active before compaction per Spec-006) |
-| Artifact relay storage | 10 GB per node default (`node_relay_storage_max`, operator-tunable); retention tiers ≤ 30 d per [Spec-014](../specs/014-artifacts-files-and-attachments.md#size-quota-retention-normative-defaults-operator-tunable) |
+| Session event log size | 100,000 events/session lifetime (50,000 active before compaction per Spec-005) |
+| Artifact relay storage | 10 GB per node default (`node_relay_storage_max`, operator-tunable); retention tiers ≤ 30 d per [Spec-012](../specs/012-artifacts-files-and-attachments.md#size-quota-retention-normative-defaults-operator-tunable) |
 
 ## Infrastructure Requirements
 
@@ -135,7 +135,7 @@ Envelope (batching is a design baseline, not a future enhancement), budgeted aga
 | --- | --- | --- | --- |
 | Control plane (per process) | 1 vCPU | 512 MB | — |
 | Postgres | 4 vCPU | 8 GB | 100 GB SSD |
-| Relay (per process) | 1 vCPU | 256 MB | — (artifact blob store: object storage sized by `node_relay_storage_max`, default 10 GB/node, per Spec-014) |
+| Relay (per process) | 1 vCPU | 256 MB | — (artifact blob store: object storage sized by `node_relay_storage_max`, default 10 GB/node, per Spec-012) |
 | Local daemon (per machine) | 0.5 vCPU | 256 MB | 1 GB (SQLite + artifacts) |
 
 ### Local Daemon Memory Instrumentation And Budget Triggers
@@ -178,8 +178,8 @@ The 256 MB local daemon budget above is an operating target derived from one use
 
 ## Related Specs
 
-- [Runtime Node Attach](../specs/003-runtime-node-attach.md)
-- [Remote Control](../specs/031-remote-control.md)
+- [Runtime Node Attach](../specs/002-runtime-node-attach.md)
+- [Remote Control](../specs/028-remote-control.md)
 
 ## Related ADRs
 

@@ -30,10 +30,10 @@
 // `shipped[]` remains the sole record of shipped work.
 //
 // It exists because a lane-2/lane-3 PR can pick up a plan's title token by
-// accident. The 2026-08-15 case: PR #216 `chore(repo): retire Plan-007/025
+// accident. The 2026-08-15 case: PR #216 `chore(repo): retire Plan-006
 // compact-inline cite exemptions` is a tooling-lane PR that shipped no
-// Plan-007 task, yet `Plan-007` is a genuine title token inside the compound
-// `Plan-007/025` (`/` is a word boundary). manifest reconciliation flagged it as an unrecorded
+// Plan-006 task, yet `Plan-006` is a genuine title token inside the compound
+// `Plan-006` (`/` is a word boundary). manifest reconciliation flagged it as an unrecorded
 // shipment while the manifest schema had no honest entry shape for it — every
 // `shipped[]` entry requires a `phase`/`task` pair that PR does not have.
 //
@@ -368,11 +368,11 @@ function parseChildBlock(lines) {
     }
     return out;
   }
-  // Multi-line indented flow-array form, used by Plan-007's backfilled manifest:
+  // Multi-line indented flow-array form, used by Plan-006's backfilled manifest:
   //   spec_coverage:
   //     [
-  //       "Spec-007 §Wire Format",
-  //       "Spec-007 §Required Behavior",
+  //       "Spec-006 §Wire Format",
+  //       "Spec-006 §Required Behavior",
   //     ]
   // Pre-fix this fell through to the raw-string return path, then validateEntry
   // failed on `spec_coverage must be an array of strings`. Codex P2 finding on
@@ -611,7 +611,7 @@ export function serializeNonShipmentPrs(nonShipmentPrs) {
 
 // Every string scalar the serializer writes must survive `parseInlineScalar`
 // as the identical string. A 7-character squash sha that happens to be all
-// digits (`9353895` — three of the 33 rows on Plan-023) came back a Number,
+// digits (`9353895` — three of the 33 rows on Plan-021) came back a Number,
 // and preflight Gate 3 then halted on `sha must be a hex string of 7-40
 // chars`; PR #478 hand-quoted those three scalars, this is the durable fix.
 // Quote exactly the values that would not survive and nothing else, so

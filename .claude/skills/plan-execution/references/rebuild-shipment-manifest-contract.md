@@ -4,7 +4,7 @@
 
 ## When to use
 
-1. **Backfill** — a plan pre-dates the housekeeper's structured-manifest write path. Plan-001 / Plan-007 fall into this category; their pre-existing prose Progress Log content gets migrated to a `### Notes` subsection while this script seeds the `### Shipment Manifest` block from `gh` PR history.
+1. **Backfill** — a plan pre-dates the housekeeper's structured-manifest write path. Plan-001 / Plan-006 fall into this category; their pre-existing prose Progress Log content gets migrated to a `### Notes` subsection while this script seeds the `### Shipment Manifest` block from `gh` PR history.
 2. **Recovery** — `post-merge-housekeeper.mjs` crashed mid-Phase-E and the on-disk manifest drifted from git history. The orchestrator's resume diagnostic (in `references/state-recovery.md`) routes here when the manifest is missing entries for already-merged PRs.
 3. **Cross-validation** — operator wants to verify a hand-curated manifest matches `gh` ground truth. Run with `--dry-run` and diff against the current plan-file YAML.
 
@@ -34,7 +34,7 @@ node --experimental-strip-types \
 | 4 | Manifest write conflict — entries exist for one or more PRs. Pass `--force` to skip. |
 | 5 | Validation failure — at least one proposed entry failed `validateEntry()` from `lib/manifest.mjs` (typically a missing merge SHA on a queued-and-reverted PR). Pass `--force` to skip the failed entries. |
 | 6 | Fetch saturation — `gh pr list --limit FETCH_LIMIT` returned exactly `FETCH_LIMIT` matches, so the result MAY be truncated and manifest completeness cannot be guaranteed. Raise `FETCH_LIMIT` in the script (currently 1000) or migrate to gh-api-with-pagination. This is the loud-failure replacement for the silent truncation that the manifest refactor eliminated from the preflight hot path. |
-| 7 | Per-PR file-list reconciliation failure — the paginated file list for a PR did not match the authoritative `changedFiles` count, or that count was absent. The list comes from `gh api repos/{owner}/{repo}/pulls/<N>/files --paginate --jq '.[].filename'`, which walks every page; GitHub documents that this endpoint's responses "include a maximum of 3000 files", and a walk that hits that ceiling simply stops with no in-band signal. Any disagreement in either direction halts rather than commit a `files:` array that does not describe the PR. (`gh pr view --json files` is NOT used for the list: it compiles to a single `pullRequest.files(first: 100)` GraphQL page, which is what used to halt this tool on ordinary 200-800-file Plan-023 PRs.) |
+| 7 | Per-PR file-list reconciliation failure — the paginated file list for a PR did not match the authoritative `changedFiles` count, or that count was absent. The list comes from `gh api repos/{owner}/{repo}/pulls/<N>/files --paginate --jq '.[].filename'`, which walks every page; GitHub documents that this endpoint's responses "include a maximum of 3000 files", and a walk that hits that ceiling simply stops with no in-band signal. Any disagreement in either direction halts rather than commit a `files:` array that does not describe the PR. (`gh pr view --json files` is NOT used for the list: it compiles to a single `pullRequest.files(first: 100)` GraphQL page, which is what used to halt this tool on ordinary 200-800-file Plan-021 PRs.) |
 
 ## Behavior
 
@@ -48,7 +48,7 @@ node --experimental-strip-types \
 
 4. **Parse heuristics.** `parsePhaseFromPr` and `parseTaskFromPr` extract the phase number and task ID(s) from title/body (title wins). Recognized shapes:
    - **Phase:** `Phase N`, `phase N`, `PN`, `PN.M` (`P5.1` → phase 5).
-   - **Task:** `T-NNN-N-N` / `T-NNNp-N-N` (audit-runbook style, plan id inline — always safe to capture); `TN.M` (Plan-001 phase-task style — does NOT carry the plan id, so capture is gated by a same-text Plan-${plan} reference; texts with no Plan-NNN ref or with mixed Plan-NNN refs surface as ambiguity for operator confirmation rather than auto-mapping). The cross-plan defense blocks citations like "see Plan-001 T5.1 for context" in a Plan-024 PR from leaking into Plan-024's manifest (the Codex P2 finding on PR #35).
+   - **Task:** `T-NNN-N-N` / `T-NNNp-N-N` (audit-runbook style, plan id inline — always safe to capture); `TN.M` (Plan-001 phase-task style — does NOT carry the plan id, so capture is gated by a same-text Plan-${plan} reference; texts with no Plan-NNN ref or with mixed Plan-NNN refs surface as ambiguity for operator confirmation rather than auto-mapping). The cross-plan defense blocks citations like "see Plan-001 T5.1 for context" in a Plan-022 PR from leaking into Plan-022's manifest (the Codex P2 finding on PR #35).
 5. **Build entries.** Each PR produces a manifest-entry candidate with `phase`, `task`, `pr`, `sha` (7-char abbrev), `merged_at` (`YYYY-MM-DD`), `files` (sorted), and a `notes` block citing the PR + listing any auto-detected ambiguities (missing phase, missing task ID, missing SHA, missing date).
 6. **Validate.** Each candidate runs through `validateEntry` from `lib/manifest.mjs`. On failures: halt with exit 5 unless `--force` is set.
 7. **Emit or write.**
@@ -60,7 +60,7 @@ node --experimental-strip-types \
 The script intentionally surfaces ambiguity rather than guessing:
 
 - **Phase or task missing from title/body.** The `notes` field records the gap (`"Operator confirmed: phase not in title/body; no task-id in title/body — phase-level entry."`). Operator MUST review before committing.
-- **Multi-task PRs.** When two or more distinct task IDs appear, the entry uses array form (Plan-007 PR #19's `task: [T-007p-3-1, T-007p-3-2, T-007p-3-4]` shape).
+- **Multi-task PRs.** When two or more distinct task IDs appear, the entry uses array form (Plan-006 PR #19's `task: [T-006p-3-1, T-006p-3-2, T-006p-3-4]` shape).
 - **Missing merge SHA.** A PR queued and later reverted may have null `mergeCommit` — that entry fails `validateEntry` (exit 5 without `--force`).
 - **Body-only candidates under `--include-body-matches`.** Validation failures on these never exit 5 — they emit as the commented `# Operator confirmation needed` block in dry-run output, one entry per candidate with its `^ unresolved:` field list, for the operator to hand-edit and move into `shipped[]`.
 - **Unreconcilable file lists under `--include-body-matches`.** A body-only candidate whose file list does not reconcile — past the endpoint's 3000-file ceiling, or a walk that came back short — does NOT exit 7, so one such PR cannot abort a whole backfill: the candidate rebuilds from a files-free fetch with `files: []` and is unconditionally routed to the operator-confirmation block, its `^ unresolved:` line naming the mismatch. The default (tokened) path keeps the exit-7 halt.
@@ -71,10 +71,10 @@ The script intentionally surfaces ambiguity rather than guessing:
 
 ## Cross-validation pattern (manifest backfill)
 
-The Plan-001 + Plan-007 backfill workflow:
+The Plan-001 + Plan-006 backfill workflow:
 
 1. Hand-curate manifest entries inline in the plan file (operator-controlled).
 2. Run `node rebuild-shipment-manifest.mjs --plan 001 --dry-run` and compare against the hand-curated entries.
 3. Discrepancies indicate either (a) a script heuristic gap (parser misses a phase/task pattern) or (b) an operator-confirmation field that the script auto-derived correctly. Resolve in favor of script output unless the operator has independent grounds.
 
-This is the pattern used to validate the Plan-001/Plan-007 backfill's hand-curated entries against this script's `--dry-run` output.
+This is the pattern used to validate the Plan-001/Plan-006 backfill's hand-curated entries against this script's `--dry-run` output.

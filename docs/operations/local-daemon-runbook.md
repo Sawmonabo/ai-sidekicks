@@ -86,13 +86,13 @@ sidekicks daemon start
 
 ## Related Specs
 
-- [Local IPC And Daemon Control](../specs/007-local-ipc-and-daemon-control.md)
-- [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md)
-- [Observability And Failure Recovery](../specs/020-observability-and-failure-recovery.md)
+- [Local IPC And Daemon Control](../specs/006-local-ipc-and-daemon-control.md)
+- [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md)
+- [Observability And Failure Recovery](../specs/018-observability-and-failure-recovery.md)
 
 ## Related Plans
 
-- [Shared Session Core](../plans/001-shared-session-core.md)
-- [Queue Steer Pause Resume](../plans/004-queue-steer-pause-resume.md)
-- [Persistence Recovery And Replay](../plans/015-persistence-recovery-and-replay.md)
-- [Observability And Failure Recovery](../plans/020-observability-and-failure-recovery.md)
+- [Session Core](../plans/001-session-core.md)
+- [Queue Steer Pause Resume](../plans/003-queue-steer-pause-resume.md)
+- [Persistence Recovery And Replay](../plans/013-persistence-recovery-and-replay.md)
+- [Observability And Failure Recovery](../plans/018-observability-and-failure-recovery.md)

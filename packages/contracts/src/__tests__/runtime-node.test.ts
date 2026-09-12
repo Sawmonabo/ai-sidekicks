@@ -611,12 +611,12 @@ describe("RuntimeNodeDetachResponseSchema (C3: null no-content payload)", () => 
 // order-independently against a hardcoded expected-7 array re-derived from the spec
 // table (NOT transcribed from a gloss).
 //
-// The `expectedSevenFromSpec006` array is the test's independent source of truth,
+// The `expectedSevenEventNames` array is the test's independent source of truth,
 // each entry mapped to its table row:
 // The 2 `session.clock_*` rows are DELIBERATELY ABSENT: they share the
 // `runtime_node_lifecycle` category but retain the `session.` prefix by
 // name-preservation and were promoted.
-const expectedSevenFromSpec006 = [
+const expectedSevenEventNames = [
   "runtime_node.registered",
   "runtime_node.online",
   "runtime_node.degraded",
@@ -632,7 +632,7 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
     // tuple or the spec table does not spuriously fail, while a missing/extra/renamed
     // name does (the membership IS the contract). A spread is required because the
     // export is `readonly` and `.sort()` mutates in place.
-    expect([...RUNTIME_NODE_EVENT_NAMES].sort()).toEqual([...expectedSevenFromSpec006].sort());
+    expect([...RUNTIME_NODE_EVENT_NAMES].sort()).toEqual([...expectedSevenEventNames].sort());
   });
 
   it("has exactly 7 entries (neither superset nor subset of the spec set)", () => {

@@ -13,9 +13,9 @@
 //
 // `daemon` is the conventional short alias for `runtime-daemon` (per CONTRIBUTING.md
 // Worked Example: `feat(daemon): scaffold pnpm workspace + Turbo pipeline`).
-// `sidecar-rust-pty` matches the Rust crate at `packages/sidecar-rust-pty/` (Plan-024).
+// `sidecar-rust-pty` matches the Rust crate at `packages/sidecar-rust-pty/` (Plan-022).
 // `pty-sidecar-publishing` matches the platform-package publishing dir at
-// `packages/pty-sidecar-publishing/<platform>/<arch>/` (Plan-024 Phase 4 + Phase 5).
+// `packages/pty-sidecar-publishing/<platform>/<arch>/` (Plan-022 Phase 4 + Phase 5).
 
 /** @type {import("@commitlint/types").UserConfig} */
 export default {

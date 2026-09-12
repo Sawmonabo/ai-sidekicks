@@ -50,8 +50,8 @@ export function parseFrontmatter(source) {
   return result;
 }
 
-// Accept "—" (em-dash, plan-template canonical), ":" (Plan-007/008/023 style),
-// or "-" (hyphen-minus) as the Phase-heading separator. Plan-007's mid-execution
+// Accept "—" (em-dash, plan-template canonical), ":" (Plan-006/021 style),
+// or "-" (hyphen-minus) as the Phase-heading separator. Plan-006's mid-execution
 // status makes a corpus-wide rename out of scope; tolerating both forms in the
 // parser keeps the tool usable across the existing corpus without authorising
 // drift in new plans (plan-template still documents em-dash as the convention).
@@ -67,7 +67,7 @@ export function walkPhases(planSource) {
 
 // Phase-label grammar for the two NON-numeric `### Phase` heading shapes:
 //
-//   - remainder  (`R2`) — Plan-007-style `### Phase R2 — …` remainder sections.
+//   - remainder  (`R2`) — Plan-006-style `### Phase R2 — …` remainder sections.
 //   - supplement (`3B`) — campaign supplements hanging off the phase they
 //                         extend (`### Phase 3B — …`).
 //
@@ -196,7 +196,7 @@ export function extractPhaseSection(planSource, phaseNumber) {
 // delimiter, and must not swallow the headings that follow. Tilde info
 // strings may carry backticks; closers are unaffected (their tails are
 // whitespace-only). The corpus holds 1-3-space list-indented fences
-// (Plan-026) and no deeper ones, so the flat 0-3 rule is exact for every
+// (Plan-023) and no deeper ones, so the flat 0-3 rule is exact for every
 // real doc.
 //
 // Raw HTML blocks (CommonMark 4.6 types 1-6): `<pre>`/`<script>`/
@@ -662,7 +662,7 @@ export function findSectionBoundary(body) {
     // digit-only matching made the preceding numbered phase swallow the
     // R-section, so its declared-task set absorbed the R-series ids and a
     // shipped numbered phase classified partially_shipped forever (latent
-    // Plan-007 Phase 3 false-halt; surfaced by the external_plan_phase_merged
+    // Plan-006 Phase 3 false-halt; surfaced by the external_plan_phase_merged
     // work, Codex P2 PR #193 round 4). The deliberately unanchored prefix
     // also makes supplement headings (`### Phase 3B`) boundaries — do not
     // anchor this to `R?\d+$`-style exactness or the numbered phase before a
@@ -843,15 +843,15 @@ export function regexParsePreconditionsLine(line, localPlanNumber) {
   // already satisfied (e.g. a local `Phase 2 merged`) resolve eligible while
   // its cross-tier substrate is still absent. The optional `](url)` groups
   // absorb the markdown link whether the plan number sits in the link TARGET
-  // (`[Plan-021](url) Tier 6 ships`) or inside the link TEXT
-  // (`[Plan-023 Tier 1 Partial](url) merged`).
+  // (`[Plan-019](url) Tier 5 ships`) or inside the link TEXT
+  // (`[Plan-021 Tier 1 Partial](url) merged`).
   for (const m of line.matchAll(
     /Plan-(\d{3})(?:\]\([^)]*\))?\s+Tier\s+\d+(?:\s+Partial)?(?:\]\([^)]*\))?\s+(?:merged|complete|ships)\b/gi,
   )) {
     entries.push({ type: "plan_unshipped", plan: Number(m[1]) });
   }
   // Bare-form `Phase N merged` resolves to the local plan. The corpus convention
-  // for same-plan precondition prose is the bare form (Plan-001/003/007/024
+  // for same-plan precondition prose is the bare form (Plan-001/002/006/022
   // all use it); without this branch the Gate 5 regex drops the dependency
   // and `gatePreconditions` falls to "unparseable prose; treat as legacy
   // free-form" → silent pass. Negative lookbehind prevents double-counting
@@ -894,7 +894,7 @@ export function findPaddedFiles(dir, ref) {
 
 // Display-side pair of the padding `findPaddedFiles` applies on the lookup
 // side: a precondition entry carries `plan: 6`, which interpolated raw renders
-// "Plan-6" in a user-facing halt against a corpus that writes `Plan-006`
+// "Plan-6" in a user-facing halt against a corpus that writes `Plan-005`
 // everywhere. Lookup was always padding-correct — this only fixes what the
 // reader sees, so it must never be threaded into a path or a match.
 export function planLabel(planNumber) {
@@ -998,18 +998,18 @@ export function extractTasksBlock(phaseSection) {
 // follow T — otherwise prose bolds/headings starting with T ("Tests:",
 // "Testing") phantom-match. A phantom declared id makes Gate 3 see the phase as
 // never fully shipped (auto-walk re-enters shipped work — Codex P1, PR #190,
-// reproduced on Plan-003 Phase 1).
+// reproduced on Plan-002 Phase 1).
 export const TASK_ID_SHAPE = String.raw`T(?=[-\d])[-a-zA-Z0-9.]+`;
 
 // Both audit-Tasks-block layouts, every observed spelling:
 //   A. sub-header     `##### T1.1 — title`
-//   B. bullet + bold  `- **T-007p-1-1** (Files: …)`      bold closes after id
+//   B. bullet + bold  `- **T-006p-1-1** (Files: …)`      bold closes after id
 //                     `- **T1.1 — title**`               title INSIDE the bold
 //                     `- [ ] **T21.1-1 — …**`            GFM checkbox
-//                     `  - **T-007r-3-15 (slice a) …**`  indented sub-slice
+//                     `  - **T-006r-3-15 (slice a) …**`  indented sub-slice
 //
-// No closing-`**` tail is required: titles containing a literal `*` (Plan-009
-// `repo.*`, Plan-018 `participant.*`, Plan-022 `gdpr.*`) broke a `[^*\n]*\*\*`
+// No closing-`**` tail is required: titles containing a literal `*` (Plan-007
+// `repo.*`, Plan-016 `participant.*`, Plan-020 `gdpr.*`) broke a `[^*\n]*\*\*`
 // tail, and the omitted id let Gate 3 mark a phase fully shipped with work
 // still pending (Codex P1, PR #190).
 //
@@ -1030,7 +1030,7 @@ export const TASK_ID_SHAPE = String.raw`T(?=[-\d])[-a-zA-Z0-9.]+`;
 // The indented alternative admits nested rows whose bold closes immediately
 // after the id (`  - **T9.9** is a prerequisite`), which is a REFERENCE, not a
 // declaration. That shape is not separable here: 175 live column-0
-// declarations across Plan-005/007/008/023/024/025 use exactly it
+// declarations across Plan-004/006/021/022 use exactly it
 // (`- **T1.1** — Author the interface`), so rejecting on bold-close position
 // would drop real declarations — a missed declaration reads as a phase shipped
 // prematurely, which fails OPEN. Closing it needs a POSITIVE discriminator
@@ -1080,7 +1080,7 @@ export function extractDeclaredTaskIds(phaseSection) {
 // premise splits in two, and only one half is true:
 //
 //   C5 / P3 / I5   genuinely plan-local — nothing outside the plan to check.
-//   I-024-4        names Plan-024 IN ITS OWN BYTES.
+//   I-022-4        names Plan-022 IN ITS OWN BYTES.
 //
 // So the structured references — 737 id-mentions across 567 marker lines —
 // were accepted without anything confirming the invariant they name exists.
@@ -1102,9 +1102,9 @@ const OWNING_INVARIANT_ID_RE = /^I-(\d{3})-\d+(?:-\d+)*$/;
 // Deliberately WIDER than OWNING_INVARIANT_ID_RE, which is the whole point: these
 // sit inside the namespace, outside the owning shape, and returned SILENTLY — each
 // one an unresolved reference that passed an armed survey.
-//   I-024-1..5      the range spelling PLAN_LOCAL_ID_RE explicitly accepts
-//   I-024..025-1    a range in the PLAN segment
-//   I-24-3          a two-digit plan segment, one keystroke from I-024-3
+//   I-022-1..5      the range spelling PLAN_LOCAL_ID_RE explicitly accepts
+//   I-022..025-1    a range in the PLAN segment
+//   I-24-3          a two-digit plan segment, one keystroke from I-022-3
 //   I-008-          a plan segment with no invariant number after it
 //
 // Deliberately NARROWER than "starts with `I-`". A single-segment `I-1` encodes no
@@ -1120,18 +1120,18 @@ const STRUCTURED_INVARIANT_NAMESPACE_RE = /^I-\d+(?:-|\.\.)/;
 // an ordinary `plan-local-id` anchor whose id simply misses the owning shape.
 //
 // A range is a claim about EVERY id it spans, so it is expanded and each member is
-// resolved on its own: `I-024-999..1000` names two undeclared invariants and must
+// resolved on its own: `I-022-999..1000` names two undeclared invariants and must
 // report two, not pass because the token happened to contain a `..`.
 //
 // The range sits on the LAST segment, which is where a plan numbers its invariants
-// (`I-006-2-01..12` spans Plan-006's second family). Zero-padding follows the START
+// (`I-005-2-01..12` spans Plan-005's second family). Zero-padding follows the START
 // endpoint's literal width, so `01..12` expands to the zero-padded spellings
-// Plan-006 actually declares while `1..12` expands to unpadded ones. padStart never
+// Plan-005 actually declares while `1..12` expands to unpadded ones. padStart never
 // truncates, so a widening range (`1..10`) expands correctly under either rule.
 const OWNING_INVARIANT_RANGE_RE = /^I-(\d{3})-((?:\d+-)*)(\d+)\.\.(\d+)$/;
 
 // Expansion ceiling. A range is authored by hand across a handful of adjacent
-// invariants; a four-digit span is a typo (`I-024-1..9999`), and expanding it would
+// invariants; a four-digit span is a typo (`I-022-1..9999`), and expanding it would
 // bury the real defect under thousands of undeclared-member findings. Above the
 // ceiling the range is reported as malformed — one finding, naming the span.
 const INVARIANT_RANGE_MEMBER_CEILING = 64;
@@ -1202,7 +1202,7 @@ export function classifyInvariantReference(id) {
 // the next author hunting for a declaration that should never exist, and the
 // obvious way to silence it is to mint a fake invariant id. Live instance:
 // Plan-001:393 + :709 spelled `I5` where the line's own Files and Spec-coverage
-// fields both already say `I-024-4`. Three plans (001, 002, 003) carry `I<n>`
+// fields both already say `I-022-4`. Three plans (001, 002, 003) carry `I<n>`
 // test tables; only 001 leaked one into an invariant field.
 //
 // The optional `..N` tail keeps the range spelling on THIS arm rather than
@@ -1216,8 +1216,8 @@ const PLAN_LOCAL_TEST_ID_RE = /^I\d+(?:\.\.\d+)?$/;
 // here, so a pattern requiring a bare `| I-NNN-N |` under-counts silently.
 //
 //   A. heading      `### I-008-7 — Control-plane …`
-//   B. bullet+bold  `- **I-006-4-01 — …**`
-//   C. table row    `| I-021-7 | …`   and   `| **I-021-7** | …`
+//   B. bullet+bold  `- **I-005-4-01 — …**`
+//   C. table row    `| I-019-7 | …`   and   `| **I-019-7** | …`
 //
 // Each anchors the id at a structural position (heading marker, bullet bold
 // open, first table cell) so a prose mention of an id cannot declare it.
@@ -1279,7 +1279,7 @@ export function classifyPhaseSize(declaredTaskIds, targetPaths) {
     // with no Files: targets parsed, single-root confinement is UNPROVEN —
     // M is earned only by parsed paths sitting in at most one code root
     // (docs-only phases keep M: paths parsed, none code). Codex, PR #190:
-    // Plan-021 Phase 4 has three task rows with no Files: fields.
+    // Plan-019 Phase 4 has three task rows with no Files: fields.
     if (targetPaths.length === 0) return "L";
     // Docs-ish paths (docs/ tree, *.md anywhere) are the ONLY exempt class.
     // Repo-tooling / infra CODE outside packages|apps (.claude/, tools/,
@@ -1506,7 +1506,7 @@ export function gateProjectLocality({ repoRoot = REPO_ROOT, skillMd = SKILL_MD }
 // audit_status (the substrate-vs-namespace carve-out path). The strict
 // per-phase enforcement happens inside _checkPhase via gatePhaseAuditCheckbox
 // after the target phase is resolved — top-level lenience is what lets
-// Plan-023's Phase 1 dispatch even though Tier 8 remainder phases haven't
+// Plan-021's Phase 1 dispatch even though Tier 7 remainder phases haven't
 // been authored with audit_status YAML yet. See docs/operations/
 // plan-implementation-readiness-audit-runbook.md §Per-Phase Audit Semantics.
 export function gateAuditCheckbox(planSource, planFile) {
@@ -1551,9 +1551,9 @@ export const MATERIAL_PATH_PREFIXES = ["packages/", "apps/", ".github/", "deploy
 // `paddedPlan` argument. It agrees with this predicate by construction — same
 // `\b…\b` boundaries, same case-insensitivity, same 3-digit width.
 //
-// The predicate is deliberately NOT loosened: `Plan-007` IS a real token in a
-// compound like `Plan-007/025` (`/` is a word boundary) even when that PR
-// shipped no Plan-007 task. Widening the matcher to chase that residual would
+// The predicate is deliberately NOT loosened: `Plan-006` IS a real token in a
+// compound like `Plan-006` (`/` is a word boundary) even when that PR
+// shipped no Plan-006 task. Widening the matcher to chase that residual would
 // silently widen it for every plan.
 export function hasPlanTitleToken(title, paddedPlan) {
   if (typeof title !== "string") return false;
@@ -1566,7 +1566,7 @@ export function hasPlanTitleToken(title, paddedPlan) {
 // block. Pre-this-PR Gate 2 was plan-scoped (any checkbox anywhere); after
 // the per-phase migration, a phase shipping under a substrate carve-out
 // must carry its own audit_status YAML to admit itself for dispatch — a
-// plan-level fail-open path would let Plan-023 Phase 2+ (Tier 8 remainder,
+// plan-level fail-open path would let Plan-021 Phase 2+ (Tier 7 remainder,
 // not yet authored) dispatch through the lenient top-level OR-check.
 export function gatePhaseAuditCheckbox(planSource, phaseSection, planFile, phaseNumber) {
   if (extractAuditCheckbox(planSource)) return { ok: true };
@@ -1616,7 +1616,7 @@ export function gatePhaseAuditCheckbox(planSource, phaseSection, planFile, phase
 //   - no_phase_section: the requested phase isn't declared in the plan.
 //   - no_declared_tasks: phase exists but its #### Tasks block has no task
 //     ids in either the sub-header (`##### T1.1`) or bullet+bold
-//     (`- **T-007p-1-1**`) form.
+//     (`- **T-006p-1-1**`) form.
 //   - partially_shipped: at least one declared task isn't in the shipped
 //     set. Carries `missing` so callers can render diagnostics.
 //   - fully_shipped: every declared task appears in the shipped set.
@@ -1789,7 +1789,7 @@ const IDENTIFIER_TOKEN_RE =
   /\b([A-Z][a-zA-Z]+(?:[A-Z][a-zA-Z]*)*|[a-z][a-zA-Z]+\.[a-zA-Z][a-zA-Z.]*)\b/g;
 
 // Plan-local row IDs span simple (`C5`, `P1`, `I1`), structured
-// (`I-024-3`, `Pr-1`), and multi-invariant range (`I-024-1..5`) forms per
+// (`I-022-3`, `Pr-1`), and multi-invariant range (`I-022-1..5`) forms per
 // Pre-3 implication 6 of the post-mortem fix plan. Used both for detecting
 // Plan-local-ID-as-Spec-anchor defects AND for filtering subject candidates
 // extracted from descriptors.
@@ -1813,10 +1813,10 @@ export function extractIdentifierTokens(text) {
   return out;
 }
 
-// Namespace prefixes (`Plan-021`, `Spec-001`, `ADR-018`) are cross-reference
+// Namespace prefixes (`Plan-019`, `Spec-001`, `ADR-018`) are cross-reference
 // markers, not contract subjects. Strip them before identifier extraction so
 // `Plan` doesn't surface as a false-positive subject when a descriptor cites
-// another doc (e.g., `... per Plan-021 §RateLimitResponse canonical shape`).
+// another doc (e.g., `... per Plan-019 §RateLimitResponse canonical shape`).
 const NAMESPACE_PREFIX_RE = /\b(?:Plan|Spec|ADR)-\d+\b/g;
 
 // Subject tokens are identifier-tokens with namespace-prefix markers stripped
@@ -1835,7 +1835,7 @@ function nonPlanLocalSubjects(text) {
 //     Recognized starts: `Spec-NNN`, `ADR-NNN`, plan-local-id (`Cn`/`Pn`/
 //     `Pr-n`/`In` or structured `I-NNN-N`), `none` literal, `<file>.md`,
 //     `cross-plan-deps`. Without the plan-local-id branch, comma-separated
-//     invariant lists (`Verifies invariant: I-024-1, I-024-2, ...` or
+//     invariant lists (`Verifies invariant: I-022-1, I-022-2, ...` or
 //     `; P1, P2, P3`) fold into a single anchor whose descriptor swallows
 //     the trailing IDs and silently passes the gate (Codex P1 on PR #96
 //     line 620). Longer alternations precede shorter ones so `Pr` is
@@ -2287,7 +2287,7 @@ function parseSpecSegmentInner(segment) {
   let inLinesList = false;
   for (const token of subTokens) {
     // `AC line N [(descriptor)]` — the acceptance-criterion-BY-LINE form
-    // (`Spec-011 AC line 173`). Distinct from the ordinal `ACn (line MM)`
+    // (`Spec-009 AC line 173`). Distinct from the ordinal `ACn (line MM)`
     // shape below: that one names the criterion by its INDEX within
     // §Acceptance Criteria and treats the line as a hint, this one names the
     // line the criterion sits on and leaves the ordinal implicit. Established
@@ -2568,8 +2568,8 @@ function parseArchDocSegment(segment) {
 }
 
 function parseCrossPlanDepsSegment(segment) {
-  // Accept multi-row form: `cross-plan-deps §N row M + §K row L` (Plan-024
-  // T-024-5-5 uses this for joint cross-plan-deps anchors). The base
+  // Accept multi-row form: `cross-plan-deps §N row M + §K row L` (Plan-022
+  // T-022-5-5 uses this for joint cross-plan-deps anchors). The base
   // namespace prefix `cross-plan-deps` appears once; subsequent §-clauses
   // join via `+` and may carry their own row.
   const m = segment.match(
@@ -2636,8 +2636,8 @@ function parsePlanLocalIdSegment(segment) {
   // Legitimate trailers are empty, whitespace-prefixed prose, or a paren
   // descriptor. A leading `,` / `;` / `+` means the segment-splitter did
   // not detect a boundary AND the trailer is not a descriptor — common
-  // shape is `I-024-3, typo` (a malformed trailing cite) or `I-024-1,
-  // I-024-2` when the splitter lookahead failed to recognize the
+  // shape is `I-022-3, typo` (a malformed trailing cite) or `I-022-1,
+  // I-022-2` when the splitter lookahead failed to recognize the
   // following plan-local-id prefix. Fail closed so the gate surfaces the
   // defect instead of swallowing the trailer as a descriptor (Codex P1
   // on PR #96 line 620).
@@ -2720,7 +2720,7 @@ export function parseCitePayload(rawPayload) {
   // SILENT TRUNCATION rather than a parse error: the anchors ahead of the
   // quote parse clean and the payload reports nothing, which is precisely the
   // false-clean shape this gate exists to prevent. Without this check
-  // `Spec-015 line 47 — "oops, Spec-011 line 99999` yields ONE anchor and zero
+  // `Spec-013 line 47 — "oops, Spec-009 line 99999` yields ONE anchor and zero
   // failures, while the same text unquoted yields two anchors and gates on the
   // bad line. Parity is the exact test for THAT shape — `"` is a single
   // toggling delimiter with no escape form, so an odd count is unbalanced by
@@ -2805,7 +2805,7 @@ export function parseCitePayload(rawPayload) {
 // marker extends until the FIRST of:
 //   (a) the next `**Word:**` bold-labeled marker (`**Spec coverage:**`,
 //       `**Verifies invariant:**`, `**Note:**`, `**Files:**`, `**Wires:**`,
-//       etc. — Plan-024 task bullets pack multiple labeled clauses on one
+//       etc. — Plan-022 task bullets pack multiple labeled clauses on one
 //       line),
 //   (b) the next newline (canonical per-bullet shape from
 //       docs/plans/000-plan-template.md).
@@ -3115,7 +3115,7 @@ export function findSectionHeading(sectionName, specLines, citedDescriptorTail =
   // Paren-stripped fallback: the cite grammar's section capture stops at
   // ` (` (a trailing `(<descriptor>)` is descriptor, not section name), so
   // a cite to a parenthetical-suffixed heading — `### Usage Telemetry
-  // (usage_telemetry)`, the Spec-006 category-heading house style — parses
+  // (usage_telemetry)`, the Spec-005 category-heading house style — parses
   // as `Usage Telemetry` and anchored equality against the full heading
   // can never match. The fallback matches on the heading with its TRAILING
   // parenthetical suffix stripped — exactly the one token the capture
@@ -3129,7 +3129,7 @@ export function findSectionHeading(sectionName, specLines, citedDescriptorTail =
   //   suffix agrees (punctuation-preserving compare — `(v1.0)` never
   //   satisfies `(v10)`), so `§Required Behavior (policy)` binds the
   //   suffixed subsection even when a bare `## Required Behavior` sibling
-  //   exists (the one real governance pair, Spec-020), and `§Interface
+  //   exists (the one real governance pair, Spec-018), and `§Interface
   //   (V1)` can never repair onto `(V2)`.
   // - A descriptor that LEADS with `(` but never balances (`§Usage
   //   (wrong`) is a malformed suffix claim, not a gloss → reject.
@@ -3291,7 +3291,7 @@ function sectionSpansForHeadingText(specLines, headingText) {
 
 // A cite that names BOTH a section and a line asserts the line sits under that
 // heading. Verifying only that the heading EXISTS lets the two halves drift
-// apart silently: Plan-015 T15.1 cited `§Two-Phase Receipt Commit lines 79-110`
+// apart silently: Plan-013 T15.1 cited `§Two-Phase Receipt Commit lines 79-110`
 // when that subsection starts at line 81, and the armed gate passed it because
 // the heading resolved. The section name is the reader's index into the spec —
 // a wrong one sends them to the wrong place while every mechanical check stays
@@ -3374,7 +3374,7 @@ function verifyLineRangeAnchor(anchor, specLines) {
     };
   }
   // A range must sit ENTIRELY inside the named section — a range that starts
-  // above the heading (the Plan-015 T15.1 shape: `lines 79-110` under a section
+  // above the heading (the Plan-013 T15.1 shape: `lines 79-110` under a section
   // beginning at 81) or spills past its end is describing a different span than
   // the one it names.
   if (sectionHeadingText !== null) {
@@ -3501,7 +3501,7 @@ function verifyAcLineAnchor(anchor, source, specLines) {
     if (!sec.found) return sectionNotFoundFailure(anchor.section);
     // Bound the line only by a section this anchor ITSELF claims. `section` is
     // sticky across sub-tokens by design, so a sibling's `§` leaks in — and
-    // Plan-011 is the live proof: `§Git Hosting Adapter lines 118-152 (…), AC
+    // Plan-009 is the live proof: `§Git Hosting Adapter lines 118-152 (…), AC
     // line 175` cites a genuine AC bullet at 175, which holding to the
     // sibling's 118-152 span would have failed. Existence is still checked
     // above either way; only the span claim needs authorship.
@@ -3857,7 +3857,7 @@ export function gateTasksBlockCites(phaseSection, planNumber, phaseNumber, opts 
 // ignore the new params; the audit_status case introduced in this version
 // needs phaseSection + phaseNumber to evaluate the substrate_exempt criterion
 // (3) check (Spec-AC-empty sentinel + Tasks-block bracket-form conflict). The
-// bl_closed case (added for the Plan-003 Phase 3 backlog gate) reads
+// bl_closed case (added for the Plan-002 Phase 3 backlog gate) reads
 // only repoRoot — already present — so it too is purely additive. The
 // precondition_box_checked case (Codex P1, PR #212 round 4) additionally
 // reads planSource, threaded from the phase walk the same way phaseSection is.
@@ -3955,7 +3955,7 @@ export function resolvePrecondition(
         case "partially_shipped": {
           // `shipped` is this phase's landed task ids, so an empty array is
           // exactly the zero-shipped case, and "only partially shipped" was a
-          // false claim there (Plan-010's manifest is `shipped: []` while the
+          // false claim there (Plan-008's manifest is `shipped: []` while the
           // halt asserted partial shipment). Branching keeps the distinction
           // the classifier already hands us; one unified string would be true
           // in both cases but would stop telling the reader whether anything
@@ -4024,7 +4024,7 @@ export function resolvePrecondition(
       };
     }
     case "external_plan_phase_merged": {
-      // Corpus-declared structured form for cross-plan phase gates (Plan-007's
+      // Corpus-declared structured form for cross-plan phase gates (Plan-006's
       // R-section YAML blocks already carry it). Two phase shapes:
       //   - integer (`phase: 2`) — identical semantics to the prose-derived
       //     plan_phase entry; delegate.
@@ -4032,12 +4032,12 @@ export function resolvePrecondition(
       //     (`### Phase R2 — …`) but can never appear as a manifest phase key
       //     (validateEntry forces positive integers), so phase-key equality is
       //     structurally unanswerable. The checkable truth is TASK-SET
-      //     membership: the R-section's declared task ids (T-007r-2-*) must
+      //     membership: the R-section's declared task ids (T-006r-2-*) must
       //     all appear in the upstream manifest's shipped task lists under
       //     WHATEVER integer phase the R-series ships as. Halts today while
       //     the tasks are unshipped; passes when they land — no manifest
       //     schema change, no upstream renumbering (Codex P2, PR #193 round 4:
-      //     the prose-only R2 gate left plan-022 Phase 1 mechanically open).
+      //     the prose-only R2 gate left plan-020 Phase 1 mechanically open).
       if (typeof entry.phase === "number") {
         return resolvePrecondition(
           { type: "plan_phase", plan: entry.plan, phase: entry.phase, status: "merged" },
@@ -4169,7 +4169,7 @@ export function resolvePrecondition(
       // reach its Exit Criteria until a governance change lands, but that change
       // is neither a merged PR nor an accepted ADR — so no artifact number
       // exists at declaration time to gate on with pr_merged / adr_accepted
-      // (Codex #3 on PR #138: Plan-003 Phase 3 is blocked on a Spec-003
+      // (Codex #3 on PR #138: Plan-002 Phase 3 is blocked on a Spec-002
       // §Default-Behavior heartbeat-threshold amendment whose PR number is
       // unknowable now, and the threshold value is a spec value, not
       // ADR-worthy). The honest machine-readable primitive that exists at
@@ -4245,8 +4245,8 @@ export function resolvePrecondition(
       // Gate-7 trio (authors append dated notes after the box text). Fail
       // closed on every indeterminate shape — missing section, no matching
       // box, an ambiguous prefix matching several boxes: a declaration error
-      // is never a pass. Introduced for the Spec-012 Part-B ask-expiry legs
-      // (Plan-012 Phase 2 / Plan-004 Phase 3) — Codex P1, PR #212 round 4:
+      // is never a pass. Introduced for the Spec-010 Part-B ask-expiry legs
+      // (Plan-010 Phase 2 / Plan-003 Phase 3) — Codex P1, PR #212 round 4:
       // the checkbox alone carried an enforcement claim no gate implemented.
       if (typeof entry.box !== "string" || entry.box.trim() === "") {
         return {
@@ -4318,7 +4318,7 @@ function terminatesPreconditionBoxes(line) {
 // prose break, is ORPHANED: canonical layout puts the fence after the complete
 // checkbox list, and a box stranded below the fence is invisible to any
 // list-shaped reading — this gate's fail-open class recurring as a layout
-// defect (PR #251 inserted Plan-009 Phase 3's yaml block mid-list and stranded
+// defect (PR #251 inserted Plan-007 Phase 3's yaml block mid-list and stranded
 // two ticked boxes exactly this way). Orphans halt rather than collect:
 // collecting would bless the ambiguous layout and re-open the phantom question
 // hard suspension settles by construction (nothing between a fence and the
@@ -4331,8 +4331,8 @@ function suspendsPreconditionBoxes(line) {
 // The corpus's dominant precondition form is a plural prose header over a
 // checkbox list — `**Preconditions.**` — which matches neither the yaml block
 // nor the singular `**Precondition:**` line, so Gate 5 read every such phase as
-// an undeclared legacy plan and passed it (Codex P1, PR #251 round 2: Plan-009
-// Phase 2 resolved eligible with its Plan-006 Phase 3 box unchecked).
+// an undeclared legacy plan and passed it (Codex P1, PR #251 round 2: Plan-007
+// Phase 2 resolved eligible with its Plan-005 Phase 3 box unchecked).
 //
 // `:` and bare spellings are accepted alongside the corpus's `.` — no plan
 // writes them today, so they add no matches, only the guarantee that a
@@ -4375,7 +4375,7 @@ function collectPreconditionBoxes(phaseSection) {
 // block, else the singular prose line) and the checkbox scan. Neither disables
 // the other. Precedence — resolving only the yaml when a phase has both — would
 // retire that phase's human-tracked rows, including the ratification boxes no
-// entry type can express (Plan-010 Phase 1 carries three); un-checking one
+// entry type can express (Plan-008 Phase 1 carries three); un-checking one
 // later would then gate nothing. Boxes are the record, yaml is enforced depth.
 export function gatePreconditions(phaseSection, planFile, phaseNumber, opts = {}) {
   let entries = parsePreconditionsBlock(phaseSection);
@@ -4512,8 +4512,8 @@ export function gateStatusPromotion(planSource, planFile) {
 // un-promoted spec (Codex P2, PR #202). Prefix-matched: authors append dated
 // gate notes after the box text (`- [ ] Paired spec is approved — re-opened
 // 2026-07-13: …`). Deliberately NOT every unchecked box in the section:
-// plans also carry scoped upstream-dependency boxes (Plan-023's "(Tier 8
-// remainder only.)" boxes, Plan-024's procurement boxes gating only Phases
+// plans also carry scoped upstream-dependency boxes (Plan-021's "(Tier 7
+// remainder only.)" boxes, Plan-022's procurement boxes gating only Phases
 // 4-5) whose unchecked state must not halt phases they do not gate — that
 // subset gating belongs to per-phase `preconditions:` blocks (Gate 5), where
 // the `precondition_box_checked` entry type puts a named scoped box on the
@@ -4576,7 +4576,7 @@ export function gatePlanPreconditionBoxes(planSource, planFile) {
 // bullet (optional GFM checkbox, 1-3 asterisks) or `#####` heading whose
 // bold/heading token BEGINS `T<digit>`/`T-`. Head-anchored on purpose:
 // Tasks blocks carry top-level detail bullets (`- **Step:** ... T3.6 ...`,
-// Plan-003) that mention task ids in prose — an anywhere-on-line oracle
+// Plan-002) that mention task ids in prose — an anywhere-on-line oracle
 // flags those as false omissions. Looser than the extractor in exactly the
 // dimensions that have failed before: no closing-`**` tail (star-in-title,
 // PR #190) and 1-3 asterisks (bold-italic rows), so both historical miss
@@ -4592,7 +4592,7 @@ export function gatePlanPreconditionBoxes(planSource, planFile) {
 // an INDEPENDENT line-shape scan — that independence is what makes it a
 // cross-check — but independence is about not calling the parser, not about
 // disagreeing on where a task row may begin. While the two disagreed, an
-// indented row declaring its own id (the `  - **T-007r-3-15 (slice a) …**`
+// indented row declaring its own id (the `  - **T-006r-3-15 (slice a) …**`
 // spelling taskHeaderMatches documents as observed) parsed to a declared id the
 // oracle could not see, and surfaced as `[phantom] parsed id on no task-shaped
 // row` — a gating anomaly whose message points the reader at the parser when the
@@ -4642,8 +4642,8 @@ export function surveyPhase(phaseSection) {
 // or glob: a renamed plan drops off the list and trips the stale-exemption ratchet
 // (see surveyCorpus). Removal owner per file — the list itself is the tracking, no
 // backlog item:
-//   023       — its Tier-8 readiness audit.
-export const LEGACY_INLINE_CITE_EXEMPT = ["docs/plans/023-desktop-shell-and-renderer.md"];
+//   023       — its Tier-7 readiness audit.
+export const LEGACY_INLINE_CITE_EXEMPT = ["docs/plans/021-desktop-shell-and-renderer.md"];
 
 // Only the two marker-SHAPE classes the compact-inline legacy style PROVABLY
 // produces are divertable — the survey-side screens that fire on HOW the markers
@@ -4673,7 +4673,7 @@ export const LEGACY_INLINE_EXEMPT_KINDS = new Set([
 //
 // The legacy-inline exemption hides marker SHAPE, but the shape divert alone
 // would also hide a broken anchor INSIDE an inline payload (the bold-only
-// extractor never parses them, so `; Spec coverage: Spec-007 §Definitely
+// extractor never parses them, so `; Spec coverage: Spec-006 §Definitely
 // Missing` used to surface only as divertable [legacy-unbold-marker]).
 //
 // Design (round-5 redesign): the floor runs the REAL Gate-4 payload grammar
@@ -4908,7 +4908,7 @@ function salvageSectionHeading(spec, section, dirs) {
 }
 
 // First-column ids of every markdown table row in the spec (separator rows
-// dropped). Legacy inline row cites (`Spec-027 rows 4 + 10`, `row 7a`)
+// dropped). Legacy inline row cites (`Spec-024 rows 4 + 10`, `row 7a`)
 // index these ids (Codex P2, PR #214 round 7). Header cells ("#", "Field")
 // are harmless residents of the set — cited row ids are digit-led, so they
 // can never collide with a header word. Returns null when the spec file
@@ -5174,7 +5174,7 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
           }
         } else if (token[9] !== undefined) {
           // Row claims index the first-column ids of the bound spec's markdown
-          // tables (`Spec-027 rows 4 + 10` → rows `4` and `10` of the
+          // tables (`Spec-024 rows 4 + 10` → rows `4` and `10` of the
           // §Required Behavior table). Each id in the list is its own claim.
           if (specBinding !== null && !missingSpecs.has(specBinding)) {
             const rowIds = specTableRowIds(specBinding, dirs);
@@ -5243,7 +5243,7 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
 // discards that prose), so a non-numeric label is safe there.
 // ---------- Invariant-reference resolution screen ----------
 
-// Second reference channel: `verifies_invariant: [I-024-4]` inside the task-DAG
+// Second reference channel: `verifies_invariant: [I-022-4]` inside the task-DAG
 // and shipment-manifest YAML. Every one of the corpus's 41 such KEY lines sits
 // INSIDE a fence, so maskNonContentLines hides them from extractCiteAnchors —
 // deliberately: verifying a fenced example's cites is what let a plan with no
@@ -5261,11 +5261,11 @@ export function verifyInlineAnchorFloor(phaseSection, { repoRoot = REPO_ROOT } =
 // three ways, and only one of them keeps every id on the key line.
 //
 //   inline flow      `verifies_invariant: [I-002-1, I-002-2]`
-//   block sequence   `verifies_invariant:` + `  - I-024-1` continuation lines
+//   block sequence   `verifies_invariant:` + `  - I-022-1` continuation lines
 //   wrapped flow     `verifies_invariant:` + `  [` + one id per line + `  ]`
 //
 // Reading only the key line counted 48 where 67 exist — 19 ids sat on
-// continuation lines (14 under Plan-006's wrapped flow list, 5 across Plan-024's
+// continuation lines (14 under Plan-005's wrapped flow list, 5 across Plan-022's
 // two block sequences). A disclosure that under-reports the channel it exists to
 // disclose is the same false-clean it was written to prevent, one layer in.
 //
@@ -5521,7 +5521,7 @@ export function verifyInvariantReferences(
     if (reference.kind === "malformed") {
       // Fail closed. Every id in the structured namespace claims an owning plan,
       // so one this screen cannot expand is an unresolved reference — the exact
-      // disposition the silent return used to deny it (`I-024-999..1000` passed
+      // disposition the silent return used to deny it (`I-022-999..1000` passed
       // an armed survey with zero findings because a supported parser spelling
       // met an unsupported resolver shape and nothing spoke in between).
       findings.push({
@@ -5534,7 +5534,7 @@ export function verifyInvariantReferences(
       if (PLAN_LOCAL_TEST_ID_RE.test(id)) {
         findings.push({
           kind: "invariant-test-id",
-          evidence: `${where}\`${id}\` looks like a test id, not an invariant id — plan test tables declare \`I<n>\` rows (\`## Test And Verification Plan\`), and an invariant id carries its owning plan (\`I-024-4\`). Cite the invariant this task verifies, or \`none\` if it verifies none; do NOT mint an invariant to match \`${id}\`.`,
+          evidence: `${where}\`${id}\` looks like a test id, not an invariant id — plan test tables declare \`I<n>\` rows (\`## Test And Verification Plan\`), and an invariant id carries its owning plan (\`I-022-4\`). Cite the invariant this task verifies, or \`none\` if it verifies none; do NOT mint an invariant to match \`${id}\`.`,
         });
       }
       // Cn / Pn / Pr-n and a bare In are plan-local by construction: they name
@@ -5557,8 +5557,8 @@ export function verifyInvariantReferences(
   };
 
   const consumeAnchor = (anchor, tally, taskId) => {
-    // `none` is a legitimate, load-bearing value: Plan-003:517 and :525 spell
-    // `none (I1 is an AC-coverage test — no Plan-003 invariant exclusively
+    // `none` is a legitimate, load-bearing value: Plan-002:517 and :525 spell
+    // `none (I1 is an AC-coverage test — no Plan-002 invariant exclusively
     // verified here)` for a task that genuinely verifies no invariant. It is
     // ACCEPTED and COUNTED, never verified — see the emit site, where the count
     // is printed as asserted-not-verified debt.
@@ -5585,9 +5585,9 @@ export function verifyInvariantReferences(
   // SCOPED BY SHAPE, NOT BY CALL SITE, and deliberately narrower than "every
   // parse failure in a Verifies-invariant field". Measured across the corpus, the
   // field carries exactly three parse-failure instances beyond the one live facet:
-  // two `unparseable-cite` prose descriptors (`substrate boots` at Plan-023 T-023p-1-7,
+  // two `unparseable-cite` prose descriptors (`substrate boots` at Plan-021 T-021p-1-7,
   // `substrate - the audited primitive libraries …` in a compact-inline task field), and the
-  // field also carries three Spec-§ references (Plan-023 T-023p-1-3 / T-023p-1-4 / T-023p-1-6) that parse
+  // field also carries three Spec-§ references (Plan-021 T-021p-1-3 / T-021p-1-4 / T-021p-1-6) that parse
   // cleanly as spec anchors. Whether the field may name a spec clause at all is a
   // FIELD-CONTENT question under separate adjudication; answering it here would
   // emit non-divertable findings against formatting debt on exempt plans. So the
@@ -5913,7 +5913,7 @@ export function surveyCorpus({
         // COMPLEMENT UNITS — every byte no `### Phase N` span covers.
         //
         // Survey units are phase sections, so a plan's preamble, its appendices,
-        // and any `### Tier-7 Remainder`-shaped block sit inside a plan the
+        // and any `### Tier-6 Remainder`-shaped block sit inside a plan the
         // coverage line counts as swept and outside every unit that screens
         // anything. The whole-document fallback cannot rescue them: it fires only
         // at `surveyUnits.length === 0`, so ONE phase heading pins a plan to the
@@ -6003,7 +6003,7 @@ export function surveyCorpus({
       // Intra-plan coverage. `N/M plan(s) cite-swept` counts PLANS, and a plan
       // counts as swept the moment one survey unit exists — but units are phase
       // sections, so a bold cite marker under a non-`Phase` `###` heading (the
-      // `### Tier-7 Remainder — …` shape) sits inside a counted plan and outside
+      // `### Tier-6 Remainder — …` shape) sits inside a counted plan and outside
       // every unit. The whole-document fallback cannot rescue it: that fires only
       // at `surveyUnits.length === 0`, so ONE phase heading pins the plan to the
       // per-phase path forever. Counting markers here keeps the plan-level number
@@ -6097,7 +6097,7 @@ export function surveyCorpus({
       // (that fires only at `surveyUnits.length === 0`), every markerless phase
       // is skipped by `hasCiteMarkers`, and nothing recorded it — so it landed
       // inside `N/N plan(s) cite-swept, 0 uncovered` with zero anomalies. That
-      // is the fourth path the coverage contract says cannot exist. Plan-028 is
+      // is the fourth path the coverage contract says cannot exist. Plan-025 is
       // the live instance: five phases, zero markers, previously invisible.
       let planHasAnyCiteMarker = false;
       // The complement denominator is accumulated DURING the loop and published
@@ -6510,7 +6510,7 @@ export function formatSurvey(survey, { enforceCites = false } = {}) {
   lines.push(
     `  of which ${boldTally.parentResolved ?? 0} bold + ${legacyTally.parentResolved ?? 0} legacy facet reference(s) resolved to a declared PARENT only — the sub-clause letter is declared nowhere and is not verified`,
   );
-  // The `none` arm is ACCEPTED, never verified. Plan-003:517/:525 show the
+  // The `none` arm is ACCEPTED, never verified. Plan-002:517/:525 show the
   // honest use (`none (I1 is an AC-coverage test)`), but nothing distinguishes
   // that from a task that does verify an invariant and writes `none` anyway —
   // so the size of the accepted-unverified population is printed rather than
@@ -6608,8 +6608,8 @@ export function formatSurvey(survey, { enforceCites = false } = {}) {
  *
  * `gateTasksBlockCites` verifies every anchor it parses, and it accepts every
  * `plan-local-id` on the stated grounds that a plan-local id has no external
- * document to verify — true for `C5` / `P3`, false for `I-024-4`, which names
- * Plan-024 in its own bytes. So a phase declaring `**Verifies invariant:**
+ * document to verify — true for `C5` / `P3`, false for `I-022-4`, which names
+ * Plan-022 in its own bytes. So a phase declaring `**Verifies invariant:**
  * I-999-1` cleared dispatch preflight while the armed survey reported the same
  * reference as a defect: two screens over one corpus disagreeing about whether a
  * reference resolves, with the LOOSER one guarding the thing that actually ships.
@@ -6661,7 +6661,7 @@ function gatePhaseInvariantReferences(phaseSection, planNumber, phaseNumber, opt
     "## Preflight halt: Gate 4 invariant-reference resolution failed",
     "",
     `Plan-${planNumber} Phase ${phaseNumber} has ${findings.length} unresolved invariant reference(s).`,
-    "Every `Verifies invariant:` id that names an owning plan (`I-024-4` names Plan-024)",
+    "Every `Verifies invariant:` id that names an owning plan (`I-022-4` names Plan-022)",
     "is resolved against that plan's declared `## Invariants` set.",
     "",
   ];
@@ -6913,7 +6913,7 @@ async function main() {
     //
     // ARMED (2026-07-17): the docs-corpus CI step runs `--survey --enforce-cites`,
     // so citeAnomalies fold into the exit. The live corpus reaches 0 GATED cite
-    // anomalies because the one compact-inline plan (Plan-023) diverts
+    // anomalies because the one compact-inline plan (Plan-021) diverts
     // to the printed exemptCiteAnomalies channel via LEGACY_INLINE_CITE_EXEMPT —
     // its legacy-unbold / partial-marker debt stays visible but non-blocking, and
     // the stale-exemption ratchet fails the moment it is re-authored clean. To

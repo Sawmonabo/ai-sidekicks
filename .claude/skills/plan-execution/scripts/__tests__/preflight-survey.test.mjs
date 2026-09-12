@@ -677,7 +677,7 @@ test("preflight --survey: exit 0 on the real corpus, report on stdout", () => {
 test("preflight --survey: rejects mixed invocations (exit 2, no survey run)", () => {
   const run = spawnSync(
     process.execPath,
-    [PREFLIGHT, "docs/plans/001-shared-session-core.md", "5", "--survey"],
+    [PREFLIGHT, "docs/plans/001-session-core.md", "5", "--survey"],
     { encoding: "utf8", cwd: REPO_ROOT },
   );
   assert.equal(run.status, 2, run.stdout + run.stderr);
@@ -1760,7 +1760,7 @@ test("preflight --survey: an over-pipe-buffer report drains fully (no mid-line t
 test("preflight --survey --enforce-cites <plan>: still rejects an extra positional (exit 2)", () => {
   const run = spawnSync(
     process.execPath,
-    [PREFLIGHT, "--survey", "--enforce-cites", "docs/plans/001-shared-session-core.md"],
+    [PREFLIGHT, "--survey", "--enforce-cites", "docs/plans/001-session-core.md"],
     { encoding: "utf8", cwd: REPO_ROOT },
   );
   assert.equal(run.status, 2, run.stdout + run.stderr);

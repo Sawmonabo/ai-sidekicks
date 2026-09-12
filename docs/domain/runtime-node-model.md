@@ -71,8 +71,8 @@ It is the "one machine executing" half of the product model. A session is bound 
 
 ## Related Specs
 
-- [Runtime Node Attach](../specs/003-runtime-node-attach.md)
-- [Local IPC And Daemon Control](../specs/007-local-ipc-and-daemon-control.md)
+- [Runtime Node Attach](../specs/002-runtime-node-attach.md)
+- [Local IPC And Daemon Control](../specs/006-local-ipc-and-daemon-control.md)
 
 ## Related ADRs
 

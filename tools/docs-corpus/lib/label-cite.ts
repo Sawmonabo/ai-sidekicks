@@ -21,7 +21,7 @@
 //      gate-invisible and rot silently on a heading rename).
 //
 // Why deny instead of floor: a line-cite floor (non-empty, in-range) passes
-// vacuously on semantic drift — `Spec-003:73 → :77` after a +4-line insertion
+// vacuously on semantic drift — `Spec-002:73 → :77` after a +4-line insertion
 // still resolves to a non-empty line — so every governance amendment silently
 // rotted the code-comment cites (the gap PR #139's ~40-cite hand sweep across
 // 8 code/test files exposed). §Heading anchors survive line shifts and fail
@@ -66,7 +66,7 @@ import {
 import { getRepoRoot } from "./inbound-cite-discovery.ts";
 
 // Label token → governance tree. The number is NOT shared across token types
-// (`Spec-024` ≠ `Plan-024`); each resolves within its own tree. ADRs live under
+// (`Spec-022` ≠ `Plan-022`); each resolves within its own tree. ADRs live under
 // `docs/decisions/`, NOT `docs/adr/` (CLAUDE.md Documentation Corpus).
 const TOKEN_DIRS: Record<string, string> = {
   Spec: "docs/specs",
@@ -131,7 +131,7 @@ const defaultReader: FileContentReader = (absolutePath) => readFileSync(absolute
 // Token-adjacent colon form ONLY. `\b` before the token rejects a longer word
 // ending in the token name (`MySpec-003:5` does not match). `(\d{3})` pins the
 // 3-digit doc number; the colon must immediately follow (no space) so a
-// named-section reference like `Spec-003 §Foo` never matches (the backticked
+// named-section reference like `Spec-002 §Foo` never matches (the backticked
 // §-form is matched by pass 3's SECTION_CITE_RE and verified against headings,
 // not lines). The number-list tail accepts ranges and comma lists (`:381-382`,
 // `:81,107`) but NOT a bare trailing space-separated integer (`:5 7`), so prose
@@ -140,14 +140,14 @@ const LABEL_CITE_RE = /\b(Spec|Plan|ADR)-(\d{3}):(\d+(?:\s*[,-]\s*\d+)*)/g;
 
 // Legacy label spellings LABEL_CITE_RE's flush colon misses (Codex, PR #207;
 // widened in the same PR after the corpus census surfaced the § variants):
-//   - spaced colon           `Spec-022 :146`, `Spec-022 §Daemon Master Key :146`
-//   - §-bridged tight colon  `Spec-015 §Resolved Questions:355`
+//   - spaced colon           `Spec-020 :146`, `Spec-020 §Daemon Master Key :146`
+//   - §-bridged tight colon  `Spec-013 §Resolved Questions:355`
 //   - §-bridged paren colon  `Spec-NNN §Relay Negotiation (:176-183, …)`
-//   - paren colon, no §      `Spec-022 (:146`
+//   - paren colon, no §      `Spec-020 (:146`
 // Branch A requires the §-bridge and then admits any colon spelling (tight,
 // spaced, or parenthesized); branch B has no bridge and requires whitespace
 // before the (optionally parenthesized) colon, so LABEL_CITE_RE's flush-colon
-// beat (`Spec-022:146`) is never double-reported. The bridge excludes colons,
+// beat (`Spec-020:146`) is never double-reported. The bridge excludes colons,
 // backticks, brackets, and newlines, so a durable backticked §-anchor whose
 // HEADING contains a colon (`` `Plan-NNN §Phase 1: Bootstrap (…)` ``) never
 // fires — the digits requirement after the colon rejects prose continuations
@@ -165,7 +165,7 @@ const LABEL_CITE_RE = /\b(Spec|Plan|ADR)-(\d{3}):(\d+(?:\s*[,-]\s*\d+)*)/g;
 // round 2).
 // The bridge DOES cross BALANCED inline-code spans (`` `[^`§]*` ``): corpus
 // headings carry inline code (`… translate at \`PtyHost.kill\` …`), and a
-// raw cite reproducing one (`Plan-024 §… \`PtyHost.kill\`:47`) slipped both
+// raw cite reproducing one (`Plan-022 §… \`PtyHost.kill\`:47`) slipped both
 // lanes when the bridge stopped at the first backtick (Codex, PR #207
 // round 3). A span may contain colons — the flush-digit locator is still
 // required OUTSIDE the span. Three constraints keep the span crossing from
@@ -176,14 +176,14 @@ const LABEL_CITE_RE = /\b(Spec|Plan|ADR)-(\d{3}):(\d+(?:\s*[,-]\s*\d+)*)/g;
 //     a durable anchor; matching from inside inverts tick parity, so the
 //     "span" alternative pairs the anchor's closing tick with the next
 //     span's OPENER and walks arbitrarily far right. The appended-locator
-//     spelling that lookbehind excludes (`` `Spec-021 §Bind Address`:47 ``)
+//     spelling that lookbehind excludes (`` `Spec-019 §Bind Address`:47 ``)
 //     is DURABLE_LABEL_ANCHOR_COLON_RE's beat below — parity-correct by
 //     construction.
 //   - `§` excluded from the bridge char class AND the span interior — a
 //     second `§` means any later locator belongs to the LATER §-ref, not
 //     this label; label-less §-refs stay audit-layer (CAT-07).
 //   - the third branch admits ONE task-coordinate token between label and
-//     colon (`Plan-018 T4.5:251` — a live escapee the round-4 full-tree run
+//     colon (`Plan-016 T4.5:251` — a live escapee the round-4 full-tree run
 //     surfaced); prose task refs (`T3.4: the test`) stay out via the same
 //     flush-digit rule.
 // The residual: a heading whose UNBACKTICKED text contains a colon still
@@ -193,12 +193,12 @@ const LABEL_SPACED_COLON_CITE_RE =
   /(?<!`)\b(Spec|Plan|ADR)-(\d{3})(?:\s+§(?:[^:`§\]\n]|`[^`§\n]*`)*?\s*\(?\s*:|\s+\(?\s*:|\s+T[\w.-]*\d\s*\(?\s*:)(\d+(?:\s*[,-]\s*\d+)*)/g;
 
 // A colon locator appended AFTER a complete durable backticked anchor
-// (`` `Spec-021 §Bind Address`:47 ``, `` `Spec-003`:12 ``,
+// (`` `Spec-019 §Bind Address`:47 ``, `` `Spec-002`:12 ``,
 // `` `docs/domain/session-model.md §Session Lifecycle`:61 ``) is the same
 // rot in another spelling — the anchor half is durable, the appended pin is
 // not. Matching the WHOLE anchor keeps tick parity correct (see the
 // lookbehind rationale above). Flush digits after the colon preserve the
-// value-vs-locator boundary (`` `Spec-021 §Limits`: 25 devices ``
+// value-vs-locator boundary (`` `Spec-019 §Limits`: 25 devices ``
 // quotes a value and never fires). Label form carries the same
 // (m[1], m[2]) group shape as the other label regexes so every scan site
 // resolves the target identically; the path form mirrors
@@ -233,7 +233,7 @@ function normalizeTokenForMatch(token: string): string {
 
 // Collapse `.` / `..` segments in a repo-root docs spelling so pass
 // ownership and the frozen carve-out judge the RESOLVED target, not the raw
-// prefix: `docs/archive/../specs/003-x.md` is a volatile specs/ cite wearing
+// prefix: `docs/archive/../specs/002-x.md` is a volatile specs/ cite wearing
 // a frozen prefix, and DOCS_PATH_CITE_RE can never match a dot segment, so
 // the raw-prefix shortcut both skipped the colon deny (assuming pass-2
 // coverage that cannot exist) and floored the line-word form as frozen
@@ -320,18 +320,18 @@ const DOCS_PATH_CITE_RE =
 // checkMarkdownVolatileCites (2026-07-16 corpus-wide sweep) — the md corpus no
 // longer keeps raw line-cite conventions outside the named exemptions.
 //
-// Pass 5 — label line-word: `Spec-021 line 128`, `Plan-022 lines 81, 107-113`,
-// `ADR-014 (line 60)`, and the §-section+line hybrid `Spec-027 §Bind-Address
+// Pass 5 — label line-word: `Spec-019 line 128`, `Plan-020 lines 81, 107-113`,
+// `ADR-014 (line 60)`, and the §-section+line hybrid `Spec-024 §Bind-Address
 // line 94`. The lazy `[^\n`]{0,60}?` bridge only matches when a `line <N>`
 // tail actually follows, so durable backticked §-forms never fire on their
 // own; the optional closing backtick before the tail means a locator appended
-// AFTER a durable cite (`` `Spec-021 §Bind Address` line 2 ``) is still
+// AFTER a durable cite (`` `Spec-019 §Bind Address` line 2 ``) is still
 // denied — the pin rots identically whichever spelling carries it (Codex,
 // PR #195). `\blines?\b` keeps prose like "outlines 3 tiers" out; the
 // `[-\s]+` separator also catches the adjectival hyphen spelling
-// (`Spec-003 line-48 payload`), the optional `[,;:]` accepts punctuation
-// between label and locator (`Spec-003, line 5`), the {0,200} bridge spans
-// real long headings (`Plan-003 §T5.3 — Mixed-version status indicator
+// (`Spec-002 line-48 payload`), the optional `[,;:]` accepts punctuation
+// between label and locator (`Spec-002, line 5`), the {0,200} bridge spans
+// real long headings (`Plan-002 §T5.3 — Mixed-version status indicator
 // (below-floor read-only surfacing) line 600`), and the trailing group
 // consumes the full range / comma list so rawTarget shows the whole anchor.
 // The §-bridge crosses BALANCED inline-code spans like the spaced-colon form
@@ -393,10 +393,10 @@ function listGovernanceDir(absoluteDir: string): string[] {
   return entries;
 }
 
-// Resolve `Spec-003` → absolute path of `docs/specs/003-*.md`. Returns the
+// Resolve `Spec-002` → absolute path of `docs/specs/002-*.md`. Returns the
 // matching file's absolute path, or — when no doc matches (a cite to a
 // nonexistent / deleted / renamed-away governance doc, itself a real defect) —
-// an absolute SENTINEL path (`docs/specs/003-*.md`, literal `*`) that no reader
+// an absolute SENTINEL path (`docs/specs/002-*.md`, literal `*`) that no reader
 // can open, so checkCite reports `missing-target-file`. One uniform code path:
 // resolution failure and content failure both flow through checkCite.
 function resolveLabelTarget(repoRoot: string, type: string, num: string): string {
@@ -426,7 +426,7 @@ function expandLineSpec(spec: string): number[] {
 }
 
 // Push one Cite per target line for a single matched citation. `rawPrefix` is
-// the human-readable cite stem (`Spec-003:` or `docs/domain/x.md:`); `targetPath`
+// the human-readable cite stem (`Spec-002:` or `docs/domain/x.md:`); `targetPath`
 // is the already-resolved absolute doc path both forms feed to checkCite.
 function pushExpandedCites(
   cites: Cite[],
@@ -451,7 +451,7 @@ function pushExpandedCites(
 // comment text (concatenated `//` tail + `/* … */` regions + whole line when
 // inside a carried block comment or on an SQL `--` comment line), or null
 // when the line has no comment region. String literals suppress comment
-// openers (`"foo// Spec-003 line 5"` is data, not a comment); string state is
+// openers (`"foo// Spec-002 line 5"` is data, not a comment); string state is
 // line-local by design — see the pass 5-6 call site for the trade-off.
 function extractCommentText(
   line: string,
@@ -462,7 +462,7 @@ function extractCommentText(
     return { text: line, insideBlockAfter: insideBlockComment, commentOnly: true };
   }
   // JSDoc/block-comment interior lines carry a `*` leader that would land in
-  // the middle of a wrap-scan join (`governed by Spec-003 * line 4`) and
+  // the middle of a wrap-scan join (`governed by Spec-002 * line 4`) and
   // dodge every wrap regex — strip the decoration before scanning (Codex,
   // PR #207 round 2). `(?!\/)` leaves a lone `*/` closer intact.
   if (insideBlockComment) {
@@ -524,8 +524,8 @@ function extractCommentText(
     insideBlockAfter: inBlock,
     // commentOnly gates WRAP PAIRING only: a mixed code+comment line still
     // scans single-line, but its trailing comment never joins a neighboring
-    // comment line — `// See Spec-003` above `const limit = 5; // line 5`
-    // must not fuse into a phantom `Spec-003 line 5` cite (Codex, PR #207).
+    // comment line — `// See Spec-002` above `const limit = 5; // line 5`
+    // must not fuse into a phantom `Spec-002 line 5` cite (Codex, PR #207).
     commentOnly: sawComment && !sawCode,
   };
 }
@@ -664,7 +664,7 @@ function extractLabelCitesFrom(
   // label / path half and `line N` locator sit on opposite sides of a comment
   // wrap, the shape every single-line pass is blind to (the CAT-07 wrapped-
   // cite Known Gap, closed by the 2026-07 corpus sweep). Colon forms cannot
-  // wrap — `Spec-003:178` has no interior whitespace — so only the line-word
+  // wrap — `Spec-002:178` has no interior whitespace — so only the line-word
   // regexes join-scan. Spans of 3+ lines (blank comment line between label
   // and locator) stay audit-layer residual.
   let previousCommentText: string | null = null;
@@ -684,7 +684,7 @@ function extractLabelCitesFrom(
     }
     let m: RegExpExecArray | null;
 
-    // Pass 1 — label form (`Spec-003:178`). Token resolves via the NNN glob.
+    // Pass 1 — label form (`Spec-002:178`). Token resolves via the NNN glob.
     LABEL_CITE_RE.lastIndex = 0;
     while ((m = LABEL_CITE_RE.exec(line)) !== null) {
       const type = m[1];
@@ -709,7 +709,7 @@ function extractLabelCitesFrom(
       pushExpandedCites(cites, citingFile, i, `${docsPath}:`, resolve(repoRoot, docsPath), m[2]);
     }
 
-    // Pass 3 — backticked section-anchor form (`` `Spec-003 §Wire Format` ``).
+    // Pass 3 — backticked section-anchor form (`` `Spec-002 §Wire Format` ``).
     // Heading existence is verified in checkLabelCiteTargets, not checkCite —
     // there is no line number to floor.
     SECTION_CITE_RE.lastIndex = 0;
@@ -893,9 +893,9 @@ export function checkSectionCites(
 // named exemptions to the durable §-anchor form, so — exactly like the code
 // lane's post-sweep passes — every new match is a fresh line pin that rots on
 // the target's next amendment. Denied spellings: raw label colon
-// (`Spec-003:178`, backticked or not), docs-path colon
-// (`docs/domain/x.md:61`), markdown-link colon (`[x](../specs/003-y.md):12`),
-// label line-word (`Spec-003 line 178`), `.md` path / basename line-word
+// (`Spec-002:178`, backticked or not), docs-path colon
+// (`docs/domain/x.md:61`), markdown-link colon (`[x](../specs/002-y.md):12`),
+// label line-word (`Spec-002 line 178`), `.md` path / basename line-word
 // (`session-model.md line 61`), and the wrap-split spelling of the line-word
 // forms (label / path half at one line's end, `line N` locator opening the
 // next). Colon forms cannot wrap — no interior whitespace — so only the
@@ -1027,7 +1027,7 @@ export function checkMarkdownVolatileCites(
             continue;
           }
           // Same scope guards as the code lane's pushMdAnchorCite, plus
-          // md-citer RELATIVE-path resolution: `../specs/003-x.md:12` resolves
+          // md-citer RELATIVE-path resolution: `../specs/002-x.md:12` resolves
           // against the citing file's directory exactly like the markdown-link
           // pass, so the relative spelling of a governance target cannot dodge
           // the deny (Codex, PR #207). Only EXPLICITLY relative spellings
@@ -1109,7 +1109,7 @@ export function checkMarkdownVolatileCites(
       let m: RegExpExecArray | null;
 
       // Raw label colon — targets resolve under TOKEN_DIRS, never frozen.
-      // (The spaced-colon spelling — `Spec-022 §Daemon Master Key :146` —
+      // (The spaced-colon spelling — `Spec-020 §Daemon Master Key :146` —
       // is LABEL_SPACED_COLON_CITE_RE's beat inside scanLineWordForms, which
       // runs on every prose line below.)
       LABEL_CITE_RE.lastIndex = 0;
@@ -1174,7 +1174,7 @@ export function checkMarkdownVolatileCites(
 
       scanLineWordForms(line, i + 1, null);
       // Wrap pairing joins the UNQUOTED forms: an ordinary blockquoted cite
-      // split as `> governed by Spec-003` / `> line 4` would otherwise keep
+      // split as `> governed by Spec-002` / `> line 4` would otherwise keep
       // the second `>` between label and locator and dodge every wrap regex
       // (Codex, PR #207 round 2). Blockquoted prose is NOT exempt — only
       // fenced blocks are — and single-line scans are unaffected (a leading

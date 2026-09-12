@@ -22,18 +22,18 @@ Code execution is under way. What has merged, read off each plan's `### Shipment
 
 | Plan | Phases merged |
 | --- | --- |
-| [Plan-001](docs/plans/001-shared-session-core.md) Shared session core | 1-5 (all) |
-| [Plan-003](docs/plans/003-runtime-node-attach.md) Runtime-node attach | 1-5 (all) |
-| [Plan-004](docs/plans/004-queue-steer-pause-resume.md) Queue, steer, pause, resume | 1 |
-| [Plan-005](docs/plans/005-provider-driver-contract-and-capabilities.md) Provider driver contract | 1-4 |
-| [Plan-006](docs/plans/006-session-event-taxonomy-and-audit-log.md) Event taxonomy and audit log | 1-3 |
-| [Plan-007](docs/plans/007-local-ipc-and-daemon-control.md) Local IPC and daemon control | 1-3 |
-| [Plan-009](docs/plans/009-repo-attachment-and-workspace-binding.md) Repo attachment and workspace binding | 1-2 |
-| [Plan-010](docs/plans/010-worktree-lifecycle-and-execution-modes.md) Worktree lifecycle | 1, 2, 5, 6 |
-| [Plan-013](docs/plans/013-live-timeline-visibility-and-reasoning-surfaces.md) Live timeline visibility | 1 |
-| [Plan-023](docs/plans/023-desktop-shell-and-renderer.md) Desktop shell and renderer | 1 (with its 1B and 1C supplements) |
-| [Plan-024](docs/plans/024-rust-pty-sidecar.md) Rust PTY sidecar | 1-3 |
-| [Plan-029](docs/plans/029-provider-accounts-and-credential-homes.md) Provider accounts | 1 |
+| [Plan-001](docs/plans/001-session-core.md) Session core | 1-5 (all) |
+| [Plan-002](docs/plans/002-runtime-node-attach.md) Runtime-node attach | 1-5 (all) |
+| [Plan-003](docs/plans/003-queue-steer-pause-resume.md) Queue, steer, pause, resume | 1 |
+| [Plan-004](docs/plans/004-provider-driver-contract-and-capabilities.md) Provider driver contract | 1-4 |
+| [Plan-005](docs/plans/005-session-event-taxonomy-and-audit-log.md) Event taxonomy and audit log | 1-3 |
+| [Plan-006](docs/plans/006-local-ipc-and-daemon-control.md) Local IPC and daemon control | 1-3 |
+| [Plan-007](docs/plans/007-repo-attachment-and-workspace-binding.md) Repo attachment and workspace binding | 1-2 |
+| [Plan-008](docs/plans/008-worktree-lifecycle-and-execution-modes.md) Worktree lifecycle | 1, 2, 5, 6 |
+| [Plan-011](docs/plans/011-live-timeline-visibility-and-reasoning-surfaces.md) Live timeline visibility | 1 |
+| [Plan-021](docs/plans/021-desktop-shell-and-renderer.md) Desktop shell and renderer | 1 (with its 1B and 1C supplements) |
+| [Plan-022](docs/plans/022-rust-pty-sidecar.md) Rust PTY sidecar | 1-3 |
+| [Plan-026](docs/plans/026-provider-accounts-and-credential-homes.md) Provider accounts | 1 |
 
 **What to build next** is the forward DAG in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md): the phases not yet implemented, the real dependencies between them, and which groups can run in parallel. A phase is deleted from that graph by the PR that merges it.
 
@@ -42,7 +42,7 @@ Two gates still bind a lane-1 plan-task PR, and only a lane-1 PR — enhancement
 - **Tier order.** A plan's code ships in the tier order the [README](README.md) graph gives, and on the plan's own `### Preconditions`.
 - **Plan status promotion.** A plan ships its first PR only once it — and every spec, ADR, and plan it cross-references — carries the status its [Documentation Corpus](#documentation-corpus) row requires, and every blocking backlog item is `completed` or deferred behind a named gate. Audit clearance and tier eligibility do not substitute for it.
 
-One lane is hard-blocked: [Plan-024](docs/plans/024-rust-pty-sidecar.md) Phases 4-5 (CI cross-compile and signing; the measurement substrate) wait on hardware and certificate procurement ([BL-108](docs/backlog.md)).
+One lane is hard-blocked: [Plan-022](docs/plans/022-rust-pty-sidecar.md) Phases 4-5 (CI cross-compile and signing; the measurement substrate) wait on hardware and certificate procurement ([BL-108](docs/backlog.md)).
 
 Build and hook mechanics: `pnpm@10.33.2`, Node `>=22.14.0`. Use the wired scripts — `pnpm install`, `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build` (Turbo-driven), `pnpm format` / `pnpm format:check`. **Do not invoke `npm`** — the engines field requires pnpm. Pre-commit hooks (lefthook + lint-staged + commitlint + gitleaks) install via `pnpm prepare`. Feature branches cut off `develop` and squash-merge back per the [GitFlow-lite branch-model amendment](docs/decisions/023-v1-ci-cd-and-release-automation.md#decision-log). Doc-first ordering holds for plan-task shipment: a lane-1 PR cites the plan / spec / ADR(s) it implements.
 

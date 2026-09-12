@@ -121,7 +121,7 @@ The single-device case remains a valid session with one device and one runtime n
 | --- | --- | --- | --- |
 | `vision.md` | Canonical product vision | A session reachable from any of the user's devices is the defining product requirement | [vision.md](../vision.md) |
 | `domain/session-model.md` | Canonical domain doc | Session can contain all core nouns coherently | [domain/session-model.md](../domain/session-model.md) |
-| `specs/001-shared-session-core.md` | Canonical spec | Session is the stable container and provider thread ids are not session ids | [specs/001-shared-session-core.md](../specs/001-shared-session-core.md) |
+| `specs/001-session-core.md` | Canonical spec | Session is the stable container and provider thread ids are not session ids | [specs/001-session-core.md](../specs/001-session-core.md) |
 
 ### Related Domain Docs
 
@@ -136,8 +136,8 @@ The single-device case remains a valid session with one device and one runtime n
 
 ### Related Specs
 
-- [Shared Session Core](../specs/001-shared-session-core.md)
-- [Runtime Node Attach](../specs/003-runtime-node-attach.md)
+- [Session Core](../specs/001-session-core.md)
+- [Runtime Node Attach](../specs/002-runtime-node-attach.md)
 
 ### Related ADRs
 

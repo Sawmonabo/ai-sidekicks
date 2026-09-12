@@ -25,7 +25,7 @@ The orchestrator passes you (via the `prompt` parameter):
 - The forward phase DAG + container architecture paths (`docs/architecture/cross-plan-dependencies.md`, `docs/architecture/container-architecture.md`).
 - The backlog + archive paths (`docs/backlog.md`, `docs/archive/backlog-archive.md`) — the BL-state source of truth for classifying clause-(d) `Consumes:` entries (full rule in Validation rules below).
 
-Tasks-block field shapes vary (sub-header style: `##### T5.1 — title` + bold-paragraph fields; parenthesized-inline: `- **T-007p-1-1** (Files: ...; Verifies invariant: ...; Spec coverage: ...) — desc`). Both carry the same fields — extract verbatim into DAG fields. Absent/unparseable field → `NEEDS_CONTEXT` (audit defect).
+Tasks-block field shapes vary (sub-header style: `##### T5.1 — title` + bold-paragraph fields; parenthesized-inline: `- **T-006p-1-1** (Files: ...; Verifies invariant: ...; Spec coverage: ...) — desc`). Both carry the same fields — extract verbatim into DAG fields. Absent/unparseable field → `NEEDS_CONTEXT` (audit defect).
 
 If any input is missing or unparseable, return `RESULT: NEEDS_CONTEXT` with a description of the gap.
 
@@ -61,7 +61,7 @@ plan: NNN
 phase: N
 pr: M
 tasks:
-  - id: T1 # match the Tasks-row id (T5.1, T-007p-1-1, etc.) — preserve audit-given ids
+  - id: T1 # match the Tasks-row id (T5.1, T-006p-1-1, etc.) — preserve audit-given ids
     title: <one-line description>
     target_paths: [path/to/file1.ts, path/to/file1.test.ts] # from Tasks-row "Files:"
     depends_on: []

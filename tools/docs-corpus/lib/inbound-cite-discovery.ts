@@ -86,7 +86,7 @@ function enumerateGovernanceCorpus(repoRoot: string, stagedNeedles: string[]): s
   //    blob mentions any staged file's NEEDLE — its basename (a necessary
   //    substring of every path-shaped cite: `[label](path/to/file.md):NNN`,
   //    `path/to/file.md:NNN` in code spans) or, for label-token governance
-  //    docs, the `Spec-016`-style token §-form citers reference (they never
+  //    docs, the `Spec-014`-style token §-form citers reference (they never
   //    mention the filename). Without this narrowing every
   //    governance file becomes a `git show :path` subprocess (~20ms each on
   //    macOS), turning a single-file stage into a 2-3s pre-commit on the
@@ -262,7 +262,7 @@ export function listGitIndexPaths(repoRoot: string): Set<string> | null {
 }
 
 // Grep needles for one staged file: always its basename; for a governance doc
-// in a label-token tree (`docs/specs/016-…` → `Spec-016`), ALSO the token —
+// in a label-token tree (`docs/specs/014-…` → `Spec-014`), ALSO the token —
 // §-form citers reference the token, never the filename, so basename-only
 // needles cannot reach them (Codex review, PR #188 round 2).
 const LABEL_TREE_TOKENS: Record<string, string> = {

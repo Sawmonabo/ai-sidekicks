@@ -13,7 +13,7 @@ This document covers `PhaseDefinition` (static), `WorkflowPhaseState` (runtime),
 - `PhaseDefinition`: a static configuration within a workflow version that describes one step in the workflow. Identified by a stable `WorkflowPhaseId`.
 - `WorkflowPhaseState`: the runtime execution record for a specific phase within a specific workflow run. Identified by the combination of `workflow_run_id` and `phase_id`.
 - `WorkflowPhaseId`: a definition-side identifier. It names a phase in the template and remains stable across workflow versions that retain the same phase.
-- `PhaseRunId`: an execution-side identifier. It names one execution attempt of a phase (with iteration number, status, timestamps), derived deterministically as `BLAKE3(workflowRunId || phaseDefinitionId || attemptNumber)` — every bit a function of that preimage, none from a clock or entropy source, so replay reproduces the identical sequence. It is **not** a `RunId` from the run state machine and not a ULID: a phase execution _creates_ runs through `OrchestrationRunCreate`, each with its own `RunId`, while the `PhaseRunId` names the phase attempt that created them (`Spec-017 §Deterministic identity (SA-21)`, clarified 2026-08-10 by the Tier-8 plan-readiness audit; the digest's concrete text rendering is open per `Spec-017 §Open Questions`).
+- `PhaseRunId`: an execution-side identifier. It names one execution attempt of a phase (with iteration number, status, timestamps), derived deterministically as `BLAKE3(workflowRunId || phaseDefinitionId || attemptNumber)` — every bit a function of that preimage, none from a clock or entropy source, so replay reproduces the identical sequence. It is **not** a `RunId` from the run state machine and not a ULID: a phase execution _creates_ runs through `OrchestrationRunCreate`, each with its own `RunId`, while the `PhaseRunId` names the phase attempt that created them (`Spec-015 §Deterministic identity (SA-21)`, clarified 2026-08-10 by the Tier-7 plan-readiness audit; the digest's concrete text rendering is open per `Spec-015 §Open Questions`).
 - `Gate`: a checkpoint between phases that must resolve before the next phase can start.
 - `GateState`: the runtime state of a phase's gate (`closed`, `open`, `bypassed`).
 - `FailureBehavior`: the configured response when a phase or its gate check fails (`retry`, `go-back-to`, `stop`).
@@ -26,19 +26,19 @@ The workflow phase model is the source of truth for how individual steps within 
 
 - A phase is not an independent run. It is a step within a workflow that creates runs through `OrchestrationRunCreate`.
 - A phase state is not the same as a run state. Phase states track workflow-level progress; the underlying run has its own lifecycle per the run state machine.
-- A gate is not the same as an approval request, though `human-approval` gates use the approval primitives from Plan-012.
+- A gate is not the same as an approval request, though `human-approval` gates use the approval primitives from Plan-010.
 - Phase iteration is not unbounded retry. It is governed by configured max retries and failure behavior.
 
 ## Phase Types
 
-V1 ships all four phase types per the 2026-04-22 BL-097 / ADR-015 full-engine amendment (`Spec-017 §Phase-Type and Gate-Type Taxonomy`; this table previously deferred `multi-agent` and `human` to V1.1, a claim the amendment reversed):
+V1 ships all four phase types per the 2026-04-22 BL-097 / ADR-015 full-engine amendment (`Spec-015 §Phase-Type and Gate-Type Taxonomy`; this table previously deferred `multi-agent` and `human` to V1.1, a claim the amendment reversed):
 
 | Type | Description |
 | --- | --- |
 | `single-agent` | One agent executes the phase autonomously. The phase creates one run in one channel. |
 | `multi-agent` | A phase spawns a phase-owned channel (`ownership: OWN` — the V1 default and only value) where multiple agents deliberate; the channel's conclusion becomes phase output. Retry creates a new channel per iteration. |
 | `automated` | No agent. Executes a script or validation check. |
-| `human` | A human user completes a form (`HumanPhaseConfig` — typed `timeout` required, no field default); the submission becomes phase output. Uses the Spec-012 `human_phase_contribution` approval category. |
+| `human` | A human user completes a form (`HumanPhaseConfig` — typed `timeout` required, no field default); the submission becomes phase output. Uses the Spec-010 `human_phase_contribution` approval category. |
 
 ## Phase States
 
@@ -65,7 +65,7 @@ Allowed transitions:
 | --- | --- | --- |
 | `auto-continue` | Phase completes, next phase starts automatically. No gate check. | N/A |
 | `quality-checks` | Automated quality check runs on phase output. Evaluated by a dedicated agent or automated script -- not by the same agent that produced the output. | Configurable: `block` (halt workflow), `warn` (continue with flag), `skip` (bypass gate). Retry: re-run phase up to `max_retries`. |
-| `human-approval` | Human must approve phase output before continuing. Uses approval primitives from Plan-012 with `category: 'gate'`. | Block until approved. Reject: `retry` or `stop` (configurable). |
+| `human-approval` | Human must approve phase output before continuing. Uses approval primitives from Plan-010 with `category: 'gate'`. | Block until approved. Reject: `retry` or `stop` (configurable). |
 | `done` | Terminal gate. Marks the workflow as complete. | N/A |
 
 ## Gate States
@@ -115,8 +115,8 @@ When retries are exhausted (iteration count exceeds `max_retries`), the phase tr
 - `Agent` executes `single-agent` phases. The agent is configured in the phase definition's `config`.
 - `Channel` receives phase output. Each phase defaults to one primary target channel.
 - `Artifact` stores phase outputs with `artifactType: 'workflow_output'`. Each phase produces `{artifacts: ArtifactId[], summary: string, metadata: Record<string, unknown>}`.
-- `Approval` (from Plan-012) is used by `human-approval` gates. The approval request uses `category: 'gate'`.
-- `SessionEvent` timeline captures phase events: `workflow.phase_started`, `workflow.phase_completed`, `workflow.phase_failed`, `workflow.phase_suspended`, `workflow.gate_resolved`. The list is illustrative, not the registry: the authoritative set is the 24 `workflow.*` types across five categories enumerated in `Spec-017 §Workflow Timeline Integration`.
+- `Approval` (from Plan-010) is used by `human-approval` gates. The approval request uses `category: 'gate'`.
+- `SessionEvent` timeline captures phase events: `workflow.phase_started`, `workflow.phase_completed`, `workflow.phase_failed`, `workflow.phase_suspended`, `workflow.gate_resolved`. The list is illustrative, not the registry: the authoritative set is the 24 `workflow.*` types across five categories enumerated in `Spec-015 §Workflow Timeline Integration`.
 
 ## Example Flows
 
@@ -130,17 +130,17 @@ When retries are exhausted (iteration count exceeds `max_retries`), the phase tr
 - A phase may fail from `running` if the underlying run fails and the configured failure behavior is `stop` with no retries remaining.
 - A `skipped` phase produces no outputs and no artifacts. Its gate transitions to `bypassed`.
 - If a workflow is `cancelled` while a phase is `running`, the phase's underlying run is interrupted (per run state machine child-run behavior) and the phase transitions to `failed`.
-- If a workflow is `cancelled` while a phase is parked, there is nothing to interrupt — a parked phase holds no live process and no pool reservation — so the cancel completes immediately, preserving the phase's recorded park reason and cause while clearing its live resume schedule and attention key in the same unit of work (`Spec-017 §Park integrity and cancellability (SA-42)`).
+- If a workflow is `cancelled` while a phase is parked, there is nothing to interrupt — a parked phase holds no live process and no pool reservation — so the cancel completes immediately, preserving the phase's recorded park reason and cause while clearing its live resume schedule and attention key in the same unit of work (`Spec-015 §Park integrity and cancellability (SA-42)`).
 - An `automated` phase with no agent still creates a run record for provenance and timeline visibility, even though no agent persona executes.
 - Retry iterations appear as sub-entries within the phase section of the session timeline. Each iteration is a distinct event, not a state mutation on a prior event.
 - Phase execution is sequential by default. Parallel execution requires explicit marking in the definition and is bounded.
 
 ## Related Specs
 
-- [Workflow Authoring And Execution](../specs/017-workflow-authoring-and-execution.md)
-- [Multi Agent Channels And Orchestration](../specs/016-multi-agent-channels-and-orchestration.md)
-- [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md)
-- [Approvals Permissions And Trust Boundaries](../specs/012-approvals-permissions-and-trust-boundaries.md)
+- [Workflow Authoring And Execution](../specs/015-workflow-authoring-and-execution.md)
+- [Multi Agent Channels And Orchestration](../specs/014-multi-agent-channels-and-orchestration.md)
+- [Queue Steer Pause Resume](../specs/003-queue-steer-pause-resume.md)
+- [Approvals Permissions And Trust Boundaries](../specs/010-approvals-permissions-and-trust-boundaries.md)
 
 ## Related ADRs
 

@@ -93,7 +93,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # ADR-022 §Decision Log 2026-09-01 / Spec-015 §Driver Pin: the daemon's
+      # ADR-022 §Decision Log 2026-09-01 / Spec-013 §Driver Pin: the daemon's
       # `better-sqlite3` 13.0.3 must come from the tarball's bundled Node-API
       # prebuild, never from a source compile. This asserts PROVENANCE in two
       # conjuncts rather than absence in one:
@@ -124,7 +124,7 @@ jobs:
       # the FULL workspace install every other job in this file performs, on the
       # one platform this matrix runs; that one asserts it under a scoped install
       # on each of the five ADR-022 target platforms and additionally exercises
-      # the `Spec-015 §Pragmas` readback the prebuild has to actually support.
+      # the `Spec-013 §Pragmas` readback the prebuild has to actually support.
       - name: Assert better-sqlite3 loads a bundled Node-API prebuild
         shell: bash
         run: |
@@ -216,11 +216,11 @@ jobs:
       # mode 4755 for the renderer's Linux namespace sandbox to initialize.
       # pnpm install cannot run the Electron post-install step under root,
       # so we chown/chmod the binary here. This preserves `webPreferences.sandbox: true`
-      # (`Spec-023 §Security Hardening Baseline` — the mandatory webPreferences
+      # (`Spec-021 §Security Hardening Baseline` — the mandatory webPreferences
       # block: contextIsolation, sandbox and webSecurity true, nodeIntegration
       # false) — running Electron with `--no-sandbox` would defeat the very
       # invariant apps/desktop/test/launch.smoke.test.ts asserts (the
-      # three-globals set, per `Spec-023 §Acceptance Criteria`: "Renderer
+      # three-globals set, per `Spec-021 §Acceptance Criteria`: "Renderer
       # attempts to access `require`, `process`, or `global` return
       # `undefined`").
       #
@@ -362,7 +362,7 @@ jobs:
       # dead-code-elimination silently regressed (Vite/Rollup version drift,
       # define-substitution change, or someone replaced the compile-time gate
       # with a runtime-only one). The "no test machinery in production
-      # binaries" invariant derives from Spec-023 §Trust Stance + §Pitfalls
+      # binaries" invariant derives from Spec-021 §Trust Stance + §Pitfalls
       # To Avoid (renderer-untrusted; any reachable `executeJavaScript` or
       # `queryObjects` call weakens that posture).
       - name: Assert release bundle excludes test-machinery markers (apps/desktop)
@@ -498,7 +498,7 @@ jobs:
           CONSOLE_BENCH_LEDGER_PATH: ${{ runner.temp }}/console-bench-ledger.json
         run: pnpm turbo run test:console-bench --filter=@ai-sidekicks/desktop ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
-      # The desktop structure gates (Plan-023 Phase 1C): `knip` for dead code, then
+      # The desktop structure gates (Plan-021 Phase 1C): `knip` for dead code, then
       # `dependency-cruiser` for the import DAG. Both are scoped to `apps/desktop` — a desktop
       # PR never sweeps the daemon or the control plane — and both fail this job, which
       # `ci-gate` already depends on, so neither needs a new required check.
@@ -853,7 +853,7 @@ jobs:
           retention-days: 90
           if-no-files-found: error
 
-  # ADR-022 §Decision Log 2026-09-01 / Spec-015 §Driver Pin — Plan-023 T-023p-1B-4.
+  # ADR-022 §Decision Log 2026-09-01 / Spec-013 §Driver Pin — Plan-021 T-021p-1B-4.
   #
   # The daemon's `better-sqlite3` 13.0.3 must load the tarball's bundled Node-API
   # prebuild on EVERY platform V1 ships to, not just the one the tier-1 matrix
@@ -916,7 +916,7 @@ jobs:
       # and it is the floor BECAUSE of this binding: the 13.x prebuilds are
       # Node-API 10, and a Node-API-9 host (22.12, 22.13) cannot load the binding
       # at all — observed here as a silent SIGSEGV at the first `new Database()`,
-      # where Node's documented refusal is a load-time throw; Spec-015 §Driver Pin
+      # where Node's documented refusal is a load-time throw; Spec-013 §Driver Pin
       # states both grades. Asserting the prebuild on any other version would not
       # be asserting the shipped configuration.
       - name: Setup Node.js 22.14
@@ -928,7 +928,7 @@ jobs:
       - name: Install (runtime-daemon and its workspace dependencies only)
         run: pnpm install --frozen-lockfile --filter "@ai-sidekicks/runtime-daemon..."
 
-      - name: Assert prebuild provenance and the Spec-015 pragma readback
+      - name: Assert prebuild provenance and the Spec-013 pragma readback
         shell: bash
         env:
           EXPECTED_PREBUILD: ${{ matrix.prebuild }}
@@ -1003,12 +1003,12 @@ jobs:
               );
             }
 
-            // `Spec-015 §Pragmas`, on the REOPEN path — the only path that tests
+            // `Spec-013 §Pragmas`, on the REOPEN path — the only path that tests
             // the override. A freshly created database is in delete mode and
             // reads `synchronous = 2` from `SQLITE_DEFAULT_SYNCHRONOUS`, which
             // says nothing about the WAL default the override exists for. A
             // connection opening an ALREADY-WAL database reads
-            // `SQLITE_DEFAULT_WAL_SYNCHRONOUS`, and Spec-015's durability
+            // `SQLITE_DEFAULT_WAL_SYNCHRONOUS`, and Spec-013's durability
             // posture is that this must be raised, not inherited.
             const database = new DatabaseConstructor(databasePath);
             const compileOptions = database.pragma("compile_options").map((row) => row.compile_options);

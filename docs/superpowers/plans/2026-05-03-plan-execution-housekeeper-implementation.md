@@ -140,7 +140,7 @@ Three accepted forms:
 
 - `T<N>` or `T<N.M>` — phase- or sub-task IDs from non-cross-plan plans (e.g. `T5`, `T5.1`)
 - `T-NNN-N-N` — cross-plan task IDs from `docs/plans/NNN-...` (e.g. `T-001-5-1`)
-- `tier-K` — Tier-K range-form audits (e.g. `tier-3` for the §4.3.2 rule-3 single-tier audit; `tier-3-9` is REJECTED — range merges always use the lower endpoint)
+- `tier-K` — Tier-K range-form audits (e.g. `tier-2` for the §4.3.2 rule-3 single-tier audit; `tier-2-9` is REJECTED — range merges always use the lower endpoint)
 
 Rationale (review A5): the spec §4.3.2 rule-3 lookup permits `Tier-K` but the original parseArgs regex rejected it; the rule cannot fire if the script can't accept the input.
 
@@ -178,7 +178,7 @@ The 17 rows of spec §5.5 verification table map to test artifacts as follows. P
 | 8 | Multi-PR entry but `--task` arg missing → exit 4 | fixture `08-exit-4-multi-pr-no-task-id` | Task 3.27 |
 | 9 | `PRs:` block schema-violation (missing PR/date annotation on checked row) → exit 5 | fixture `09-exit-5-schema-violation-malformed-prs` | Task 3.28 |
 | 10 | Mermaid `:::ready` immediately followed by edge syntax (`--> NS02`) → regex captures class only | fixture `10-mermaid-class-attachment-variant` | Task 3.29 |
-| 11 | Tier-K range-form audit lookup against actual NS catalog (rule 3, range form `tier-3`) | fixture `11-tier-range-audit` (NEW) | Task 3.30 (NEW) |
+| 11 | Tier-K range-form audit lookup against actual NS catalog (rule 3, range form `tier-2`) | fixture `11-tier-range-audit` (NEW) | Task 3.30 (NEW) |
 | 12 | Subagent receives prompt with all required §5.3 fields | Phase 4 unit test (snapshot vs Task 4.2 contract) | Task 4.8 |
 | 13 | Subagent emits manifest matching schema (no `<TODO>` placeholders) | Phase 4 unit test (zod parse against §5.3 schema) | Task 4.8 |
 | 14 | Manifest's `affected_files` superset of script-detected file overlap | Phase 4 unit test (set-superset assertion) | Task 4.8 |
@@ -331,19 +331,19 @@ NS-04 is a cross-plan PR pair, internally a 3-step sequence (per its `- Type:` q
 
 ```markdown
 - PRs:
-  - [ ] T-024-2-1 — pty-host.ts contract types (Plan-024 side)
+  - [ ] T-022-2-1 — pty-host.ts contract types (Plan-022 side)
   - [ ] T5.4 — spawn-cwd-translator.ts wiring (Plan-001 side)
-  - [ ] T-024-2-1.integration — RustSidecarPtyHost↔NodePtyHost handoff smoke test
+  - [ ] T-022-2-1.integration — RustSidecarPtyHost↔NodePtyHost handoff smoke test
 ```
 
-Adjust task-ids and descriptions to match Plan-024 §Phase 2 + Plan-001 §T5.4's actual breakdown — read those plan sections before authoring (they are the source of truth, not the spec's example wording).
+Adjust task-ids and descriptions to match Plan-022 §Phase 2 + Plan-001 §T5.4's actual breakdown — read those plan sections before authoring (they are the source of truth, not the spec's example wording).
 
 - [ ] **Step 3: Update NS-04's `- Status:`** per spec §3a.2 matrix: if all unchecked → `` `todo` ``; if any blocked-upstream → `` `blocked` ``.
 
 - [ ] **Step 4: Verify block grammar**
 
 ```bash
-grep -B 2 -A 5 "T-024-2-1" docs/architecture/cross-plan-dependencies.md
+grep -B 2 -A 5 "T-022-2-1" docs/architecture/cross-plan-dependencies.md
 ```
 
 Expected: NS-04's `- PRs:` block shows the three task-id rows correctly nested under the `- PRs:` bullet.
@@ -366,16 +366,16 @@ Per spec §5.5 row 17: "multi-PR shape: `PRs:` block tick per §3a.1 (one tier p
 
 ```markdown
 - PRs:
+  - [ ] tier-2 — Plan-002 plan-readiness audit (Tier 2)
   - [ ] tier-3 — Plan-003 plan-readiness audit (Tier 3)
   - [ ] tier-4 — Plan-004 plan-readiness audit (Tier 4)
   - [ ] tier-5 — Plan-005 plan-readiness audit (Tier 5)
   - [ ] tier-6 — Plan-006 plan-readiness audit (Tier 6)
-  - [ ] tier-7 — Plan-007 plan-readiness audit (Tier 7)
-  - [ ] tier-8 — Plan-008 plan-readiness audit (Tier 8)
-  - [ ] tier-9 — Plan-009 plan-readiness audit (Tier 9)
+  - [ ] tier-7 — the retired control-plane-relay-and-session-join plan plan-readiness audit (Tier 7)
+  - [ ] tier-8 — Plan-007 plan-readiness audit (Tier 8)
 ```
 
-The `<task-id>` for audits is the tier-K identifier (e.g., `tier-3`); the housekeeper's heading-token matcher already extracts `Tier <K>` substrings (per spec §4.3.2 rule 4 range arithmetic), so the task-id need not duplicate the tier substring elsewhere in the row.
+The `<task-id>` for audits is the tier-K identifier (e.g., `tier-2`); the housekeeper's heading-token matcher already extracts `Tier <K>` substrings (per spec §4.3.2 rule 4 range arithmetic), so the task-id need not duplicate the tier substring elsewhere in the row.
 
 - [ ] **Step 3: Verify block grammar via the directory-listing pattern**
 
@@ -791,12 +791,12 @@ import assert from "node:assert/strict";
 import { parseNsHeading } from "../post-merge-housekeeper.mjs";
 
 test("parseNsHeading parses plain numeric NS heading", () => {
-  const result = parseNsHeading("### NS-01: Plan-024 Phase 1 — Rust crate scaffolding");
+  const result = parseNsHeading("### NS-01: Plan-022 Phase 1 — Rust crate scaffolding");
   assert.deepEqual(result, {
     nsNum: 1,
     suffix: null,
     rangeUpperNum: null,
-    title: "Plan-024 Phase 1 — Rust crate scaffolding",
+    title: "Plan-022 Phase 1 — Rust crate scaffolding",
   });
 });
 
@@ -811,12 +811,12 @@ test("parseNsHeading parses NS heading with suffix letter", () => {
 });
 
 test("parseNsHeading parses range-form NS heading", () => {
-  const result = parseNsHeading("### NS-15..NS-21: Tier 3-9 plan-readiness audits");
+  const result = parseNsHeading("### NS-15..NS-21: Tier 2-9 plan-readiness audits");
   assert.deepEqual(result, {
     nsNum: 15,
     suffix: null,
     rangeUpperNum: 21,
-    title: "Tier 3-9 plan-readiness audits",
+    title: "Tier 2-9 plan-readiness audits",
   });
 });
 
@@ -877,7 +877,7 @@ test("parseSubFields extracts the seven required sub-fields", () => {
 - Type: code
 - Priority: \`P1\`
 - Upstream: none
-- References: [Plan-024](../plans/024-rust-pty-sidecar.md)
+- References: [Plan-022](../plans/022-rust-pty-sidecar.md)
 - Summary: prose
 - Exit Criteria: ticked`;
   const result = parseSubFields(body);
@@ -885,7 +885,7 @@ test("parseSubFields extracts the seven required sub-fields", () => {
   assert.equal(result.type, "code");
   assert.equal(result.priority.atomic, "P1");
   assert.equal(result.upstream, "none");
-  assert.match(result.references, /Plan-024/);
+  assert.match(result.references, /Plan-022/);
   assert.equal(result.summary, "prose");
   assert.equal(result.exit_criteria, "ticked");
 });
@@ -1038,7 +1038,7 @@ Implementation: switch on `(prsBlock === null, allChecked, anyChecked, upstreamB
 import { extractFileReferences } from "../post-merge-housekeeper.mjs";
 
 test("extractFileReferences: markdown link in References extracts .md path", () => {
-  const refs = "[Plan-024](../plans/024-rust-pty-sidecar.md)"; // path extraction only; line-cite parsing tested separately via fixture data
+  const refs = "[Plan-022](../plans/022-rust-pty-sidecar.md)"; // path extraction only; line-cite parsing tested separately via fixture data
   const summary = "";
   const result = extractFileReferences({
     references: refs,
@@ -1046,7 +1046,7 @@ test("extractFileReferences: markdown link in References extracts .md path", () 
     repoRoot: "/repo",
     entryFile: "/repo/docs/architecture/cross-plan-dependencies.md",
   });
-  assert.deepEqual(result.files, ["docs/plans/024-rust-pty-sidecar.md"]);
+  assert.deepEqual(result.files, ["docs/plans/022-rust-pty-sidecar.md"]);
   assert.deepEqual(result.directories, []);
 });
 
@@ -1106,7 +1106,7 @@ test("extractFileReferences: skips Upstream / Type / Status / Priority / Exit Cr
   const result = extractFileReferences({
     references: "",
     summary: "",
-    upstream: "Plan-024:267 — packages/contracts/src/session.ts referenced inline",
+    upstream: "Plan-022:267 — packages/contracts/src/session.ts referenced inline",
     repoRoot: process.cwd(),
     entryFile: "...",
   });
@@ -1223,17 +1223,17 @@ test("parseArgs validates --task shape (three accepted forms per Plan §Decision
   assert.equal(parseArgs(["30", "--plan", "001", "--task", "T5", "--auto-create"]).task, "T5");
   // Form 2: T-NNN-N-N — cross-plan task IDs from docs/plans/NNN-...
   assert.equal(
-    parseArgs(["30", "--plan", "024", "--task", "T-024-2-1", "--auto-create"]).task,
-    "T-024-2-1",
+    parseArgs(["30", "--plan", "024", "--task", "T-022-2-1", "--auto-create"]).task,
+    "T-022-2-1",
   );
   // Form 3: tier-K — Tier-K range-form audits (covers spec §4.3.2 rule-3 lookup per D-4)
-  assert.equal(parseArgs(["30", "--task", "tier-3", "--auto-create"]).task, "tier-3");
-  // Rejects: bare numerics (form 1 requires leading T), range form (tier-3-9 — range merges always pick lower endpoint)
+  assert.equal(parseArgs(["30", "--task", "tier-2", "--auto-create"]).task, "tier-2");
+  // Rejects: bare numerics (form 1 requires leading T), range form (tier-2-9 — range merges always pick lower endpoint)
   assert.throws(
     () => parseArgs(["30", "--plan", "024", "--task", "5.1", "--auto-create"]),
     /--task/,
   );
-  assert.throws(() => parseArgs(["30", "--task", "tier-3-9", "--auto-create"]), /--task/);
+  assert.throws(() => parseArgs(["30", "--task", "tier-2-9", "--auto-create"]), /--task/);
 });
 
 // P4 fix — I-7 mutual-exclusion exit-code assertion: `--candidate-ns` and `--auto-create` are
@@ -1306,7 +1306,7 @@ test("verifyTypeSignature: code Type accepts packages/ + apps/ touches", () => {
 
 test("verifyTypeSignature: code Type rejects pure-doc diff", () => {
   assert.equal(
-    verifyTypeSignature({ type: "code", touchedFiles: ["docs/plans/024-rust-pty-sidecar.md"] }).ok,
+    verifyTypeSignature({ type: "code", touchedFiles: ["docs/plans/022-rust-pty-sidecar.md"] }).ok,
     false,
   );
 });
@@ -1320,7 +1320,7 @@ test("verifyTypeSignature: audit (doc-only) rejects packages/ touches", () => {
     false,
   );
   assert.equal(
-    verifyTypeSignature({ type: "audit (doc-only)", touchedFiles: ["docs/plans/003-foo.md"] }).ok,
+    verifyTypeSignature({ type: "audit (doc-only)", touchedFiles: ["docs/plans/002-foo.md"] }).ok,
     true,
   );
 });
@@ -1329,7 +1329,7 @@ test("verifyTypeSignature: code + governance requires BOTH docs/ and packages|ap
   assert.equal(
     verifyTypeSignature({
       type: "code + governance",
-      touchedFiles: ["docs/plans/024-foo.md", "packages/foo/src/bar.ts"],
+      touchedFiles: ["docs/plans/022-foo.md", "packages/foo/src/bar.ts"],
     }).ok,
     true,
   );
@@ -1382,7 +1382,7 @@ test("verifyFileOverlap (code, dir-prefix entry): PASS when any touched file sta
 
 test("verifyFileOverlap (code, refs non-empty + intersection empty): halt file_overlap_zero", () => {
   const refs = { files: ["packages/sidecar-rust-pty/src/main.rs"], directories: [] };
-  const touched = ["docs/plans/007-foo.md"]; // unrelated diff
+  const touched = ["docs/plans/006-foo.md"]; // unrelated diff
   const result = verifyFileOverlap({ type: "code", refs, touched });
   assert.equal(result.ok, false);
   assert.equal(result.failure.kind, "file_overlap_zero");
@@ -1420,14 +1420,14 @@ test("verifyFileOverlap (governance / cleanup Types): SKIP unconditionally", () 
 });
 
 test("verifyFileOverlap: doc-path-only PASS for NS-04-shape (References plan-link only)", () => {
-  // NS-04: References cites Plan-001 + Plan-024 markdown links; Summary names no source paths.
+  // NS-04: References cites Plan-001 + Plan-022 markdown links; Summary names no source paths.
   // Diff touches the plan Decision Logs on governance side.
   const refs = {
-    files: ["docs/plans/001-shared-session-core.md", "docs/plans/024-rust-pty-sidecar.md"],
+    files: ["docs/plans/001-session-core.md", "docs/plans/022-rust-pty-sidecar.md"],
     directories: [],
   };
   const touched = [
-    "docs/plans/001-shared-session-core.md",
+    "docs/plans/001-session-core.md",
     "packages/runtime-daemon/src/session/spawn-cwd-translator.ts",
   ];
   const result = verifyFileOverlap({
@@ -1455,8 +1455,8 @@ import { verifyPlanIdentity } from "../post-merge-housekeeper.mjs";
 
 test("verifyPlanIdentity: passes when --plan substring present in heading", () => {
   const result = verifyPlanIdentity({
-    headingTitle: "Plan-024 Phase 1 — Rust crate scaffolding",
-    args: { plan: "024" },
+    headingTitle: "Plan-022 Phase 1 — Rust crate scaffolding",
+    args: { plan: "022" },
     type: "code",
   });
   assert.equal(result.ok, true);
@@ -1464,8 +1464,8 @@ test("verifyPlanIdentity: passes when --plan substring present in heading", () =
 
 test("verifyPlanIdentity: fails when --plan substring missing", () => {
   const result = verifyPlanIdentity({
-    headingTitle: "Plan-024 Phase 1",
-    args: { plan: "007" },
+    headingTitle: "Plan-022 Phase 1",
+    args: { plan: "006" },
     type: "code",
   });
   assert.equal(result.ok, false);
@@ -1475,7 +1475,7 @@ test("verifyPlanIdentity: fails when --plan substring missing", () => {
 test("verifyPlanIdentity: --task substring branch", () => {
   assert.equal(
     verifyPlanIdentity({
-      headingTitle: "Plan-001 T5.4 cwd-translator + Plan-024 T-024-2-1",
+      headingTitle: "Plan-001 T5.4 cwd-translator + Plan-022 T-022-2-1",
       args: { plan: "001", task: "T5.4" },
       type: "code (cross-plan PR pair, internally a 3-step sequence)",
     }).ok,
@@ -1486,7 +1486,8 @@ test("verifyPlanIdentity: --task substring branch", () => {
 test("verifyPlanIdentity: --tier substring branch (rule 3)", () => {
   assert.equal(
     verifyPlanIdentity({
-      headingTitle: "Tier 2 plan-readiness audit — Plan-002",
+      headingTitle:
+        "the retired tier plan-readiness audit — the retired invite-membership-and-presence plan",
       args: { plan: "002", tier: "2" },
       type: "audit (doc-only)",
     }).ok,
@@ -1494,10 +1495,10 @@ test("verifyPlanIdentity: --tier substring branch (rule 3)", () => {
   );
 });
 
-test("verifyPlanIdentity: --tier range-arithmetic branch (rule 4) — Tier 5 in [3, 9]", () => {
+test("verifyPlanIdentity: --tier range-arithmetic branch (rule 4) — Tier 4 in [3, 9]", () => {
   assert.equal(
     verifyPlanIdentity({
-      headingTitle: "Tier 3-9 plan-readiness audits",
+      headingTitle: "Tier 2-9 plan-readiness audits",
       args: { tier: "5" },
       type: "audit (doc-only chain)",
       rangeBoundaries: { K1: 3, K2: 9 },
@@ -1506,7 +1507,7 @@ test("verifyPlanIdentity: --tier range-arithmetic branch (rule 4) — Tier 5 in 
   );
   assert.equal(
     verifyPlanIdentity({
-      headingTitle: "Tier 3-9 plan-readiness audits",
+      headingTitle: "Tier 2-9 plan-readiness audits",
       args: { tier: "12" },
       type: "audit (doc-only chain)",
       rangeBoundaries: { K1: 3, K2: 9 },
@@ -1550,7 +1551,7 @@ test("verifyPlanIdentity: cleanup/governance Types SKIP the check", () => {
 import { applyStatusFlipSinglePr } from "../post-merge-housekeeper.mjs";
 
 test("applyStatusFlipSinglePr replaces todo status with completed-with-placeholder", () => {
-  const lines = ["### NS-01: Plan-024 Phase 1", "- Status: `todo`", "- Type: code"];
+  const lines = ["### NS-01: Plan-022 Phase 1", "- Status: `todo`", "- Type: code"];
   const result = applyStatusFlipSinglePr({
     lines,
     statusLineIndex: 1,
@@ -1733,7 +1734,7 @@ import { applyMermaidClassSwap } from "../post-merge-housekeeper.mjs";
 test("applyMermaidClassSwap: changes :::ready to :::completed for matching node", () => {
   const lines = [
     "```mermaid",
-    "    NS01[NS-01: Plan-024 Phase 1<br/>Rust crate scaffolding]:::ready",
+    "    NS01[NS-01: Plan-022 Phase 1<br/>Rust crate scaffolding]:::ready",
     "```",
   ];
   const result = applyMermaidClassSwap({ lines, nsNum: 1, newClass: "completed" });
@@ -1819,13 +1820,13 @@ test("emitManifest writes JSON matching spec §5.3 shape (--candidate-ns mode)",
   const result = emitManifest({
     repoRoot: tmpRepo,
     prNumber: 30,
-    plan: "024",
+    plan: "022",
     phase: "1",
     taskId: null,
     scriptExitCode: 0,
     matchedEntry: {
       nsId: "NS-01",
-      heading: "### NS-01: Plan-024 Phase 1 — Rust crate scaffolding",
+      heading: "### NS-01: Plan-022 Phase 1 — Rust crate scaffolding",
       shape: "single-pr",
       file: "docs/architecture/cross-plan-dependencies.md",
       headingLine: 342,
@@ -1836,7 +1837,7 @@ test("emitManifest writes JSON matching spec §5.3 shape (--candidate-ns mode)",
     schemaViolations: [],
     affectedFiles: [
       "docs/architecture/cross-plan-dependencies.md",
-      "docs/plans/024-rust-pty-sidecar.md",
+      "docs/plans/022-rust-pty-sidecar.md",
     ],
     semanticWorkPending: [
       "compose_status_completion_prose",
@@ -1860,16 +1861,16 @@ test("emitManifest writes auto-create stub manifest when scriptExitCode=0 + auto
   const result = emitManifest({
     repoRoot: tmpRepo,
     prNumber: 50,
-    plan: "029",
+    plan: "026",
     phase: "2",
     taskId: null,
     scriptExitCode: 0,
-    autoCreate: { reservedNsNn: 24, derivedTitleSeed: "Plan-029 Phase 2 — example" },
+    autoCreate: { reservedNsNn: 24, derivedTitleSeed: "Plan-026 Phase 2 — example" },
     mechanicalEdits: {
-      plan_checklist_ticks: [{ file: "docs/plans/029-foo.md", phase: "2", items_ticked: 4 }],
+      plan_checklist_ticks: [{ file: "docs/plans/026-foo.md", phase: "2", items_ticked: 4 }],
     },
     schemaViolations: [],
-    affectedFiles: ["docs/architecture/cross-plan-dependencies.md", "docs/plans/029-foo.md"],
+    affectedFiles: ["docs/architecture/cross-plan-dependencies.md", "docs/plans/026-foo.md"],
     semanticWorkPending: [
       "auto_create_compose_entry",
       "auto_create_compose_mermaid_node",
@@ -1891,13 +1892,13 @@ test("emitManifest emits auto_create:null sentinel in --candidate-ns mode (not u
   const result = emitManifest({
     repoRoot: tmpRepo,
     prNumber: 31,
-    plan: "024",
+    plan: "022",
     phase: "1",
     taskId: null,
     scriptExitCode: 0,
     matchedEntry: {
       nsId: "NS-01",
-      heading: "### NS-01: Plan-024 Phase 1 — Rust crate scaffolding",
+      heading: "### NS-01: Plan-022 Phase 1 — Rust crate scaffolding",
       shape: "single-pr",
       file: "docs/architecture/cross-plan-dependencies.md",
       headingLine: 342,
@@ -1974,8 +1975,8 @@ import { checkDuplicateTitle } from "../post-merge-housekeeper.mjs";
 test("checkDuplicateTitle returns ok when title is novel", () => {
   assert.deepEqual(
     checkDuplicateTitle({
-      existingTitles: ["Plan-024 Phase 1 — Rust crate scaffolding"],
-      newTitle: "Plan-029 Phase 2 — example",
+      existingTitles: ["Plan-022 Phase 1 — Rust crate scaffolding"],
+      newTitle: "Plan-026 Phase 2 — example",
     }),
     { ok: true },
   );
@@ -1983,8 +1984,8 @@ test("checkDuplicateTitle returns ok when title is novel", () => {
 
 test("checkDuplicateTitle returns failure on substring-match collision", () => {
   const result = checkDuplicateTitle({
-    existingTitles: ["Plan-024 Phase 1 — Rust crate scaffolding"],
-    newTitle: "Plan-024 Phase 1 — Rust crate scaffolding (refresh)",
+    existingTitles: ["Plan-022 Phase 1 — Rust crate scaffolding"],
+    newTitle: "Plan-022 Phase 1 — Rust crate scaffolding (refresh)",
   });
   assert.equal(result.ok, false);
   assert.equal(result.failure.kind, "auto_create_duplicate_title");
@@ -2010,7 +2011,7 @@ test("runHousekeeper: end-to-end --candidate-ns NS-01 happy path on minimal fixt
   cpSync("./fixtures/01-single-pr-happy-path/input", tmpRepo, { recursive: true });
   // A10 fix: pass deterministic `today` so Status-line dates are reproducible across CI runs.
   const result = await runHousekeeper({
-    args: { prNumber: 30, plan: "024", phase: "1", candidateNs: "NS-01" },
+    args: { prNumber: 30, plan: "022", phase: "1", candidateNs: "NS-01" },
     repoRoot: tmpRepo,
     today: "2026-05-03",
   });
@@ -2069,9 +2070,9 @@ Expected: arg-parsing error message OR usage prose if a `--help` branch is imple
 
 - Create: `.claude/skills/plan-execution/scripts/__tests__/fixtures/01-single-pr-happy-path/`
   - `input/docs/architecture/cross-plan-dependencies.md` — minimal §6 with NS-01 entry + mermaid block (real content trimmed to relevant lines)
-  - `input/docs/plans/024-rust-pty-sidecar.md` — minimal Phase 1 + Done Checklist
+  - `input/docs/plans/022-rust-pty-sidecar.md` — minimal Phase 1 + Done Checklist
   - `expected/docs/architecture/cross-plan-dependencies.md` — same as input but NS-01 status flipped + mermaid recolored (with `<TODO subagent prose>` placeholder still in place)
-  - `expected/docs/plans/024-rust-pty-sidecar.md` — checklist ticked
+  - `expected/docs/plans/022-rust-pty-sidecar.md` — checklist ticked
   - `args.json` — `{"prNumber": 30, "plan": "024", "phase": "1", "candidateNs": "NS-01"}`
   - `expected-manifest.json` — full per-spec §5.3 shape
 
@@ -2080,7 +2081,7 @@ Expected: arg-parsing error message OR usage prose if a `--help` branch is imple
 ```bash
 mkdir -p .claude/skills/plan-execution/scripts/__tests__/fixtures/01-single-pr-happy-path/{input/docs/{architecture,plans},expected/docs/{architecture,plans}}
 # Copy real cross-plan-dependencies.md, then trim to NS-01 entry + a stub mermaid block (10-20 lines)
-# Copy real 024-rust-pty-sidecar.md, then trim to Phase 1 + Done Checklist (10-20 lines)
+# Copy real 022-rust-pty-sidecar.md, then trim to Phase 1 + Done Checklist (10-20 lines)
 # Make a copy in expected/, then mutate: NS-01 status → completed, mermaid NS01 → :::completed, plan checklist boxes ticked
 ```
 
@@ -2221,10 +2222,10 @@ For each:
 **Files:**
 
 - Create: `.claude/skills/plan-execution/scripts/__tests__/fixtures/11-tier-range-audit/`
-  - `input/docs/architecture/cross-plan-dependencies.md` — minimal §6 with one range-form NS heading like `### NS-15..NS-21: Tier 3-9 plan-readiness audits` plus a stub mermaid block
-  - `input/docs/plans/<plan>.md` — minimal Tier-3 plan with a Done Checklist
+  - `input/docs/architecture/cross-plan-dependencies.md` — minimal §6 with one range-form NS heading like `### NS-15..NS-21: Tier 2-9 plan-readiness audits` plus a stub mermaid block
+  - `input/docs/plans/<plan>.md` — minimal Tier-2 plan with a Done Checklist
   - `expected/...` — same files with NS-15..NS-21's Status flipped + checklist ticked
-  - `args.json` — `{"prNumber": 31, "tier": "tier-3", "candidateNs": null, "autoCreate": null}` plus the script-internal heading-only signal that triggers §4.3.2 rule-3 lookup (the `--task tier-3` form per Plan §Decisions-Locked D-4 if heading-only path is preferred)
+  - `args.json` — `{"prNumber": 31, "tier": "tier-2", "candidateNs": null, "autoCreate": null}` plus the script-internal heading-only signal that triggers §4.3.2 rule-3 lookup (the `--task tier-2` form per Plan §Decisions-Locked D-4 if heading-only path is preferred)
   - `expected-manifest.json` — full per-spec §5.3 shape with `mechanical_edits.status_flip.candidate_lookup_path: "rule-3-tier-K"` populated so the matrix-row 11 assertion can verify the rule-3 codepath actually fired
 
 - [ ] **Step 1: Author input/ pair**
@@ -2232,14 +2233,14 @@ For each:
 ```bash
 mkdir -p .claude/skills/plan-execution/scripts/__tests__/fixtures/11-tier-range-audit/{input/docs/{architecture,plans},expected/docs/{architecture,plans}}
 # Copy real cross-plan-dependencies.md, trim to NS-15..NS-21 entry + 1-2 sibling entries + minimal mermaid block
-# Author a synthetic Tier-3 plan stub that the rule-3 lookup can match against (use a real Tier-3 plan
-# name like 002-tier-3-substrate.md if one exists; otherwise author tier-3-test-fixture.md as a stub).
+# Author a synthetic Tier-2 plan stub that the rule-3 lookup can match against (use a real Tier-2 plan
+# name like 002-tier-2-substrate.md if one exists; otherwise author tier-2-test-fixture.md as a stub).
 ```
 
 - [ ] **Step 2: Author args.json**
 
 ```json
-{ "prNumber": 31, "task": "tier-3", "candidateNs": "NS-15..NS-21" }
+{ "prNumber": 31, "task": "tier-2", "candidateNs": "NS-15..NS-21" }
 ```
 
 - [ ] **Step 3: Author expected-manifest.json with `candidate_lookup_path: "rule-3-tier-K"`**
@@ -2909,9 +2910,9 @@ Phase E fires AFTER `gh pr merge --squash --delete-branch` returns success — i
 The phase has 8 steps in this exact order — DO NOT reorder; step 6 (Progress Log) explicitly moves AFTER housekeeping per spec §6.1 design choice (a single commit bundles housekeeping + log so the post-merge state is atomic):
 
 1. **Run candidate-lookup** over `docs/architecture/cross-plan-dependencies.md` §6 per the four heading-only matching rules in `references/post-merge-housekeeper-contract.md` § Candidate-Lookup Rules:
-   - Rule 1: Plan + Phase match (e.g., diff touches `docs/plans/024-rust-pty-sidecar.md` + commit cites Phase 1 → match `### NS-NN: Plan-024 Phase 1 — ...`)
+   - Rule 1: Plan + Phase match (e.g., diff touches `docs/plans/022-rust-pty-sidecar.md` + commit cites Phase 1 → match `### NS-NN: Plan-022 Phase 1 — ...`)
    - Rule 2: Plan + task-id match (e.g., commit cites `T5.1` → match `### NS-NN: Plan-001 Phase 5 Lane A` whose `PRs:` block has a `T5.1` row)
-   - Rule 3: Plan + Tier-K match (e.g., diff is a Tier-3 plan-readiness audit → match `### NS-15..NS-21: Tier 3-9 plan-readiness audits` via the lower-endpoint of the range form `tier-3`)
+   - Rule 3: Plan + Tier-K match (e.g., diff is a Tier-2 plan-readiness audit → match `### NS-15..NS-21: Tier 2-9 plan-readiness audits` via the lower-endpoint of the range form `tier-2`)
    - Rule 4: No-match fallback (drop to step 2 NEEDS_CONTEXT branch)
 
 2. **Dispatch the script** `node --experimental-strip-types .claude/skills/plan-execution/scripts/post-merge-housekeeper.mjs` based on rule outcome:
@@ -3040,7 +3041,7 @@ The script's `--candidate-ns` mode is dispatched only after orchestrator-side ca
 
 - **Rule 1 — Plan + Phase match:** Diff touches `docs/plans/<NNN>-<slug>.md` AND commit message cites `Phase <N>` → match `### NS-NN: Plan-<NNN> Phase <N> — ...` (case-insensitive on "Phase"). The plan-NN and phase-N must both appear in the heading; `Phase 5 Lane A` matches `Phase 5` (lane suffix is a Phase-5 sub-scope).
 - **Rule 2 — Plan + task-id match:** Commit message cites `T<phase>.<sub>` (e.g., `T5.1`) or `T-NNN-N-N` (e.g., `T-001-5-1`) → match `### NS-NN: Plan-<NNN> Phase <N> ...` whose `PRs:` block contains a row matching the task-id. Requires reading the `PRs:` block, but only to disambiguate among Phase-matching candidates.
-- **Rule 3 — Plan + Tier-K match:** Diff is a plan-readiness audit (matches `docs/plans/<tier-K>-<...>.md` shape) → match `### NS-NN..NS-MM: Tier <K>-<L> plan-readiness audits` via the lower-endpoint `tier-K` form. The task-arg form is `tier-3` (per Plan §Decisions-Locked D-4); range merges always use the lower endpoint, so `tier-3-9` is REJECTED at arg-parse.
+- **Rule 3 — Plan + Tier-K match:** Diff is a plan-readiness audit (matches `docs/plans/<tier-K>-<...>.md` shape) → match `### NS-NN..NS-MM: Tier <K>-<L> plan-readiness audits` via the lower-endpoint `tier-K` form. The task-arg form is `tier-2` (per Plan §Decisions-Locked D-4); range merges always use the lower endpoint, so `tier-2-9` is REJECTED at arg-parse.
 - **Rule 4 — No-match fallback:** If rules 1-3 produce zero matches, the orchestrator drops to `--auto-create` (which reserves the next free NS-NN with stub fields). If the orchestrator's intent was to MATCH (not create), surface NEEDS_CONTEXT halt with the rule-1/2/3 attempts so the user can disambiguate.
 
 If a Phase E halt's `manifest.script_exit_code === 1` (no NS match), trace which rule should have matched and why it didn't — typo'd Plan-NN, missing `PRs:` block row, lookup-rule-3 lower-endpoint mismatch, etc. The fixture `11-tier-range-audit` (Plan §Decisions-Locked D-7 row 11) is the canonical rule-3 test case to consult for shape comparison.
@@ -3251,13 +3252,13 @@ test("emitManifest output passes zod parse against §5.3 schema (D-7 row 13)", (
   const result = emitManifest({
     repoRoot: tmpRepo,
     prNumber: 30,
-    plan: "024",
+    plan: "022",
     phase: "1",
     taskId: null,
     scriptExitCode: 0,
     matchedEntry: {
       nsId: "NS-01",
-      heading: "### NS-01: Plan-024 Phase 1 — Rust crate scaffolding",
+      heading: "### NS-01: Plan-022 Phase 1 — Rust crate scaffolding",
       shape: "single-pr",
       file: "docs/architecture/cross-plan-dependencies.md",
       headingLine: 342,
@@ -3281,7 +3282,7 @@ test("validateManifestSubagentStage: subagent-emitted affected_files is superset
   // The subagent's stage-2 manifest must include EVERY file the script declared, plus any it added.
   const scriptAffectedFiles = [
     "docs/architecture/cross-plan-dependencies.md",
-    "docs/plans/024-rust-pty-sidecar.md",
+    "docs/plans/022-rust-pty-sidecar.md",
   ];
   const subagentManifest = {
     semantic_work_pending: [],
@@ -3293,7 +3294,7 @@ test("validateManifestSubagentStage: subagent-emitted affected_files is superset
   assert.equal(result.valid, false);
   assert.ok(
     result.gaps.some(
-      (g) => g.includes("docs/plans/024-rust-pty-sidecar.md") && g.includes("affected_files"),
+      (g) => g.includes("docs/plans/022-rust-pty-sidecar.md") && g.includes("affected_files"),
     ),
     `expected gap to mention the dropped file; got ${JSON.stringify(result.gaps)}`,
   );

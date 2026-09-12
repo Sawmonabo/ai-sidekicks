@@ -76,10 +76,10 @@ sidekicks run retry <run-id>
 
 ## Related Specs
 
-- [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md)
-- [Observability And Failure Recovery](../specs/020-observability-and-failure-recovery.md)
+- [Queue Steer Pause Resume](../specs/003-queue-steer-pause-resume.md)
+- [Observability And Failure Recovery](../specs/018-observability-and-failure-recovery.md)
 
 ## Related Plans
 
-- [Queue Steer Pause Resume](../plans/004-queue-steer-pause-resume.md)
-- [Provider Driver Contract And Capabilities](../plans/005-provider-driver-contract-and-capabilities.md)
+- [Queue Steer Pause Resume](../plans/003-queue-steer-pause-resume.md)
+- [Provider Driver Contract And Capabilities](../plans/004-provider-driver-contract-and-capabilities.md)

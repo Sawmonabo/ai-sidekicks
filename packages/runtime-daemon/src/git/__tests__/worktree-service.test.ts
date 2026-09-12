@@ -1775,7 +1775,7 @@ function isCarrierClass(candidate: unknown): boolean {
  * namespace rather than listed.
  *
  * This is the leg set-equality cannot cover, and the claim
- * `WORKTREE_ERROR_CODES`' docblock makes. `registeredPlan010Codes()` proves the
+ * `WORKTREE_ERROR_CODES`' docblock makes. `registeredWorkspaceCodes()` proves the
  * enumerated carriers and the three registries agree — but BOTH sides of that
  * comparison are written by hand here, so a class the module exports and
  * `allCarriers()` forgets leaves the comparison consistent and the class
@@ -1786,7 +1786,7 @@ function countExportedCarrierClasses(): number {
   return Object.values(worktreeErrorsModule).filter(isCarrierClass).length;
 }
 
-function registeredPlan010Codes(): readonly string[] {
+function registeredWorkspaceCodes(): readonly string[] {
   return [...WORKTREE_ERROR_CODES, ...EPHEMERAL_CLONE_ERROR_CODES, ...WORKSPACE_ERROR_CODES];
 }
 
@@ -1800,7 +1800,7 @@ describe("error vocabulary", () => {
   });
 
   it("covers the three registries exactly", () => {
-    const registered = registeredPlan010Codes();
+    const registered = registeredWorkspaceCodes();
     const carried = allCarriers().map((carrier) => carrier.error.code);
 
     expect([...carried].sort()).toEqual([...registered].sort());
@@ -1818,7 +1818,7 @@ describe("error vocabulary", () => {
     // `workspace.busy` ships as `WorkspaceBusyError` workspace service.
     // Re-declaring it here would fork a live symbol — two classes minting one
     // code, with `instanceof` depending on the import site.
-    expect(registeredPlan010Codes()).not.toContain("workspace.busy");
+    expect(registeredWorkspaceCodes()).not.toContain("workspace.busy");
   });
 
   it("routes not-found carriers to InvalidParams and leaves the rest unset", () => {

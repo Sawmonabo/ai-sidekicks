@@ -77,13 +77,13 @@ sidekicks events count --session <id>
 
 ## Related Specs
 
-- [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md)
-- [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md)
-- [Observability And Failure Recovery](../specs/020-observability-and-failure-recovery.md)
+- [Session Event Taxonomy And Audit Log](../specs/005-session-event-taxonomy-and-audit-log.md)
+- [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md)
+- [Observability And Failure Recovery](../specs/018-observability-and-failure-recovery.md)
 
 ## Related Plans
 
-- [Shared Session Core](../plans/001-shared-session-core.md)
-- [Queue Steer Pause Resume](../plans/004-queue-steer-pause-resume.md)
-- [Persistence Recovery And Replay](../plans/015-persistence-recovery-and-replay.md)
-- [Observability And Failure Recovery](../plans/020-observability-and-failure-recovery.md)
+- [Session Core](../plans/001-session-core.md)
+- [Queue Steer Pause Resume](../plans/003-queue-steer-pause-resume.md)
+- [Persistence Recovery And Replay](../plans/013-persistence-recovery-and-replay.md)
+- [Observability And Failure Recovery](../plans/018-observability-and-failure-recovery.md)

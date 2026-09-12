@@ -9,7 +9,7 @@
 // EVEN INSIDE a code span — a backtick offers no protection — so `\|` is the
 // only way to write one, and a scanner that counts raw pipes reads an escaped
 // pipe as a cell boundary. That is not hypothetical: it is the PR #267 catalog
-// corruption and the Spec-015 defect, both authored independently.
+// corruption and the Spec-013 defect, both authored independently.
 //
 // Deliberately dependency-free (pure string functions, no fs, no imports), so
 // any lib module can take it without risking the import cycle that keeps the

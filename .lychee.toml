@@ -52,7 +52,7 @@ exclude = [
   "^https://nx\\.dev/.*",
   # EU regulator (EDPB) with origin-level bot detection — returns 403 on
   # lychee's bot-shaped probe, even after retry. Verified live in a browser
-  # (regulatory-guidance pages cited from docs/specs/006); same failure shape
+  # (regulatory-guidance pages cited from docs/specs/005); same failure shape
   # as the academic / publisher entries above.
   "^https://www\\.edpb\\.europa\\.eu/.*",
 ]

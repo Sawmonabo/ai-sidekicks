@@ -74,7 +74,7 @@ We will default to OS-local IPC for client-to-daemon communication, use authenti
 
 | Source | Type | Key Finding | URL/Location |
 | --- | --- | --- | --- |
-| `specs/007-local-ipc-and-daemon-control.md` | Canonical spec | Local daemon control should default to OS-local IPC | [specs/007-local-ipc-and-daemon-control.md](../specs/007-local-ipc-and-daemon-control.md) |
+| `specs/006-local-ipc-and-daemon-control.md` | Canonical spec | Local daemon control should default to OS-local IPC | [specs/006-local-ipc-and-daemon-control.md](../specs/006-local-ipc-and-daemon-control.md) |
 | `architecture/security-architecture.md` | Canonical architecture doc | The relay path is treated as less trusted than direct local transport | [architecture/security-architecture.md](../architecture/security-architecture.md) |
 
 ### Related Domain Docs
@@ -90,13 +90,13 @@ We will default to OS-local IPC for client-to-daemon communication, use authenti
 
 ### Related Specs
 
-- [Local IPC And Daemon Control](../specs/007-local-ipc-and-daemon-control.md)
-- [Identity And User State](../specs/018-identity-and-user-state.md)
+- [Local IPC And Daemon Control](../specs/006-local-ipc-and-daemon-control.md)
+- [Identity And User State](../specs/016-identity-and-user-state.md)
 
 ### Related ADRs
 
 - [Local Execution Shared Control Plane](./002-local-execution-shared-control-plane.md)
-- [Collaboration Trust And Permission Model](./007-collaboration-trust-and-permission-model.md)
+- [Device Trust and Permission Model](./007-device-trust-and-permission-model.md)
 
 ## Decision Log
 
