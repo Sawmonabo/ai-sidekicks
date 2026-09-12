@@ -48,6 +48,10 @@ Read `AGENTS.md` on demand before:
 
 **Anti-pattern**: never cite `.agents/tmp/...` paths from committed docs. The directory is gitignored and manually pruned — no hook deletes it; surface citations forward into the consuming doc's References section, then delete the research file yourself before the consuming-doc commit lands (per AGENTS.md "Surface-Forward-Then-Delete").
 
+## Product Code Carries No Governance Identifiers
+
+Nothing under `packages/` or `apps/` may name a `Spec-NNN`, `Plan-NNN`, `ADR-NNN`, `BL-NNN`, or `NS-NN` document, nor an `I-` / `CP-` / `D-` / `AC-` / `T-` invariant or task id, nor a `§Heading` cite or a `file.md:NNN` line pin — not in comments, not in runtime strings, not in test titles or `describe` labels, not in fixture fields, not in identifiers. Comments say what the code does and why, in plain words a reader with no access to the governance corpus can follow; a comment that would say nothing once its citation is removed is deleted rather than left dangling. The same files carry none of this product's banned vocabulary either: reference-app branding, `AO`, `Take Control`, `work band`, `design mode`, `mascot`, `front burner`, `back burner`, `discussion mode`, `local-first`, `one timeline`, `unified timeline`, `shared timeline`. This is a rule reviewers and authors apply by reading — there is no ESLint rule and no source-reading gate behind it, and none is to be added.
+
 ## Worktrees
 
 Git worktrees live under `.worktrees/<name>/` at the repo root. The harness enforces this via `WorktreeCreate` and `PreToolUse` hooks in `.claude/settings.json` — `git worktree add` or `git worktree move` to any path outside `.worktrees/` is denied. Use `git worktree add .worktrees/<name> -b worktree-<name>` when creating manually to match the harness branch-naming convention.
