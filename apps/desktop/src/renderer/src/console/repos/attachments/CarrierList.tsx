@@ -1,8 +1,8 @@
 // Every attachment this carrier holds, in the position the participant put it — and
 // the two ways that position is changed.
 //
-// AN ORDERED LIST, WHICH IS THE CLAIM THE SURFACE MAKES. `Spec-014 §Required Behavior`
-// makes ordering caller-declared and preserved end to end, so the order is a fact about
+// AN ORDERED LIST, WHICH IS THE CLAIM THE SURFACE MAKES. Ordering is caller-declared
+// and preserved end to end, so the order is a fact about
 // the carrier rather than the shape a renderer happened to emit — and an `<ol>` is what
 // says so to a reader who cannot see it. It is also what makes "position 2 of 4" in the
 // grip's own name a description of something on screen rather than an invention.

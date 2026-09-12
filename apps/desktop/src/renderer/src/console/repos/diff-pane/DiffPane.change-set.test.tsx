@@ -46,8 +46,8 @@ describe("diff pane — the header a diff gives it", () => {
   });
 
   it("renders a workspace-fallback diff's workspace, and no run anywhere", () => {
-    // `Spec-011 §Pitfalls To Avoid` names pretending a workspace diff is
-    // run-attributed. The union makes the wrong shape unrepresentable; this is
+    // Pretending a workspace diff is run-attributed is the pitfall here. The union
+    // makes the wrong shape unrepresentable; this is
     // the check that the renderer did not reintroduce it by reaching elsewhere.
     const fallbackDiff = buildDiffFixture(SMALL_DIFF_SHAPE, WORKSPACE_FALLBACK_ATTRIBUTION);
     const { container } = render(

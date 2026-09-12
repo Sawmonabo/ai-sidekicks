@@ -93,8 +93,8 @@ export type ArtifactPaneRefusalCode = (typeof ARTIFACT_PANE_REFUSAL_CODES)[numbe
  *
  * THE REJECTED VALUE IS NOT QUOTED INTO THE SENTENCE. It names the leg and stops
  * there — a rejection off the wire can carry participant content as readily as a
- * schema failure can, which is the rule `Spec-023 §Console Design (Meridian)` rule 9
- * sets and which the copy this replaces broke by interpolating the message into it.
+ * schema failure can, which is the rule the copy this replaces broke by interpolating
+ * the message into it.
  *
  * THE RETURN TYPE IS THE NORMALIZER'S OWN. `WireRefusal` is a `ConsoleRefusal`
  * widened by the optional retry hint a rate-limit envelope registers, so every

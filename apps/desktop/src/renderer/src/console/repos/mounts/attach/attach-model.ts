@@ -5,9 +5,9 @@
 // what a participant typed and what the roster read answered; nothing here reaches a
 // bridge or holds a lifetime. The controller beside it owns both.
 //
-// THE CONSOLE VALIDATES TWO THINGS AND RESOLVES NOTHING. `Spec-009 §Local Trust
-// Envelope (V1 Definition)` makes resolution, containment, symlink following, case
-// folding, and working-tree-boundary awareness DAEMON rules, so this module never
+// THE CONSOLE VALIDATES TWO THINGS AND RESOLVES NOTHING. Resolution, containment,
+// symlink following, case folding, and working-tree-boundary awareness are DAEMON
+// rules, so this module never
 // normalises a path, never joins one, never decides whether two spellings name one
 // place, and never asks whether a path exists. What it does is refuse to put a request
 // on the wire that the contract's own parser would reject unread — an entry with no
@@ -55,7 +55,7 @@ const RUNTIME_NODE_EVENT_NAMESPACE_PREFIX = "runtime_node.";
  * warns against inferring a category from a prefix in any case.
  *
  * AN ARRAY AND NOT A `Set`, on `repos/repo-lifecycle-events.ts`'s shape and for the
- * reason `apps/desktop/AGENTS.md` §State and views states: an exported module-level
+ * usual reason: an exported module-level
  * `Set` is a mutable runtime singleton whatever its annotation says — `ReadonlySet`
  * hides `add` from a reader and from nobody else, and every controller in the window
  * shares the one object. What is derived here is the CENSUS, which is data; the
@@ -215,8 +215,8 @@ export const NO_HEARTBEAT_YET = "no heartbeat yet";
  * The picker's options, in the order the roster returned them.
  *
  * NOT SORTED, NOT FILTERED. The roster read is a faithful projection of every
- * attachment row for the session — `Spec-003 §Acceptance Criteria` requires degraded
- * and offline nodes visible and distinguishable rather than hidden — so a console that
+ * attachment row for the session — degraded and offline nodes stay visible and
+ * distinguishable rather than hidden — so a console that
  * dropped the unhealthy ones would make an attach that is merely refusable look
  * impossible, and one that reordered them would put the console's opinion of node
  * health ahead of the daemon's ordering.

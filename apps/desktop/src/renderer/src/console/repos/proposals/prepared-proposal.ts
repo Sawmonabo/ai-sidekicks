@@ -1,8 +1,8 @@
 // What a prepared proposal IS on the way to a git host, read as something the gate can
 // draw — and nothing else. No React, no calls, no eligibility.
 //
-// THIS SURFACE'S JOB, stated here because `Spec-023 §Console Design (Meridian)` puts a
-// surface's composition in the console's code: show exactly
+// THIS SURFACE'S JOB, stated here because a surface's composition lives in the
+// console's code: show exactly
 // what will be sent to the git host, and let a participant approve it before anything
 // leaves the machine. Four of those words are decisions the gate must not make twice,
 // and they live in four modules beside each other rather than in one: this file owns

@@ -7,9 +7,9 @@
 // two acts it hands the chrome's `actions` slot. The section, its tab stop, its
 // accessible name, and the actor's hue all arrive from there.
 //
-// THE ARTIFACT SURFACE'S COMPOSITION IS THIS FAMILY'S, because `Spec-023 §Console
-// Design (Meridian)` puts a surface's composition — what it renders, offers, refuses,
-// and folds — in the console's code. The pane is the DECK's view of the artifact
+// THE ARTIFACT SURFACE'S COMPOSITION IS THIS FAMILY'S: what a surface renders, offers,
+// refuses, and folds lives in the console's code. The pane is the DECK's view of the
+// artifact
 // list; the sidebar panel
 // beside it in `repos/artifacts/ArtifactsPanel.tsx` is the same rows in a narrower column. One
 // body renders both, which is what keeps the diff pane a view onto this list rather

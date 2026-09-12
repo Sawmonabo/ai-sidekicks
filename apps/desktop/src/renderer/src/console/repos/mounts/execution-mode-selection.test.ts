@@ -206,7 +206,7 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
   });
 
   it("leaves the daemon's own refusal on the row and releases the picker", async () => {
-    // `Spec-010 §Required Behavior` forbids silent substitution, so a refused switch
+    // Silent substitution is forbidden, so a refused switch
     // does not re-pick and does not re-read — and the picker comes back, because
     // holding it after the answer arrived would strand the row on a switch that is over.
     const { reader, port } = await openWithHeldSelect("rejected");

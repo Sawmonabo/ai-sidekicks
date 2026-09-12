@@ -1,9 +1,9 @@
 // One carrier row's drag gesture: what the library is asked for, and what stays ours.
 //
 // THE LIBRARY IS THE ADOPTED ONE AND ONLY FOR THE GESTURE.
-// `Spec-023 §Console Libraries` admits `@atlaskit/pragmatic-drag-and-drop` at an exact
-// pin for drag and assigns the drop indicators, the keyboard path, and the live-region
-// strings to us. So this module registers a draggable and a drop target through the
+// `@atlaskit/pragmatic-drag-and-drop` is admitted at an exact pin for drag, with the
+// drop indicators, the keyboard path, and the live-region strings ours. So this module
+// registers a draggable and a drop target through the
 // library's own direct entry paths — never the deprecated shims the 3.x line kept — and
 // answers exactly two questions with its own state: whether this row is the one being
 // dragged, and whether a droppable row is over it. Where the drop LANDS is

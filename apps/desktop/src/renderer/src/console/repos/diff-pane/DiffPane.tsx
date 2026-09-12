@@ -33,8 +33,8 @@ type DiffPaneContext = PaneContextOf<"diff">;
 /**
  * The entity kinds a diff can be a view of, READ OFF the address rather than listed.
  *
- * `Spec-023 §The surface set` gives the diff pane the sidebar card's own subject list
- * — a repo, workspace, worktree, invite, or member — and `seats/pane/pane-address.ts` is
+ * The diff pane takes the sidebar card's own subject list — a repo, workspace,
+ * worktree, invite, or member — and `seats/pane/pane-address.ts` is
  * where that list is declared. Deriving it means a kind added there fails to compile
  * in the table below until this family has said what that subject's changes render.
  */

@@ -76,8 +76,8 @@ describe("the modelled actions — declared once, and closed where the spec clos
   });
 
   it("puts preparation before the act that reaches the host", () => {
-    // `Spec-011 §Interfaces And Contracts`: a reviewable proposal exists before any
-    // remote mutation. The tuple is the gate's own order, so the pipeline reads down it.
+    // A reviewable proposal exists before any remote mutation. The tuple is the
+    // gate's own order, so the pipeline reads down it.
     expect(PROPOSAL_ACTIONS.indexOf("prepare-proposal")).toBeLessThan(
       PROPOSAL_ACTIONS.indexOf("push"),
     );

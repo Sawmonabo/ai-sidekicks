@@ -8,8 +8,8 @@
 /**
  * A blocking choice, never resolved automatically.
  *
- * `Spec-011 §Fallback Behavior` requires an explicit user choice before proceeding on
- * an incompatible checkout, so the gate holds and offers the host's own options rather
+ * An explicit participant choice is required before proceeding on an incompatible
+ * checkout, so the gate holds and offers the host's own options rather
  * than picking one. The options are the daemon's strings — the console mints none,
  * which is why this shape carries a list rather than a closed union.
  */

@@ -9,8 +9,8 @@
 // `apps/desktop/AGENTS.md` rejects.
 //
 // IT GENERATES A PATCH RATHER THAN A MODEL, and that is the whole reason this text
-// exists: `Spec-023 §Console Libraries` adopts `diff` 9.0.0 for parse and intraline
-// compute, and a fixture that hand-built hunk headers, line numbers, and word-level
+// exists: `diff` 9.0.0 is adopted for parse and intraline compute, and a fixture that
+// hand-built hunk headers, line numbers, and word-level
 // segments would be a second implementation of exactly that — one the tiers would then
 // be measuring INSTEAD of the parser a wire will call.
 

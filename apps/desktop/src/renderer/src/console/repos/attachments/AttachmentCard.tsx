@@ -1,7 +1,7 @@
 // One attachment, in the position the participant put it, whatever became of it.
 //
-// THE ATTACHMENT SURFACE'S COMPOSITION IS THIS FAMILY'S, because `Spec-023 §Console
-// Design (Meridian)` puts a surface's composition in the console's code. Four arms, and
+// THE ATTACHMENT SURFACE'S COMPOSITION IS THIS FAMILY'S: a surface's composition lives
+// in the console's code. Four arms, and
 // the reason there are four rather than a card with flags is `attachment-shapes.ts`'s
 // own Never list, which separates them:
 //
@@ -17,8 +17,8 @@
 //     because no registered wire resolves an attachment reference, and saying "there is
 //     nothing here" instead would be the console asserting a read it never performed.
 //
-// THE DECLARED FILENAME IS NEVER REBUILT. `Spec-014 §Ingest Validation And Payload
-// Bounds (V1)` keeps every caller-supplied string out of every path component and lets
+// THE DECLARED FILENAME IS NEVER REBUILT. Ingest validation keeps every caller-supplied
+// string out of every path component and lets
 // the original survive as manifest metadata only, so the declaration renders as a wire
 // string in the in-flight arm and is REPLACED by `normalizedName` the moment one
 // exists. Nothing in this file concatenates a name with anything.

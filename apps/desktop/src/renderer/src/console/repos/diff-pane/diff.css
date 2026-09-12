@@ -13,9 +13,9 @@
  * NO LITERAL VALUES. Every length is on the space scale, every size on the type
  * scale, and every colour is read back out of a custom property.
  *
- * LONG AND DELIBERATELY NOT SPLIT, because there is no seam to split it on.
- * `apps/desktop/AGENTS.md` §Module shape splits a file between two concepts and never
- * on a line count, and a sheet's concept is the directory it dresses — `repos/diff-pane/`
+ * LONG AND DELIBERATELY NOT SPLIT, because there is no seam to split it on. A file is
+ * split between two concepts and never on a line count, and a sheet's concept is the
+ * directory it dresses — `repos/diff-pane/`
  * is one directory. A second sheet beside this one would put two files in the cascade
  * whose order is decided by the order of two adjacent lines in
  * `repos/diff-pane/index.ts`, which is a coupling this file's own single-importer rule
@@ -27,8 +27,8 @@
 
 /*
  * THE TWO-HUE RULE, APPLIED TO THE ONE SURFACE THAT IS TRADITIONALLY PAINTED RED
- * AND GREEN. `Spec-023 §Meridian, the design language` rule 3 spends amber on "a
- * person is needed" and red on "something failed", and a deleted line is neither. So the
+ * AND GREEN. Amber is spent on "a person is needed" and red on "something failed", and
+ * a deleted line is neither. So the
  * insert / delete distinction is carried by three signals that are not hue: the
  * sign in the marker column, the weight of the cell's ground, and the style of the
  * rule on the marker column. The two grounds are mixed from `--meridian-text` so

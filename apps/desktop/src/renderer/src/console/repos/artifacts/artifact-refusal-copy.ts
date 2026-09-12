@@ -2,8 +2,8 @@
 // can receive.
 //
 // ONE TABLE FOR THE WHOLE NAMESPACE, and that is the point rather than a convenience.
-// `Spec-023 §Console Design (Meridian)` rule 9 fixes what reaches the screen from the
-// daemon — the code in mono, the message verbatim, never paraphrased — and leaves the
+// What reaches the screen from the daemon is fixed — the code in mono, the message
+// verbatim, never paraphrased — and that leaves the
 // two halves beside it to the caller: what the refusal is ABOUT where the code alone
 // does not say, and what a person DOES about it. Written per call site, those halves
 // are where a code's answer gets invented twice and the two copies drift; written once,
@@ -17,8 +17,8 @@
 // disclosure both the pane and the attach affordance render — and most of them reach
 // more than one. This module is where the attachment family's own four-code table was
 // folded in: a table per surface is three answers to one code and three places for a
-// code the wire adds to go missing, which `apps/desktop/AGENTS.md` §Shared code rejects
-// outright. `artifacts/` holds it because that directory owns the artifact's identity
+// code the wire adds to go missing, which this package rejects outright. `artifacts/`
+// holds it because that directory owns the artifact's identity
 // (`artifact-model.ts`, `artifact-copy.ts`), and a sibling directory inside `repos/`
 // reaches it by its own specifier — the edge `artifact-pane/` already takes to
 // `attachments/attachment-bounds.ts` in the other direction.
@@ -40,8 +40,8 @@
 // exists at all:
 //
 //   • `artifact.no_access_key` IS NOT AN AUTHENTICATION FAILURE and must not read as
-//     one. `error-contracts.md §Artifact` states outright that the code is kept
-//     distinct from `artifact.fetch_unauthorized` so a client can surface the remedy —
+//     one. The error contract keeps the code distinct from
+//     `artifact.fetch_unauthorized` so a client can surface the remedy —
 //     a publisher re-publish while online — instead of treating it as an auth problem.
 //     Its three producers are unobservable to the refused node and share that one
 //     remedy, so the entry names it and does not speculate about which of the three
@@ -116,8 +116,8 @@ export function daemonSpokenRefusal(refusal: ArtifactSurfaceRefusal): ExtendedCo
 /**
  * Every `artifact.*` refusal code the console can receive.
  *
- * Transcribed from `docs/architecture/contracts/error-contracts.md` §Artifact, in that
- * table's own row order so a reader comparing the two reads them top to bottom. A tuple
+ * Transcribed from the registered artifact error codes, in that table's own row order
+ * so a reader comparing the two reads them top to bottom. A tuple
  * rather than a count in prose, on the mounts table's rule: a number in a sentence is
  * not something a missing code can fail against.
  */
@@ -179,8 +179,8 @@ const ARTIFACT_REFUSAL_RECOVERIES: Readonly<Record<ArtifactRefusalCode, Artifact
     },
     "artifact.too_large": {
       // THREE ENFORCEMENT POINTS, THREE MOVES, and the console cannot tell them apart
-      // from the code: `error-contracts.md §Artifact` puts all three behind this one code
-      // and the daemon's message says which. Enumerated rather than collapsed, because a
+      // from the code: all three sit behind this one code and the daemon's message says
+      // which. Enumerated rather than collapsed, because a
       // single "use a smaller file" sentence is wrong in two cases out of three — the
       // relay point is about a payload already ingested, and the reservation point fires
       // on a file well under the deployment's cap, which is the one a person never

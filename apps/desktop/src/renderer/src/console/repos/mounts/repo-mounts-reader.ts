@@ -1,9 +1,8 @@
 // What the repos section knows, who asked for it, and when it asks again.
 //
-// `Spec-023 §Rules every console surface obeys` fixes the refresh policy — "Reads
-// happen on subscribe, on window focus, on reconnect, and on the terminal events the
-// owning spec names", under "No interval polling" — so every read this family performs
-// is routed through the
+// The refresh policy is fixed — reads happen on subscribe, on window focus, on
+// reconnect, and on the terminal events the owning surface names, and never on an
+// interval — so every read this family performs is routed through the
 // console's one `RefreshScheduler` (`console/store/read/refresh-scheduler.ts`). Nothing here
 // arms a timer of its own; the scheduler coalesces a burst of reasons into one read
 // and serializes reads so two never overlap. All FOUR of that rule's reasons are wired:
@@ -22,9 +21,9 @@
 //
 // THE READ ORDER IS FORCED BY THE WIRE, not chosen. There is no `repo.mountList` in the
 // corpus, so the session's mounts are learned from its WORKSPACES:
-// `workspaces.repo_mount_id` is NOT NULL under the mount-first funnel (`Spec-009`,
-// D-009-4) and attach always mints a default `read-only` workspace (`Spec-009 §Default
-// Behavior`), so the roster names every mount. Hence list, then one `repo.mountRead`
+// `workspaces.repo_mount_id` is NOT NULL under the mount-first funnel and attach
+// always mints a default `read-only` workspace, so the roster names every mount.
+// Hence list, then one `repo.mountRead`
 // per distinct mount — the only read carrying `health`, and the reason a mount card
 // cannot be drawn from the list alone.
 //

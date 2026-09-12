@@ -4,8 +4,8 @@
 // and age, and the provenance and cleanup columns collapse behind a row disclosure.
 // That is the whole shape of this card, and the split is deliberate
 // rather than a layout convenience — provenance is what a retired row still has to
-// prove, so it is one interaction away and never dropped, which is `Spec-023 §Meridian,
-// the design language` rule 7 ("secondary controls live one click away") on a column set.
+// prove, so it is one interaction away and never dropped — secondary controls live one
+// click away, applied to a column set.
 //
 // THE DISCLOSURE IS A NATIVE `<details>`. Keyboard reachable, labelled, and
 // focus-visible without a line of code, and — the reason that matters more than the
@@ -60,9 +60,8 @@ export interface WorktreeCardProps {
   /**
    * The instant the surface read at.
    *
-   * A prop rather than a clock this card reaches for, because `Spec-023 §Rules every
-   * console surface obeys` forbids interval polling: the age moves when the surface
-   * re-reads and at no other time,
+   * A prop rather than a clock this card reaches for, because interval polling is
+   * forbidden: the age moves when the surface re-reads and at no other time,
    * and a card that read the wall clock would move it on any unrelated re-render.
    */
   readonly nowMilliseconds: number;

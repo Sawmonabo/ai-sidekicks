@@ -1,8 +1,8 @@
 // What an execution root IS, read off the wire and turned into something a card
 // can draw — and nothing else. No React, no fetching, no eligibility.
 //
-// THIS SURFACE'S JOB, stated here because `Spec-023 §Console Design (Meridian)` puts a
-// surface's composition in the console's code: show what
+// THIS SURFACE'S JOB, stated here because a surface's composition lives in the
+// console's code: show what
 // execution roots exist on disk for this session, which run holds one, and what is
 // safe to reclaim. Two of those three are decisions, and both are made here so a
 // card never makes them twice:
@@ -169,9 +169,9 @@ export const WORKTREE_DISK_DISPOSITION_COPY: Readonly<Record<WorktreeDiskDisposi
  * `expiresAt` degraded and says nothing about one approaching it, and a "soon" band
  * would need a threshold whose only justification would be that it felt right.
  * `reclaimed` is not a band on that scale at all — it is the sweep's own stamp,
- * `WorktreeStatusReadResponse.ephemeralClones[].cleanedAt`, registered in
- * `api-payload-contracts.md` §Plan-010 as the "async disk-cleanup stamp; absent until
- * the sweep runs". A row carrying one has had its files removed, whatever the
+ * `WorktreeStatusReadResponse.ephemeralClones[].cleanedAt`, the async disk-cleanup
+ * stamp, absent until the sweep runs. A row carrying one has had its files removed,
+ * whatever the
  * deadline says about when they were due to be.
  */
 export const CLONE_EXPIRY_READINGS = ["scheduled", "elapsed", "reclaimed"] as const;

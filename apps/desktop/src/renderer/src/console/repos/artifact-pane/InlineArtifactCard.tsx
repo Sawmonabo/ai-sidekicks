@@ -1,8 +1,8 @@
 // The published-artifact card a ledger row carries, and the seat registration that
 // fills it.
 //
-// `Spec-023 §Console Design (Meridian)` rule 7 puts diffs, attachments, and published
-// artifacts in the timeline as cards inside the row that produced them, because they
+// Diffs, attachments, and published artifacts go in the timeline as cards inside the
+// row that produced them, because they
 // BELONG to that turn — a person reading a conversation should not have to leave it to
 // see what it made.
 //

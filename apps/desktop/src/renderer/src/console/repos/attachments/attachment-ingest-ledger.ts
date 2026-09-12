@@ -9,8 +9,8 @@
 // continuation coming back from an await has to consult the ledger rather than the
 // entry it captured, because a participant can act while a call is in flight.
 //
-// ORDER IS PARTICIPANT-DECLARED AND PRESERVED END TO END, which `Spec-014 §Required
-// Behavior` requires of the reference and this is the first place it can be lost. So
+// ORDER IS PARTICIPANT-DECLARED AND PRESERVED END TO END, which the reference contract
+// requires and this is the first place it can be lost. So
 // the order lives in an explicit array of local ids rather than in a `Map`'s insertion
 // order, and `reorder` moves a member inside it — a drag round-trips because the array
 // is the record, not a rendering of one.

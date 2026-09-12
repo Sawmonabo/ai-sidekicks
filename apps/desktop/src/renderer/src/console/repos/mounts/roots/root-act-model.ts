@@ -4,9 +4,9 @@
 // nothing reaches a bridge, holds a lifetime, or decides eligibility.
 //
 // THE REUSE CHECK'S THREE BOOLEANS ARE NOT THREE INDEPENDENT FACTS, and reading them
-// as though they were is the defect this module exists to prevent. `Spec-010
-// §Interfaces And Contracts` puts `available`, `isClean`, and `compatible` on the reply
-// as DECIDED verdicts rather than as raw git state, and the combinations they form are
+// as though they were is the defect this module exists to prevent. `available`,
+// `isClean`, and `compatible` arrive on the reply as DECIDED verdicts rather than as
+// raw git state, and the combinations they form are
 // three different situations with three different next moves:
 //
 //   • NO CANDIDATE. `available: false`. There is nothing to reuse and nothing to

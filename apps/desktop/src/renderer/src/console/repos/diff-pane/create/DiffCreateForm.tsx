@@ -1,15 +1,15 @@
 // Naming the two states a diff is taken between, and sending the create.
 //
-// TWO FIELDS AND NO DEFAULTS. `Spec-011 §Interfaces And Contracts` requires the create
-// to identify both compared states, and this console holds neither: a base pre-filled
+// TWO FIELDS AND NO DEFAULTS. The create has to identify both compared states, and this
+// console holds neither: a base pre-filled
 // from something the pane happens to know would put a ref on the wire nobody named, and
 // the change set that came back would be attributed to a comparison a person did not
 // ask for. The control is held shut until both are named, and the line under it says so
 // rather than leaving a dead control.
 //
 // WHAT THE DIFF WILL BE ATTRIBUTED TO IS DRAWN BEFORE THE CONTROL, because it is the
-// one thing about this act a person cannot see from the form. `Spec-011 §Pitfalls To
-// Avoid` names pretending a workspace diff is run-attributed; the attribution line says
+// one thing about this act a person cannot see from the form. Pretending a workspace
+// diff is run-attributed is the pitfall; the attribution line says
 // which arm this create will send, and it says so from the resolution the daemon's own
 // roots projection answered rather than from the address.
 //

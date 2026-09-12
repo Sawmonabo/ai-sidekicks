@@ -22,8 +22,8 @@
 // `execution-mode-selection.ts` and `proposals/proposal-gate-actions.ts` — this
 // family's other two act-only classes — already do, and the distinction is real rather
 // than cosmetic. A `snapshot` in this console names what a WIRE READING publishes, and
-// `apps/desktop/AGENTS.md` §Chokepoints holds every such class to a scheduler and the
-// two members a trigger set needs. That is the right rule and this
+// every such class is held to a scheduler and the two members a trigger set needs.
+// That is the right rule and this
 // is not one of its subjects: a disposal settlement is the record of one act somebody
 // took, it does not go stale, and there is no reason a refresh policy could name to
 // re-send it. Giving this class a scheduler to satisfy the shape would have armed a
@@ -57,8 +57,8 @@ export interface RootDisposalHost {
    * Record where this disposal stands.
    *
    * Called on EVERY arm and on none of them silently — the send, the refusal, and the
-   * settlement each reach it — because `Spec-023 §Rules every console surface obeys`
-   * admits no silent no-op, and a confirmation that recorded only the happy arm would
+   * settlement each reach it — because no silent no-op is admitted, and a
+   * confirmation that recorded only the happy arm would
    * close over a refusal as though it had worked.
    */
   recordDisposal(reading: DisposalReading): void;

@@ -138,8 +138,8 @@ describe("ExecutionContextDisclosure — the three roots", () => {
 
 describe("ExecutionContextDisclosure — the fallback badge", () => {
   it("marks a substituted execution mode, outside the disclosure", async () => {
-    // `Spec-010 §Fallback Behavior` requires a substituted mode marked distinctly from
-    // the mode that was asked for, and a marker behind a summary is not marked.
+    // A substituted mode is marked distinctly from the mode that was asked for, and
+    // a marker behind a summary is not marked.
     const disclosure = renderDisclosure(GIT_WORKSPACE_ID);
     await disclosure.advanceUntil(() => {
       expect(within(disclosure.container).getByText("fell back from worktree")).toBeDefined();
@@ -162,8 +162,8 @@ describe("ExecutionContextDisclosure — the fallback badge", () => {
 
 describe("ExecutionContextDisclosure — expanded by default only while the workspace is stale", () => {
   it("stands open on a stale row, where the roots are the question rather than detail", () => {
-    // `Spec-023 §Console Design (Meridian)` fixes this family's density: the three
-    // paths collapse behind one disclosure, expanded by default only while the
+    // This family's density is fixed: the three paths collapse behind one
+    // disclosure, expanded by default only while the
     // workspace is `stale`. Writable runs are blocked until repair there, and which
     // root stopped answering is the next thing a person goes and looks at.
     const disclosure = renderDisclosure(GIT_WORKSPACE_ID, MOUNT_ROOT, "stale");
@@ -191,8 +191,8 @@ describe("ExecutionContextDisclosure — expanded by default only while the work
   });
 
   it("stays closed once a participant has closed it on a stale row", () => {
-    // The section re-reads on all four of the reasons `Spec-023 §Rules every console
-    // surface obeys` names, so a default re-derived per render would reopen this on
+    // The section re-reads on all four of the admitted refresh reasons, so a default
+    // re-derived per render would reopen this on
     // every one of them and the control could never be put away.
     const disclosure = renderDisclosure(GIT_WORKSPACE_ID, MOUNT_ROOT, "stale");
     pressSummary(disclosure.container);

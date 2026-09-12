@@ -91,7 +91,7 @@ export function payloadNotAPatchDetail(reading: DiffPayloadReading): string {
  * A CONSTANT, AND THE THROWN MESSAGE IS DELIBERATELY NOT IN IT. The parser refuses on
  * its own count check and `diff` refuses on its own grammar, and neither message is this
  * console's to relay: a rejection off a parse can carry the patch text that caused it,
- * which is repository content. `Spec-023 §Console Design (Meridian)` rule 9 is the rule,
+ * which is repository content. Only the daemon's own code and message reach the screen,
  * and the artifact id below is the handle a person takes to the diagnostic band instead.
  */
 export function patchUnparsableDetail(artifactManifestId: string): string {

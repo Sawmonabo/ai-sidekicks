@@ -4,9 +4,8 @@
 // viewport height — the five numbers the diff renderer, the pane, and the inline
 // card compute WITH. Nothing is checked against any of them, which is what keeps
 // them here: `console/core/constants/diff-caps.ts` is the one home for a CEILING, and the
-// diff surfaces' five ceilings sit there and are imported through `core/index.ts`.
-// `apps/desktop/AGENTS.md` §Config single-sourcing draws that line, and review holds
-// it.
+// diff surfaces' five ceilings sit there and are imported through `core/index.ts`. The
+// single-sourcing rule draws that line, and review holds it.
 //
 // One home for the five below all the same, so a number cannot be re-derived
 // differently in the pane and in the card, and each rationale says what the number

@@ -13,8 +13,8 @@ import {
  * The three trichotomies, always visible, because they are the decision.
  *
  * The check rollup opens as counts rather than as a list: this gate's density puts
- * the rollup on the face and the full list one click away, on `Spec-023 §Meridian, the
- * design language` rule 7 ("secondary controls live one click away").
+ * the rollup on the face and the full list one click away, because secondary controls
+ * live one click away.
  */
 export function StatusRollup(props: { readonly status: ProposalStatusReading }): React.JSX.Element {
   const { status } = props;

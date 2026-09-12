@@ -1,9 +1,8 @@
 // The two axes a mount card reads on, and the capability axis beside them.
 //
-// THIS CONSOLE'S OWN RULE, stated here because no committed document states it: mount
-// LIFECYCLE and mount HEALTH never collapse into one chip. `Spec-023 §Console Design
-// (Meridian)` puts each surface's composition — what it renders, offers, refuses, and
-// folds — in the console's code, so a repos-surface rule is written where it is obeyed
+// THIS CONSOLE'S OWN RULE: mount LIFECYCLE and mount HEALTH never collapse into one
+// chip. Each surface's composition — what it renders, offers, refuses, and folds —
+// lives in the console's code, so a repos-surface rule is written where it is obeyed
 // rather than cited from somewhere it is not.
 // A `detached` mount and an `unreachable` mount are different facts — the first is
 // a row that has finished its life, the second is a row nobody can currently ask a
@@ -17,9 +16,8 @@
 //
 // HEALTH IS READ, NEVER COMPUTED. Every verdict below is keyed on a status string
 // the daemon sent. The console does not probe a path, does not soften
-// `unreachable`, and does not decide precedence between two failing verdicts —
-// `Spec-009 §Repo Mount Health (V1 Definition)` puts all three with the daemon, and
-// each is a Never of this module's own rather than a rule read off a citation.
+// `unreachable`, and does not decide precedence between two failing verdicts — all
+// three verdicts are the daemon's, and each is a Never of this module's own.
 //
 // THE THIRD VERDICT, AND WHY ITS COPY IS DIFFERENT IN KIND. `identity_mismatch` is a
 // root that is still THERE and is no longer the repository it was attached as: the
@@ -27,8 +25,8 @@
 // persisted. That is not a degraded reading of `unreachable` and it is not a softer
 // one — a probe answered, and what it answered is that this is a different repository.
 // The daemon's binds and runs are already refusing on the persisted-identity match, so
-// the console's obligation here is the one `Spec-009 §Repo Mount Health (V1 Definition)`
-// names: a projection still answering `healthy` for a mount that can never bind again
+// the console's obligation here is simple: a projection still answering `healthy` for
+// a mount that can never bind again
 // is a lying read model. The recovery is NAMED rather than implied — re-attach, which
 // mints a new mount row — because the alternative reading of this verdict is that a
 // participant waits for a root to come back that has not gone anywhere.
@@ -104,8 +102,8 @@ const LIFECYCLE_READINGS: Readonly<Record<RepoMountState, MountAxisReading>> = {
   detached: {
     tone: "neutral",
     label: "detached",
-    // Terminal per `Spec-009 §Detach Semantics (V1 Definition)`: there is no
-    // `detached -> attached` transition, so this row is history and says so.
+    // Terminal: there is no `detached -> attached` transition, so this row is history
+    // and says so.
     sentence:
       "Detached is where a mount ends. Attaching the same path again mints a new mount; this row stays as history.",
   },
@@ -126,9 +124,8 @@ const VCS_READINGS: Readonly<Record<VcsType, MountAxisReading>> = {
   none: {
     tone: "attention",
     label: "none",
-    // `Spec-009 §Fallback Behavior` binds a non-git path as a plain directory with
-    // git-specific features disabled, and `Spec-009 §Acceptance Criteria` requires
-    // such a workspace to stay usable without pretending to support them.
+    // A non-git path binds as a plain directory with git-specific features disabled,
+    // and such a workspace stays usable without pretending to support them.
     sentence:
       "A plain directory, bound with git-specific features off. It stays usable; the git-only modes are unavailable rather than hidden.",
   },
@@ -143,9 +140,8 @@ const VCS_READINGS: Readonly<Record<VcsType, MountAxisReading>> = {
  * renders; what this function decides is whether the console offers a control it
  * has already been told cannot succeed. Both cases are this module's: an `unreachable`
  * mount's bind controls are disabled with the reason said, and a `detached` row renders
- * as history. Neither is a pre-denial — `Spec-023 §Rules every console surface obeys`
- * keeps eligibility off the renderer, and what is read here is the daemon's own
- * reported state.
+ * as history. Neither is a pre-denial — eligibility stays off the renderer, and what
+ * is read here is the daemon's own reported state.
  *
  * The withheld arm carries its own sentence so no call site invents one, and so the
  * card never disables a control without saying why.

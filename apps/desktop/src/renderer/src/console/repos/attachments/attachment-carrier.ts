@@ -177,8 +177,8 @@ export class AttachmentCarrier {
   /**
    * Put one attachment at a new declared position.
    *
-   * THE LEDGER IS THE RECORD AND THE SURFACE IS NOT. `Spec-014 §Required Behavior`
-   * makes ordering caller-declared and preserved end to end, so a drag that reordered
+   * THE LEDGER IS THE RECORD AND THE SURFACE IS NOT. Ordering is caller-declared and
+   * preserved end to end, so a drag that reordered
    * a rendered list while the ledger kept its own order would show one order and send
    * another. This goes to the same single writer every other act does, and the
    * publish it produces is what re-renders the list.

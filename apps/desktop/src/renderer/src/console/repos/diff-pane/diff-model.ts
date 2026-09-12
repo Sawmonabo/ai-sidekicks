@@ -1,10 +1,9 @@
 // What a diff IS to this console: the typed model both the pane and the inline
 // card render, and the closed sets that make its illegal states unrepresentable.
 //
-// THE ATTRIBUTION AXIS IS A UNION, NOT A FLAG. `Spec-011 §Implementation Notes`
-// makes attribution quality a first-class field rather than an inferred
-// decoration, and `Spec-011 §Pitfalls To Avoid` names pretending a workspace diff
-// is run-attributed. So the two arms carry DIFFERENT identity — the
+// THE ATTRIBUTION AXIS IS A UNION, NOT A FLAG. Attribution quality is a first-class
+// field rather than an inferred decoration, and pretending a workspace diff is
+// run-attributed is the pitfall. So the two arms carry DIFFERENT identity — the
 // `run_attributed` arm a run, the `workspace_fallback` arm a workspace — and
 // there is no arm carrying both and no arm carrying neither. A renderer cannot
 // display a run for a workspace-fallback diff because there is no run on that arm
@@ -12,24 +11,24 @@
 // and the renderer does not undo that.
 //
 // WHERE THE VALUES COME FROM, AND WHAT IS NOT BUILT HERE. Nothing on the wire
-// produces one of these yet. `gitflow.diffArtifactCreate` is a `Plan-023 §Console
-// growth slate` row (`gitflow-actions`, owned by Spec-011), the contracts package
-// exports no `gitflow` module, and the growth port registers no operation for it —
+// produces one of these yet. `gitflow.diffArtifactCreate` is a growth-slate row
+// (`gitflow-actions`), the contracts package exports no `gitflow` module, and the
+// growth port registers no operation for it —
 // so this model is the shape the surfaces are built against and its producer is
 // somebody else's. Two consequences are deliberate:
 //
-//   • `DiffLine.segments` carries the line's TEXT, as one whole-line segment.
-//     `Spec-023 §Console Libraries` adopts jsdiff for "parse and intraline
-//     compute" over patch bytes; this family own-builds the row renderer and its
+//   • `DiffLine.segments` carries the line's TEXT, as one whole-line segment. jsdiff is
+//     adopted for parse and intraline compute over patch bytes; this family own-builds
+//     the row renderer and its
 //     virtualization. The module that turns a unified patch into this model lands
 //     with the first caller that has patch bytes to give it, in the PR that adds
 //     that dependency. The word-level SPLIT of that text is derived per rendered
 //     row by `intraline-segments.ts` — bounded, memoised, and never at parse time,
 //     because computing every pair up front costs the whole change set before the
 //     virtualizer has placed a row.
-//   • The per-line agent attribution arrives on the line. `Spec-011 §Required
-//     Behavior` names the Agent Trace standard and the `Agent-Run:` and
-//     `Co-authored-by:` git trailers as the provenance source; the console
+//   • The per-line agent attribution arrives on the line. The Agent Trace standard and
+//     the `Agent-Run:` and `Co-authored-by:` git trailers are the provenance source;
+//     the console
 //     RENDERS what the trailers supplied and derives attribution from nothing
 //     else — there is no fallback that guesses an agent for an unmarked line.
 
@@ -200,7 +199,7 @@ export interface DiffFile {
 /** A whole diff, as the pane and the inline card render it. */
 export interface ConsoleDiffModel {
   readonly attribution: DiffAttribution;
-  /** Wire-verbatim compared states. `Spec-011 §Interfaces And Contracts`. */
+  /** Wire-verbatim compared states. */
   readonly baseRef: string;
   readonly headRef: string;
   readonly files: readonly DiffFile[];

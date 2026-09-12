@@ -4,7 +4,7 @@
 // Written three times before this module existed — byte-identical in
 // `ArtifactsPanel.test.tsx`, `ArtifactsPanel.acts.test.tsx` and `artifact-model.test.ts`
 // — so a member the wire added had to be added three times, and nothing failed when it
-// was added once. `AGENTS.md` §Shared code hoists on the second use.
+// was added once. A shared helper is hoisted on the second use.
 
 import {
   REPOS_IMPLEMENTER_RUN_ID,

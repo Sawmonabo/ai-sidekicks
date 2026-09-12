@@ -1,8 +1,8 @@
 // Diff models the surfaces are built and measured against, until a wire makes one.
 //
-// THE FIXTURE SHELL FOR AN ABSENT OWNER. `gitflow.diffArtifactCreate` is a
-// `Plan-023 §Console growth slate` row (`gitflow-actions`, owned by Spec-011);
-// `packages/contracts` exports no `gitflow` module and the growth port registers
+// THE FIXTURE SHELL FOR AN ABSENT OWNER. `gitflow.diffArtifactCreate` is a growth-slate
+// row (`gitflow-actions`); `packages/contracts` exports no `gitflow` module and the
+// growth port registers
 // no operation for it, so nothing in the running console can produce a
 // `ConsoleDiffModel`. This module is the shell that stands in the producer's
 // place — DELETED, not filled, the day a wire hands the console patch bytes,
@@ -16,9 +16,9 @@
 // fixture that can ship, and the console's one legitimate fixture seam is the
 // bridge's, gated by `__SIDEKICKS_CONSOLE_FIXTURES__`.
 //
-// IT GENERATES A PATCH AND PARSES IT, rather than assembling the model directly.
-// `Spec-023 §Console Libraries` adopts `diff` 9.0.0 for parse and intraline
-// compute, and a fixture that hand-built hunk headers, line numbers, and word-level
+// IT GENERATES A PATCH AND PARSES IT, rather than assembling the model directly. `diff`
+// 9.0.0 is adopted for parse and intraline compute, and a fixture that hand-built hunk
+// headers, line numbers, and word-level
 // segments would be a second implementation of exactly that — one the tiers would
 // then be measuring INSTEAD of the parser a wire will call. Two things this buys
 // beyond the deletion: the line numbers are the ones the format produces (a base

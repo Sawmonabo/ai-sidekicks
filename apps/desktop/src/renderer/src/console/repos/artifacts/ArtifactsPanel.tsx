@@ -1,16 +1,15 @@
 // The artifacts panel: what this session produced, whether its bytes are reachable,
 // and the acts a participant may attempt on one.
 //
-// THE ARTIFACT SURFACE'S COMPOSITION IS THIS FAMILY'S, because `Spec-023 §Console
-// Design (Meridian)` puts a surface's composition — what it renders, offers, refuses,
-// and folds — in the console's code. Three things about this file are
+// THE ARTIFACT SURFACE'S COMPOSITION IS THIS FAMILY'S: what a surface renders, offers,
+// refuses, and folds lives in the console's code. Three things about this file are
 // decisions rather than implementation, and each is load-bearing:
 //
 // 1. IT RENDERS, AND IT DOES NOT READ. The state arrives as a prop, and the four
 //    arms of `ArtifactsPanelState` are the four things the surface above can have
 //    to say. Every read this panel is a view of — list, fetch, re-classify, delete —
-//    is on `Plan-023 §Console growth slate` with no method string registered
-//    anywhere, so the read is a growth-port call the mounting surface makes and a
+//    is on the growth slate with no method string registered anywhere, so the read is
+//    a growth-port call the mounting surface makes and a
 //    refusal is what arrives. A panel that called the port itself would own an
 //    effect to render the one arm it already takes as a prop. Each act is named for
 //    what its registered reply serves and never for what the wire could one day

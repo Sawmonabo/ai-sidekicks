@@ -96,7 +96,7 @@ describe("ExecutionModePicker — the rows come from the reply", () => {
     // The guard against "everything not in `restrictions`". A picker that started from
     // a hardcoded four-mode list would still draw `branch`, `worktree`, and
     // `ephemeral clone` here — with no reason beside them, which is the silent
-    // substitution `Spec-009 §Fallback Behavior` forbids.
+    // substitution this family forbids.
     const { container } = renderPicker({ availableModes: ["read-only"], defaultMode: "read-only" });
     const radios = container.querySelectorAll<HTMLInputElement>("input[type=radio]");
     expect([...radios].map((radio) => radio.value)).toStrictEqual(["read-only"]);
@@ -228,7 +228,7 @@ describe("ExecutionModePicker — a switch the daemon has not answered", () => {
   it("keeps the bound row checked rather than moving the selection to the pending mode", () => {
     // The switch has not happened yet. Moving the radio would report a binding the
     // daemon has not confirmed — and if it refuses, the row would have to move back,
-    // which is the silent re-pick `Spec-010 §Required Behavior` forbids.
+    // which is the silent re-pick this surface forbids.
     const { container } = renderPicker(GIT_CAPABILITIES, {
       currentMode: "read-only",
       pendingMode: "worktree",

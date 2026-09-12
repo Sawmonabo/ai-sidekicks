@@ -42,9 +42,8 @@ import type { PreparedProposal } from "./prepared-proposal.js";
  *                      preparation reply's state vocabulary is `draft | ready` and
  *                      nothing on it names a bundle, so `proposal-gate-reader.ts`
  *                      never publishes this arm and records why. It stays here
- *                      because `Spec-011 §Fallback Behavior` makes the degraded
- *                      summary required behaviour, and the gate draws it for any
- *                      caller that can state it.
+ *                      because the degraded summary is required behaviour, and the
+ *                      gate draws it for any caller that can state it.
  *   • `refused`      — a first-class failure carrying the daemon's own message. This
  *                      is where "this workspace has no branch context" lands, and it
  *                      is not a console reading of an empty reply: the registered
@@ -87,9 +86,9 @@ export type ProposalGateState =
 /**
  * What the degraded arm says.
  *
- * It names the capability rather than the outage, because `Spec-011 §Fallback
- * Behavior` makes producing a summary and a bundle the REQUIRED behaviour when hosting
- * is unavailable — so this state is the system working, and copy that apologised for
+ * It names the capability rather than the outage, because producing a summary and a
+ * bundle is the REQUIRED behaviour when hosting is unavailable — so this state is the
+ * system working, and copy that apologised for
  * it would misreport a feature as a fault.
  */
 export const HOSTING_UNAVAILABLE_COPY =

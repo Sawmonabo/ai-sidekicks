@@ -11,8 +11,8 @@
 // knows is how a diff is minted; how one is DRAWN is the pane's, and it arrives as a
 // closure so this directory holds no edge back into the one that owns the renderer.
 //
-// AND A SETTLED CREATE KEEPS ITS WAY BACK. `Spec-023 §Console Design (Meridian)` rule 8
-// admits no dead end: the comparison a person named is one of many they might name, so
+// AND A SETTLED CREATE KEEPS ITS WAY BACK. No dead end is admitted: the comparison a
+// person named is one of many they might name, so
 // the control that puts the form back is drawn beside the change set rather than the
 // pane having to be closed and reopened.
 

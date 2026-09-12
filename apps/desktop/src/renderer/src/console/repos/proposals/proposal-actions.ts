@@ -1,14 +1,13 @@
 // The acts the change-proposal gate offers: which exist, how far each one reaches, what
 // each says before it is confirmed, and which of them a given gate arm may offer at all.
 //
-// `ProposalGate.tsx` is the surface that offers these; `Spec-011
-// §Required Behavior` names them. `ProposalGate.tsx` renders what `offeredProposalActions`
-// returns and decides nothing about it, and `proposal-gate-reader.ts` sends them without
-// re-deciding either.
+// `ProposalGate.tsx` is the surface that offers these. It renders what
+// `offeredProposalActions` returns and decides nothing about it, and
+// `proposal-gate-reader.ts` sends them without re-deciding either.
 //
-// THE PREPARATION GATE IS A RULE HERE AND A LAYOUT THERE. `Spec-011 §Interfaces And
-// Contracts` requires that `PRPrepare` "generate a reviewable proposal before any remote
-// mutation", which is a claim about WHICH ACTS EXIST WHEN and not only about which order
+// THE PREPARATION GATE IS A RULE HERE AND A LAYOUT THERE. `PRPrepare` generates a
+// reviewable proposal before any remote mutation, which is a claim about WHICH ACTS
+// EXIST WHEN and not only about which order
 // they are drawn in. So the offered set is a pure function of the arm below, the tuple's
 // order is the pipeline's own — record locally, prepare locally, then send — and a
 // component cannot offer a remote act the rule withholds, because it is handed a list
@@ -21,8 +20,8 @@
 // established, namely whether it has a reviewed proposal to send.
 //
 // NEVER, and each is a property of THIS file:
-//   • No fourth action. `PROPOSAL_ACTIONS` is closed at the three `Spec-011 §Required
-//     Behavior` names, so an action the console could send is an edit to that tuple.
+//   • No fourth action. `PROPOSAL_ACTIONS` is closed at three, so an action the
+//     console could send is an edit to that tuple.
 //   • No parse of a git action's `output`. There is no function here that reads it, and
 //     no surface draws it: it is the act's own diagnostic text and this console never
 //     scrapes it. What a REFUSED act says for itself is the reply's `error`, rendered
@@ -32,7 +31,7 @@ import type { GrowthOperationId } from "../../bridge/index.js";
 import type { ProposalGateState } from "./proposal-gate-state.js";
 
 /**
- * The three `Spec-011 §Required Behavior` names, and no more — in the gate's own order.
+ * The three acts the gate performs, and no more — in the gate's own order.
  *
  * These are what the gate offers. The wire behind them is the growth port's
  * `gitActionExecute`, whose `action` member is an untyped string because the action
@@ -207,9 +206,9 @@ const GATE_ARM_ACTION_AVAILABILITY: Readonly<
 /**
  * Which acts this arm offers, in the gate's order.
  *
- * THE REMOTE ACT IS WITHHELD UNTIL THERE IS SOMETHING REVIEWED TO SEND, which is
- * `Spec-011 §Interfaces And Contracts`' rule that `PRPrepare` must generate a reviewable
- * proposal before any remote mutation, applied to the offer rather than to the layout: a
+ * THE REMOTE ACT IS WITHHELD UNTIL THERE IS SOMETHING REVIEWED TO SEND, which is the
+ * rule that `PRPrepare` must generate a reviewable proposal before any remote
+ * mutation, applied to the offer rather than to the layout: a
  * `prepared` arm carrying no proposal offers the local acts and no more, so the send
  * cannot be confirmed against a payload that has never been on screen. Preparing again
  * on an arm that already holds one is offered, because a proposal is cumulative over a

@@ -20,8 +20,8 @@
 
 // --- The default allow-list ----------------------------------------------
 //
-// `Spec-014 §Bounds (normative defaults; operator-tunable)` ships this value-for-value,
-// and an operator override REPLACES it wholesale with no merge semantics — so the hint is this list or the operator's, never
+// The normative default ships this value-for-value, and an operator override REPLACES
+// it wholesale with no merge semantics — so the hint is this list or the operator's, never
 // this list plus a set of edits. `image/svg+xml` is deliberately absent: it is the one
 // image type that is also a scriptable document, and its exclusion is a recorded
 // decision rather than an oversight.
@@ -57,8 +57,8 @@ export const ATTACHMENT_ALLOWLIST_DEFAULT: readonly string[] = [
 /**
  * What a refusal means for the NEXT act, which is the only thing a participant can use.
  *
- * `Spec-014 §Interfaces And Contracts` makes every call of the ingest trio retry-safe —
- * a replayed chunk is acknowledged without re-appending, and a replayed completion
+ * Every call of the ingest trio is retry-safe — a replayed chunk is acknowledged
+ * without re-appending, and a replayed completion
  * replays its original response verbatim — so a lost response is retried in place and
  * never restarted. The two named codes are the exceptions and they are deliberately
  * distinct: `artifact.ingest_stream_invalid` (409) is terminal for the stream and means
@@ -113,8 +113,8 @@ export const INGEST_ABANDON_COPY =
 /**
  * Why an attachment could not be resolved where it sits. Closed at six.
  *
- * `Spec-014 §Fallback Behavior` requires the turn to PROCEED and the marker to sit in
- * the attachment's declared position — never appended, never footnoted — so this is a
+ * The turn PROCEEDS and the marker sits in the attachment's declared position — never
+ * appended, never footnoted — so this is a
  * per-position reading and not a page-level banner.
  */
 export const UNRESOLVED_ATTACHMENT_CAUSES = [

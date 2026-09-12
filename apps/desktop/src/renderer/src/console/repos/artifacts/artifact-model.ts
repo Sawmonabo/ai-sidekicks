@@ -9,14 +9,13 @@
 // `packages/contracts` registers three artifact EVENT strings — `artifact.published`,
 // `artifact.superseded`, `artifact.visibility_updated` — and no manifest type, no
 // payload variant for any of the three, and no method string for reading, listing,
-// re-classifying, or deleting one. `Plan-023 §Console growth slate` carries that
-// absence as its own rows, and `console/bridge/growth-port/growth-port.ts` is where the console
+// re-classifying, or deleting one. The growth slate carries that absence as its own
+// rows, and `console/bridge/growth-port/growth-port.ts` is where the console
 // reaches for those operations and is refused by name.
 //
 // So `ArtifactManifestRow` below is A CONSOLE VIEW MODEL AND NOT A WIRE TYPE. It
-// transcribes the manifest envelope `Spec-014 §Interfaces And Contracts` describes,
-// field for field, so the panel is built against the shape the owning
-// document specifies rather than against a shape this file invented — and when the
+// transcribes the specified manifest envelope field for field, so the panel is built
+// against the agreed shape rather than against a shape this file invented — and when the
 // wire lands, the diff is an import and a deletion here, not a redesign of the
 // panel. Nothing in this module claims the daemon sends it.
 //
@@ -200,7 +199,7 @@ export function artifactTypeCounts(
  * `byteLength`, `contentType` — and a reader that had mapped those four into the
  * envelope below would have put a `state` and a `visibility` on screen that no read
  * established. So a served list was refused by name instead. `GrowthArtifactSummary`
- * now mirrors `api-payload-contracts.md §ArtifactManifest` member for member, so the
+ * now mirrors the registered artifact manifest member for member, so the
  * mapping this comment used to forbid is the only member-for-member reading there is,
  * and every field a row renders comes from one the reply carried.
  *

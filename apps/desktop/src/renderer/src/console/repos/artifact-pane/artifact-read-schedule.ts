@@ -6,9 +6,9 @@
 // one are abstract, and the subclass answers them.
 //
 // A BASE CLASS AND NOT A COMPOSED COLLABORATOR, on `store/act/act-controller-base.ts`'s
-// precedent and for a reason that is mechanical rather than stylistic.
-// `apps/desktop/AGENTS.md` §Chokepoints defines a READING as one class that publishes
-// what a surface reads off it AND holds the daemon connection, and it requires that same
+// precedent and for a reason that is mechanical rather than stylistic. A READING is one
+// class that publishes what a surface reads off it AND holds the daemon connection, and
+// that same
 // class to carry the scheduler and the two members a trigger set wires — the defect it
 // exists to catch is a reading nobody can ask again. Composed, this schedule
 // would have taken the bridge, the scheduler and the trigger contract out of the class a
@@ -36,18 +36,18 @@
 // under, a completion whose stamp is no longer current is dropped, and the two legs of
 // one generation publish as ONE snapshot rather than two.
 //
-// AND ALL FOUR OF THE REFRESH RULE'S REASONS ARE WIRED, not one. `Spec-023 §Rules
-// every console surface obeys` allows subscribe, window focus, reconnect, and the
-// terminal events the owning spec names — and this reader used to have the first and
+// AND ALL FOUR OF THE REFRESH RULE'S REASONS ARE WIRED, not one. A console surface may
+// re-read on subscribe, window focus, reconnect, and the terminal events of whatever it
+// is about — and this reader used to have the first and
 // a participant's press and nothing else. A pane left open through a daemon reconnect,
 // or through an `artifact.published` / `artifact.superseded` /
 // `artifact.visibility_updated` frame, held a manifest list and an effective
 // allow-list that were stale indefinitely and looked exactly like fresh ones. The
 // other three reasons now reach the same scheduler through
 // `store/read/refresh-triggers.ts`, which is the mechanism the repos section's two readers
-// already use; the KINDS are this pane's own, because those three frames are what
-// `Spec-006 §Artifact and Diff Publication (artifact_publication)` names as terminal
-// for an artifact. A `workspace.stale` frame is deliberately not among them: it says a
+// already use; the KINDS are this pane's own, because those three frames are what the
+// artifact-publication event family treats as terminal for an artifact. A
+// `workspace.stale` frame is deliberately not among them: it says a
 // path went stale, which is a fact about a workspace and no evidence at all about this
 // session's artifacts.
 //

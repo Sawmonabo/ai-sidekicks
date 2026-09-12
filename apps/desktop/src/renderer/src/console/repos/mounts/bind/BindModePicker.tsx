@@ -10,8 +10,8 @@
 // reading and the node's own refusal is the authority, so nothing is disabled. Here the
 // daemon has already answered the question — `availableModes` is its answer for THIS
 // mount — so offering an excluded mode would send a request the answer on screen says
-// will refuse. `Spec-009 §Fallback Behavior` requires the gap explicit, so the row stays
-// with its reason rather than disappearing.
+// will refuse. The gap is stated explicitly, so the row stays with its reason rather
+// than disappearing.
 
 import { WireFigure } from "../../../primitives/index.js";
 import type { ModeRow } from "../mode-row.js";

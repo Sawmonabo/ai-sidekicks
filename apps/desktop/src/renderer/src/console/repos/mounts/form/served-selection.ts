@@ -21,8 +21,8 @@
 // re-applied whenever the form is empty and the served answer names one, and a
 // participant's own pick still wins because a pick is what `chosen` holds.
 //
-// FOUR ARMS BECAUSE THERE ARE FOUR SENTENCES. `Spec-023 §Console Design (Meridian)`
-// rule 8 forbids a silent refusal, and "pick one", "the one you picked is gone", and
+// FOUR ARMS BECAUSE THERE ARE FOUR SENTENCES. A silent refusal is forbidden, and
+// "pick one", "the one you picked is gone", and
 // "nothing has answered yet" are three different facts about a shut control. Collapsing
 // them would put a false sentence under the button in two cases out of the three.
 

@@ -1,7 +1,7 @@
 // Binding a workspace on a mount the session already holds.
 //
-// THE SECOND MUTATING ENTRY POINT THIS SECTION LACKED. `Spec-009 §Default Behavior`
-// mints one `read-only` workspace at attach and nothing more, so every writable
+// THE SECOND MUTATING ENTRY POINT THIS SECTION LACKED. Attach mints one `read-only`
+// workspace and nothing more, so every writable
 // workspace in a session arrives through `repo.workspaceBind` — a registered daemon
 // method the console reached from nowhere. A person who attached a repository could
 // see it and could not put a run in it.
@@ -132,8 +132,8 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
     <Dialog.Root onOpenChange={openChanged} modal="trap-focus">
       <Dialog.Trigger className="meridian-bind__trigger">Bind a workspace</Dialog.Trigger>
       {/* The popup shell is the primitive's, which is also what puts this dialog in the
-          window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a native
-          browser-pane view yields to whatever is registered there, and a form that
+          window's airspace: a native browser-pane view yields to whatever is
+          registered there, and a form that
           mounted its own portal would be a dialog the view paints over. */}
       <OverlayDialogPopup
         backdropClassName="meridian-bind__backdrop"

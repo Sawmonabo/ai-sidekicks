@@ -137,8 +137,8 @@ describe("resolveAttachForm — the roster decides which node this form is on", 
 
 describe("attachNodeOptions — every node the roster named, unfiltered", () => {
   it("offers a revoked, offline, read-only node exactly as the roster gave it", () => {
-    // `Spec-003 §Acceptance Criteria` requires degraded and offline nodes visible and
-    // distinguishable. Dropping them would make a refusable attach look impossible.
+    // Degraded and offline nodes stay visible and distinguishable. Dropping them
+    // would make a refusable attach look impossible.
     const options = attachNodeOptions([
       rosterEntry({ nodeId: "node-a", state: "offline", healthState: "offline" }),
       rosterEntry({ nodeId: "node-b", state: "revoked", readOnly: true }),

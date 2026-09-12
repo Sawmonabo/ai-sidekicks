@@ -29,8 +29,8 @@ import type { AttachmentIngestEntry } from "./attachment-shapes.js";
 //
 // NOT HERE. The attachment byte cap, the carrier cap, the chunk cap, the stream
 // lifetime, and the stall disclosure are behavioural limits three modules spend — this
-// one, the ingest client, and the artifact pane — and four of the five mirror a bound
-// `Spec-014 §Bounds (normative defaults; operator-tunable)` registers on the wire. A
+// one, the ingest client, and the artifact pane — and four of the five mirror a
+// normative default the wire registers. A
 // view-family module holding them would make this file a configuration authority its
 // neighbours had to import to learn a number the daemon owns, so they sit in
 // `core/constants/attachment-caps.ts` with their rationales and their wire sources, and the two this

@@ -97,8 +97,8 @@ export class ExecutionModeSelections {
   /**
    * Record one explicit mode switch, then re-read.
    *
-   * A REFUSED switch does not re-read and does not re-pick: `Spec-010 §Required
-   * Behavior` forbids silent substitution, and the renderer's half of that is showing
+   * A REFUSED switch does not re-read and does not re-pick: silent substitution is
+   * forbidden, and the renderer's half of that is showing
    * the refusal and leaving the choice with the participant. An ACCEPTED switch
    * re-reads, because the workspace transitions `ready -> provisioning -> ready` on its
    * existing id and the row has to follow it.

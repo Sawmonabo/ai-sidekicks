@@ -1,8 +1,8 @@
 // What the artifact pane holds, what it can act on, and who is told when it changes.
 //
-// Three reads, all on `Plan-023 §Console
-// growth slate` and all refused by name today: `artifactList` and `artifactRead`
-// against `artifact-ingest-and-crud`, `artifactAllowlistRead` against
+// Three reads, all on the growth slate and all refused by name today: `artifactList`
+// and `artifactRead` against `artifact-ingest-and-crud`, `artifactAllowlistRead`
+// against
 // `artifact-allowlist-and-abort`.
 //
 // THE ONE DECISION IN THIS FILE IS WHAT TO DO WITH A SERVED LIST, AND IT HAS CHANGED.
@@ -13,7 +13,7 @@
 // were present. So a served list was REFUSED with the console's own code rather than
 // mapped, and that refusal named the gap "so the day the shape lands the fix is a
 // mapping and not an archaeology". The shape landed: `GrowthArtifactSummary` now
-// mirrors `api-payload-contracts.md §ArtifactManifest` member for member. The fix is
+// mirrors the registered artifact manifest member for member. The fix is
 // the mapping, and it lives on the model beside the vocabularies it fills
 // (`repos/artifacts/artifact-model.ts:artifactManifestRowFromSummary`) rather than here, because
 // what a served row IS is a model question and this file owns only who asked.

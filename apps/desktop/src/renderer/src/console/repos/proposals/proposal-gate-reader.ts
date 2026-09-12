@@ -20,10 +20,9 @@
 // this class holds one of them and hands its answer through the act seam.
 //
 // EVERY READ GOES THROUGH THE CONSOLE'S ONE SCHEDULER, AND EVERY REASON THROUGH ONE
-// TRIGGER CLASS. `Spec-023 §Rules every console surface obeys` fixes the policy —
-// "Reads happen on subscribe, on window focus, on reconnect, and on the terminal events
-// the owning spec names", under "No interval polling" — so this class arms no timer of
-// its own and owns no listener of
+// TRIGGER CLASS. The policy is fixed — reads happen on subscribe, on window focus, on
+// reconnect, and on the terminal events the owning surface names, and never on an
+// interval — so this class arms no timer of its own and owns no listener of
 // its own either: it hands itself to a `SessionRefreshTriggers` exactly as
 // `repos/mounts/repo-mounts-reader.ts` does, which is what makes all four reasons reach
 // a gate rather than only window focus. A daemon that reconnected, or a `workspace.stale`

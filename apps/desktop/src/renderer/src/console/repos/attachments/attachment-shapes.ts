@@ -10,17 +10,17 @@
 //
 // WIRE TRUTH FIRST. `packages/contracts` registers NO attachment type. The nearest
 // thing on the wire is `SteerPayload.attachments`, typed `z.array(z.unknown())` with a
-// count cap of 64 — an UNTYPED arm, and `Spec-014 §Interfaces And Contracts` forbids
-// delivering an attachment over one. There is no `AttachmentIngestInit` shape, no
+// count cap of 64 — an UNTYPED arm, and no attachment may be delivered over one. There
+// is no `AttachmentIngestInit` shape, no
 // method string for any leg of the ingest trio, and no manifest type. So the shapes
-// below are CONSOLE VIEW MODELS transcribing what `Spec-014` names, and every call that
-// would fill them goes through `bridge/growth-port/growth-port.ts`, which refuses by name
+// below are CONSOLE VIEW MODELS transcribing the agreed attachment shapes, and every
+// call that would fill them goes through `bridge/growth-port/growth-port.ts`, which refuses by name
 // (`artifact-ingest-and-crud`, `artifact-allowlist-and-abort`). Nothing here claims the
 // daemon sends it.
 //
-// THE DECLARED VALUES ARE ADVISORY AND THE DERIVED ONES ARE THE TRUTH. `Spec-014
-// §Required Behavior` makes a caller's `mediaType` and `sizeBytes` hints that narrow a
-// signature check and never widen acceptance, so `AttachmentDeclaration` holds them as
+// THE DECLARED VALUES ARE ADVISORY AND THE DERIVED ONES ARE THE TRUTH. A caller's
+// `mediaType` and `sizeBytes` are hints that narrow a signature check and never widen
+// acceptance, so `AttachmentDeclaration` holds them as
 // DECLARED and `AttachmentDerivedTruth` is a separate shape that replaces them once the
 // daemon has read the bytes. Two shapes rather than optional fields on one, because a
 // card that showed a declared type where a derived one belongs would be reporting the
@@ -129,8 +129,8 @@ export interface AttachmentDerivedTruth {
  * Mint one source from the payload a participant chose.
  *
  * The only way to make an `AttachmentSource`, so the declared length and the bytes
- * cannot come from two places. `Spec-014 §Required Behavior` makes the declared size
- * advisory to the daemon, which derives its own at completion — but it is also the
+ * cannot come from two places. The declared size is advisory to the daemon, which
+ * derives its own at completion — but it is also the
  * stream's spool RESERVATION, so a console that declared one number and sent another
  * would have the daemon refuse a stream it had already admitted.
  */

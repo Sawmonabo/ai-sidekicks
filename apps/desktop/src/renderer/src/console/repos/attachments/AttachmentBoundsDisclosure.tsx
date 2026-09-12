@@ -5,8 +5,8 @@
 // carried this as a private render helper, so the ATTACH AFFORDANCE — the picker a
 // person actually chooses a file with — said nothing at all about what it would accept:
 // a bare file input, with the allow-list and all four bounds complete on a different
-// surface one click away. `Spec-014 §Bounds (normative defaults; operator-tunable)`
-// puts the hint on the picker, so the picker is where it goes, and a second copy of the
+// surface one click away. The hint belongs on the picker, so the picker is where it
+// goes, and a second copy of the
 // same list would be two answers to one question the first time either changed.
 //
 // THE SOURCE IS NAMED, ALWAYS. An operator override replaces the list WHOLESALE with no

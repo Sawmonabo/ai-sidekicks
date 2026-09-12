@@ -10,8 +10,7 @@
 // reply into rows, and the two readings had already drifted on the case that matters
 // most: a mode named in BOTH halves of the reply. One kept the reason and the other
 // blanked it, so the same malformed reply disclosed its restriction on one surface and
-// hid it on the other. `apps/desktop/AGENTS.md` §Shared code: one implementation per
-// job, hoisted on the second use.
+// hid it on the other. One implementation per job, hoisted on the second use.
 
 import { type ExecutionMode } from "@ai-sidekicks/contracts";
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";

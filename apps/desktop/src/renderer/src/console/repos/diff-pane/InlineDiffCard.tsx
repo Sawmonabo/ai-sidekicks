@@ -1,7 +1,7 @@
 // The diff card a ledger row carries, and the seat registration that fills it.
 //
-// `Spec-023 §Meridian, the design language` rule 7 puts diff cards in the timeline at
-// "a height cap and then offer 'show all'", and THIS CARD'S OWN RULE says exactly how
+// Diff cards go in the timeline at a height cap and then offer "show all", and THIS
+// CARD'S OWN RULE says exactly how
 // that behaves: an inline timeline card uses the same
 // renderer at a height cap, expanded to that cap by default with collapse
 // retained, plus expand-in-place and jump-to-end. No capped diff ends in a fade

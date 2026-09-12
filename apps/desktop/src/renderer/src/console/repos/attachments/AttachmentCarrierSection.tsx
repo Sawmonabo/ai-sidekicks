@@ -4,8 +4,8 @@
 // THE PICKER SAYS WHAT IT ACCEPTS. It used to be a bare file input beside a list, with
 // the allow-list and all four bounds complete on the artifact pane's own disclosure —
 // a different surface, one click away, that a person choosing a file has no reason to
-// have opened. `Spec-014 §Bounds (normative defaults; operator-tunable)` puts the hint
-// on the picker, so `AttachmentBoundsDisclosure` renders here and on the pane, from one
+// have opened. The hint belongs on the picker, so `AttachmentBoundsDisclosure` renders
+// here and on the pane, from one
 // component.
 //
 // NO `accept` ATTRIBUTE, AND THAT IS DELIBERATE. The hint is a convenience and never

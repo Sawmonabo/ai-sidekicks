@@ -10,9 +10,9 @@ import { EMPTY_CARRIER_TITLE } from "./attachment-carrier-copy.js";
  * `RepoSection.tsx`'s reason: the sidebar collapsed this section, so the one line of
  * room reports the fact that decision was made against.
  *
- * THE DENOMINATOR IS THE POINT, and it used to be missing. `Spec-014 §Bounds (normative
- * defaults; operator-tunable)` caps a carrier at ten attachments and refuses the WHOLE
- * carrier at acceptance once it is past that, so "7 attached" and "7 of 10 attached"
+ * THE DENOMINATOR IS THE POINT, and it used to be missing. A carrier is capped at ten
+ * attachments and the WHOLE carrier is refused at acceptance once it is past that, so
+ * "7 attached" and "7 of 10 attached"
  * are two different amounts of warning — and the first one leaves a participant to
  * discover the bound by hitting it. What happens at the bound is stated in the
  * affordance's own disclosure beside this line.

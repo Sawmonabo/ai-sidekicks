@@ -77,8 +77,8 @@ describe("ProposalGate — three acts, offered, never projected", () => {
   });
 
   it("withholds the act that reaches the host until a proposal has been prepared", () => {
-    // `Spec-011 §Interfaces And Contracts`: a reviewable proposal exists before any
-    // remote mutation. With none prepared there is nothing to send, so the send is not
+    // A reviewable proposal exists before any remote mutation. With none prepared
+    // there is nothing to send, so the send is not
     // offered — a confirmable Push here would approve a payload never drawn.
     const { container } = render(
       <ProposalGate state={{ ...PREPARED_STATE, proposal: undefined }} onRequestAction={vi.fn()} />,

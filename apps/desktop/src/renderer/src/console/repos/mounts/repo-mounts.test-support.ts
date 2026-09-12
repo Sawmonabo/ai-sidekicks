@@ -11,7 +11,7 @@
 // scaffolding above — four `settle`s (two of them with hand-tuned turn counts and two
 // different explanations of the same rule), two `drain`s, two `openReader`s, and five
 // copies of the reader registry with its `afterEach`. Nothing failed when one copy was
-// changed, which is the whole reason `AGENTS.md` §Shared code hoists on the second use.
+// changed, which is the whole reason shared code is hoisted on the second use.
 //
 // THE REGISTRY IS A FUNCTION PAIR RATHER THAN A HOOK. Registering `afterEach` here
 // would bind this module's import to a suite lifecycle its importer cannot see, so each

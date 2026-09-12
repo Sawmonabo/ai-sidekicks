@@ -38,8 +38,8 @@ describe("mountRefusalRecovery — already attached routes to the mount that exi
     const recovery = mountRefusalRecovery("repo.already_attached");
     expect(recovery?.nextMove).toContain("already attached");
     // NOT a link and NOT a mount id: the refusal carries neither, and comparing paths
-    // in the renderer is exactly what `Spec-009 §Local Trust Envelope (V1 Definition)` reserves to
-    // daemon. The move sends a person to the mount that already holds the repository
+    // in the renderer is exactly what the trust envelope reserves to the daemon. The
+    // move sends a person to the mount that already holds the repository
     // rather than fabricating a route to a row.
     expect(recovery?.nextMove).toContain("the mount that already holds it");
   });

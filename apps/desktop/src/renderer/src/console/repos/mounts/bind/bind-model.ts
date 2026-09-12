@@ -5,8 +5,8 @@
 // reaches a bridge or holds a lifetime.
 //
 // THE CONSOLE OFFERS WHAT THE MOUNT ADMITS AND WITHHOLDS NOTHING SILENTLY. The read
-// carries `availableModes` and a sparse `restrictions` map, and `Spec-009 §Fallback
-// Behavior` requires the capability gap stated rather than substituted — so an excluded
+// carries `availableModes` and a sparse `restrictions` map, and the capability gap is
+// stated rather than substituted — so an excluded
 // mode is rendered, disabled, and never dropped from the list, carrying the mount's own
 // reason beside it WHEN THE REPLY SENT ONE. The map is sparse, so a mode can be
 // excluded with no reason on file, and `BindModePicker` then draws the row and no

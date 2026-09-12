@@ -109,9 +109,9 @@ export function RootDisposalConfirmation(props: RootDisposalConfirmationProps): 
           {DISPOSAL_VERB[props.kind]}
         </AlertDialog.Trigger>
         {/* The popup shell is the primitive's, which is what puts this confirmation in
-            the window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a native
-            browser-pane view yields to what is registered there, and a confirmation it
-            painted over is the one thing 12.3 forbids outright. */}
+            the window's airspace: a native browser-pane view yields to what is
+            registered there, and a confirmation it painted over is the one thing
+            forbidden outright. */}
         <OverlayAlertDialogPopup
           backdropClassName="meridian-root-disposal__backdrop"
           className="meridian-root-disposal__dialog"

@@ -13,8 +13,8 @@
 // in the tables below, so a renderer cannot restate either one differently.
 //
 // NO SECOND HOST ADAPTER. Every value here is the host's own word, arriving as a wire
-// string this module never picks; `Spec-011 §Git Hosting Adapter` owns which host is
-// talked to, and nothing here branches on which one answered.
+// string this module never picks; the hosting adapter owns which host is talked to,
+// and nothing here branches on which one answered.
 
 import type { ChipTone } from "../../primitives/index.js";
 

@@ -31,8 +31,8 @@
 // virtualization actually bound the cost rather than only bound the DOM.
 //
 // THE WINDOW IS THE ADOPTED VIRTUALIZER'S, AND THE FLATTENING IS OURS.
-// `Spec-023 §Console Libraries` ADOPTs `@tanstack/react-virtual` with constraints,
-// and `row-window.ts` is the one place it is configured — this family windows two
+// `@tanstack/react-virtual` is adopted with constraints, and `row-window.ts` is the one
+// place it is configured — this family windows two
 // lists, the rows and the changed-file list beside them, and the bounds they share
 // are stated there once. `hunk-virtualization.ts` still answers
 // WHICH ROWS EXIST — a diff is a nested structure and no virtualizer's contract

@@ -90,8 +90,8 @@ export { registerRepos };
  * NEITHER KIND DECLARES A TEAR-OFF, because a descriptor cannot: whether a pane may
  * be torn off is a property of the KIND, answered once by `isDetachablePaneKind` off
  * the window model's own route set, and never a member a family fills in.
- * `Spec-023 §The surface set` names `timeline` and `agent-console` as the two panes
- * that get their own hardened window, so both of this family's kinds answer that
+ * `timeline` and `agent-console` are the two panes that get their own hardened
+ * window, so both of this family's kinds answer that
  * predicate `false` — and they answer it in the one place that decides it rather than
  * in six families' registrations.
  */
@@ -154,8 +154,8 @@ export {
 // readings it has, what cancelling actually does, what each refusal disposition
 // recommends, where a carrier stands against the count bound, whether one file is past
 // the byte bound, and whether an upload has gone quiet. The one COMPONENT published is
-// the bounds disclosure, which `Spec-014 §Bounds (normative defaults; operator-tunable)`
-// puts on the picker: two pickers rendering two lists would be two answers to one
+// the bounds disclosure, which belongs on the picker: two pickers rendering two lists
+// would be two answers to one
 // question about a deployment neither of them can see.
 export { AttachmentBoundsDisclosure } from "./attachments/AttachmentBoundsDisclosure.js";
 export {

@@ -121,7 +121,7 @@ export type GrowthAnswerReading<TValue> =
  *
  * THE REPLY IS NOT QUOTED INTO THE SENTENCE: what arrived can carry participant
  * content, so the sentence names the leg and what was expected of it and stops
- * there. `Spec-023 §Console Design (Meridian)` rule 9 is the rule.
+ * there. Only the daemon's own code and message reach the screen.
  */
 export function replyUnreadableRefusal(legName: string, expected: string): ConsoleRefusal {
   return refuse(

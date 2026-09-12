@@ -2,9 +2,8 @@
 // mode it asked for.
 //
 // WHY THREE PATHS AND NOT ONE. A workspace card today renders `fsRoot`, and `fsRoot`
-// alone is ambiguous in exactly the case that matters. `Spec-009 §Repo Identity And
-// Common-Directory Keying (V1 Definition)` makes the mount's `canonicalRoot` the
-// resolver's output and the key the trust envelope is built on; the workspace's BOUND
+// alone is ambiguous in exactly the case that matters. The mount's `canonicalRoot` is
+// the resolver's output and the key the trust envelope is built on; the workspace's BOUND
 // root is where this binding executes, which under `branch` mode is that same checkout
 // and under `worktree` mode is somewhere else entirely; and the NORMALIZED CHECKOUT
 // ROOT is a third value the turn-snapshot service operates on, captured per run and
@@ -19,9 +18,9 @@
 // BYTE equality between two strings the daemon sent — which is a fact about the reply
 // rather than a fact about the filesystem, and is labelled as one.
 //
-// AND THE FALLBACK MARKER IS NOT A DERIVATION EITHER. `Spec-010 §Fallback Behavior`
-// requires an execution mode the daemon SUBSTITUTED to be marked distinctly from one
-// the participant chose, and the workspace list carries no member that says so — its
+// AND THE FALLBACK MARKER IS NOT A DERIVATION EITHER. An execution mode the daemon
+// SUBSTITUTED is marked distinctly from one the participant chose, and the workspace
+// list carries no member that says so — its
 // `executionMode` is the mode in force and reads identically either way. So the marker
 // travels on the execution-context read, and a reading that carries none means the
 // binding is running the mode it was asked for.

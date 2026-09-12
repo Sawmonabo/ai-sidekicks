@@ -173,8 +173,8 @@ describe("MountCard — the way into a change set", () => {
 
 describe("MountCard — what the renderer must not offer", () => {
   it("negative control: nothing on the card is a detach control", () => {
-    // `Spec-009 §Detach Semantics (V1 Definition)` gives the desktop renderer no
-    // detach surface in V1, and there is no force option on a refused detach. This
+    // The desktop renderer has no detach surface in V1, and there is no force option
+    // on a refused detach. This
     // case fails the moment either becomes a control rather than a sentence.
     const { container } = renderCard();
     for (const element of container.querySelectorAll("button, input, a")) {

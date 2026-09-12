@@ -22,8 +22,8 @@ import type { AttachmentIngestEntry } from "./attachment-shapes.js";
  * Whose reading of a value this is.
  *
  * The card labels a declared one AS declared, because the two are not the same class of
- * claim: `Spec-014 §Required Behavior` makes the declaration advisory input that narrows
- * an expected signature and never widens acceptance, while the derived value is what the
+ * claim: the declaration is advisory input that narrows an expected signature and never
+ * widens acceptance, while the derived value is what the
  * daemon found in the bytes. A figure that showed one and meant the other would let a
  * caller's claim pass for a finding.
  */
@@ -84,8 +84,8 @@ export interface AttachmentNameReading {
  * Which name an in-flight attachment goes by, and whose it is.
  *
  * THE DERIVED NAME REPLACES THE DECLARATION OUTRIGHT, which is where this axis differs
- * from the media type beside it. `Spec-014 §Ingest Validation And Payload Bounds (V1)`
- * keeps every caller-supplied string out of every path component and lets the original
+ * from the media type beside it. Ingest validation keeps every caller-supplied string
+ * out of every path component and lets the original
  * survive as manifest metadata only, so once `normalizedName` exists it is the name —
  * there is nothing to show the declaration beside, and showing both would suggest the
  * caller's string is still in use somewhere.

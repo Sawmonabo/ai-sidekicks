@@ -22,9 +22,9 @@
 // second reader here would be a second scheduled reading, a second census entry, and a
 // second refusal on screen — for a value that would come back as the shipped default in
 // every reachable state. The affordance therefore renders `SHIPPED_DEFAULT_ALLOWLIST`
-// and says which of the two lists that is, which is exactly the arm `Spec-014 §Bounds
-// (normative defaults; operator-tunable)` names for a deployment whose effective list
-// cannot be read. When the read is registered, the affordance takes the pane's reading
+// and says which of the two lists that is, which is exactly the arm a deployment whose
+// effective list cannot be read is supposed to take. When the read is registered, the
+// affordance takes the pane's reading
 // through this same shape and nothing about the disclosure changes.
 
 import {
@@ -38,8 +38,8 @@ import { ATTACHMENT_ALLOWLIST_DEFAULT } from "./attachment-policy.js";
  * The effective allow-list and byte bound, with where they came from.
  *
  * `source` is rendered rather than inferred. An operator override REPLACES the default
- * wholesale — `Spec-014 §Bounds (normative defaults; operator-tunable)` — so a hint that
- * could not say which of the two it is showing would be a hint a participant cannot
+ * wholesale, so a hint that could not say which of the two it is showing would be a hint
+ * a participant cannot
  * trust against a deployment they cannot see.
  */
 export interface AttachmentAllowlistReading {
@@ -82,8 +82,8 @@ export function attachmentCarrierFill(attachedCount: number): AttachmentCarrierF
 /**
  * Whether one attachment's own declared length is past the per-attachment bound.
  *
- * DECLARED, WHICH IS THE ONLY LENGTH THE CONSOLE HAS BEFORE THE DAEMON DERIVES ONE.
- * `Spec-014 §Required Behavior` makes a caller's `sizeBytes` advisory, and this reads
+ * DECLARED, WHICH IS THE ONLY LENGTH THE CONSOLE HAS BEFORE THE DAEMON DERIVES ONE. A
+ * caller's `sizeBytes` is advisory, and this reads
  * the payload's own `Blob` size rather than a caller's claim — so the answer is a
  * warning ahead of `artifact.too_large` rather than a verdict standing in for it. The
  * upload is still attempted: the enforcement points are the daemon's three and the

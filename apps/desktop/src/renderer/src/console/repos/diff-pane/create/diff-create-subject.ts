@@ -18,8 +18,8 @@
 // prepare mints one with no run to attribute — and it settles as a refusal that says so
 // rather than as a diff attributed to a run this console picked.
 //
-// NOTHING HERE GUESSES AN ATTRIBUTION. `Spec-011 §Pitfalls To Avoid` names pretending a
-// workspace diff is run-attributed; the mapping below is total, one address kind to one
+// NOTHING HERE GUESSES AN ATTRIBUTION. Pretending a workspace diff is run-attributed is
+// the pitfall; the mapping below is total, one address kind to one
 // arm or to nothing, and there is no fallback branch in which an unresolved subject
 // becomes the other arm.
 

@@ -5,8 +5,8 @@
 // yet — and every virtualizer's contract starts from a flat count. So the
 // flattening IS the work, and it is the part a library cannot do. What is left
 // after it — which of those rows a scroll position needs, at what offset, under
-// what total height — is `@tanstack/react-virtual`'s, which
-// `Spec-023 §Console Libraries` ADOPTs and `DiffRenderer.tsx` is the seam for.
+// what total height — is `@tanstack/react-virtual`'s, the adopted virtualizer
+// `DiffRenderer.tsx` is the seam for.
 // This module answers the count and the addressing and computes no window: the
 // one it used to compute assumed every row was exactly one row tall, which is
 // false the moment the wrap toggle is on.

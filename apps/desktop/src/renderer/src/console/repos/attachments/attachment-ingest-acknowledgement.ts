@@ -1,8 +1,7 @@
 // What one chunk acknowledgement establishes, and what it refuses to establish.
 //
 // THE SEAM, IN ONE SENTENCE: this module changes when the daemon's answer to a chunk
-// changes. `docs/architecture/contracts/api-payload-contracts.md §Plan-014 — Artifacts
-// Files And Attachments` registers `AttachmentIngestChunkResponse` as `{ ingestId,
+// changes. `AttachmentIngestChunkResponse` is registered as `{ ingestId,
 // receivedBytes }` — the second of those being "spooled running total of DECODED bytes
 // after this chunk", which the same line names as the enforced byte bound — so the
 // answer to "how far is this upload" is the daemon's and never this console's.

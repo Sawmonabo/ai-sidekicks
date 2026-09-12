@@ -24,8 +24,8 @@
 // property of the call, and it is legible here by reading the signatures side by side.
 //
 // THE ONE REGISTERED METHOD THAT IS NOT HERE. `repo.detach` is registered beside the
-// calls below and is deliberately absent, because `Spec-009 §Detach Semantics (V1
-// Definition)` gives the desktop renderer no detach surface in V1: a wrapper here
+// calls below and is deliberately absent, because the desktop renderer has no detach
+// surface in V1: a wrapper here
 // would put the call one import away from a surface that must not offer it. The mount
 // card DISCLOSES where detach lives rather than being silent about the absence, and
 // there is no force option on a refused detach anywhere in this family.
@@ -105,8 +105,7 @@ export async function readRepoMount(
  * SESSION-SCOPED, and it is also how the section learns which mounts exist: there is
  * no `repo.mountList` on the wire, and `workspaces.repo_mount_id` is NOT NULL under
  * the mount-first funnel, so the workspace roster names every mount that has one —
- * which, per `Spec-009 §Default Behavior`, is every mount, since attach always mints
- * a default `read-only` workspace.
+ * which is every mount, since attach always mints a default `read-only` workspace.
  */
 export async function readSessionWorkspaces(
   bridge: ConsoleBridge,
@@ -161,8 +160,8 @@ export async function readMountExecutionModeCapabilities(
 /**
  * Record one explicit mode switch.
  *
- * EXACTLY ONE MUTATION per switch. `Spec-010 §Interfaces And Contracts` forbids a
- * client-sequenced select-then-prepare chain, so this function sends the select and
+ * EXACTLY ONE MUTATION per switch. A client-sequenced select-then-prepare chain is
+ * forbidden, so this function sends the select and
  * stops — the workspace's own `ready -> provisioning -> ready` transition is what the
  * row renders next, on its existing id.
  */
@@ -205,15 +204,15 @@ export async function readWorktreeStatus(
 /**
  * Attach one local checkout to this session, on one node.
  *
- * THE PATH TRAVELS VERBATIM. `Spec-009 §Local Trust Envelope (V1 Definition)` puts
- * resolution, canonicalization, containment, symlink following, and case folding with
- * the daemon, so this console sends the string a participant typed and renders whatever
+ * THE PATH TRAVELS VERBATIM. Resolution, canonicalization, containment, symlink
+ * following, and case folding are the daemon's, so this console sends the string a
+ * participant typed and renders whatever
  * comes back — including `repo.root_resolution_failed`, which it never re-reads as
  * "attached as a plain directory".
  *
  * THE NODE IS ALWAYS NAMED, never defaulted here. Mount ownership sits on the runtime
- * node that can actually reach the path (`Spec-009 §Implementation Notes`) and the
- * active-root uniqueness index is keyed on it, so the same absolute path on two nodes
+ * node that can actually reach the path, and the active-root uniqueness index is keyed
+ * on it, so the same absolute path on two nodes
  * names two filesystems and both may attach. A caller with one node in the roster
  * pre-fills the control; this function is handed the answer either way.
  */
@@ -275,8 +274,8 @@ export async function prepareExecutionRoot(
  * MOUNT-SCOPED AND SINGULAR. The active-branch index admits at most one live checkout
  * per `(mount, branch)`, so this answers about ONE candidate and never a list — and the
  * three verdicts it can carry (`available`, `isClean`, `compatible`) are the daemon's,
- * which is why `Spec-010 §Interfaces And Contracts` puts them on the reply as decided
- * booleans rather than as raw git state for a client to interpret.
+ * which is why they arrive on the reply as decided booleans rather than as raw git
+ * state for a client to interpret.
  */
 export async function checkWorktreeReuse(
   bridge: ConsoleBridge,
@@ -349,8 +348,8 @@ export async function disposeEphemeralClone(
  *
  * THE REJECTED VALUE IS NOT QUOTED INTO THE SENTENCE. It names the leg and stops
  * there — a rejection off the wire can carry participant content as readily as a
- * schema failure can, which is the rule `Spec-023 §Console Design (Meridian)` rule 9
- * sets and which the copy this replaces broke by stringifying the rejection into it.
+ * schema failure can, which is the rule the copy this replaces broke by stringifying
+ * the rejection into it.
  */
 export function repoCallRefusal(leg: string, rejection: unknown): ConsoleRefusal {
   return normalizeWireRejection(REPO_READS_REFUSAL_ORIGIN, rejection, {

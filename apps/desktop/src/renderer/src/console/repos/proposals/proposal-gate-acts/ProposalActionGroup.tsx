@@ -35,8 +35,8 @@ import { PROPOSAL_ACTION_PRESENTATION, type ProposalAction } from "../proposal-a
  * knows which act it is about.
  *
  * `isBlocked` is not an eligibility derivation: it is the presence of an unanswered
- * blocking choice on this very surface, which `Spec-011 §Fallback Behavior` requires
- * to be answered before proceeding. Every other reason an act might fail is the
+ * blocking choice on this very surface, which has to be answered before proceeding.
+ * Every other reason an act might fail is the
  * daemon's, is not consulted here, and renders as the refusal beside the act.
  *
  * `inFlightAction` is the second such fact and the last. While the holder is waiting

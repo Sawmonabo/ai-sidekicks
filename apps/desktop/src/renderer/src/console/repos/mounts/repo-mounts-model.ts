@@ -60,8 +60,8 @@ export interface WorkspaceRefusals {
  *
  * THE MODE TRAVELS WITH THE REFUSAL BECAUSE ONE CODE'S RECOVERY IS A WIRE STRING.
  * `workspace.mode_unsupported` is paired with the mount's own reason for the mode that
- * was refused (`Spec-009 §Fallback Behavior` makes the capability gap explicit rather
- * than silently substituted), and that reason lives on the capabilities reply keyed by
+ * was refused (the capability gap is explicit rather than silently substituted), and
+ * that reason lives on the capabilities reply keyed by
  * mode. The pending-mode map cannot supply it: the entry is deleted in the `finally`
  * that follows the settle, so by the time a surface renders the refusal the mode it was
  * about is already gone. A refusal that arrived without its subject would leave the
@@ -113,8 +113,8 @@ export interface RepoMountsReading {
    * The instant this reading was taken, on the reader's own clock.
    *
    * Carried here rather than read off the wall clock by the cards that render an age,
-   * because `Spec-023 §Rules every console surface obeys` forbids interval polling:
-   * an age moves when the surface RE-READS and at no other time, where a card reading
+   * because interval polling is forbidden: an age moves when the surface RE-READS and
+   * at no other time, where a card reading
    * `Date.now()` in its render body would move it on any unrelated re-render. Zero
    * before the first read, which no card renders against — every one is behind `read`.
    */
