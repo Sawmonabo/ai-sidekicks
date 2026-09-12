@@ -1,12 +1,11 @@
 // One answered read, rendered in each of its four phases.
 //
 // Split out of `ApprovalsPane.tsx` because it is a different job from composing the
-// pane: the pane decides WHICH records belong in which section, and this decides what
-// a section says about the read behind it. The four phases are kept apart
-// deliberately — "nobody asked", "the read is in flight", "the read answered and
-// found none", and "the read was refused" are four different next moves for the
-// operator, and `Spec-023 §Console Design (Meridian)` rule 8 forbids collapsing any
-// two of them.
+// pane: the pane decides WHICH records belong in which section, and this decides what a
+// section says about the read behind it. The four phases are kept apart deliberately —
+// "nobody asked", "the read is in flight", "the read answered and found none", and "the
+// read was refused" are four different next moves for the operator, and collapsing any
+// two of them is forbidden.
 
 import { Nothing, formatCount } from "../../../primitives/index.js";
 import { type ConsoleRefusal } from "../../../core/index.js";

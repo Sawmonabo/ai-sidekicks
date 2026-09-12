@@ -75,10 +75,9 @@ describe("the activation signal", () => {
 
 describe("which activations the relay lock may hold shut", () => {
   it("holds the resume opening, which is the collaboration entry point's", () => {
-    // `Spec-026 §Desktop Surface` writes the non-dismissible rule for the flow an
-    // outbound invite triggers, and that is the one opening that resumes. Read from
-    // the sentinel rather than after the state read, so the lock is answerable on the
-    // frame the dialog opens on.
+    // The non-dismissible rule is written for the flow an outbound invite triggers, and
+    // that is the one opening that resumes. Read from the sentinel rather than after the
+    // state read, so the lock is answerable on the frame the dialog opens on.
     expect(
       activationRequiresRelayChoice({ openAtStep: RESUME_OPENING, accountScope: undefined }),
     ).toBe(true);

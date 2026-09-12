@@ -16,17 +16,16 @@
 
 import "./onboarding.css";
 
-// The two tagged lines below name the TASK that will import them, which is the form
-// `apps/desktop/AGENTS.md` §Module shape fixes for the dead-code gate's one exemption
-// — the prose these carried was a description of a consumer and not a task id, so
-// nothing retired them. The consumer is the runs pane's run-failure routing: a run
-// refused on the account plane reads the code, and these two turn it into an
-// activation. Both lines are deleted in the PR that writes that import.
+// The two tagged lines below name the work that will import them, which is the form
+// `apps/desktop/AGENTS.md` fixes for the dead-code gate's one exemption. The consumer
+// is the runs pane's run-failure routing: a run refused on the account plane reads the
+// code, and these two turn it into an activation. Both lines are deleted in the PR that
+// writes that import.
 export {
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy the runs pane's run-failure routing */
   activationForRunRefusal,
   onboardingActivation,
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy the runs pane's run-failure routing */
   type OnboardingActivation,
 } from "./onboarding-activation.js";
 

@@ -20,8 +20,7 @@
 // updated first so the surface responds at once, and a refusal is RECORDED rather
 // than rolled back: rolling back would make a control flicker between two states
 // for reasons a person cannot see, while a recorded refusal is a sentence they can
-// read. `Spec-023 §Console Design (Meridian)` rule 9 — controls are offered,
-// refusals are rendered.
+// read: controls are offered, refusals are rendered.
 //
 // A LATE HYDRATION NEVER OVERWRITES A NEWER LOCAL ACT. The durable read is
 // asynchronous and a person can pin a session or set an invitation aside while it

@@ -33,8 +33,8 @@
 //     verb; submitting again is how a pending intent is displaced, and this form
 //     says so and names the id being displaced.
 //   • No control for an axis whose capability flag is `false`. Absent rather than
-//     disabled, for the reason above (`Spec-023 §Console Design (Meridian)` §The eight
-//     rules, restated for these axes in the composer).
+//     disabled, for the reason above — the console's rules, restated for these axes
+//     in the composer.
 //
 // AND ONE IT DOES: `interruptAndSwitch`, beside "switch at the next boundary",
 // labelled with what it actually does — it dispatches the EXISTING `interrupt`

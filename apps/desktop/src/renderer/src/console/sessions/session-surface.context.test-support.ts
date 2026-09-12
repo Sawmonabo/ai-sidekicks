@@ -65,7 +65,7 @@ export function refusedRead(operationId: string, slateRow: string): unknown {
     detail: `Not checked — the ${operationId} read is not registered yet.`,
     operationId,
     slateRow,
-    owningDocument: "Spec-002",
+    owningDocument: "the session directory",
   };
 }
 

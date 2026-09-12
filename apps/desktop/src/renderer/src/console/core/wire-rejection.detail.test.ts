@@ -24,10 +24,10 @@ describe("normalizeWireRejection — the detail is a sentence, never the rejecti
   /**
    * What a malformed producer put on the wire beside a perfectly good code.
    *
-   * `error-contracts.md` puts request values in `data.fields` by
-   * design, so this is the ordinary content of the envelope rather than a contrived
-   * one; the `toString` is what a serializing arm reaches, and it is the reason a
-   * plain-object claim about `[object Object]` does not bound the disclosure.
+   * `error-contracts.md` puts request values in `data.fields` by design, so this is the
+   * ordinary content of the envelope rather than a contrived one; the `toString` is
+   * what a serializing arm reaches, and it is the reason a plain-object claim about
+   * `[object Object]` does not bound the disclosure.
    */
   const PLANTED_REQUEST_VALUE = "/Users/someone/private-notes";
 

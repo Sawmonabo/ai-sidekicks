@@ -12,11 +12,11 @@
 // GUESS. The remedy this step renders is the one the daemon composed for the account
 // readiness RESOLVED — its own invocation and its own credential home, and not the
 // default account's — and nothing is dispatched against it, which is the whole of what
-// `Spec-026 §Provider Authentication (Group B)` asks of a sign-in step: display the
-// invocation, never run it. And a change of the addressed account retires what the
-// previous one produced — its per-provider act and its reading both — so a settlement
-// still travelling for the previous account installs nothing over the new one, and the
-// previous one's outcome is neither displayed nor pressable.
+// is asked of a sign-in step: display the invocation, never run it. And a change of the
+// addressed account retires what the previous one produced — its per-provider act and
+// its reading both — so a settlement still travelling for the previous account installs
+// nothing over the new one, and the previous one's outcome is neither displayed nor
+// pressable.
 
 import { describe, expect, it } from "vitest";
 
@@ -60,9 +60,8 @@ describe("a provider with more than one account", () => {
 
     // AND NOTHING WAS DISPATCHED FOR IT. The step used to hand this remedy to a growth
     // operation that asked the daemon to start the provider's login — a sixth
-    // `onboarding.*` mutation the corpus does not have, on a flow `Spec-029 §Brokered
-    // interactive sign-in` keeps out of the login path on purpose. What proves the
-    // absence is the port's own record.
+    // `onboarding.*` mutation that does not exist, on a flow the brokered login is kept
+    // out of on purpose. What proves the absence is the port's own record.
     expect(recorded.operationIds).toStrictEqual([]);
   });
 });

@@ -16,8 +16,8 @@
 // THREE REFUSALS THIS SURFACE RAISES BEFORE THE WIRE.
 //
 //   • A rewind with no target position. The cut is daemon-supplied and this pane
-//     computes none, on `Spec-023 §Rules every console surface obeys`' rule that
-//     "eligibility is never projected by the renderer" — so an unnamed position is a
+//     computes none, because eligibility is never projected by the renderer — so an
+//     unnamed position is a
 //     refusal here rather than a request the daemon has to reject.
 //   • A rewind whose target is not a position. The field's whole trimmed value is
 //     read through `rewind-position.ts`, so a typed suffix is refused rather than

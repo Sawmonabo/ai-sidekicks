@@ -1,14 +1,13 @@
 // Every run in the session with its live status, its queue, and its intervention
 // history, in one place that never invents a state.
 //
-// `Spec-023 §Signature Feature Composition Sketches`' Runs View names the pane's
-// data sources — "daemon run-state subscription per Spec-004; daemon queue
-// subscription per Spec-004" — and this pane reads them as a live spine of two
+// The Runs View names the pane's data sources — the daemon run-state subscription and
+// the daemon queue subscription — and this pane reads them as a live spine of two
 // session-scoped subscriptions and one snapshot: `run.subscribeState` streaming
 // `RunStateChangeEvent | RunRolledBackEvent`, `run.subscribeQueue` streaming
 // `QueueItemSummary`, and the `run.queueList` snapshot. Both subscriptions are
-// session-scoped and the fan-out per run is client-side, on the event's own
-// `runId` — which is what `run-state-feed.ts` does.
+// session-scoped and the fan-out per run is client-side, on the event's own `runId` —
+// which is what `run-state-feed.ts` does.
 //
 // WHAT EACH ABSENCE MEANS, AND WHY THEY ARE DIFFERENT SENTENCES.
 //
@@ -30,7 +29,7 @@
 // which runs they are, because a list that quietly omitted them would read as a
 // session with fewer runs than it has.
 //
-// The three are `Spec-023`'s five kinds of nothing applied as they are meant to be:
+// The three are the console's five kinds of nothing applied as they are meant to be:
 // "we have not asked", "we are asking", and "there is none" are three facts and the
 // pane never lets one stand in for another.
 //

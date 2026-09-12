@@ -2,11 +2,11 @@
 //
 // WHAT MOVED HERE AND WHY. The read used to live in `SessionsSurface`, which is a
 // destination — so the rail's count stood while a person was looking at the sessions
-// list and vanished the moment they navigated anywhere else. `Spec-023 §The icon
-// rail` suppresses the count while the projection is UNREACHABLE, and a window that
-// has simply moved to another destination is not an unreachable machine: the daemon
-// is answering, this window is following it, and the honest number was being thrown
-// away because of where the read happened to be mounted. It happens here now, on the
+// list and vanished the moment they navigated anywhere else. The icon rail suppresses
+// the count while the projection is UNREACHABLE, and a window that has simply moved
+// to another destination is not an unreachable machine: the daemon is answering, this
+// window is following it, and the honest number was being thrown away because of
+// where the read happened to be mounted. It happens here now, on the
 // frame-lifetime binding seat, so the count is live from the moment the window
 // resolves a bridge until it tears down.
 //
@@ -24,13 +24,12 @@
 // takes it from the same place it takes the reading.
 //
 // AND THE OS NOTIFICATION CAME WITH IT, for the reason that moved the count and one
-// more. `Spec-019 §Required Behavior` requires attention-worthy states to surface
-// "even when the user is not actively watching the timeline", and its §Default
-// Behavior scopes the banner to whether the app is UNFOCUSED — neither says anything
-// about which destination is open, and a notification whose whole purpose is to reach
-// someone who is looking elsewhere was the one thing still mounted on the screen they
-// had left. A person on the settings page got no banner and no OS notification for an
-// approval that had just started waiting on them.
+// more. Attention-worthy states have to surface even when the user is not actively
+// watching, and the banner is scoped to whether the app is UNFOCUSED — neither rule
+// says anything about which destination is open, and a notification whose whole
+// purpose is to reach someone who is looking elsewhere was the one thing still
+// mounted on the screen they had left. A person on the settings page got no banner
+// and no OS notification for an approval that had just started waiting on them.
 //
 // ONE READ AND ONE EMITTER, not a second projection. The permission reading is taken
 // here and PROVIDED, so the destination's notification centre renders the same answer

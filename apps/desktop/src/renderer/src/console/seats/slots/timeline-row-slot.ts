@@ -61,11 +61,11 @@ export interface TimelineRowSlotProps {
    * The author's place on the twelve-step wheel, or `undefined` for a row with no
    * attributable participant.
    *
-   * The whole assignment rather than a colour string because the hue is never the
-   * sole attribution channel — past twelve participants the wheel wraps and the ring
+   * The whole assignment rather than a colour string because the hue is never the sole
+   * attribution channel — past twelve participants the wheel wraps and the ring
    * treatment is what tells two people on one step apart. A row handed only a colour
-   * could not render that, and `undefined` is the fail-closed answer
-   * rather than step zero, which belongs to somebody.
+   * could not render that, and `undefined` is the fail-closed answer rather than step
+   * zero, which belongs to somebody.
    */
   readonly participantHue: ParticipantHueAssignment | undefined;
   /** Whether a rollback boundary later in the list supersedes this row. */

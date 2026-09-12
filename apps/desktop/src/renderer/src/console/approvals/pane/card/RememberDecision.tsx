@@ -126,9 +126,8 @@ export function RememberDecision(props: RememberDecisionProps): React.JSX.Elemen
             <Select.Value />
           </Select.Trigger>
           {/* The anchored list is the primitive's, which is what puts it in the
-              window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a card
-              that mounted its own portal would be a popup a native browser-pane view
-              paints over. */}
+              window's airspace: a card that mounted its own portal would be a popup a
+              native browser-pane view paints over. */}
           <OverlaySelectPopup className="meridian-approval-card__scope-popup">
             {REMEMBERED_SCOPE_KINDS.map((kind) => (
               <Select.Item className="meridian-approval-card__scope-item" key={kind} value={kind}>

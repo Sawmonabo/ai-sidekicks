@@ -95,10 +95,10 @@ export function isDetachablePaneKind(kind: PaneKind): boolean {
  * The pane kinds a layout snapshot never carries.
  *
  * The browser pane is EPHEMERAL: it is opened for a task and it is not part of the
- * workspace a person comes back to. The consequence is mechanical rather than
- * aesthetic — restoring one would ask the main
- * process to attach a view host, load a page, and spend a paying account's memory for
- * a session nobody has opened yet, on every cold start, forever.
+ * workspace a person comes back to. The consequence is mechanical rather than aesthetic
+ * — restoring one would ask the main process to attach a view host, load a page, and
+ * spend a paying account's memory for a session nobody has opened yet, on every cold
+ * start, forever.
  *
  * A PROPERTY OF THE KIND, for the reason stated above `isDetachablePaneKind`: a
  * per-descriptor boolean lets each view family answer for itself a question the layout

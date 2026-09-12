@@ -1,10 +1,10 @@
 // The approvals pane's acts, contributed to the command palette.
 //
-// `Spec-023 §Console Design (Meridian)` requires every operator action to be
-// palette-reachable, and this pane holds three: approve a pending request, reject
-// it, and clear the session's goal. Each dispatches the SAME call its on-screen
-// control does, through the same reader and the same mutation hook, so a palette
-// press goes in-flight on the card and settles into the card's own refusal.
+// Every operator action is palette-reachable, and this pane holds three: approve a
+// pending request, reject it, and clear the session's goal. Each dispatches the SAME
+// call its on-screen control does, through the same reader and the same mutation hook,
+// so a palette press goes in-flight on the card and settles into the card's own
+// refusal.
 //
 // APPROVE AND REJECT CARRY WHAT THE CARD CARRIES AND NOTHING MORE. The request is
 // `{ approvalRequestId, decision, effectiveScope: record.requestedScope }`, which

@@ -9,9 +9,9 @@
 // first opened.
 //
 // THE SIGNAL IS THE ATTENTION PLANE AND THE SESSION PROJECTIONS, NOT A TIMER.
-// `Spec-023 §Console Design (Meridian)` §The eight rules forbids interval polling
-// outright, so what re-reads this projection is a subscription — two of them, over
-// the two halves of the set the read is fanned out over.
+// Interval polling is forbidden outright, so what re-reads this projection is a
+// subscription — two of them, over the two halves of the set the read is fanned out
+// over.
 //
 // The stores are one half. An attention item is derived from canonical session
 // state, so a session store whose state moved is the honest signal that the

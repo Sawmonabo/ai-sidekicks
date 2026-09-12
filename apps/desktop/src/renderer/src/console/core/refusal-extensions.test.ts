@@ -108,8 +108,8 @@ describe("refusal extensions — the registry is the set, and it is closed", () 
   });
 
   it("reads the referencing manifests a blocked delete names, list and total together", () => {
-    // `error-contracts.md` puts both on the `artifact.delete_blocked`
-    // details shape, and the panel names the derivatives beside the remedy.
+    // `error-contracts.md` puts both on the `artifact.delete_blocked` details shape,
+    // and the panel names the derivatives beside the remedy.
     expect(
       readRefusalExtensions({
         referencingArtifacts: { ids: ["artifact-02", "artifact-03"], total: 51 },

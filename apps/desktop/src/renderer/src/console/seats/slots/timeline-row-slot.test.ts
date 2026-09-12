@@ -1,11 +1,11 @@
 // The one seat that is filled twice, and the refusal that makes the second time
 // require the first to be deleted.
 //
-// The workspace family registers a fixture shell; the `timeline/` subtree registers
-// the real row later, in a PR that DELETES the shell. The seat is
-// owner-scoped, so forgetting the deletion is not a cosmetic slip — the second
-// registration is refused by name and the timeline stops rendering at import time.
-// That loudness is the design, and this file is where it is checked.
+// The workspace family registers a fixture shell; the `timeline/` subtree registers the
+// real row later, in a PR that DELETES the shell. The seat is owner-scoped, so
+// forgetting the deletion is not a cosmetic slip — the second registration is refused
+// by name and the timeline stops rendering at import time. That loudness is the design,
+// and this file is where it is checked.
 
 import { afterEach, describe, expect, it } from "vitest";
 

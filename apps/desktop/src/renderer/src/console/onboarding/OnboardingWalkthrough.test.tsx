@@ -243,10 +243,10 @@ describe("the telemetry step", () => {
 
 describe("the telemetry step before the relay choice resolves", () => {
   it("refuses the question, and says which step it is waiting on", async () => {
-    // `Spec-026 §Telemetry Opt-In` puts this question after the relay choice
-    // resolves. An answer recorded ahead of it is the one thing here nothing can take
-    // back — the question has been asked and answered — so the control is withdrawn
-    // rather than merely discouraged, and the reason is on screen.
+    // This question is put after the relay choice resolves. An answer recorded ahead of
+    // it is the one thing here nothing can take back — the question has been asked and
+    // answered — so the control is withdrawn rather than merely discouraged, and the
+    // reason is on screen.
     const container = await mountAt("telemetry", bridgeWithNoRelayChosen());
     expect(telemetryPromptControl(container).disabled).toBe(true);
     // Scoped to the step, because the rail names every step on every render and an
@@ -346,8 +346,8 @@ describe("finishing before group A is answered", () => {
   });
 
   it("still holds it where only the relay half is answered", async () => {
-    // The shipped scenario's own node: the relay step recorded and telemetry not, which
-    // `Spec-026 §Telemetry Opt-In` refuses to proceed past without an explicit answer.
+    // The shipped scenario's own node: the relay step recorded and telemetry not, and
+    // telemetry may not be proceeded past without an explicit answer.
     const container = await mountAt("providers");
     expect(finishControl(container).disabled).toBe(true);
     const footer = container.querySelector('section[aria-label="Finish setting up"]');
@@ -441,13 +441,13 @@ describe("the window trigger set", () => {
 
 describe("leaving the provider step", () => {
   it("puts it away without telling the daemon anything", async () => {
-    // `Spec-026 §Provider Authentication (Group B)` has that group persist "no config
-    // key, no partial-state entry, no keystore entry, and no event". The control here
-    // used to dispatch `onboarding.stepSkip`, which wrote the provider step into the
-    // daemon's own completed set — a second record of a step whose truth lives in the
-    // account registry, and one that stayed true after every account was signed out.
-    // What is asserted is every write this family can perform, rather than the one
-    // method the defect happened to use.
+    // The provider group persists nothing: no config key, no partial-state entry, no
+    // keystore entry, and no event. The control here used to dispatch
+    // `onboarding.stepSkip`, which wrote the provider step into the daemon's own
+    // completed set — a second record of a step whose truth lives in the account
+    // registry, and one that stayed true after every account was signed out. What is
+    // asserted is every write this family can perform, rather than the one method the
+    // defect happened to use.
     const counted = countingWrites(createFixtureBridge({ scenario: ONBOARDING_SCENARIO }));
     let dismissals = 0;
     const container = await mountAt("providers", counted.bridge, {
@@ -562,8 +562,8 @@ describe("a node the daemon reports as set up", () => {
   });
 
   it("keeps saying which providers are not ready", async () => {
-    // `Spec-026`'s completion posture: what a person leaves with is the standing, and
-    // it is as true after finishing as it was before.
+    // The completion posture: what a person leaves with is the standing, and it is as
+    // true after finishing as it was before.
     const container = await mountAt("providers", bridgeWithGroupAAnswered());
     await act(async () => {
       finishControl(container).click();

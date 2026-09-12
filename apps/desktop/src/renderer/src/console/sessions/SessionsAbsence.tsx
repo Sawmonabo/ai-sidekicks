@@ -22,7 +22,7 @@
 // bridge channel read as an idle console that had chosen not to look. A SERVED
 // directory with no rows is `empty`, because that question was put and answered. A
 // read still in flight is `not-loaded`. Collapsing any two of the four is the
-// conflation `Spec-023 §Console Design (Meridian)` rule 8 exists to prevent, and
+// conflation the console's five-kinds-of-nothing rule exists to prevent, and
 // which of the two refusals this is is `isUnbuiltWireRefusal`'s to say rather than
 // this surface's — one reading, beside the code it is about.
 

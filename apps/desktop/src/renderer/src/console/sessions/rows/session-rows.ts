@@ -1,10 +1,10 @@
 // What one row of the all-sessions list IS, and the order the rows come in.
 //
-// `Spec-023 §Console Design (Meridian)` §All-sessions list: "Answer 'what am I in
-// the middle of' in one screen, ordered so the thing you touched last is where you
-// left it." That sentence is an ordering, and an ordering is a pure function — so
-// it lives here rather than inside a component, where it could not be driven
-// without a DOM and where a second surface wanting the same order would copy it.
+// The all-sessions list answers "what am I in the middle of" in one screen, ordered so
+// the thing you touched last is where you left it. That rule is an ordering, and an
+// ordering is a pure function — so it lives here rather than inside a component,
+// where it could not be driven without a DOM and where a second surface wanting the
+// same order would copy it.
 //
 // FOUR RULES, IN PRECEDENCE ORDER, AND WHY EACH ONE IS WHERE IT IS
 //

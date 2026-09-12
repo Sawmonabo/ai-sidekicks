@@ -6,10 +6,9 @@
  * own rule fixes and the reason the strip can sit inside the frame column without
  * either sheet knowing the other's selectors.
  *
- * Two console rules govern this sheet: one accent hue and no other colour — every
- * value here is a token — and motion
- * settles; nothing here animates, because a banner that slides in during an outage
- * is motion spent on the worst possible moment).
+ * Two console rules govern this sheet: one accent hue and no other colour — every value
+ * here is a token — and motion settles; nothing here animates, because a banner that
+ * slides in during an outage is motion spent on the worst possible moment).
  */
 
 .meridian-shell-state {

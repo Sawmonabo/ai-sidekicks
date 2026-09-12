@@ -1,15 +1,15 @@
 // The agent console's body: what one agent is running under, in four columns.
 //
 // THE FRAME IS NOT THIS MODULE'S, AND THAT IS WHY THIS FILE IS A BODY RATHER THAN A
-// PANE. `Spec-023 §Console Design (Meridian)` §The surface set ships exactly two
-// auxiliary windows and this is one of them, so these columns are mounted twice — by
-// the deck inside `seats/ConsolePaneChrome`, which draws the section, the kind glyph,
-// the breadcrumb trail, the control strip and the body box; and by the frame inside
-// `AgentConsoleWindow.tsx`, which draws the window's own heading. This module draws
-// neither. It had a section and a head of its own while it was both mounts at once,
-// and the cost was the one the chrome exists to end: the deck's detach control was
-// unreachable for the second of the two kinds that has a window route, because
-// nothing in the deck ever wrapped this body in the chrome that renders it.
+// PANE. The console ships exactly two auxiliary windows and this is one of them, so
+// these columns are mounted twice — by the deck inside `seats/ConsolePaneChrome`,
+// which draws the section, the kind glyph, the breadcrumb trail, the control strip
+// and the body box; and by the frame inside `AgentConsoleWindow.tsx`, which draws the
+// window's own heading. This module draws neither. It had a section and a head of its
+// own while it was both mounts at once, and the cost was the one the chrome exists to
+// end: the deck's detach control was unreachable for the second of the two kinds that
+// has a window route, because nothing in the deck ever wrapped this body in the
+// chrome that renders it.
 //
 // SO THERE IS NO HEADING HERE. The pane is named by the chrome's whole trail and the
 // window by its own heading, and a third name inside the body would be a second

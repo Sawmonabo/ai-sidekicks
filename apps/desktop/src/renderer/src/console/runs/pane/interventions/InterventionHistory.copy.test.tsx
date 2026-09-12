@@ -17,7 +17,7 @@ import { renderHistory, restoredRollbackRecord } from "./intervention-history.te
 
 // Every case here presses a control the restored-rollback disclosure offers, and that
 // body arrives on its own chunk — warmed once through the mount's own wait home, as
-// `apps/desktop/AGENTS.md` §Tests requires, so `renderHistory` stays synchronous and a
+// the package's test standard requires, so `renderHistory` stays synchronous and a
 // press lands on the row rather than on the reserved region.
 beforeAll(async () => {
   await resolveFileRestoreDisclosure();

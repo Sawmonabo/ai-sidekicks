@@ -1,9 +1,8 @@
 // The attention plane: what the console may say about "what needs me".
 //
-// `Spec-023 §Console Design (Meridian)` §Notification center and the attention
-// plane puts the whole answer in the daemon's projection: items are read, never
-// counted here. So this module holds a fold and a reading vocabulary — and no
-// derivation of attention at all, and no narrowing either.
+// The whole answer lives in the daemon's projection: items are read, never counted
+// here. So this module holds a fold and a reading vocabulary — and no derivation of
+// attention at all, and no narrowing either.
 //
 // The narrowing, the read seam, and the session fan-out live next door in
 // `attention-projection-read.ts`. This module takes items that already survived
@@ -76,8 +75,8 @@ export type AnsweredAttentionReading = Extract<AttentionReading, { readonly phas
  * IT COUNTS NOTHING THE DAEMON DID NOT SEND. The only arithmetic here is
  * partitioning and ordering. Severity is read off each item; the session-scoped
  * aggregate is an item the projection built, not a reduction this class performs.
- * `Spec-023 §Console Design (Meridian)`: "Never counts attention itself; severity
- * per row comes from the attention projection."
+ * The console never counts attention itself; severity per row comes from the
+ * attention projection.
  *
  * A resolved item is dropped at construction. `resolvedAt` is the daemon's word
  * that the item has cleared, and a center that kept it would be offering a person

@@ -22,11 +22,11 @@
 // is the only thing in the console allowed to decide that a reconnect happened.
 //
 // ONE FACT, NOT A CONNECTION STATE. Deliberately not `isConnected` or a three-arm
-// reachability enum: a surface that could read the current state would render it, and
-// a renderer that painted "connected" would be claiming a fact it observes only
+// reachability enum: a surface that could read the current state would render it, and a
+// renderer that painted "connected" would be claiming a fact it observes only
 // indirectly — the tray's three states are the supervisor's, not the renderer's. What
-// crosses this boundary is an EDGE — the wire
-// was away and is back — which is the one thing a reading has to act on.
+// crosses this boundary is an EDGE — the wire was away and is back — which is the one
+// thing a reading has to act on.
 
 import type { Unsubscribe } from "./emitter.js";
 

@@ -5,13 +5,13 @@
 // ask for, and the one primary action. The CONNECTION — the relay address, the
 // admin-issued join token, the first-connection fingerprint confirmation, and the
 // hosted account's browser sign-in — belongs to the plan that owns the first-run
-// flow, and every one of those is either a secret or a browser hand-off that
-// `Spec-026 §Pitfalls To Avoid` puts in the main process because rendering the
-// admin-token field in a renderer has already leaked it once.
+// flow, and every one of those is either a secret or a browser hand-off that belongs in
+// the main process, because rendering the admin-token field in a renderer has already
+// leaked it once.
 //
 // SO THE BODY IS NOT MERELY UNBUILT HERE — IT IS UNBUILDABLE HERE. That is why the
 // seat exists at all rather than a form: a form authored in this window would be the
-// exact implementation that section names as the defect.
+// exact implementation named as the defect.
 //
 // AND THE SHELL RENDERS WHAT THE FLOW WAS TOLD, rather than a reservation. What comes
 // back from the main-process dialog is an identifier and, where the option needed a
@@ -36,9 +36,8 @@ export interface RelayConnectionBodyProps {
    * The address this node relays through, as the daemon's own config holds it.
    *
    * A VALUE and not a presence flag, which is what separates it from the handle
-   * below: `Spec-026 §Persistence` keeps `relay_url` in plaintext config beside the
-   * choice id, and `Spec-026 §Three-Way Choice Semantics` requires the current
-   * published address to be DISPLAYED for the default option rather than described.
+   * below: `relay_url` lives in plaintext config beside the choice id, and the current
+   * published address has to be DISPLAYED for the default option rather than described.
    */
   readonly relayUrl: string;
   /**

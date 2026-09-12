@@ -1,9 +1,8 @@
 // The three ways this walkthrough opens, and the one seam every one of them uses.
 //
-// `Spec-026 §Provider Authentication (Group B)` fixes the set at exactly three and
-// says there are no others: the _Set up providers_ entry point, a running flow
-// reaching the step after the relay choice resolves, and an account-plane refusal
-// that has already happened. This module is what those three have in common — a
+// The set is exactly three and there are no others: the _Set up providers_ entry point,
+// a running flow reaching the step after the relay choice resolves, and an account-plane
+// refusal that has already happened. This module is what those three have in common — a
 // request naming which step to open at and, on the refusal arm alone, which account
 // to scope the readiness read to.
 //
@@ -19,9 +18,8 @@
 // WHAT THIS IS NOT. It is not a gate. Readiness authorizes nothing, and neither does
 // this: an activation OFFERS the step. A run refused on the account plane is already
 // refused, and opening the step after the fact is the remedy being shown rather than
-// a precondition being enforced — which is exactly the ordering `Spec-026 §Trigger`
-// requires, since the step must never run ahead of a run that would have been
-// admitted.
+// a precondition being enforced — which is exactly the required ordering, since the
+// step must never run ahead of a run that would have been admitted.
 
 import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 
@@ -114,7 +112,7 @@ export class OnboardingActivationSignal {
 export const onboardingActivation: OnboardingActivationSignal = new OnboardingActivationSignal();
 
 /**
- * Whether an activation opens group A — the half the corpus makes non-dismissible.
+ * Whether an activation opens group A — the half that is non-dismissible.
  *
  * WHICH GROUP AN ACTIVATION IS FOR IS ALREADY ON IT, in the step it asks to open at,
  * and this reads that rather than adding a discriminator beside it: `step-model.ts`
@@ -124,18 +122,17 @@ export const onboardingActivation: OnboardingActivationSignal = new OnboardingAc
  *
  * A RESUME OPENING IS GROUP A'S, and that is a reading of the same fact rather than
  * an exception to it: the collaboration entry point is the only opening that resumes,
- * and it is the one `Spec-026 §Desktop Surface` writes the non-dismissible rule for.
- * Deciding it here rather than after the read is what keeps the lock answerable on
- * the frame the dialog opens on.
+ * and it is the one the non-dismissible rule is written for. Deciding it here rather
+ * than after the read is what keeps the lock answerable on the frame the dialog opens
+ * on.
  *
- * WHY IT IS ASKED AT ALL. `Spec-026 §Desktop Surface` makes the walkthrough
- * non-dismissible until the relay choice is made, and that rule is about the flow an
- * outbound invite triggers. Two of the three openings are group B's — the _Set up
- * providers_ command and the post-refusal activation, both of which name the provider
- * step — and `Spec-026 §Provider Authentication (Group B)` has those "offered and
- * never demanded", reached after a refusal that has already happened. Locking those
- * behind an unmade relay choice would turn a look at provider readiness into a setup
- * flow nobody asked for, with no way out of the dialog.
+ * WHY IT IS ASKED AT ALL. The walkthrough is non-dismissible until the relay choice is
+ * made, and that rule is about the flow an outbound invite triggers. Two of the three
+ * openings are group B's — the _Set up providers_ command and the post-refusal
+ * activation, both of which name the provider step — and those are offered and never
+ * demanded, reached after a refusal that has already happened. Locking those behind an
+ * unmade relay choice would turn a look at provider readiness into a setup flow nobody
+ * asked for, with no way out of the dialog.
  */
 export function activationRequiresRelayChoice(activation: OnboardingActivation): boolean {
   const { openAtStep } = activation;
@@ -159,7 +156,7 @@ export function activationRequiresRelayChoice(activation: OnboardingActivation):
  * scope that does not parse becomes an unscoped read rather than a refused activation:
  * the provider step is still worth opening, it just describes the default account.
  */
-// Consumed by T-023p-1C-3 — the runs pane's run-failure routing.
+// Consumed by the runs pane's run-failure routing.
 export function activationForRunRefusal(
   refusal: ConsoleRefusal,
   accountId: string | undefined,

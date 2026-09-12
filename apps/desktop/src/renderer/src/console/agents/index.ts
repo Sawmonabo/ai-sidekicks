@@ -112,7 +112,7 @@ export { registerAgentsSidebarSection } from "./agents-sidebar-section.js";
 //
 // The composer mounts this form in its target chip's axis popover, and what it imports
 // is the whole set: the loader, its context type, the two factories, and the two holder
-// shapes. Their `T-023p-1C-3` claims are retired here, which is the one event
+// shapes. Their dead-code exemption claims are retired here, which is the one event
 // `apps/desktop/AGENTS.md` retires a marker on.
 //
 // TWO NAMES THAT WERE CLAIMED FOR THAT HOST ARE GONE INSTEAD OF TAGGED, and the reason

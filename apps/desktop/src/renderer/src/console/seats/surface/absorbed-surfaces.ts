@@ -201,11 +201,11 @@ export function renderAbsorbedNodeRoster(
  * the module that can make it. The declaration a machine makes about itself — its
  * identity, the contract version it speaks, its self-reported health, and what it can
  * run — is composed in the main process, off the node registry. A caller that could
- * pass a draft in would be a caller that could compose one, and a renderer composing one
- * is a renderer vouching for a machine on its own word. So the draft is
- * RESOLVED here and invented nowhere: `seats/node-roster/node-attach-seam.ts` asks the running scenario
- * under the fixture, and answers nothing under the live bridge, where no registered
- * read delivers such a declaration to this renderer yet.
+ * pass a draft in would be a caller that could compose one, and a renderer composing
+ * one is a renderer vouching for a machine on its own word. So the draft is RESOLVED
+ * here and invented nowhere: `seats/node-roster/node-attach-seam.ts` asks the running
+ * scenario under the fixture, and answers nothing under the live bridge, where no
+ * registered read delivers such a declaration to this renderer yet.
  *
  * The absence it renders is therefore a statement about THIS window rather than about
  * attaching: a machine attaches itself, and no reading here claims otherwise.

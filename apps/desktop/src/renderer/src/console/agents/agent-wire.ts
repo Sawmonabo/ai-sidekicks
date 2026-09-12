@@ -21,15 +21,11 @@
 // VOCABULARIES, because they answer "is this a value I know how to render", which is a
 // different question from "what may the wire carry" — the reply shapes deliberately
 // type these members as `string`, so a later amendment's member renders as ITSELF
-// rather than vanishing (`Spec-023 §Console Design (Meridian)` — a settlement never
-// drops an unrecognized reason).
+// rather than vanishing: a settlement never drops an unrecognized reason.
 
 import type { SessionEventType } from "@ai-sidekicks/contracts";
 
 // --- Method names ---------------------------------------------------------
-//
-// Named by `Spec-023 §Console Design (Meridian)`'s agent sections, which take them
-// from their owning specs.
 //
 // ONLY THE TWO REGISTERED READS ARE NAMED HERE. The rest of the agent plane —
 // `agent.list`, the three `agent.*` writes, `sidekick.definitionList`,
@@ -78,7 +74,7 @@ export const CHILD_RUN_LINKAGE_EVENT_KINDS: readonly SessionEventType[] = [
 
 // --- Closed vocabularies --------------------------------------------------
 
-/** An agent's lifecycle state, closed at four (`Spec-016 §Interfaces And Contracts`). */
+/** An agent's lifecycle state, closed at four. */
 export const AGENT_STATES = ["configured", "ready", "disabled", "archived"] as const;
 
 /** The five axes one `agent.configUpdate` may move. */
@@ -123,8 +119,7 @@ export const CHILD_RUN_VISIBILITIES = ["reachable", "unreachable"] as const;
  *
  * Both are registered at spawn unconditionally and every call is adjudicated
  * per invocation, so this list is shown regardless of the session's enablement
- * state — filtering it by that state would describe a registry that does not
- * exist (`Spec-030 §Required Behavior`).
+ * state — filtering it by that state would describe a registry that does not exist.
  */
 export const PEER_INVOCATION_TOOLS: readonly {
   readonly toolName: string;

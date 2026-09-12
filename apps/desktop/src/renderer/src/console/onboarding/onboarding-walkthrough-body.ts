@@ -1,10 +1,10 @@
 // The walkthrough's chunk root: the one module an `import()` names.
 //
-// WHY IT EXISTS. `Spec-026 §Trigger` forbids this flow on install, first launch, health
-// check, or first session creation and names its three openings instead — two commands
-// a person runs and an activation raised after a run has already been refused. So no
-// step of it is ever drawn before somebody acts, which is precisely the question
-// `apps/desktop/AGENTS.md` §Module shape makes a registration answer.
+// WHY IT EXISTS. This flow never opens on install, first launch, health check, or first
+// session creation; it has exactly three openings — two commands a person runs and an
+// activation raised after a run has already been refused. So no step of it is ever drawn
+// before somebody acts, which is precisely the question the module-shape rule in
+// `apps/desktop/AGENTS.md` makes a registration answer.
 //
 // It rode the initial import graph anyway, because `OnboardingOverlay.tsx` named the
 // walkthrough by static import — and a symbol reachable both statically and dynamically

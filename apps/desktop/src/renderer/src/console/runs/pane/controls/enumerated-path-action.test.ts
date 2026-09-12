@@ -1,11 +1,11 @@
 // What the host said when it refused the clipboard, and what reaches the screen.
 //
-// `Spec-023 §Console Design (Meridian)` rule 9 puts the other side's code and its
-// sentence on screen unparaphrased and leaves the console the `action` slot alone.
-// This action used to `catch` with no parameter — the rejection was discarded and
-// replaced by console prose — so a host that answered `session.not_found`, a
-// permission denial, or any other registered code reached a person as one invented
-// `native.copy_refused`, and the next move it implied was the same for all of them.
+// The other side's code and its sentence go on screen unparaphrased, and the console is
+// left the `action` slot alone. This action used to `catch` with no parameter — the
+// rejection was discarded and replaced by console prose — so a host that answered
+// `session.not_found`, a permission denial, or any other registered code reached a
+// person as one invented `native.copy_refused`, and the next move it implied was the
+// same for all of them.
 
 import { renderHook, act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";

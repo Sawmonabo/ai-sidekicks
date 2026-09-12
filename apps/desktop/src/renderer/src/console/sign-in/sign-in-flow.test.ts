@@ -112,10 +112,9 @@ describe("what one outcome settles into", () => {
 
 describe("the session names who is in it", () => {
   it("carries the ceremony's participant claims onto the signed-in state", async () => {
-    // `Spec-023 §WebAuthn Credential Flow` step 7 returns "only the ceremony success
-    // signal + participant identity claims", so this state is the only place that
-    // fact reaches a surface. Without it the card can say a sign-in happened and
-    // never whose — a receipt with no subject.
+    // The ceremony resolves with the success signal and the participant identity claims and
+    // nothing else, so this state is the only place that fact reaches a surface. Without it
+    // the card can say a sign-in happened and never whose — a receipt with no subject.
     const { flow } = flowOver([{ kind: "authenticated", custody: "durable", claims: CLAIMS }]);
     await flow.signIn();
     expect(flow.state).toStrictEqual({ kind: "signed-in", custody: "durable", claims: CLAIMS });

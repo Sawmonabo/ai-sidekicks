@@ -1,12 +1,11 @@
 // The console's routes, as data.
 //
-// Hash routing, not history routing, and for a concrete reason: the renderer is
-// served from a custom `sidekicks-renderer://` scheme through a bundle handler that
-// resolves exactly one document (`src/main/protocol.ts`). A history-API route would
-// ask that handler for a path that is not a file; a hash route asks for the same
-// document every time and carries its state after the `#`.
-// The auxiliary-window factory already relies on this — `createAuxiliaryWindow`
-// loads `…/index.html#/window/<route>`.
+// Hash routing, not history routing, and for a concrete reason: the renderer is served
+// from a custom `sidekicks-renderer://` scheme through a bundle handler that resolves
+// exactly one document (`src/main/protocol.ts`). A history-API route would ask that
+// handler for a path that is not a file; a hash route asks for the same document every
+// time and carries its state after the `#`. The auxiliary-window factory already relies
+// on this — `createAuxiliaryWindow` loads `…/index.html#/window/<route>`.
 //
 // Two families of route:
 //

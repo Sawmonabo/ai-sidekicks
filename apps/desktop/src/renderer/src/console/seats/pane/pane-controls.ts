@@ -4,9 +4,8 @@
 // are the HOST's acts: the deck owns which panes exist and — for the two auxiliary
 // windows the console ships — in which window. But a pane body is mounted through
 // `pane-registry.ts`, whose `render(context)` takes a `ConsolePaneContext` and nothing
-// else — that contract is shared by six view
-// families and widening it to carry two callbacks would be six branches changing one
-// merged file.
+// else — that contract is shared by six view families and widening it to carry two
+// callbacks would be six branches changing one merged file.
 //
 // So the controls travel as REACT CONTEXT, provided by the deck around each pane body
 // and read by the chrome. Three properties follow, and each is the reason:

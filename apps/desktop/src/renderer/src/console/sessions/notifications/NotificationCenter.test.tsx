@@ -1,9 +1,9 @@
 // What the notification center puts on screen, and the two controls it must not.
 //
 // The hardest properties here are absences: there is no dismiss anywhere in the
-// contract, and per-session mute is deferred in Spec-019 while Spec-023 allows it —
-// so the center must offer neither, and "must not render a control" is exactly the
-// claim a type cannot make.
+// contract, and per-session mute is deferred while the console design allows it — so
+// the center must offer neither, and "must not render a control" is exactly the claim a
+// type cannot make.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

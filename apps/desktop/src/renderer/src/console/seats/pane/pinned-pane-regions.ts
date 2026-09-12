@@ -75,11 +75,10 @@ export interface PinnedPaneRegionContext {
    * put its route into whichever deck happened to be composed last.
    *
    * OPTIONAL, and the absence is a real state rather than a gap to fill in. A pane
-   * mounted outside a deck — an auxiliary window, a full-width surface with no deck
-   * at all — has no pane to open and no host to ask, so a body offers its route only
-   * where one arrived. That is the absent-not-disabled
-   * rule `pane-controls.ts` states for the head's own controls, applied to the region
-   * below it.
+   * mounted outside a deck — an auxiliary window, a full-width surface with no deck at
+   * all — has no pane to open and no host to ask, so a body offers its route only where
+   * one arrived. That is the absent-not-disabled rule `pane-controls.ts` states for the
+   * head's own controls, applied to the region below it.
    */
   readonly openPane?: ConsolePaneOpener | undefined;
 }

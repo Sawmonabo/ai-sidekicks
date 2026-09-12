@@ -13,7 +13,7 @@
 // the chunk has landed — so a card opened a second time never suspends at all.
 //
 // ONE `const` AND NOT A MODULE-LEVEL `let`: the memo is the class's own private field,
-// which is what `apps/desktop/AGENTS.md` §State and views asks for, and a window has
+// which is what `apps/desktop/AGENTS.md` asks for of state and views, and a window has
 // exactly one sign-in card so there is nothing to key the registration on.
 
 import { LoadedLazyBody, reservedBodyRegion } from "../seats/index.js";

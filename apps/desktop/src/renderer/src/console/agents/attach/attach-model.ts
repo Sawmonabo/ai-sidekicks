@@ -4,10 +4,9 @@
 // filled form is submittable — is `attach-readiness.ts` beside it. This file is what a
 // caller may DO to the form; that one is what the entries mean.
 //
-// `Spec-023 §Console Design (Meridian)` §Attaching a sidekick makes this a FORM and
-// not a wizard, and the shape of the request is what forces that: the union refuses
-// exactly one thing, a request naming neither a definition nor a driver-and-model
-// pair. Everything else is a field.
+// Attaching a sidekick is a FORM and not a wizard, and the shape of the request is
+// what forces that: the union refuses exactly one thing, a request naming neither a
+// definition nor a driver-and-model pair. Everything else is a field.
 //
 // TWO MEMBERS ARE REQUIRED ON BOTH ARMS — the session the agent joins and the name it
 // is called by — because the registered request base requires them of every arm. They

@@ -11,8 +11,8 @@
 //
 // AND `authenticated` IS THE ONLY ARM THAT REPORTS A PROVIDER AS SET UP. A plan
 // label, a billing mode, an observed email, or a credential home that exists on disk
-// is not evidence — `Spec-026 §Provider Authentication (Group B)` says so, and the
-// five other sentences below each say plainly that the provider cannot run yet.
+// is not evidence, and the five other sentences below each say plainly that the
+// provider cannot run yet.
 //
 // WHY THIS IS THE SECOND TABLE OVER THIS UNION, AND NOT A DUPLICATE. The
 // provider-accounts settings page carries its own sentences for the same six arms,
@@ -68,10 +68,9 @@ export function remedyHeadline(remedy: ProviderRemedy): string {
  *
  * TOTAL over the same union as {@link remedyHeadline}, and `undefined` on exactly the
  * one arm that is neither a registry verb nor an act any surface performs: a `sign_in`
- * remedy is the provider's OWN first-party flow, which `Spec-026 §Provider
- * Authentication (Group B)` requires this step to display and never to run, and
- * `Spec-029 §Brokered interactive sign-in` keeps out of the first-run flow even on the
- * account plane's own verbs. The row renders the invocation and the credential home
+ * remedy is the provider's OWN first-party flow, which this step displays and never
+ * runs, and which is kept out of the first-run flow even on the account plane's own
+ * brokered login verbs. The row renders the invocation and the credential home
  * verbatim, so a control here would offer to perform something nothing performs.
  *
  * THE OTHER TWO ARMS ARE MUTATING REGISTRY VERBS AND NO CONSOLE ROUTE SERVES THEM.

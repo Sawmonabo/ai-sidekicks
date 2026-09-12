@@ -1,20 +1,19 @@
 // The signed-out card: one action, one honest note, and whatever the ceremony said.
 //
-// `Spec-023` gives the flow a start and does not name a screen for it, so the shape
-// is this console's: a single card with the passkey action and the standing fact
-// that a local session needs no account at all. Density is one card and one primary
-// action, and the browser hand-off appears only when the host's probe says it must —
-// never as a second way in offered beside the first.
+// The flow has a start and no screen of its own, so the shape is this console's: a
+// single card with the passkey action and the standing fact that a local session needs
+// no account at all. Density is one card and one primary action, and the browser
+// hand-off appears only when the host's probe says it must — never as a second way in
+// offered beside the first.
 //
-// EVERY STATE RENDERS SOMETHING, and the states are the flow's, not this file's.
-// What this component decides is which of them is a card body and which is a
-// refusal: `Spec-023 §Console Design (Meridian)` rule 9 puts a refusal inline on the
-// control that produced it, and rule 8 keeps "we asked and were told no" apart from
-// "this build has no ceremony" — the first is an error and the second is _not
-// checked_.
+// EVERY STATE RENDERS SOMETHING, and the states are the flow's, not this file's. What
+// this component decides is which of them is a card body and which is a refusal: a
+// refusal renders inline on the control that produced it, and "we asked and were told
+// no" stays apart from "this build has no ceremony" — the first is an error and the
+// second is _not checked_.
 //
 // A REFUSED ENROLMENT IS RENDERED INSIDE THE SIGNED-IN BODY and never in place of
-// it, which is rule 9 taken literally: the control that produced it is _Add another
+// it, which is that rule taken literally: the control that produced it is _Add another
 // passkey_, that control belongs to a session nothing revoked, and the refusal goes
 // beside it in the inline shape with the session's own line still above. The way in
 // is the other case — a refusal there has no session behind it, so it stands in for

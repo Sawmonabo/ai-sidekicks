@@ -1,11 +1,10 @@
 // The ceiling a tool allowlist cannot raise, said once for the whole roster.
 //
-// A NODE-WIDE FACT, SO NOT A LINE ON A CARD. `Spec-023 §Console Design (Meridian)`'s
-// tool-governance section puts the per-agent allowlist on the card and the node-wide
-// switch on the browser settings page, and this states how the two compose. It was
-// written under every card, which repeated three lines per agent and — under the
-// position where the roster reply carried no configuration at all — asserted that an
-// allowlist had been applied to a reply that named none.
+// A NODE-WIDE FACT, SO NOT A LINE ON A CARD. The per-agent allowlist belongs on the
+// card and the node-wide switch on the browser settings page, and this states how the
+// two compose. It was written under every card, which repeated three lines per agent
+// and — under the position where the roster reply carried no configuration at all —
+// asserted that an allowlist had been applied to a reply that named none.
 //
 // SO THE SUBJECT IS THE MECHANISM AND NEVER THIS AGENT. "A tool allowlist is applied
 // at spawn" is true of every spawn on this node, including the ones nobody has made

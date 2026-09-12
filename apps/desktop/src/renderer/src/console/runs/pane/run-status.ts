@@ -4,9 +4,9 @@
 // Two rules this module encodes. The first is the corpus's; the second is this
 // module's own, because no committed document states it.
 //
-//   • **The status vocabulary is `RunState` verbatim.** `Spec-023 §Rules every
-//     console surface obeys` names "event and state names" among the byte-for-byte
-//     strings that "render exactly as received, in mono, never re-parsed". Nine
+//   • **The status vocabulary is `RunState` verbatim.** Event and state names are
+//     byte-for-byte strings that render exactly as received, in mono, never
+//     re-parsed. Nine
 //     members, and the canonical failure terminal is `failed`. `errored` is a gloss
 //     the enum does not carry and no chip here can produce one, because every
 //     chip's label is the wire string itself.
@@ -160,12 +160,12 @@ export function isBlockedRunState(state: RunState): boolean {
 /**
  * What a stop-condition trigger says, in this pane's own words.
  *
- * `Spec-023 §Signature Feature Composition Sketches` settles only WHERE these read
- * — its Multi-Agent Channels View sends run-level stop-condition outcomes to "the
- * Runs View / timeline, not here". The phrasing rule is this module's: a run that
- * stopped because a limit fired says which limit, in those words. A total record
- * over the wire union, so a sixth trigger fails to compile here rather than
- * reaching a person as a bare wire token dropped into an English sentence.
+ * Where these read is settled elsewhere: the Multi-Agent Channels View sends run-level
+ * stop-condition outcomes to the Runs View rather than rendering them itself. The
+ * phrasing rule is this module's: a run that stopped because a limit fired says which
+ * limit, in those words. A total record over the wire union, so a sixth trigger fails
+ * to compile here rather than reaching a person as a bare wire token dropped into an
+ * English sentence.
  */
 export const RUN_TRIGGER_PHRASES: Readonly<Record<RunStopTrigger, string>> = {
   turn_limit: "the run reached its turn limit",

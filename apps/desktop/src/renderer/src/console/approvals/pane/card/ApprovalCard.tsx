@@ -1,12 +1,11 @@
 // One approval, one card, two answers.
 //
-// `Spec-023 §Signature Feature Composition Sketches`' Approvals View renders
-// "pending approval cards (category, requesting agent, summary of action, target
-// scope, remembered-rule option)", which is what this card carries. THAT THE
-// REMEMBERING POLICY IS VISIBLE BEFORE THE ANSWER IS GIVEN is this component's own
-// rule, because no committed document states it: an opt-in whose consequence is
-// disclosed after the click is not an opt-in. Four properties
-// this component keeps that are worth naming because each one is a Never:
+// The Approvals View renders pending approval cards — category, requesting agent,
+// summary of action, target scope, remembered-rule option — which is what this card
+// carries. THAT THE REMEMBERING POLICY IS VISIBLE BEFORE THE ANSWER IS GIVEN is this
+// component's own rule, because no committed document states it: an opt-in whose
+// consequence is disclosed after the click is not an opt-in. Four properties this
+// component keeps that are worth naming because each one is a Never:
 //
 //   • **Two answers, no third.** `APPROVAL_DECISIONS` is closed at two and there is
 //     no amend control, because `ApprovalResolveRequest` carries nothing that edits
@@ -24,12 +23,11 @@
 //     counts down or decides that a deadline has passed. `expired` and `canceled`
 //     arrive from the wire or not at all.
 //
-// The action row is a `toolbar` walked with arrows and with `h`/`l`, and both
-// suppress the page scroll they would otherwise cause. Base UI supplies the
-// disclosure under Meridian tokens — `Spec-023 §Console Libraries` adopts
-// `@base-ui/react` as "the one widget family … with zero CSS"; the row itself is two ordinary buttons,
-// because a library button would add weight without adding behaviour a `<button>`
-// does not already have.
+// The action row is a `toolbar` walked with arrows and with `h`/`l`, and both suppress
+// the page scroll they would otherwise cause. Base UI supplies the disclosure under
+// Meridian tokens — `@base-ui/react` is the one adopted widget family and ships zero
+// CSS; the row itself is two ordinary buttons, because a library button would add
+// weight without adding behaviour a `<button>` does not already have.
 
 import { useCallback, useId, useRef, useState } from "react";
 import { Collapsible } from "@base-ui/react/collapsible";
@@ -69,9 +67,8 @@ export interface ApprovalCardProps {
   readonly onResolve: (request: ApprovalResolveRequest) => void;
   /**
    * Extra body between the header and the action row — where a permission-kind
-   * `driver_ask` lands, which `Spec-023 §Signature Feature Composition Sketches`'
-   * Timeline View sends here: it "normalizes into the approval model and belongs to
-   * the Approvals View".
+   * `driver_ask` lands: a permission-kind ask normalizes into the approval model and
+   * belongs to this view rather than to the run timeline.
    */
   readonly children?: React.ReactNode;
 }

@@ -1,11 +1,11 @@
 // What a switch settlement SAYS, as a projection of the reply and nothing else.
 //
-// `Spec-023 §Console Design (Meridian)` §Switch settlement, continuity, and declared
-// losses fixes the one rule this module exists to hold: the reply's `status` is the
-// discriminator and the renderer never re-derives it. `degraded` is exactly the
-// `memo` continuity and `applied` is exactly the other two, and both facts are
-// already on the wire — recomputing either here would make this a second source of
-// truth for a settlement the daemon already settled.
+// Switch settlement, continuity, and declared losses turn on the one rule this module
+// exists to hold: the reply's `status` is the discriminator and the renderer never
+// re-derives it. `degraded` is exactly the `memo` continuity and `applied` is exactly
+// the other two, and both facts are already on the wire — recomputing either here
+// would make this a second source of truth for a settlement the daemon already
+// settled.
 //
 // So this is a pure function over the reply. It holds no state, reaches no bridge,
 // and renders nothing. Its output is a small record a component lays out, which is

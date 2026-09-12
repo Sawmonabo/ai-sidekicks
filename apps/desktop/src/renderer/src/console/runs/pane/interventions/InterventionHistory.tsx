@@ -1,10 +1,9 @@
 // Who directed this run, what they asked for, and whether it landed — including
 // the attempts that did not.
 //
-// `Spec-023 §Signature Feature Composition Sketches`' Runs View renders
-// "intervention history per Spec-004" and settles nothing further. WHAT THE HISTORY
-// SHOWS IS THIS COMPONENT'S OWN RULE, because no committed document states it:
-// every intervention in order with its terminal state from the six-member
+// The Runs View renders the run's intervention history and settles nothing further.
+// WHAT THE HISTORY SHOWS IS THIS COMPONENT'S OWN RULE, because no committed document
+// states it: every intervention in order with its terminal state from the six-member
 // `InterventionState`, the `origin` discriminator, the admitting principal on the
 // participant arm, the rejection reason verbatim on a `rejected` row, and the
 // disposition on a `degraded` rollback.
@@ -21,10 +20,9 @@
 //
 // THE TWO ARE NEVER MERGED. They describe the same intervention from two sides, and
 // matching them would mean matching on an id this window does not learn until its own
-// call settles. `Spec-023 §Rules every console surface obeys` makes the projection
-// fail closed — an unrecognized enum member "renders as the explicit unrecognized row
-// or badge, never as a guess" — and a correspondence the console cannot read is
-// exactly the guess it may not make.
+// call settles. The projection fails closed — an unrecognized enum member renders as
+// the explicit unrecognized row or badge, never as a guess — and a correspondence the
+// console cannot read is exactly the guess it may not make.
 //
 // FAILED ATTEMPTS ARE PART OF THE RECORD. A refused control is a row, not an
 // omission: interventions require durable audit records even when they fail, and a

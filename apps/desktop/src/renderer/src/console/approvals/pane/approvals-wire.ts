@@ -1,11 +1,10 @@
 // The approvals surface's seam onto the daemon: the four operations it drives and
 // the resolve request they carry.
 //
-// EVERY NAME BELOW IS A ROW OF A REGISTRY THE CORPUS ALREADY PUBLISHES, quoted
-// verbatim: `api-payload-contracts.md §Approval Method-Name Registry (Tier 6)`
-// exposes five `approval.*` methods. WHICH FOUR THIS SURFACE CALLS IS ITS OWN
-// DECISION, because no committed document assigns them; the fifth and one absence
-// are the registry's own:
+// EVERY NAME BELOW IS A ROW OF THE APPROVAL METHOD-NAME REGISTRY, quoted verbatim: the
+// wire exposes five `approval.*` methods. WHICH FOUR THIS SURFACE CALLS IS ITS OWN
+// DECISION, because no committed document assigns them; the fifth and one absence are
+// the registry's own:
 //
 //   • `PermissionCheck` is NOT here and is reached from nowhere. That registry says
 //     it "is deliberately **not** registered: it is the daemon-internal
@@ -22,8 +21,8 @@
 // against and the registry next door admits none of them. The port is the console's
 // answer for exactly that: it is typed by the console's own signature table, every
 // operation refuses by name under the live bridge, and the refusal says which
-// document owes the wire. When Plan-012 ships the pairs, the four rows leave the
-// slate, join `daemon-reply-registry.ts`, and these four calls become `callDaemon`.
+// work owes the wire. When those pairs ship, the four rows leave the slate, join
+// `daemon-reply-registry.ts`, and these four calls become `callDaemon`.
 //
 // WHAT IS LEFT IN THIS FILE. The four thin calls and the lifecycle kinds the pane
 // re-reads on. The reply narrowings moved down to `bridge/approvals/`, which is where
@@ -70,11 +69,10 @@ export const APPROVAL_RULE_EVENT_KINDS = ["approval.remembered", "approval.rule_
 
 /** Read the projection, unfiltered.
  *
- * The server-side filters `state?` and `category?` exist and this surface passes
- * neither. `Spec-023 §Signature Feature Composition Sketches`' Approvals View renders
- * "resolved approvals in history view" without a filter, and THIS SURFACE'S OWN RULE,
- * because no committed document states it, is that history renders every record an
- * unfiltered read returns and the client never filters by state itself.
+ * The server-side filters `state?` and `category?` exist and this surface passes neither.
+ * The Approvals View renders resolved approvals in history without a filter, and THIS
+ * SURFACE'S OWN RULE, because no committed document states it, is that history renders
+ * every record an unfiltered read returns and the client never filters by state itself.
  */
 export function readApprovals(
   bridge: ConsoleBridge,

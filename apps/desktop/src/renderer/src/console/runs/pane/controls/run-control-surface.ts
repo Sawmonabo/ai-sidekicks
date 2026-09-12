@@ -51,14 +51,12 @@
 // only about the round it owns, so a set is what a component can read a key out of —
 // and because nothing outside the settlement writes it, the two cannot disagree.
 //
-// THE RECORD IS THIS WINDOW'S OWN. `Spec-023 §Signature Feature Composition
-// Sketches`' Runs View renders "intervention history per Spec-004" — the durable
-// history, including the attempts that failed, with the `origin` discriminator and
-// the admitting principal on the participant arm. Those live on the `interventions`
-// table and no registered wire reads them, so
-// what this surface can honestly hold is what it dispatched and what came back —
-// every field of it daemon-supplied. The surface that renders it says so rather
-// than passing a partial record off as the whole one.
+// THE RECORD IS THIS WINDOW'S OWN. The Runs View renders the durable intervention
+// history, including the attempts that failed, with the `origin` discriminator and the
+// admitting principal on the participant arm. Those live on the `interventions` table
+// and no registered wire reads them, so what this surface can honestly hold is what it
+// dispatched and what came back — every field of it daemon-supplied. The surface that
+// renders it says so rather than passing a partial record off as the whole one.
 
 import { useCallback, useMemo, useRef } from "react";
 

@@ -1,15 +1,14 @@
 // Whether one approval arrived as a provider's mid-run permission ask, read off the
 // entity the store holds.
 //
-// THE DISTINCTION IS REGISTERED AND THE READ DOES NOT CARRY IT. `Spec-006 §Approval
-// Flow (approval_flow)` puts `askId` on the `approval.requested` payload exactly when
-// the request originates from a provider permission ask, and
-// `api-payload-contracts.md §Plan-012` pairs it with `expiryAt` — required whenever
-// `askId` is present, enforced at the emission seam, mirrored by the
+// THE DISTINCTION IS REGISTERED AND THE READ DOES NOT CARRY IT. The event taxonomy puts
+// `askId` on the `approval.requested` payload exactly when the request originates from
+// a provider permission ask, and the wire contract pairs it with `expiryAt` — required
+// whenever `askId` is present, enforced at the emission seam, mirrored by the
 // ask-implies-deadline CHECK on the durable row. `approval.projectionRead` registers
-// neither member, so the console learns the origin from the EVENT or not at all —
-// which is why this reads the projected entity's body rather than the record the
-// pane's own read answered with.
+// neither member, so the console learns the origin from the EVENT or not at all — which
+// is why this reads the projected entity's body rather than the record the pane's own
+// read answered with.
 //
 // A PURE FUNCTION OVER A BODY, and it lives here rather than in the pane for the
 // reason every parse in this family does: a surface that decided for itself what

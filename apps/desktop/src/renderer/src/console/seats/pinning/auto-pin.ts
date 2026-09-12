@@ -3,8 +3,8 @@
 // In the all-sessions list, auto-pin on first send is a setting, default on, and it
 // fires only when ALL FIVE of these hold — the setting is on, the session is still a
 // draft placeholder, the session did not arrive by import, the session was not opened
-// on behalf of a peer invocation or a child run,
-// and the session was not started by a workflow.
+// on behalf of a peer invocation or a child run, and the session was not started by a
+// workflow.
 //
 // EACH EXCLUSION IS A FACT ABOUT THE SESSION'S ORIGIN, AND FACTS CAN BE ABSENT. Where
 // the wire carries no marker for one of them, the conjunct FAILS CLOSED and no pin

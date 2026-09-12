@@ -14,10 +14,9 @@
 // undressed, so both roots name the sheets and the bundler emits one shared asset for
 // the pair. The eighth sheet — the sidekicks page's — enters at its own chunk root,
 // `definitions/sidekick-definitions-page-body.ts`, whose header states why. The move is
-// admitted by the collision rule in `apps/desktop/AGENTS.md` §Module shape: no other
+// admitted by the module-shape collision rule in `apps/desktop/AGENTS.md`: no other
 // family declares a class any of these seven declares, so deferring them changes no
-// surface but
-// this family's own.
+// surface but this family's own.
 //
 // THE ORDER IS THE FAMILY'S AND IS LOAD-BEARING. `agents.css` holds the control shape
 // and the grouped rules the five surface sheets refine, so it is named first and they

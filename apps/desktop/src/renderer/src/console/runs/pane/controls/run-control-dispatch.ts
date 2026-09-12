@@ -37,12 +37,10 @@
 //
 // WHAT THIS MODULE NEVER OFFERS. No reorder, no priority, no dequeue distinct from
 // cancel, and no move-to-background: none of the four exists anywhere in the corpus.
-// `Spec-023 §Signature Feature Composition Sketches`' Runs View strikes the first
-// three in terms — "**Queue reorder is struck**: `Spec-004 §Resolved Questions and
-// V1 Scope Decisions` defers queue priority overrides for V1 … the queue's only V1
-// removal path is `run.queueCancel`." The fourth is this module's own refusal: no
-// wire member anywhere backgrounds a run, so a control for it would be an offer the
-// daemon could not answer.
+// The Runs View strikes the first three in terms: queue reorder is struck, queue
+// priority overrides are deferred, and the queue's only removal path is
+// `run.queueCancel`. The fourth is this module's own refusal: no wire member anywhere
+// backgrounds a run, so a control for it would be an offer the daemon could not answer.
 
 import type { InterventionRequestResponse, RunControlAck } from "@ai-sidekicks/contracts";
 
@@ -61,14 +59,10 @@ export const RUN_CONTROL_REFUSAL_ORIGIN = "run-controls";
 /**
  * The six controls, closed and declared once.
  *
- * `Spec-023 §Signature Feature Composition Sketches`' Runs View enumerates exactly
- * these six — "pause / resume on active runs (`run.pause` / `run.resume`); steer /
- * interrupt / cancel / **rollback** through the generic `run.intervene` dispatch".
- * `Spec-004 §Resolved Questions and V1 Scope Decisions`
- * enumerates five and omits `cancel`; `cancel` is nonetheless a first-class arm of
- * the registered `InterventionRequestPayload` union and is named in
- * `Spec-012 §Required Behavior`, so six is the correct reading and the omission is
- * an under-enumeration worth an erratum.
+ * The Runs View enumerates exactly these six: pause and resume on active runs
+ * (`run.pause` / `run.resume`), and steer, interrupt, cancel, and rollback through the
+ * generic `run.intervene` dispatch. `cancel` is a first-class arm of the registered
+ * `InterventionRequestPayload` union, so six is the correct reading.
  */
 export const RUN_CONTROLS = [
   "pause",
@@ -329,15 +323,13 @@ export class RunControlDispatcher {
  * rejections; this one survives because the React binding's `perform` can reject
  * BEFORE the dispatcher runs at all, and one rejection deserves one reading.
  *
- * The code the daemon sent is the code a person sees; there is deliberately no
- * table here mapping a wire code onto console prose — `Spec-023 §Rules every console
- * surface obeys` has the renderer never pre-deny: "it calls, and renders the typed
- * refusal code with the daemon's message text and the operator's next move". Every
- * refusal these six controls can reach is registered
- * in `error-contracts.md` — `run.invalid_transition`, `run.not_found`,
- * `run.limit_exceeded`, `run.recovery_failed`,
- * `intervention.idempotency_conflict`, `auth.principal_mismatch` — and each travels
- * this one path.
+ * The code the daemon sent is the code a person sees; there is deliberately no table
+ * here mapping a wire code onto console prose. The renderer never pre-denies: it calls,
+ * and renders the typed refusal code with the daemon's message text and the operator's
+ * next move. Every refusal these six controls can reach is registered in
+ * `error-contracts.md` — `run.invalid_transition`, `run.not_found`,
+ * `run.limit_exceeded`, `run.recovery_failed`, `intervention.idempotency_conflict`,
+ * `auth.principal_mismatch` — and each travels this one path.
  *
  */
 export function carriedRunControlRefusal(

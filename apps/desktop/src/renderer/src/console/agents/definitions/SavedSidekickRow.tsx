@@ -11,8 +11,8 @@
 // THE CONTROL IS ABSENT WITHOUT A SESSION, never disabled. An agent joins a session,
 // so with none open there is nothing to attach into and no act to offer — and a
 // disabled control would assert that the act exists and is momentarily unavailable,
-// which is the claim `Spec-023 §Console Design (Meridian)`'s eight rules refuse. The
-// column above says once why it is missing, rather than every row saying it.
+// which is exactly the claim the console's rules refuse. The column above says once
+// why it is missing, rather than every row saying it.
 //
 // THE OFFER CARRIES THE ID AND THE NAME TRAVELS FOR DISPLAY ONLY. `definitionId` is
 // what the attach form resolves against its own read; the name is the word this row

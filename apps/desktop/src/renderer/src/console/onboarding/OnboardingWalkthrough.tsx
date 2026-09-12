@@ -1,8 +1,8 @@
 // The walkthrough: a rail of steps, one step open, and a footer that can finish.
 //
-// THE SHAPE IS THE CORPUS'S. `Spec-026 §Desktop Surface` fixes it as "a left-rail
-// progress list with a right pane carrying copy and inputs and one explicit primary
-// action per step", so that is what this composes and nothing more.
+// THE SHAPE IS FIXED: a left-rail progress list with a right pane carrying copy and
+// inputs and one explicit primary action per step, so that is what this composes and
+// nothing more.
 //
 // THE FINISH ACTION IS ALWAYS REACHABLE, and that is the "offered, never demanded"
 // rule expressed as layout rather than as a sentence. Completing with no provider
@@ -256,13 +256,13 @@ function renderStep(
           }}
           recheckBlock={state.recheckBlock}
           onOpenAccountRegistry={props.onOpenAccountRegistry}
-          // A LOCAL EXIT AND NOT A RECORDED SKIP. `Spec-026` makes exactly one step
-          // leavable, `step-model.ts` records which, and the way out is the overlay's
-          // own dismissal — so nothing reaches the daemon, which is what "Group B
-          // persists nothing" means when a person presses it. Both conditions are read
-          // rather than restated: a handler written unconditionally here would be a
-          // second answer to the first question, and one that closed the dialog
-          // regardless would be a second answer to the second.
+          // A LOCAL EXIT AND NOT A RECORDED SKIP. Exactly one step is leavable,
+          // `step-model.ts` records which, and the way out is the overlay's own
+          // dismissal — so nothing reaches the daemon, which is what group B persisting
+          // nothing means when a person presses it. Both conditions are read rather than
+          // restated: a handler written unconditionally here would be a second answer to
+          // the first question, and one that closed the dialog regardless would be a
+          // second answer to the second.
           onDismiss={ONBOARDING_STEPS[stepId].mayBeLeftUnanswered ? props.onDismiss : undefined}
         />
       );

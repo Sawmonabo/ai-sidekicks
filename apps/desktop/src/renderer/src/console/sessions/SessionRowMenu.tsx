@@ -56,9 +56,8 @@ export function SessionRowMenu(props: {
         {tier === "front" ? "Pinned" : "Place"}
       </Menu.Trigger>
       {/* The anchored part of the menu is the primitive's, which is what puts it in
-          the window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a row
-          that mounted its own portal would be a menu a native browser-pane view
-          paints over and takes the presses of. */}
+          the window's airspace: a row that mounted its own portal would be a menu a
+          native browser-pane view paints over and takes the presses of. */}
       <OverlayMenuPopup
         positionerClassName="meridian-session-row__menu-positioner"
         sideOffset={4}

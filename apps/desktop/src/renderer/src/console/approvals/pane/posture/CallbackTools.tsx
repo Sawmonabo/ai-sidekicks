@@ -2,9 +2,9 @@
 // registered" and "withheld".
 //
 // THIS SURFACE'S OWN THREE-STATE RULE, because no committed document states it —
-// though it is `Spec-023 §Meridian, the design language` rule 8 read for this
-// registry, since "A renderer that collapses two of these into one is wrong".
-// Keeping the three apart is the whole job:
+// though it is the console's collapse prohibition read for this registry, since a
+// renderer that collapses two of these into one is wrong. Keeping the three apart is
+// the whole job:
 //
 //   • **Capability undeclared** — the section is ABSENT, not empty. A driver that
 //     does not declare `callback_tools` hosts no registry at all, and an empty list

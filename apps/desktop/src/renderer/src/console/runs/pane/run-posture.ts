@@ -8,10 +8,9 @@
 // a different one can render different postures for one run while the two are landing,
 // with nothing to say which ordering was right.
 //
-// SO THE SCOPE IS SETTLED BEFORE THE SOURCE IS. `Spec-006 §Run Lifecycle
-// (run_lifecycle)` puts the stamp on `run.running` alone — the post-setup-gate
-// transition where the resolved root and effective posture are final — and states
-// that it is "absent on every other transition". A stamp therefore describes the run
+// SO THE SCOPE IS SETTLED BEFORE THE SOURCE IS. The stamp lands on `run.running` alone
+// — the post-setup-gate transition where the resolved root and effective posture are
+// final — and is absent on every other transition. A stamp therefore describes the run
 // that is executing under it and nothing else, so a reading is offered only while the
 // source it is read from still says the run is running. Both sources take that same
 // gate, and the gate is what makes the two agree instead of racing.

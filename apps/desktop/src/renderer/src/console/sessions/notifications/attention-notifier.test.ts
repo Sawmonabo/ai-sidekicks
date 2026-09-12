@@ -231,8 +231,8 @@ describe("the attention notifier", () => {
   });
 
   it("does not re-announce the aggregate on a later read that carries its event", () => {
-    // The cross-settlement half. The aggregate's own id may move — Plan-019 D-019-2
-    // lets the representative change — so a memory keyed on the item id would call a
+    // The cross-settlement half. The aggregate's own id may move, because the
+    // representative is allowed to change — so a memory keyed on the item id would call a
     // re-keyed aggregate new and raise a second banner for news it had already told.
     const notifier = new AttentionNotifier();
     notifier.arrivalsToAnnounce(settledRead([]), AWAY);

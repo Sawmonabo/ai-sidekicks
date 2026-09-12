@@ -1,11 +1,10 @@
 // The sign-in card's state, and the discipline that keeps one ceremony at a time.
 //
-// `Spec-023 §Console Design (Meridian)` gives this surface its states through the
-// flow it fixes rather than through a screen: signed out; a passkey prompt in
-// flight; a host that probed no usable authenticator, moving to the Device
-// Authorization Grant; that grant awaiting its loopback callback; signed in; and
-// signed in with the OS keystore unavailable, which `Spec-023 §Fallback Behavior`
-// makes a memory-only session that must be surfaced rather than hidden.
+// This surface takes its states from the ceremony flow rather than from a screen:
+// signed out; a passkey prompt in flight; a host that probed no usable authenticator,
+// moving to the Device Authorization Grant; that grant awaiting its loopback callback;
+// signed in; and signed in with the OS keystore unavailable, which is a memory-only
+// session that must be surfaced rather than hidden.
 //
 // A CLASS BECAUSE THE STATE IS NOT A DERIVATION. A ceremony is in flight or it is
 // not, a superseded ceremony must not publish into a card that has moved on, and a
@@ -27,12 +26,11 @@
 // the generic refused arm here signed a participant out for cancelling an optional
 // extra, and dismissing that refusal then walked them to the signed-out card.
 //
-// A CANCELLATION IS TERMINAL AND OPENS NO LOOPBACK. `Spec-023 §WebAuthn Credential
-// Flow` is explicit: a participant who dismisses the OS dialog "has answered the
-// question, and the answer is no", so the refused arm must not fall through to the
-// Device Authorization Grant — "which would present a browser sign-in to a
-// participant who just declined to sign in". Only the `fallback-required` arm opens
-// it, and that arm is reached by the host having nothing that works.
+// A CANCELLATION IS TERMINAL AND OPENS NO LOOPBACK. A participant who dismisses the OS
+// dialog has answered the question, and the answer is no, so the refused arm must not
+// fall through to the Device Authorization Grant — which would present a browser
+// sign-in to a participant who just declined to sign in. Only the `fallback-required`
+// arm opens it, and that arm is reached by the host having nothing that works.
 
 import { Emitter, type Unsubscribe } from "../core/index.js";
 import type {
@@ -86,10 +84,10 @@ export type SignInState =
       /**
        * Who this window is signed in AS, as the relying party's verdict named them.
        *
-       * Carried on the state rather than re-read from anywhere, because there is
-       * nowhere to re-read it from: the ceremony's own resolution is the only place
-       * this fact reaches the renderer (`Spec-023 §WebAuthn Credential Flow` step 7),
-       * and a card that dropped it could say a sign-in happened and never whose.
+       * Carried on the state rather than re-read from anywhere, because there is nowhere to
+       * re-read it from: the ceremony's own resolution is the only place this fact reaches
+       * the renderer, and a card that dropped it could say a sign-in happened and never
+       * whose.
        */
       readonly claims: ParticipantIdentityClaims;
       /**
@@ -163,10 +161,10 @@ export class SignInFlow {
   /**
    * Enrol another authenticator for the participant already signed in here.
    *
-   * Offered only from the signed-in state, which the card enforces by not drawing
-   * the control anywhere else — `Spec-023 §WebAuthn Credential Flow` makes enrolment
-   * the authenticated path, and this method refusing to run from a signed-out state
-   * is the same rule stated where it cannot be drawn around.
+   * Offered only from the signed-in state, which the card enforces by not drawing the
+   * control anywhere else — enrolment is the authenticated path, and this method
+   * refusing to run from a signed-out state is the same rule stated where it cannot be
+   * drawn around.
    */
   public async register(): Promise<void> {
     const session = this.#state;

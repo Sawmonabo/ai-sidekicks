@@ -1,11 +1,10 @@
 // Where this node relays: three options, all visible, and one explicit answer.
 //
-// THREE, NEVER TWO, AND NEVER A SILENT DEFAULT. `Spec-026 §Three-Way Choice
-// Semantics` fixes the set and `Spec-026 §Pitfalls To Avoid` names collapsing the
-// third behind an advanced control as a defect. So all three render at once, each
-// with what it means for a session's traffic and what it will ask for, and one of
-// them is marked as the option the choice opens on — which is a starting position and
-// not an answer. Nothing is recorded until a person presses.
+// THREE, NEVER TWO, AND NEVER A SILENT DEFAULT. The set is fixed at three, and
+// collapsing the third behind an advanced control is a defect. So all three render at
+// once, each with what it means for a session's traffic and what it will ask for, and
+// one of them is marked as the option the choice opens on — which is a starting position
+// and not an answer. Nothing is recorded until a person presses.
 //
 // THE OPTION LIST IS NOT A CONTROL, and that is the design rather than a shortfall.
 // Two of the three need a secret or a browser hand-off, and both belong to the main
@@ -13,8 +12,8 @@
 // somewhere that asks for it all over again. So the list is what a person reads
 // BEFORE the one action, and the action opens the surface that asks.
 //
-// AND THERE IS NO CANCEL CONTROL, deliberately. The corpus's cancel cancels the
-// outbound INVITE that triggered the walkthrough rather than the choice — and no
+// AND THERE IS NO CANCEL CONTROL, deliberately. The cancel this flow was designed with
+// cancels the outbound INVITE that triggered the walkthrough rather than the choice — no
 // invite trigger exists in this build, because the five daemon methods behind it are
 // unregistered and the walkthrough is reached by explicit activation alone. A control
 // that cancelled "the invite" here would name something that never happened. What the

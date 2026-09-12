@@ -1,12 +1,11 @@
 // The button and the palette row are one pause, admitted once.
 //
-// `Spec-023 §Console Design (Meridian)` requires every operator action to be
-// palette-reachable, which gives `run.pause` two entry points on one run: the Step in
-// button in the control strip, and the `runs.pause.<runId>` row the pane contributes.
-// Two entry points are fine; two LATCHES are not. Each would admit while the other was
-// settling, minting two idempotency keys against one run version — which the wire reads
-// as two distinct mutations rather than replays of one, so they race to apply and the
-// loser's stale-version refusal becomes the visible settlement.
+// Every operator action is palette-reachable, which gives `run.pause` two entry points on
+// one run: the Step in button in the control strip, and the `runs.pause.<runId>` row the
+// pane contributes. Two entry points are fine; two LATCHES are not. Each would admit
+// while the other was settling, minting two idempotency keys against one run version —
+// which the wire reads as two distinct mutations rather than replays of one, so they race
+// to apply and the loser's stale-version refusal becomes the visible settlement.
 //
 // So both cases below press one entry point, dispatch the other while the first is
 // parked, and count what reached the wire. The dispatcher, the surface and the latch

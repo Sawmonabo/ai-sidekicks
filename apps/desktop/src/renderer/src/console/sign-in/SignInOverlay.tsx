@@ -1,30 +1,29 @@
 // Where the sign-in card is reached from, and when it is on screen.
 //
-// SIGN-IN IS NOT A DESTINATION. `Spec-023 §WebAuthn Credential Flow` gives the
-// ceremony a start and no screen, and `Spec-026 §Trigger` deliberately does not gate
-// first launch — so the console is fully usable signed out and this card appears
-// only when someone asks for it. It is a window-scoped overlay for that reason,
-// beside the command palette rather than on the icon rail: a rail destination is a
-// place a person goes, and this is a moment a person is in.
+// SIGN-IN IS NOT A DESTINATION. The credential ceremony has a start and no screen, and
+// onboarding deliberately does not gate first launch — so the console is fully usable
+// signed out and this card appears only when someone asks for it. It is a window-scoped
+// overlay for that reason, beside the command palette rather than on the icon rail: a
+// rail destination is a place a person goes, and this is a moment a person is in.
 //
 // THE COMMAND IS REGISTERED FROM AN EFFECT, on the frame's own rule: it closes over
 // this window's flow, which module scope cannot reach, so it is contributed on mount
 // and withdrawn on unmount rather than through the family contribution door.
 //
-// THE CARD SAYS IT IS UP, because the frame cannot see it. `Spec-023 §Console
-// Libraries` adopts the dialog family under `modal="trap-focus"`, which traps focus
-// and leaves inerting the app root to the shell — and Base UI marks `.meridian-frame`
-// `aria-hidden` while this card is open, so a reader that follows the accessibility
-// tree is handled and one that navigates by STRUCTURE is not: the rail and the whole
-// route surface stay reachable underneath. The shell already has the guard —
-// `AppFrame`'s `modalOverlayOpen`, which hangs `inert` on the background — and cannot
-// arm it for this card, because `console-view-family-isolation` forbids `frame/` from
-// naming a view family. So the card publishes into the WINDOW store and the frame
-// folds it with the palette's own state, which is the one seam the two are allowed to
-// meet at. Cleared on close AND on unmount, in one cleanup: a render React discards
-// mid-ceremony must not leave a window inert with nothing on screen to close. That
-// wiring is `store/shell/modal-surface-lifetime.ts` now — hoisted when the onboarding
-// walkthrough became the second window-scoped overlay to owe it.
+// THE CARD SAYS IT IS UP, because the frame cannot see it. The adopted dialog family
+// runs under `modal="trap-focus"`, which traps focus and leaves inerting the app root
+// to the shell — and Base UI marks `.meridian-frame` `aria-hidden` while this card is
+// open, so a reader that follows the accessibility tree is handled and one that
+// navigates by STRUCTURE is not: the rail and the whole route surface stay reachable
+// underneath. The shell already has the guard — `AppFrame`'s `modalOverlayOpen`, which
+// hangs `inert` on the background — and cannot arm it for this card, because
+// `console-view-family-isolation` forbids `frame/` from naming a view family. So the
+// card publishes into the WINDOW store and the frame folds it with the palette's own
+// state, which is the one seam the two are allowed to meet at. Cleared on close AND on
+// unmount, in one cleanup: a render React discards mid-ceremony must not leave a window
+// inert with nothing on screen to close. That wiring is
+// `store/shell/modal-surface-lifetime.ts` now — hoisted when the onboarding walkthrough
+// became the second window-scoped overlay to owe it.
 //
 // AND IT IS A DIALOG WITH A NAME, through the primitive that owns both halves. The
 // popup carried `role="dialog"` and no `Dialog.Title`, no `aria-label`, and no
@@ -40,12 +39,11 @@
 // AND THE CARD ITSELF ARRIVES ON ITS OWN CHUNK. What is on this module — the command,
 // the open state, the modal lifetime, and the flow — is what nobody can wait for; the
 // card, the device-grant card, and the copy table are drawn only after somebody has
-// opened this dialog, which is the question `apps/desktop/AGENTS.md` §Module shape makes
-// a registration answer. `sign-in-card-mount.ts` is the loader and
-// `sign-in-card-body.ts` is the split point. The FLOW deliberately stays here rather
-// than moving with the card: it lives outside `Dialog.Portal`, which unmounts its
-// children on close, so a ceremony's state survives a dismissal exactly as it did
-// before.
+// opened this dialog, which is the question `apps/desktop/AGENTS.md` makes a
+// registration answer. `sign-in-card-mount.ts` is the loader and `sign-in-card-body.ts`
+// is the split point. The FLOW deliberately stays here rather than moving with the
+// card: it lives outside `Dialog.Portal`, which unmounts its children on close, so a
+// ceremony's state survives a dismissal exactly as it did before.
 //
 // THE FLOW IS SUPERSEDED ON UNMOUNT AND ON A BRIDGE SWAP, and it is held through the
 // console's one subject-scoped holder to get that. An OS dialog belongs to main and
@@ -147,10 +145,9 @@ export function SignInOverlay(props: SignInOverlayProps): React.JSX.Element {
   return (
     <Dialog.Root open={open} onOpenChange={setOpen} modal="trap-focus">
       {/* The popup shell is the primitive's, which is also what puts this card in the
-          window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a native
-          browser-pane view yields to whatever is registered there, and a card that
-          mounted its own portal would be a dialog the view paints over — backdrop
-          included, which is the half that covers the whole window. */}
+          window's airspace: a native browser-pane view yields to whatever is registered
+          there, and a card that mounted its own portal would be a dialog the view paints
+          over — backdrop included, which is the half that covers the whole window. */}
       <OverlayDialogPopup
         backdropClassName="meridian-sign-in__backdrop"
         className="meridian-sign-in__popup"

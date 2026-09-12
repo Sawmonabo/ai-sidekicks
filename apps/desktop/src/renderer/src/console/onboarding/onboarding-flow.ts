@@ -6,12 +6,11 @@
 // components each would need its own in-flight flag and its own supersession rule,
 // and the rules would diverge the first time one of them was written twice.
 //
-// AND NOT ONE OF THEM RECORDS THE PROVIDER STEP. `Spec-026 §Provider Authentication
-// (Group B)` has that group persist "no config key, no partial-state entry, no
-// keystore entry, and no event" — the account registry is where every fact it
-// establishes already lives. This class therefore has no skip verb at all: it used to,
-// and the provider step's own control was wired to it, so leaving that step wrote a
-// completed-step entry into the daemon's set for a group the corpus says holds no
+// AND NOT ONE OF THEM RECORDS THE PROVIDER STEP. That group persists nothing: no config
+// key, no partial-state entry, no keystore entry, and no event — the account registry is
+// where every fact it establishes already lives. This class therefore has no skip verb
+// at all: it used to, and the provider step's own control was wired to it, so leaving
+// that step wrote a completed-step entry into the daemon's set for a group that holds no
 // state. Leaving is a LOCAL act now — the walkthrough's **Not now** — and the absence
 // of the verb is what keeps it one rather than a comment asking the next author not to
 // call it. `onboardingStepSkip` is still served by the fixture and still on the wire;
@@ -113,9 +112,8 @@ export type RelayChoiceReading =
        * The address this node relays through, as the daemon's config holds it.
        *
        * Rendered as a value and not as presence, which is the opposite of the handle
-       * below and for the opposite reason: `Spec-026 §Persistence` keeps `relay_url`
-       * in plaintext config, and Option 1's own required prompt is that the current
-       * published address be displayed rather than described.
+       * below and for the opposite reason: `relay_url` lives in plaintext config, and
+       * the current published address has to be displayed rather than described.
        */
       readonly relayUrl: string;
       /** Opaque; names a secret main holds. Rendered as presence, never as a value. */

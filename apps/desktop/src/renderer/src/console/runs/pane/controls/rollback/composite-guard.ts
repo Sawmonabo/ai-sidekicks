@@ -1,14 +1,13 @@
 // The four structural guards an edit-and-resend is refused whole by, and what a
 // person does about each.
 //
-// An edit-and-resend is refused whole by four checks, each fail-closed at admission
-// and pre-dispatch (`Spec-004 §Required Behavior`): no active turn, no pending send,
-// a participant-authored target of this run, and a resumable target. Each refuses for
-// a different reason and each leaves the participant a different next move, and until
-// this reading existed the console showed one wire string and no move at all — which
-// is worst for the pending-send guard, whose remedy is an act the person has to
-// perform (cancel the queued items, or let them drain) before the same request can
-// ever succeed.
+// An edit-and-resend is refused whole by four checks, each fail-closed at admission and
+// pre-dispatch: no active turn, no pending send, a participant-authored target of this
+// run, and a resumable target. Each refuses for a different reason and each leaves the
+// participant a different next move, and until this reading existed the console showed
+// one wire string and no move at all — which is worst for the pending-send guard, whose
+// remedy is an act the person has to perform (cancel the queued items, or let them
+// drain) before the same request can ever succeed.
 //
 // IT IS THE DAEMON'S OWN TYPED ANSWER AND NOTHING IS DERIVED. `rejectionGuard` is the
 // closed four-value discriminator on the rollback `rejected` arm

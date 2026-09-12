@@ -16,7 +16,7 @@
 // history never suspends at all.
 //
 // ONE `const` AND NOT A MODULE-LEVEL `let`: the memo is the class's own private field,
-// which is what `apps/desktop/AGENTS.md` §State and views asks for, and every row of
+// which is what the package's state-and-views rule asks for, and every row of
 // every run's history draws the same disclosure, so there is nothing to key it on.
 //
 // WHERE THE WAIT LIVES. `file-restore-mount.test-support.ts` beside this file, and

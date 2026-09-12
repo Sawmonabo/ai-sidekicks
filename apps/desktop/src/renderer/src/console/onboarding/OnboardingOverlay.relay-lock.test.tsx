@@ -1,13 +1,13 @@
 // The one condition the walkthrough may not be closed under, and its three readings.
 //
-// THE LOCK IS FAIL-CLOSED ON THE READING. `Spec-026 §Desktop Surface` lifts it when
-// "a choice is made", which is a POSITIVE fact only a served state read carrying
-// `relay` establishes — so a read still in flight and a read the daemon refused both
-// hold the dialog, and the three arms are three cases below. This once read the other
-// way round and unlocked on anything but the answered-and-unresolved arm, which left
-// the group-A walkthrough closeable for the first frame of every mount and for the
-// whole life of a build whose onboarding wire is unregistered. What the unanswered arm
-// gets instead of a false way out is a control that says which fact holds it.
+// THE LOCK IS FAIL-CLOSED ON THE READING. It lifts when a choice is made, which is a
+// POSITIVE fact only a served state read carrying `relay` establishes — so a read still
+// in flight and a read the daemon refused both hold the dialog, and the three arms are
+// three cases below. This once read the other way round and unlocked on anything but the
+// answered-and-unresolved arm, which left the group-A walkthrough closeable for the
+// first frame of every mount and for the whole life of a build whose onboarding wire is
+// unregistered. What the unanswered arm gets instead of a false way out is a control
+// that says which fact holds it.
 //
 // AND ON THE ACTIVATION THAT ASKED FOR GROUP A ALONE. The relay reading is only half
 // of the condition: the two group-B openings are offered and never demanded, so an

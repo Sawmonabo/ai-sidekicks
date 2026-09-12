@@ -31,7 +31,7 @@ import { OTHER_RUN_ID, RUN_ID } from "../runs-pane.test-support.js";
 
 // The working-tree half of a settled rollback arrives on its own chunk, so this file
 // warms it ONCE before anything renders — through the mount's own wait home, which is
-// where `apps/desktop/AGENTS.md` §Tests puts it. After this the mount renders the settled
+// where the package's test standard puts it. After this the mount renders the settled
 // body directly, so `renderHistory` stays synchronous and every case reads the
 // disclosure it means to. Asked for the whole file rather than in the three cases that
 // touch it: a warm memo costs a resolved promise, and a case added later that forgets

@@ -1,9 +1,8 @@
 // The sessions destination: what am I in the middle of, what is waiting on me, and
 // the three ways work arrives — started here, joined, or imported.
 //
-// `Spec-023 §Console Design (Meridian)` §All-sessions list: "Answer 'what am I in
-// the middle of' in one screen, ordered so the thing you touched last is where you
-// left it."
+// The all-sessions list answers "what am I in the middle of" in one screen, ordered
+// so the thing you touched last is where you left it.
 //
 // WHAT THIS SURFACE MAY AND MAY NOT CLAIM
 //

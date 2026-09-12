@@ -14,10 +14,10 @@
 //
 // They are two tables answering two questions — the deck's pane registry is keyed
 // by pane kind, the frame's surface registry by route destination — and the agent
-// console is in both because `Spec-023 §Console Design (Meridian)` §The surface set
-// makes it one of exactly two panes that may be torn off into a window of its own.
-// The tear-off is the same body at a different size, so a second component would be
-// two renderings of one design drifting apart the first time either was edited.
+// console is in both because it is one of exactly two panes that may be torn off
+// into a window of its own. The tear-off is the same body at a different size, so a
+// second component would be two renderings of one design drifting apart the first
+// time either was edited.
 //
 // AND THE TWO MOUNTS WEAR DIFFERENT FRAMES, WHICH IS THE WHOLE REASON THE BODY IS ITS
 // OWN MODULE. The deck's pane wears `seats/ConsolePaneChrome` like every other pane

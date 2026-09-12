@@ -1,12 +1,10 @@
 // Whether an OS notification this console emits will reach a person at all.
 //
-// The notification centre has a state the console could not previously enter:
-// "OS notifications denied, in which case the centre is the only surface and says
-// so" (`Spec-019 §Fallback Behavior`, carried into the centre by
-// `Spec-023 §Console Design (Meridian)`). Nothing on the shipped bridge reports
-// that fact — `native.showNotification` returns `void`, so a denial is
-// indistinguishable from a delivery from inside the renderer — so the reading is a
-// growth-port row and refuses under the live bridge.
+// The notification centre has a state the console could not previously enter: OS
+// notifications denied, in which case the centre is the only surface and says so.
+// Nothing on the shipped bridge reports that fact — `native.showNotification` returns
+// `void`, so a denial is indistinguishable from a delivery from inside the renderer —
+// so the reading is a growth-port row and refuses under the live bridge.
 //
 // WHY THE RENDERER'S OWN `Notification.permission` IS NOT THE INSTRUMENT. It answers
 // about the RENDERER's Web notification API, and this console emits through the main
@@ -17,12 +15,12 @@
 // instrument, whatever it answers.
 //
 // THE READING IS ADVISORY AND GATES NOTHING ON THE WAY OUT. Emission is the shell's
-// act and the OS is its authority: `Spec-023 §Main Process Responsibilities` puts
-// do-not-disturb there, and the console honours nothing of its own. So a reading this
-// console could not obtain suppresses no emission — it would suppress every one on
-// every live host, which is exactly the state the shell was built to decide — and the
-// one arm that changes what a person sees is `withheld`, where the centre says it is
-// the only surface these items reach.
+// act and the OS is its authority: do-not-disturb lives in the main process, and the
+// console honours nothing of its own. So a reading this console could not obtain
+// suppresses no emission — it would suppress every one on every live host, which is
+// exactly the state the shell was built to decide — and the one arm that changes what
+// a person sees is `withheld`, where the centre says it is the only surface these
+// items reach.
 //
 // WHAT IS LEFT HERE IS THE FOLD AND NOT THE READ. The probe, its scheduling, and the
 // rule that decides which of two overlapping answers is the live one are

@@ -1,8 +1,7 @@
 // Which sessions are pinned to the front tier, and where that fact lives.
 //
-// `Spec-023 §Console Design (Meridian)` §All-sessions list: "Pin, unpin, move
-// tier: renderer-local, persisted to shell-local config … pins are per-install
-// view state, they are never auth material, and they never travel."
+// Pin, unpin, and move tier are renderer-local, persisted to shell-local config: pins
+// are per-install view state, they are never auth material, and they never travel.
 //
 // So the pin map is a durable UI-state record in the persistence layer's GLOBAL
 // partition — the window-wide one, not a session's — under the `pin` value class,
@@ -151,8 +150,9 @@ function mintSessionPinStore(store: UiStateStore): SessionPinStore {
  * of it over the other's writes.
  *
  * A `const` holding an encapsulated object rather than a module-level `let` or `Map`,
- * which `apps/desktop/AGENTS.md` §State and views rejects: the supersession rule is an
- * invariant over two fields moving together and is only checkable with one owner.
+ * which the state-and-views rule in `apps/desktop/AGENTS.md` rejects: the supersession
+ * rule is an invariant over two fields moving together and is only checkable with one
+ * owner.
  */
 const consoleSessionPins = new DurableViewBindingHolder(mintSessionPinStore);
 

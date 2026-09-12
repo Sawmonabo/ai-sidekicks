@@ -3,10 +3,10 @@
 //
 // `Number.parseInt("4oops", 10)` is `4`. A composer that parsed a rewind target that
 // way would dispatch a destructive rollback to position 4 from a field whose visible
-// contents were never a position, and the daemon — which admits `targetPosition` as
-// an ordinary integer — would have no way to tell that request apart from one a
-// person meant. The mistake is unrecoverable by the time it reaches the wire, so it
-// is refused here, at the affordance, before the confirm.
+// contents were never a position, and the daemon — which admits `targetPosition` as an
+// ordinary integer — would have no way to tell that request apart from one a person
+// meant. The mistake is unrecoverable by the time it reaches the wire, so it is refused
+// here, at the affordance, before the confirm.
 //
 // WHAT THE GRAMMAR IS, AND WHERE IT COMES FROM. `InterventionRequestPayload`'s
 // rollback arm parses `targetPosition` through the same non-negative integer parser
@@ -14,8 +14,7 @@
 // integer, not negative, and inside the safe-integer range its `.int()` check
 // enforces. This module reads exactly that and nothing more — whether the position
 // names a recorded turn boundary of the target run is a daemon admission check
-// against durable state, and `Spec-023 §Rules every console surface obeys` holds
-// that "eligibility is never projected by the renderer".
+// against durable state, and eligibility is never projected by the renderer.
 //
 // THREE THINGS THE WHOLE-VALUE RULE CATCHES that a prefix parse does not: a typed
 // suffix (`4oops`), a value in a notation the wire does not take (`1e3`, `4.0`,

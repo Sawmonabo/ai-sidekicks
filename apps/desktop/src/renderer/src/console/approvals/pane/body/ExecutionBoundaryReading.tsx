@@ -5,13 +5,13 @@
 // section SAYS about the read behind it.
 //
 // THE SECTION READS THE APPROVAL PROJECTION, not a read of its own. The runs it
-// describes are the runs this pane's PENDING decisions name, so the phase it renders
-// is the projection's — and that is precisely why it cannot render an absence off the
+// describes are the runs this pane's PENDING decisions name, so the phase it renders is
+// the projection's — and that is precisely why it cannot render an absence off the
 // derived list alone. `partitionRecords` answers an empty `pending` for a read that is
 // in flight and for one that refused as well as for one that answered with nothing, so
 // a section keyed on `addressed.length === 0` told an operator "no decision is waiting,
 // so no run's boundary is in question" during an outage — an assurance nobody had
-// established, and `Spec-023 §Console Design (Meridian)` rule 8's exact prohibition.
+// established, and exactly what the four-phase rule prohibits.
 
 import { ExecutionPostureChip, Nothing, WireFigure } from "../../../primitives/index.js";
 import { type ApprovalRecord } from "../../../bridge/index.js";

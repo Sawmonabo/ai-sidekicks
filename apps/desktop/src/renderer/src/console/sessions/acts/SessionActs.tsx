@@ -26,8 +26,8 @@
 // AND THE SWITCH ITSELF CLOSES WHILE ONE IS RUNNING, which is a different claim from
 // the lift and is worth both. This panel is the only place this window reports an
 // import, so a switch that takes it off screen leaves a person with a running import
-// and nothing to read about it. `Spec-023 §Console Design (Meridian)` rule 9: the
-// control is DISABLED with its sentence beside it, never hidden.
+// and nothing to read about it, so the control is DISABLED with its sentence beside
+// it, never hidden.
 
 import { useState } from "react";
 
@@ -113,9 +113,8 @@ export function SessionActs(props: SessionActsProps): React.JSX.Element {
             More
           </Menu.Trigger>
           {/* The anchored part of the menu is the primitive's, which is what puts it
-              in the window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a
-              bar that mounted its own portal would be a menu a native browser-pane
-              view paints over and takes the presses of. */}
+              in the window's airspace: a bar that mounted its own portal would be a
+              menu a native browser-pane view paints over and takes the presses of. */}
           <OverlayMenuPopup
             positionerClassName="meridian-session-acts__menu-positioner"
             sideOffset={4}

@@ -31,10 +31,9 @@ export type ProviderReadinessReading =
  * What this window has done about ONE provider since the step opened.
  *
  * THREE ARMS AND NOT FIVE, because this step performs exactly one act against a
- * provider. `Spec-026 §Provider Authentication (Group B)` has the sign-in step
- * "**display** the invocation and never run it on the operator's behalf", and
- * `Spec-029 §Brokered interactive sign-in` excludes even the account plane's own login
- * verbs from this flow — so a sign-in is a remedy the row RENDERS and never an act it
+ * provider. The sign-in step **displays** the invocation and never runs it on the
+ * operator's behalf, and even the account plane's own brokered login verbs are excluded
+ * from this flow — so a sign-in is a remedy the row RENDERS and never an act it
  * dispatches, and there is nothing for a `handing-off` or a `handed-off` arm to report.
  */
 export type ProviderActionReading =
@@ -113,6 +112,6 @@ export function providersNotReady(entries: readonly ProviderReadiness[]): readon
  * simplification. It resolved which account a sign-in HAND-OFF should name, and there
  * is no hand-off: the remedy names its own account, its own invocation, and its own
  * credential home, and the row renders all three. A helper that picked one account out
- * of a remedy so a caller could dispatch against it is precisely the surface
- * `Spec-026 §Provider Authentication (Group B)` forbids.
+ * of a remedy so a caller could dispatch against it is precisely the surface this step
+ * may not have.
  */

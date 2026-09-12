@@ -269,20 +269,19 @@ export {
 // two members they read do not.
 export { SessionRefreshTriggers } from "./read/refresh-triggers.js";
 
-// `useSessionPartition` joins the door with its cross-family consumers: the
-// composer reads the `agent`, `run`, and `channel` partitions to resolve what a
-// send is addressed to, and the frame's agent step reads a session's agents. It is
-// the partitioned subscription rule 6 asks for — a surface that reached for
-// `useSessionStore` with a selector of its own would be the second subscription
-// path this module exists to prevent.
-// `useSessionStore` ships beside them for the reason stated above: it is the ONE
-// selector-shaped read of a session store, and a surface that could not reach it
-// through this door would reach for `useSyncExternalStore` and become the second
-// subscription path with its own equality rule. `SessionStoreState` travels with
-// it because a caller hoisting a selector to module scope has to name the state
-// it selects from — and until the browser-terminal family landed every caller of that
-// second act lived
-// inside this family, so the one path now serves a view family too.
+// `useSessionPartition` joins the door with its cross-family consumers: the composer
+// reads the `agent`, `run`, and `channel` partitions to resolve what a send is
+// addressed to, and the frame's agent step reads a session's agents. It is the
+// partitioned subscription rule 6 asks for — a surface that reached for
+// `useSessionStore` with a selector of its own would be the second subscription path
+// this module exists to prevent. `useSessionStore` ships beside them for the reason
+// stated above: it is the ONE selector-shaped read of a session store, and a surface
+// that could not reach it through this door would reach for `useSyncExternalStore` and
+// become the second subscription path with its own equality rule. `SessionStoreState`
+// travels with it because a caller hoisting a selector to module scope has to name the
+// state it selects from — and until the browser-terminal family landed every caller of
+// that second act lived inside this family, so the one path now serves a view family
+// too.
 //
 // `useSessionInitialised` and `useSessionDegradedCause` are the two absences a
 // partition read cannot express: a map with no rows means one thing before the

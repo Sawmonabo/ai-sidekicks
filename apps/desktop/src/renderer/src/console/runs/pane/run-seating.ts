@@ -1,14 +1,13 @@
 // Which runs the pane draws a row for, and which of them the live stream has
 // actually described.
 //
-// THE DEFECT THIS MODULE REPLACES. The pane rendered `stateFeed.runs` and nothing
-// else, so the row set was whatever `run.subscribeState` happened to have carried.
-// That stream is a live TAIL of transitions and registers no completion marker at
-// all — `api-payload-contracts.md §Plan-004` gives its response as
-// `RunStateChangeEvent | RunRolledBackEvent` and nothing more — so two readings
-// came out wrong at once. A session whose snapshot named three runs and whose tail
-// had described one drew a single row and said nothing about the other two, which a
-// person reads as a session with one run. And a session whose only run was already
+// THE DEFECT THIS MODULE REPLACES. The pane rendered `stateFeed.runs` and nothing else,
+// so the row set was whatever `run.subscribeState` happened to have carried. That
+// stream is a live TAIL of transitions and registers no completion marker at all — its
+// response is `RunStateChangeEvent | RunRolledBackEvent` and nothing more — so two
+// readings came out wrong at once. A session whose snapshot named three runs and whose
+// tail had described one drew a single row and said nothing about the other two, which
+// a person reads as a session with one run. And a session whose only run was already
 // terminal when the pane opened received no transition ever, so the pane sat on its
 // loading skeleton for as long as it stayed open.
 //

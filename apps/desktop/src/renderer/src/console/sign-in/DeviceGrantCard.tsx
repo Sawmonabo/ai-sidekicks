@@ -1,11 +1,11 @@
 // The Device Authorization Grant, finished to the same degree as the passkey path.
 //
-// `Spec-023 §Fallback Behavior` fixes the shape: a browser hand-off with a loopback
-// capture at `localhost:<port>/callback`, and never an in-app credential form. So
-// this card renders the address and the code and offers exactly one control — the
-// hand-off — and it collects nothing. There is no field here, and there is no field
-// anywhere in this family, which is the point rather than an omission: a form that
-// took a code would be this window handling a credential the main process confines.
+// The fallback shape is fixed: a browser hand-off with a loopback capture at
+// `localhost:<port>/callback`, and never an in-app credential form. So this card
+// renders the address and the code and offers exactly one control — the hand-off —
+// and it collects nothing. There is no field here, and there is no field anywhere in
+// this family, which is the point rather than an omission: a form that took a code
+// would be this window handling a credential the main process confines.
 //
 // THE WAIT IS NOT A POLL. Pressing the control opens the system browser and then
 // awaits main's loopback listener once. Nothing on this card ticks, nothing re-reads,

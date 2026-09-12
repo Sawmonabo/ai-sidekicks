@@ -1,10 +1,10 @@
 // Where the walkthrough is reached from, and when it may be closed.
 //
-// A WINDOW-SCOPED OVERLAY RATHER THAN A RAIL DESTINATION. `Spec-026 §Trigger` forbids
-// this flow on install, first launch, health check, or first session creation, and
-// names its openings instead: an outbound invite, or an explicit activation. A rail
-// entry would be a place a person goes; this is a moment they are put in, so it sits
-// beside the command palette in the frame's overlay slot.
+// A WINDOW-SCOPED OVERLAY RATHER THAN A RAIL DESTINATION. This flow never opens on
+// install, first launch, health check, or first session creation; its openings are an
+// outbound invite, or an explicit activation. A rail entry would be a place a person
+// goes; this is a moment they are put in, so it sits beside the command palette in the
+// frame's overlay slot.
 //
 // THREE OPENINGS AND NO OTHERS. Two are commands a person runs — the collaboration
 // entry point that pre-stages the relay choice, and the _Set up providers_ entry
@@ -12,16 +12,15 @@
 // meeting an account-plane refusal raises AFTER that refusal has already happened.
 // None of them is a check placed ahead of work.
 //
-// NON-DISMISSIBLE UNTIL AN ANSWER SAYS OTHERWISE, WHICH IS FAIL-CLOSED. `Spec-026
-// §Desktop Surface` makes the walkthrough non-dismissible "until a choice is made", and
-// a choice being made is a POSITIVE fact: only a served state read carrying `relay` in
-// its completed set establishes it. So the lock lifts on that reading and on no other
-// — a read still in flight and a read the daemon refused both leave the choice
-// unestablished, and unlocking there would open the dialog on the strength of a state
-// nothing said. This once read the other way round, locking only on the answered-and-
-// unresolved arm, which meant the walkthrough opened by the collaboration command was
-// closeable during the first frame of every mount and for the whole life of a build
-// whose onboarding wire is unregistered.
+// NON-DISMISSIBLE UNTIL AN ANSWER SAYS OTHERWISE, WHICH IS FAIL-CLOSED. The walkthrough
+// stays non-dismissible until a choice is made, and a choice being made is a POSITIVE
+// fact: only a served state read carrying `relay` in its completed set establishes it.
+// So the lock lifts on that reading and on no other — a read still in flight and a read
+// the daemon refused both leave the choice unestablished, and unlocking there would open
+// the dialog on the strength of a state nothing said. This once read the other way
+// round, locking only on the answered-and-unresolved arm, which meant the walkthrough
+// opened by the collaboration command was closeable during the first frame of every
+// mount and for the whole life of a build whose onboarding wire is unregistered.
 //
 // AND THE UNANSWERED ARM SAYS SO RATHER THAN ASKING FOR A CHOICE. The two lock reasons
 // are different facts and the control names which one it is on: an unresolved choice
@@ -46,21 +45,21 @@
 // opening zero value and every press opened at `relay`, on a node that may have
 // settled two steps already.
 //
-// AND IT TELLS THE FRAME IT IS UP. `modal="trap-focus"` is what `Spec-023 §Console
-// Libraries` adopts — the default mode locks body scroll, which that row forbids — and
-// it leaves inerting the app root to the shell, which cannot see a view family's
-// dialog. So this publishes into the window store through the same hook the sign-in
-// card takes, and the frame folds the two.
+// AND IT TELLS THE FRAME IT IS UP. `modal="trap-focus"` is the one adopted mode — the
+// default mode locks body scroll, which the console forbids — and it leaves inerting the
+// app root to the shell, which cannot see a view family's dialog. So this publishes into
+// the window store through the same hook the sign-in card takes, and the frame folds the
+// two.
 //
 // AND THE WALKTHROUGH ITSELF ARRIVES ON ITS OWN CHUNK. What is on this module — the two
 // commands, the activation subscription, the lock reading, the modal lifetime, and the
 // two models — is what nobody can wait for and what has to be live before anyone presses
 // anything; every STEP is drawn only once one of the three openings has fired, which is
-// the question `apps/desktop/AGENTS.md` §Module shape makes a registration answer.
-// `onboarding-walkthrough-mount.ts` is the loader and `onboarding-walkthrough-body.ts`
-// is the split point. The models deliberately stay here: they live outside
-// `Dialog.Portal`, which unmounts its children on close, and the flow's reading is what
-// the close control's own label is composed from.
+// the question the module-shape rule in `apps/desktop/AGENTS.md` makes a registration
+// answer. `onboarding-walkthrough-mount.ts` is the loader and
+// `onboarding-walkthrough-body.ts` is the split point. The models deliberately stay
+// here: they live outside `Dialog.Portal`, which unmounts its children on close, and the
+// flow's reading is what the close control's own label is composed from.
 //
 // THE MODELS ARE PER BRIDGE AND SUPERSEDED, held through the console's one
 // subject-scoped holder. A replacement bridge retires both — their unsettled calls
@@ -144,9 +143,9 @@ const ACCOUNT_REGISTRY_SECTION = "accounts";
  *
  * `unresolved` is the daemon answering that the relay step is not done, and
  * `unanswered` is the daemon not having answered at all — a read still in flight, or
- * one it refused. Both hold the dialog, because `Spec-026 §Desktop Surface` lifts the
- * lock on a choice being MADE and neither of these establishes one; they are two arms
- * rather than a boolean because only the first is something a person can act on.
+ * one it refused. Both hold the dialog, because the lock lifts only on a choice being
+ * MADE and neither of these establishes one; they are two arms rather than a boolean
+ * because only the first is something a person can act on.
  */
 type RelayLockReason = "unresolved" | "unanswered";
 
@@ -160,10 +159,10 @@ const RELAY_LOCK_LABELS: Readonly<Record<RelayLockReason, string>> = {
  * Whether this reading lets a group-A activation close, and why it does not.
  *
  * FAIL-CLOSED ON EVERY ARM BUT ONE. Only a served reading carrying `relay` among the
- * completed steps is the corpus's "a choice is made"; the in-flight arm has not asked
- * yet and the refused arm asked and was told nothing, so neither may open a dialog the
- * spec holds shut. Reading the reading here rather than at the call site keeps the
- * three arms in one place, where the day a fourth lands is a compile error.
+ * completed steps counts as a choice being made; the in-flight arm has not asked yet and
+ * the refused arm asked and was told nothing, so neither may open a dialog that has to
+ * stay shut. Reading the reading here rather than at the call site keeps the three arms
+ * in one place, where the day a fourth lands is a compile error.
  */
 function relayLockFor(reading: OnboardingReading): RelayLockReason | undefined {
   switch (reading.kind) {
@@ -295,10 +294,10 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
   return (
     <Dialog.Root
       open={isOpen}
-      // `Spec-023 §Console Libraries` adopts this family under `trap-focus` and no
-      // other mode: the default `modal` also locks body scroll, which that row
-      // forbids, and inerting the app root is the shell's job rather than the
-      // library's. Held for every console dialog in review.
+      // This dialog family is used under `trap-focus` and no other mode: the default
+      // `modal` also locks body scroll, which the console forbids, and inerting the app
+      // root is the shell's job rather than the library's. Held for every console dialog
+      // in review.
       modal="trap-focus"
       disablePointerDismissal={isLocked}
       onOpenChange={(nextOpen) => {
@@ -309,12 +308,11 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
       }}
     >
       {/* THE PORTAL, BACKDROP, AND POPUP ARE THE PRIMITIVE'S, and the whole of this
-          surface's part in it is what it puts inside (`Spec-023 §Console Design
-          (Meridian)` 12.3, §4.3). A dialog mounted by hand here reached the window's
-          airspace through nothing, so a native browser-pane view went on painting over
-          this walkthrough and taking its input — including the backdrop press. No
-          `label`: the title below is what names this dialog, and Base UI hands the
-          popup that title's id. */}
+          surface's part in it is what it puts inside. A dialog mounted by hand here
+          reached the window's airspace through nothing, so a native browser-pane view
+          went on painting over this walkthrough and taking its input — including the
+          backdrop press. No `label`: the title below is what names this dialog, and Base
+          UI hands the popup that title's id. */}
       <OverlayDialogPopup
         backdropClassName="meridian-onboarding__backdrop"
         className="meridian-onboarding__popup"
@@ -373,10 +371,10 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
 /**
  * The pair one window holds. The store travels because the readiness model needs it.
  *
- * `Spec-023 §Daemon Supervision Lifecycle` step 3 blocks mutating operations while the
- * supervisor is not serving, and the provider step's re-check dispatches one — so that
- * model reads the shell state this store publishes and refuses the probe itself. The
- * store is the window's, not this overlay's, so it is handed over rather than built.
+ * Mutating operations are blocked while the daemon supervisor is not serving, and the
+ * provider step's re-check dispatches one — so that model reads the shell state this
+ * store publishes and refuses the probe itself. The store is the window's, not this
+ * overlay's, so it is handed over rather than built.
  *
  * A FRESH PAIR IS ADDRESSED BEFORE IT IS HANDED OVER. The scope is a property of the
  * activation on screen, and a pair minted mid-activation — which is what a bridge swap

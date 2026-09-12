@@ -1,10 +1,9 @@
 // The sign-in card's chunk root: the one module an `import()` names.
 //
-// WHY IT EXISTS. Nothing on the flagship first paint is a sign-in card.
-// `Spec-023 §WebAuthn Credential Flow` gives the ceremony a start and no screen and
-// `Spec-026 §Trigger` deliberately does not gate first launch, so the console opens
-// signed out and this card is drawn only once somebody runs the command — which is
-// exactly the question `apps/desktop/AGENTS.md` §Module shape says a registration
+// WHY IT EXISTS. Nothing on the flagship first paint is a sign-in card. The ceremony
+// has a start and no screen, and onboarding deliberately does not gate first launch, so
+// the console opens signed out and this card is drawn only once somebody runs the
+// command — which is exactly the question `apps/desktop/AGENTS.md` says a registration
 // answers: painted before a person acts, or reached through a loader.
 //
 // It rode the initial import graph anyway, because `SignInOverlay.tsx` named the card

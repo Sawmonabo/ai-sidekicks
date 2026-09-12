@@ -26,7 +26,7 @@ const REFUSED_DIRECTORY: SessionDirectoryState = {
     detail: "Not checked — the session directory read is not registered yet.",
     operationId: "sessionList",
     slateRow: "session-directory-read",
-    owningDocument: "Spec-002",
+    owningDocument: "the session directory",
   },
 };
 

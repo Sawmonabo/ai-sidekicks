@@ -21,14 +21,13 @@ import { compositeGuardReading } from "./composite-guard.js";
 /**
  * The guards this suite iterates, held to the contract at COMPILE time.
  *
- * A bare list would go stale silently the day a fifth guard is registered — the one
- * event these cases most need to notice — and the exported schema cannot stand in for
- * one here: a console module never imports a contracts SCHEMA (`Spec-023 §Console
- * Design (Meridian)`, enforced by `no-restricted-imports`), and this suite is a
- * console module. So the keys are a `Record` over the union itself, which is total in
- * both directions without a runtime read: a guard added to the union leaves a key
- * missing, and a guard renamed leaves one missing and one excess. Neither is left to
- * a reader remembering to update a list.
+ * A bare list would go stale silently the day a fifth guard is registered — the one event
+ * these cases most need to notice — and the exported schema cannot stand in for one here:
+ * a console module never imports a contracts SCHEMA (enforced by
+ * `no-restricted-imports`), and this suite is a console module. So the keys are a
+ * `Record` over the union itself, which is total in both directions without a runtime
+ * read: a guard added to the union leaves a key missing, and a guard renamed leaves one
+ * missing and one excess. Neither is left to a reader remembering to update a list.
  */
 const GUARD_COVERAGE: Readonly<Record<RollbackCompositeRejectionGuard, true>> = {
   "no-active-turn": true,

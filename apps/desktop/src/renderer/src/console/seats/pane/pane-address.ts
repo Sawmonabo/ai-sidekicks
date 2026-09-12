@@ -39,10 +39,10 @@
 // names are console entity KINDS, so the inspector's row is that list and nothing
 // narrower. It was the intersection with the partition set until repo and invite were
 // missing from that set — which made a repo card and an invite card unrepresentable at
-// the address layer, and would have had the repos
-// and collaboration branches reopen this shared substrate to open a pane the spec
-// already routes. The row is now derived from a map that decides EVERY entity kind,
-// so a kind added later fails to compile until the question is answered for it.
+// the address layer, and would have had the repos and collaboration branches reopen
+// this shared substrate to open a pane the spec already routes. The row is now derived
+// from a map that decides EVERY entity kind, so a kind added later fails to compile
+// until the question is answered for it.
 //
 // AND THE `diff` ROW COMES OFF THE SAME CLAUSE OF THE SAME SENTENCE. "its changes
 // opening the `diff` pane" has one antecedent — the enumerated subject the clause

@@ -1,7 +1,7 @@
 // The all-sessions list: one row per session, in two tiers.
 //
-// `Spec-023 §Console Design (Meridian)` §All-sessions list. What the rows may and
-// may not claim is the whole of this file's difficulty, and four rules carry it:
+// What the rows may and may not claim is the whole of this file's difficulty, and
+// four rules carry it:
 //
 //   • **No invented name.** `SessionSnapshot` has `config` and `metadata` bags and
 //     no name column, so a session renders by its identifier and its participants.
