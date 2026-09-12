@@ -73,15 +73,15 @@ Approval lifecycle:
 
 ## Related Domain Docs
 
-- [Trust And Identity](./trust-and-identity.md) — approvals are signed by user identities. A `bound` identity can sign approvals; a `revoked` or `compromised` identity cannot. The dual-signed `ApprovalRecord` envelope per [Spec-024](../specs/024-cross-node-dispatch-and-approval.md) is the cross-node cousin of the same property.
+- [Trust And Identity](./trust-and-identity.md) — approvals are signed by user identities. A `bound` identity can sign approvals; a `revoked` or `compromised` identity cannot. The dual-signed `ApprovalRecord` envelope per [Spec-022](../specs/022-cross-node-dispatch-and-approval.md) is the cross-node cousin of the same property.
 
 ## Related Specs
 
-- [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md)
-- [Approvals Permissions And Trust Boundaries](../specs/012-approvals-permissions-and-trust-boundaries.md)
-- [Live Timeline Visibility And Reasoning Surfaces](../specs/013-live-timeline-visibility-and-reasoning-surfaces.md)
-- [Artifacts Files And Attachments](../specs/014-artifacts-files-and-attachments.md)
+- [Session Event Taxonomy And Audit Log](../specs/005-session-event-taxonomy-and-audit-log.md)
+- [Approvals Permissions And Trust Boundaries](../specs/010-approvals-permissions-and-trust-boundaries.md)
+- [Live Timeline Visibility And Reasoning Surfaces](../specs/011-live-timeline-visibility-and-reasoning-surfaces.md)
+- [Artifacts Files And Attachments](../specs/012-artifacts-files-and-attachments.md)
 
 ## Related ADRs
 
-- [Collaboration Trust And Permission Model](../decisions/007-collaboration-trust-and-permission-model.md)
+- [Device Trust and Permission Model](../decisions/007-device-trust-and-permission-model.md)

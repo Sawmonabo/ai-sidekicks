@@ -52,7 +52,7 @@ Agent lifecycle:
 | `disabled`   | The agent exists but cannot currently run.                   |
 | `archived`   | The agent remains in history but is not used for new runs.   |
 
-This 4-state enum is the canonical `AgentState` adopted verbatim by the Plan-016 contract surface (Tier-6 audit, A-016-2). V1 wire mapping: `agent.attach` lands the agent in `ready` (or `configured` when its named default node is not currently attached); `agent.detach` → `disabled`; re-attach → `ready`; `archived` is registered in the contract enum but no V1 wire mutation reaches it. Only a `ready` agent can take a run (`agent.not_ready` otherwise). The agent persona (`name`, `driverName`, `modelId`, `defaultNodeId?`, `config?`, `providerAccountId?`, `effort?`, `executionPostureMode?`, `toolAllowlist?`, `instructions?`, `goal?`) is durable via `agent.*` events — the `providerAccountId?` / `effort?` pair added 2026-08-26 (D-016-26) and the four resolved-definition axes added 2026-08-26 (CP-030-7), each named rather than counted so this enumeration stops tracking a position that moves; all six outside `config` because surfaces beyond the driver read them; and `driverName`, `providerAccountId`, `modelId`, and `effort` are mutable axes of `agent.configUpdate` applied at the next boundary the axis permits, not facts fixed at attach ([Spec-016 §Same-Agent Provider Switch](../specs/016-multi-agent-channels-and-orchestration.md#same-agent-provider-switch)) ([Spec-006 §Channel and Agent Lifecycle](../specs/006-session-event-taxonomy-and-audit-log.md#channel-and-agent-lifecycle-session_lifecycle)).
+This 4-state enum is the canonical `AgentState` adopted verbatim by the Plan-014 contract surface (Tier-5 audit, A-014-2). V1 wire mapping: `agent.attach` lands the agent in `ready` (or `configured` when its named default node is not currently attached); `agent.detach` → `disabled`; re-attach → `ready`; `archived` is registered in the contract enum but no V1 wire mutation reaches it. Only a `ready` agent can take a run (`agent.not_ready` otherwise). The agent persona (`name`, `driverName`, `modelId`, `defaultNodeId?`, `config?`, `providerAccountId?`, `effort?`, `executionPostureMode?`, `toolAllowlist?`, `instructions?`, `goal?`) is durable via `agent.*` events — the `providerAccountId?` / `effort?` pair added 2026-08-26 (D-014-26) and the four resolved-definition axes added 2026-08-26 (CP-027-7), each named rather than counted so this enumeration stops tracking a position that moves; all six outside `config` because surfaces beyond the driver read them; and `driverName`, `providerAccountId`, `modelId`, and `effort` are mutable axes of `agent.configUpdate` applied at the next boundary the axis permits, not facts fixed at attach ([Spec-014 §Same-Agent Provider Switch](../specs/014-multi-agent-channels-and-orchestration.md#same-agent-provider-switch)) ([Spec-005 §Channel and Agent Lifecycle](../specs/005-session-event-taxonomy-and-audit-log.md#channel-and-agent-lifecycle-session_lifecycle)).
 
 Channel lifecycle:
 
@@ -62,9 +62,9 @@ Channel lifecycle:
 | `muted` | The channel remains valid but is intentionally suppressed from normal attention surfaces. |
 | `archived` | The channel remains historical only. |
 
-Transitions (Tier-6 audit, D-016-12): `active` ↔ `muted` via `channel.mute` / `channel.unmute`; `active` or `muted` → `archived` via `channel.archive` (terminal). Run admission targeting an `archived` channel is refused (`channel.inactive`); a `muted` channel still accepts runs and output — mute suppresses attention surfaces, not execution. The bootstrap `main` channel is projected from the session itself (`deriveMainChannelId`, `packages/contracts/src/channel-id.ts`), never has a stored row or `channel.created` event, and is not mutable by the lifecycle verbs.
+Transitions (Tier-5 audit, D-014-12): `active` ↔ `muted` via `channel.mute` / `channel.unmute`; `active` or `muted` → `archived` via `channel.archive` (terminal). Run admission targeting an `archived` channel is refused (`channel.inactive`); a `muted` channel still accepts runs and output — mute suppresses attention surfaces, not execution. The bootstrap `main` channel is projected from the session itself (`deriveMainChannelId`, `packages/contracts/src/channel-id.ts`), never has a stored row or `channel.created` event, and is not mutable by the lifecycle verbs.
 
-Run lifecycle is defined in `run-state-machine.md`. Parent-child run links carry one of three caller-declared link types — `spawn`, `delegate`, `handoff` ([Spec-016 §Interfaces And Contracts](../specs/016-multi-agent-channels-and-orchestration.md#interfaces-and-contracts), D-016-17) — and V1 nesting is depth-1.
+Run lifecycle is defined in `run-state-machine.md`. Parent-child run links carry one of three caller-declared link types — `spawn`, `delegate`, `handoff` ([Spec-014 §Interfaces And Contracts](../specs/014-multi-agent-channels-and-orchestration.md#interfaces-and-contracts), D-014-17) — and V1 nesting is depth-1.
 
 ## Example Flows
 
@@ -79,9 +79,9 @@ Run lifecycle is defined in `run-state-machine.md`. Parent-child run links carry
 
 ## Related Specs
 
-- [Shared Session Core](../specs/001-shared-session-core.md)
-- [Multi Agent Channels And Orchestration](../specs/016-multi-agent-channels-and-orchestration.md)
-- [Workflow Authoring And Execution](../specs/017-workflow-authoring-and-execution.md)
+- [Session Core](../specs/001-session-core.md)
+- [Multi Agent Channels And Orchestration](../specs/014-multi-agent-channels-and-orchestration.md)
+- [Workflow Authoring And Execution](../specs/015-workflow-authoring-and-execution.md)
 
 ## Related ADRs
 

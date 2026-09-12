@@ -21,7 +21,7 @@ The orchestrator passes you:
 
 - A list of modified files (repo-relative paths) — the cite TARGETS.
 - The diff hunks for those files (so you can compute line-shift offsets).
-- The list of inbound `<file>:NNN` cites that point at any modified file — from elsewhere in the `.md` corpus **and** from `packages/**`+`apps/**` code comments, across all line-bearing forms (colon `Spec-003:178`, line-word `Spec-003 line 178`, parenthesized `(line 178)`, named-section `§… line 81`, `AC4:108`, full-path and bare-basename `.md` forms), normalized to `<doc-path>:NNN` and tagged by origin (`.md` vs code). The 2026-07 sweeps converted the code tree's colon-form AND line-word/bare-basename cites to gate-verified `§Heading` anchors, and label-cite now denies every new line-anchored spelling in code (colon, path, line-word, bare-basename — passes 1-6). Code citers stay in scope for the SEMANTIC residual: a surviving `§Heading` cite whose section content changed contract, plus any legacy form in an unswept diff. Audit a code citer exactly as a `.md` citer: read the citing comment for what it claims, read the target line for what it now says. Heading-anchor exposure routes to Subagent B.
+- The list of inbound `<file>:NNN` cites that point at any modified file — from elsewhere in the `.md` corpus **and** from `packages/**`+`apps/**` code comments, across all line-bearing forms (colon `Spec-002:178`, line-word `Spec-002 line 178`, parenthesized `(line 178)`, named-section `§… line 81`, `AC4:108`, full-path and bare-basename `.md` forms), normalized to `<doc-path>:NNN` and tagged by origin (`.md` vs code). The 2026-07 sweeps converted the code tree's colon-form AND line-word/bare-basename cites to gate-verified `§Heading` anchors, and label-cite now denies every new line-anchored spelling in code (colon, path, line-word, bare-basename — passes 1-6). Code citers stay in scope for the SEMANTIC residual: a surviving `§Heading` cite whose section content changed contract, plus any legacy form in an unswept diff. Audit a code citer exactly as a `.md` citer: read the citing comment for what it claims, read the target line for what it now says. Heading-anchor exposure routes to Subagent B.
 
 If any input is missing or unparseable, return `exit_state: NEEDS_CONTEXT` with a `narrative` describing the gap.
 
@@ -38,8 +38,8 @@ Return **a single JSON object as the final message**. The orchestrator parses on
       "catalog_row": "CAT-07",
       "file": "docs/architecture/cross-plan-dependencies.md",
       "line": 489,
-      "description": "Inbound cite `Spec-027:6` semantically refers to the 'Cross-node dispatch dual-signature' bullet, but a 1-line insertion above the target shifted that bullet to line 5. The new line 6 is a different bullet ('Approval flow timing'), so the cite resolves to non-empty content but the wrong content.",
-      "suggested_fix": "Update the inbound cite to `Spec-027:5`. Alternative: replace the line cite with a content-based anchor (insert `<a id=\"dispatch-dual-sig\"></a>` near the bullet and cite `Spec-027#dispatch-dual-sig`)."
+      "description": "Inbound cite `Spec-024:6` semantically refers to the 'Cross-node dispatch dual-signature' bullet, but a 1-line insertion above the target shifted that bullet to line 5. The new line 6 is a different bullet ('Approval flow timing'), so the cite resolves to non-empty content but the wrong content.",
+      "suggested_fix": "Update the inbound cite to `Spec-024:5`. Alternative: replace the line cite with a content-based anchor (insert `<a id=\"dispatch-dual-sig\"></a>` near the bullet and cite `Spec-024#dispatch-dual-sig`)."
     }
   ],
   "narrative": "Optional reviewer-shows-work text. Not re-dispatched on."
@@ -94,7 +94,7 @@ The `cite-target-existence` hook catches the structural floor: line N out of ran
 - **Insertion drift**: lines were added above the target, shifting the target down by N lines. The old cite `:6` now points at non-empty content, but it is a different sentence than the citing prose was citing. Compute the shift from the diff hunks (count `+` lines above the cited line) and propose `:6+N`.
 - **In-section refactor**: the target's section was rewritten so the old line number now points at a different bullet / paragraph in the same section. The shift is not a clean offset — the citing prose may need to point at a different line entirely, or the citing prose may need rewriting if the cited content was deleted.
 
-The PR #27 fix `aab5bf9` failing example: `Spec-027:6` should have been `Spec-027:5`. The truncation floor passed (line 6 was non-empty); the semantic drift required fresh-reader walking to detect.
+The PR #27 fix `aab5bf9` failing example: `Spec-024:6` should have been `Spec-024:5`. The truncation floor passed (line 6 was non-empty); the semantic drift required fresh-reader walking to detect.
 
 ## Tasks
 

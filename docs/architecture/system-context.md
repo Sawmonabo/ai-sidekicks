@@ -77,9 +77,9 @@ Primary actors:
 
 ## Related Specs
 
-- [Shared Session Core](../specs/001-shared-session-core.md)
-- [Runtime Node Attach](../specs/003-runtime-node-attach.md)
-- [Remote Control](../specs/031-remote-control.md)
+- [Session Core](../specs/001-session-core.md)
+- [Runtime Node Attach](../specs/002-runtime-node-attach.md)
+- [Remote Control](../specs/028-remote-control.md)
 
 ## Related ADRs
 

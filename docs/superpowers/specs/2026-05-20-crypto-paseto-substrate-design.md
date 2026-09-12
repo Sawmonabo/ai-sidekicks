@@ -12,7 +12,7 @@
 
 ### 1.1 Purpose
 
-This document defines the design contract for the `@ai-sidekicks/crypto-paseto` workspace package: its public interfaces, cryptographic invariants, threat model, and the seams it preserves for downstream consumers ([Plan-018](../../plans/018-identity-and-user-state.md) Tier 5 refresh-token persistence; Plan-025 Tier 7 relay-server token verification).
+This document defines the design contract for the `@ai-sidekicks/crypto-paseto` workspace package: its public interfaces, cryptographic invariants, threat model, and the seams it preserves for downstream consumers ([Plan-016](../../plans/016-identity-and-user-state.md) Tier 4 refresh-token persistence; Plan-025 Tier 6 relay-server token verification).
 
 The package ships PASETO v4.public and v4.local primitives plus a PAE helper and an in-memory KeyRing — together they form the cryptographic substrate that V1 authentication tracks depend on.
 
@@ -20,10 +20,10 @@ The package ships PASETO v4.public and v4.local primitives plus a PAE helper and
 
 This design spec deliberately does **not** cover:
 
-- **Relay-server wire protocol** — owned by Spec-008 (v2 wire protocol) + Spec-025 (Node.js deployment), implemented in Plan-025 Tier 7.
-- **Persistence backend for KeyRing** — owned by [Plan-018](../../plans/018-identity-and-user-state.md) Tier 5. The constructor seam (§8) is the integration surface; substance lives downstream.
+- **Relay-server wire protocol** — owned by Spec-008 (v2 wire protocol) + Spec-025 (Node.js deployment), implemented in Plan-025 Tier 6.
+- **Persistence backend for KeyRing** — owned by [Plan-016](../../plans/016-identity-and-user-state.md) Tier 4. The constructor seam (§8) is the integration surface; substance lives downstream.
 - **Operator-facing config and deployment posture** — owned by Spec-025 (Docker / Caddy / reverse-proxy topology).
-- **End-user-facing token issuance flows** — owned by Plan-002 (invite tokens) and [Plan-018](../../plans/018-identity-and-user-state.md) (refresh tokens).
+- **End-user-facing token issuance flows** — owned by Plan-002 (invite tokens) and [Plan-016](../../plans/016-identity-and-user-state.md) (refresh tokens).
 
 ### 1.3 Why `substrate_exempt`
 
@@ -34,12 +34,12 @@ Plan-025 Tier 1 Partial Phase 1 (the implementation phase this design governs) i
 | Source | Role |
 | --- | --- |
 | [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md):129–136 | Authoritative contract: in-house lib mandate + v4.public + v4.local dual coverage + audited deps (`@noble/curves`, `@noble/ciphers`, `@noble/hashes`) |
-| [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md):29 | Plan-018 v4.local dependency declared |
+| [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md):29 | Plan-016 v4.local dependency declared |
 | PASETO Spec — Version 4 | Primary source for both primitives — https://github.com/paseto-standard/paseto-spec/blob/master/docs/01-Protocol-Versions/Version4.md |
 | PASETO Spec — Common (PAE) | Primary source for Pre-Authentication Encoding — https://github.com/paseto-standard/paseto-spec/blob/master/docs/01-Protocol-Versions/Common.md |
 | PASETO Test Vectors v4 | Release-gate vector source — https://github.com/paseto-standard/test-vectors/blob/master/v4.json |
 | Spec-025 | Context only; `spec_coverage: []` — Spec-025 governs the relay-server surface, not the package primitives |
-| Plan-025 §Target Areas, §Tier 1 Partial PR Sequence | Owning plan; carves Phase 1 substrate out from Tier 7 relay implementation |
+| Plan-025 §Target Areas, §Tier 1 Partial PR Sequence | Owning plan; carves Phase 1 substrate out from Tier 6 relay implementation |
 
 ## 3. Public surface
 
@@ -252,7 +252,7 @@ The MAC-before-decrypt ordering (step 4 before step 5) is the load-bearing invar
 **Out of scope** (these are other layers' jobs):
 
 - **Local-process attacker with arbitrary memory read** — OS process boundaries and the future sidecar separation own this. Cryptographic primitives operating in the same address space as their callers cannot defend against this.
-- **Replay attack** (same token submitted twice within validity window) — PASETO itself does not claim replay defense; the token carries no unique-ID required for "have I seen this before" stateful checks. The relay (Spec-025 / Plan-025 Tier 7) is the correct layer.
+- **Replay attack** (same token submitted twice within validity window) — PASETO itself does not claim replay defense; the token carries no unique-ID required for "have I seen this before" stateful checks. The relay (Spec-025 / Plan-025 Tier 6) is the correct layer.
 - **Compromised dependency** — supply-chain posture (§9) covers this with pinning, `minimumReleaseAge`, and `blockExoticSubdeps`; it is not a primitive-design concern.
 
 ### 5.2 Invariants the package guarantees
@@ -319,7 +319,7 @@ The Phase 1 KeyRing is **in-memory only**. No file I/O, no database access, no o
 
 ### 8.1 Why in-memory only
 
-Cross-plan dependencies §5 names [Plan-018](../../plans/018-identity-and-user-state.md) Tier 5 as the owner of identity-state persistence (the table that stores `KeyRingEntry` rows). The substrate must not pre-empt that storage decision — different deployment targets (SQLite for self-host, Postgres for hosted) need different schemas, and Plan-018 is the canonical place to make that call.
+Cross-plan dependencies §5 names [Plan-016](../../plans/016-identity-and-user-state.md) Tier 4 as the owner of identity-state persistence (the table that stores `KeyRingEntry` rows). The substrate must not pre-empt that storage decision — different deployment targets (SQLite for self-host, Postgres for hosted) need different schemas, and Plan-016 is the canonical place to make that call.
 
 ### 8.2 The persistence seam
 
@@ -330,13 +330,13 @@ class KeyRing {
 }
 ```
 
-The constructor accepts a pre-loaded array of entries. Plan-018 Tier 5 will:
+The constructor accepts a pre-loaded array of entries. Plan-016 Tier 4 will:
 
 1. Read `KeyRingEntry` rows from its storage backend (whatever schema it lands on).
 2. Construct a `KeyRing` instance: `new KeyRing(loadedEntries)`.
 3. Hand the instance to whatever component owns access-token verification.
 
-The substrate doesn't know where the entries came from — it gets a `readonly KeyRingEntry[]` and applies its invariants. Plan-018 can change its storage substrate (e.g., add encryption-at-rest, switch backends) without touching `crypto-paseto`.
+The substrate doesn't know where the entries came from — it gets a `readonly KeyRingEntry[]` and applies its invariants. Plan-016 can change its storage substrate (e.g., add encryption-at-rest, switch backends) without touching `crypto-paseto`.
 
 ### 8.3 Rotation semantics
 
@@ -346,12 +346,12 @@ The substrate doesn't know where the entries came from — it gets a `readonly K
 - The `next` entry becomes the new active entry.
 - The pre-rotation instance is unchanged — call sites holding a reference to the old `KeyRing` continue to see the old key as active.
 
-This immutability supports two patterns Plan-018 will rely on:
+This immutability supports two patterns Plan-016 will rely on:
 
 1. **Rollback**: if rotation needs to be reverted (e.g., the new key has a corruption), the application can swap back to the old `KeyRing` instance.
 2. **Concurrent reads**: in-flight verifications that started with the old `KeyRing` complete against the old active key; new verifications use the new instance. No shared mutable state to race on.
 
-**Usage note (rotation trap)**: callers must **reassign** the variable holding the `KeyRing` after rotation — `keyRing = keyRing.rotate(next)`. Calling `rotate()` and discarding its return value (e.g., `keyRing.rotate(next)` as a statement) silently keeps the old key active because the existing instance is unchanged. This is by design (supports the rollback and concurrent-read patterns above) but is a usage trap for callers who assume mutation semantics. Plan-018 Tier 5's integration must hold the `KeyRing` instance behind an indirection (atomic ref, module-scope binding) that supports atomic swap.
+**Usage note (rotation trap)**: callers must **reassign** the variable holding the `KeyRing` after rotation — `keyRing = keyRing.rotate(next)`. Calling `rotate()` and discarding its return value (e.g., `keyRing.rotate(next)` as a statement) silently keeps the old key active because the existing instance is unchanged. This is by design (supports the rollback and concurrent-read patterns above) but is a usage trap for callers who assume mutation semantics. Plan-016 Tier 4's integration must hold the `KeyRing` instance behind an indirection (atomic ref, module-scope binding) that supports atomic swap.
 
 `active()` always returns the single entry with `retiredAt: undefined`; per the constructor invariants (§3.3) there is always exactly one such entry. `byId(id)` returns retired entries too — used for verifying tokens that were signed with a now-retired key but are still within their token-validity window.
 
@@ -434,7 +434,7 @@ The following six decisions were settled during planning and are recorded here f
 | Question | Decision | Justification |
 | --- | --- | --- |
 | RFC vector ingestion | Vendor `v4.json` under `src/__tests__/__fixtures__/` with `PROVENANCE.md` | Hermetic CI; no network in test runs; auditable diff on upstream updates |
-| KeyRing scope at Tier 1 Partial | In-memory only; persistence injection point preserved (constructor seam, §8) | Persistence belongs to Plan-018 Tier 5 per cross-plan-deps §5; substrate must not pre-empt storage decisions |
+| KeyRing scope at Tier 1 Partial | In-memory only; persistence injection point preserved (constructor seam, §8) | Persistence belongs to Plan-016 Tier 4 per cross-plan-deps §5; substrate must not pre-empt storage decisions |
 | Noble pinning | `@noble/curves@^2`, `@noble/ciphers@^2`, `@noble/hashes@^2` | User override of "audited 1.x" recommendation; Paul Miller self-audit (April 2026) + active maintenance; re-evaluate at V1.1 |
 | Public surface | Flat `src/index.ts` barrel | Mirrors `packages/contracts/src/index.ts` precedent |
 | Vector file shape | Single `v4.json` with name-prefix filter (`4-S-*` → v4.public, `4-E-*` → v4.local) | Matches upstream `paseto-standard/test-vectors` schema; one source of truth |
@@ -450,7 +450,7 @@ The following six decisions were settled during planning and are recorded here f
 | Constant-time discipline in TypeScript (compiler doesn't enforce) | Use `@noble/hashes/utils.js` `equalBytes` for MAC/signature compares; never `===` or `Buffer.compare` on secret material. ESLint custom rule could enforce in future (out of scope for this substrate). |
 | Supply-chain on `@noble/*` | Pinned to `^2`; `pnpm-workspace.yaml` has `minimumReleaseAge: 1440` (24h) + `blockExoticSubdeps: true`. SBOM coverage already in repo CI. |
 | Key material in test fixtures triggers gitleaks | Documented as test-only via `PROVENANCE.md`; gitleaks allow-list scoped narrowly to `packages/crypto-paseto/src/__tests__/__fixtures__/v4.json`. |
-| KeyRing persistence pre-empting Plan-018 Tier 5 | In-memory only; constructor accepts pre-loaded entries — no DB/file I/O at this layer. |
+| KeyRing persistence pre-empting Plan-016 Tier 4 | In-memory only; constructor accepts pre-loaded entries — no DB/file I/O at this layer. |
 | Test vectors might assume PASETO 2.x library behavior incompatible with noble 2.x | Run smoke encrypt/decrypt before vendoring fixtures; if any vector diverges from noble output, surface as `BL-NNN` before merge. |
 
 ## 13. References

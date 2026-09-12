@@ -13,7 +13,7 @@ Sign, distribute, verify, and rotate the operator-signed artifacts that underpin
 - An operator security incident ticket indicates suspected exposure of the operator release signing key.
 - Scope and blast radius:
   - V1 image-signature failure: one daemon node fails to start; approvals on that node unavailable.
-  - V1 policy-set signature failure (typed log `policy-artifact-signature-invalid`, per ADR-012's 2026-06-10 Decision Log row and Plan-012 D-012-9): the daemon **refuses to start** — fail-closed; approvals on that node unavailable until a correctly signed daemon artifact is redeployed — the compiled set is build-embedded, so restoration replaces the daemon build itself (container-image redeploy in containerized topologies; reinstall/rebuild of the signed desktop daemon where no container image exists, per ADR-012's both-topologies custody rule), never a bundle push.
+  - V1 policy-set signature failure (typed log `policy-artifact-signature-invalid`, per ADR-012's 2026-06-10 Decision Log row and Plan-010 D-010-9): the daemon **refuses to start** — fail-closed; approvals on that node unavailable until a correctly signed daemon artifact is redeployed — the compiled set is build-embedded, so restoration replaces the daemon build itself (container-image redeploy in containerized topologies; reinstall/rebuild of the signed desktop daemon where no container image exists, per ADR-012's both-topologies custody rule), never a bundle push.
   - V1.1 bundle-signature failure: daemon continues running but suspends approval evaluation; existing authorized sessions on that node continue until they require a new approval decision.
   - Suspected operator-key compromise: fleet-wide; every daemon pinned to the compromised key is in scope.
 
@@ -43,7 +43,7 @@ Sign, distribute, verify, and rotate the operator-signed artifacts that underpin
 5. Publish bundle and signature to the operator distribution endpoint.
 6. Monitor daemon fleet telemetry for bundle pickup and successful verification counts.
 
-(CLI flag names are proposed; concrete surface is finalized in [Plan-012](../plans/012-approvals-permissions-and-trust-boundaries.md).)
+(CLI flag names are proposed; concrete surface is finalized in [Plan-010](../plans/010-approvals-permissions-and-trust-boundaries.md).)
 
 ### Scenario B — Daemon refuses to start or enforce approvals (policy artifact or bundle verification failed)
 
@@ -105,8 +105,8 @@ Treat as a Severity 1 incident.
 
 ## Related Specs
 
-- [Approvals Permissions And Trust Boundaries](../specs/012-approvals-permissions-and-trust-boundaries.md)
+- [Approvals Permissions And Trust Boundaries](../specs/010-approvals-permissions-and-trust-boundaries.md)
 
 ## Related Plans
 
-- [Approvals Permissions And Trust Boundaries](../plans/012-approvals-permissions-and-trust-boundaries.md)
+- [Approvals Permissions And Trust Boundaries](../plans/010-approvals-permissions-and-trust-boundaries.md)

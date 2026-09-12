@@ -1,0 +1,135 @@
+# Spec-001: Session Core
+
+| Field | Value |
+| --- | --- |
+| **Status** | `approved` |
+| **NNN** | `001` |
+| **Slug** | `session-core` |
+| **Date** | `2026-04-14` |
+| **Author(s)** | `Codex` |
+| **Depends On** | [Glossary](../domain/glossary.md), [Session Model](../domain/session-model.md), [User And Device Model](../domain/user-and-device-model.md), [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md), [System Context](../architecture/system-context.md), [Container Architecture](../architecture/container-architecture.md) |
+| **Implementation Plan** | [Plan-001: Session Core](../plans/001-session-core.md) |
+
+## Purpose
+
+Define the minimum shared-session contract that all user, device, and agent behavior must build on.
+
+## Scope
+
+This spec covers session identity, default session structure, session creation, join, and attachment semantics.
+
+## Non-Goals
+
+- Detailed runtime-node attach protocol
+- Detailed run state or queue semantics
+
+## Domain Dependencies
+
+- [Session Model](../domain/session-model.md)
+- [User And Device Model](../domain/user-and-device-model.md)
+- [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md)
+
+## Architectural Dependencies
+
+- [System Context](../architecture/system-context.md)
+- [Container Architecture](../architecture/container-architecture.md)
+- [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
+- [ADR-001: Session Is The Primary Domain Object](../decisions/001-session-is-the-primary-domain-object.md)
+- [ADR-002: Local Execution Shared Control Plane](../decisions/002-local-execution-shared-control-plane.md)
+
+## Required Behavior
+
+- The system must treat `Session` as the primary session container.
+- Every user, runtime node, channel, agent, run, queue item, artifact, and approval must reference exactly one session id.
+- Creating a session must produce a durable session record before any run starts.
+- Joining an existing session must attach to the same session id and existing timeline; it must not silently fork the session.
+- A session must support concurrent devices, channels, and runs.
+- Session identity must remain stable across reconnect, client restart, and transport changes.
+- The Local Runtime Daemon must own execution state while the Control Plane owns shared coordination state.
+
+## Default Behavior
+
+- A newly created session starts in `provisioning` state and transitions to `active` once initial storage and control-plane metadata are ready. See [Session Model](../domain/session-model.md) for the full lifecycle including `archived`, `closed`, `purge_requested`, and `purged` states (see [Spec-020](../specs/020-data-retention-and-gdpr.md) for GDPR states).
+- A newly created session belongs to the user who created it and defaults to one `main` channel.
+- If the creator has a healthy local runtime node available, the client may offer immediate node attach after session creation.
+
+## Fallback Behavior
+
+- If the control plane is unavailable during session creation, the system may create a `local-only` session projection that can later be promoted once the control plane is reachable.
+- If a client reconnects after missing live updates, it must restore from the canonical snapshot and replay surface rather than trusting client cache.
+
+## Resource Limits
+
+| Resource                         | Default Limit | Enforcement Point             |
+| -------------------------------- | ------------- | ----------------------------- |
+| Channels per session             | 20            | Daemon (on channel create)    |
+| Concurrent runs per session      | 5             | Daemon (on run admit)         |
+| Agents per session               | 10            | Daemon (on agent attach)      |
+| Concurrent child runs per parent | 3             | Daemon (on child spawn)       |
+| Queue depth per session          | 100           | Daemon (on queue item create) |
+
+### Limit Enforcement
+
+- Each limit check returns a standard error: `{code: "resource.limit_exceeded", message: "...", details: {resource, limit, current}}`.
+- Limits are configurable per session via session config. The values above are defaults.
+- Exceeding a limit does NOT terminate existing resources -- it prevents creating new ones.
+
+## Interfaces And Contracts
+
+- `SessionCreate` must return the session id, session state, and initial channels.
+- `SessionRead` must return the authoritative session snapshot plus timeline cursors.
+- `SessionJoin` must verify that the caller owns the session and return the same session id plus the latest shared metadata.
+- `SessionSubscribe` must stream canonical session events and support replay from a known cursor.
+- See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
+- See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
+
+## State And Data Implications
+
+- Session records must be durable before active run state is admitted.
+- The system must maintain a canonical session event stream and session snapshot projection.
+- Clients may cache presentation state, but cache must not be authoritative for session or run truth.
+- Session records may carry an optional minimum client-version floor (`min_client_version`) per [ADR-018: Cross-Version Compatibility](../decisions/018-cross-version-compatibility.md). A NULL floor means no minimum is enforced. Attach-time enforcement is performed at the [Runtime Node Attach](./002-runtime-node-attach.md) boundary.
+
+## Example Flows
+
+- `Example: A user creates a session for a repository review. The system creates the session, creates a main channel, and later attaches a runtime node without changing the session id.`
+- `Example: A second device joins an already active session and receives the existing timeline plus current device-presence state instead of creating a new conversation container.`
+
+## Implementation Notes
+
+- Keep session ids globally unique and opaque.
+- Default channel creation belongs to session creation, not to the first run.
+- `local-only` fallback must remain visibly distinct from relayed mode, but it must not become a second session type.
+
+## Pitfalls To Avoid
+
+- Treating provider thread ids as session ids
+- Letting the active client tab own session truth
+- Creating hidden shadow sessions during reconnect or join
+
+## Acceptance Criteria
+
+- [ ] AC1 — Creating a session yields one stable session id and one default channel.
+- [ ] AC2 — Session record is durable in shared state before any run admission or attached-node activity.
+- [ ] AC3 — Session id is stable across reconnect, client restart, and transport change.
+- [ ] AC4 — A second client `SessionJoin` to an existing session returns the same session id and full event history.
+- [ ] AC5 — `SessionJoin` does not silently fork the session, change the session id, or reset existing runs.
+- [ ] AC6 — Reconnecting clients restore session state from the authoritative snapshot plus replay data, never from client cache.
+- [ ] AC7 — Concurrent channels and runs up to the [Resource Limits](#resource-limits) defaults are supported without timeline corruption.
+- [ ] AC8 — Each Resource Limits enforcement returns the standard `{code: "resource.limit_exceeded", ...}` error shape and does not terminate existing resources.
+
+## ADR Triggers
+
+- If the product stops treating session as the primary domain object, create or update `../decisions/001-session-is-the-primary-domain-object.md`.
+- If `local-only` fallback evolves into a materially different session model, create or update `../decisions/002-local-execution-shared-control-plane.md`.
+
+## Resolved Questions and V1 Scope Decisions
+
+- No blocking open questions remain for v1.
+- V1 decision: `local-only` session continuity is not promotable in place. Reaching a session from another device requires an explicit transition to relayed mode rather than silent in-place promotion.
+
+## References
+
+- [Session Model](../domain/session-model.md)
+- [System Context](../architecture/system-context.md)
+- [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)

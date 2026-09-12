@@ -21,11 +21,11 @@ Repair or restore the Local Runtime Daemon SQLite store when daemon startup, rep
 
 - Access to the affected user machine and daemon-owned SQLite files
 - Permission to stop the Local Runtime Daemon
-- Access to the most recent known-good local persistence backup (daily backups are always available per [Spec-015 §Backup Policy](../specs/015-persistence-recovery-and-replay.md#backup-policy) — 7-daily + 4-weekly retention; restore SLO ≤ 24h staleness)
+- Access to the most recent known-good local persistence backup (daily backups are always available per [Spec-013 §Backup Policy](../specs/013-persistence-recovery-and-replay.md#backup-policy) — 7-daily + 4-weekly retention; restore SLO ≤ 24h staleness)
 
 ### Backup Constraints
 
-The daemon master key that wraps all `user_keys.encrypted_key_blob` entries has a deliberately-narrow custody model (see [Spec-022 §Daemon Master Key](../specs/022-data-retention-and-gdpr.md#daemon-master-key)). This creates backup constraints that diverge from normal database-backup hygiene.
+The daemon master key that wraps all `user_keys.encrypted_key_blob` entries has a deliberately-narrow custody model (see [Spec-020 §Daemon Master Key](../specs/020-data-retention-and-gdpr.md#daemon-master-key)). This creates backup constraints that diverge from normal database-backup hygiene.
 
 **Separation rule**:
 
@@ -64,8 +64,8 @@ The daemon master key that wraps all `user_keys.encrypted_key_blob` entries has 
 2. Create a timestamped backup copy of the current SQLite database, WAL, and SHM files before attempting repair or restore.
 3. Run a SQLite integrity check against the copied database to determine whether the canonical local store is structurally healthy.
 4. If integrity is healthy, restart the daemon and run `ProjectionRebuild` from canonical events instead of replacing the database.
-5. If integrity fails, restore the last known-good SQLite, WAL, and SHM set from the backup tree at `$XDG_STATE_HOME/ai-sidekicks/backups/` (host) or the operator's bind-mounted backup path (container) per [Spec-015 §Backup Policy](../specs/015-persistence-recovery-and-replay.md#backup-policy), then restart the daemon and allow replay rebuild to run.
-6. If integrity fails AND the backup tree is itself unreadable (catastrophic filesystem loss — not the normal case, since `Spec-015 §Backup Policy` guarantees daily backups by default), preserve the broken files for later analysis, keep new mutable work blocked, and escalate rather than creating a fresh empty database.
+5. If integrity fails, restore the last known-good SQLite, WAL, and SHM set from the backup tree at `$XDG_STATE_HOME/ai-sidekicks/backups/` (host) or the operator's bind-mounted backup path (container) per [Spec-013 §Backup Policy](../specs/013-persistence-recovery-and-replay.md#backup-policy), then restart the daemon and allow replay rebuild to run.
+6. If integrity fails AND the backup tree is itself unreadable (catastrophic filesystem loss — not the normal case, since `Spec-013 §Backup Policy` guarantees daily backups by default), preserve the broken files for later analysis, keep new mutable work blocked, and escalate rather than creating a fresh empty database.
 
 ## Validation
 
@@ -112,12 +112,12 @@ sidekicks db vacuum
 
 ## Related Specs
 
-- [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md)
-- [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md)
-- [Observability And Failure Recovery](../specs/020-observability-and-failure-recovery.md)
+- [Session Event Taxonomy And Audit Log](../specs/005-session-event-taxonomy-and-audit-log.md)
+- [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md)
+- [Observability And Failure Recovery](../specs/018-observability-and-failure-recovery.md)
 
 ## Related Plans
 
-- [Shared Session Core](../plans/001-shared-session-core.md)
-- [Persistence Recovery And Replay](../plans/015-persistence-recovery-and-replay.md)
-- [Observability And Failure Recovery](../plans/020-observability-and-failure-recovery.md)
+- [Session Core](../plans/001-session-core.md)
+- [Persistence Recovery And Replay](../plans/013-persistence-recovery-and-replay.md)
+- [Observability And Failure Recovery](../plans/018-observability-and-failure-recovery.md)

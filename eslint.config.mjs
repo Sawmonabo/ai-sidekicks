@@ -87,7 +87,7 @@ export default tseslint.config(
       },
     },
   },
-  // Plan-008 §I-008-3 enforcement #2 — the tRPC session router + SSE
+  // The tRPC session router + SSE
   // subscription factories must NEVER reach a database driver directly. They
   // route 100% through `SessionDirectoryService` (the wrapper Plan-001 owns).
   // These rules are the whole enforcement. `no-restricted-imports` covers the
@@ -138,7 +138,7 @@ export default tseslint.config(
       ],
     },
   },
-  // Plan-002 Phase 3 — `@ai-sidekicks/contracts` isomorphism guard. Contracts
+  // `@ai-sidekicks/contracts` isomorphism guard. Contracts
   // ships to Node, Cloudflare Workers, AND the browser (it is the shared wire
   // surface), so it must stay free of Node-only builtins. The shared
   // `deriveMainChannelId` derivation uses `@noble/hashes` (isomorphic) rather
@@ -165,7 +165,7 @@ export default tseslint.config(
             {
               group: ["node:*"],
               message:
-                "@ai-sidekicks/contracts must stay isomorphic (Node + Cloudflare Workers + browser): node: builtins are forbidden. Use @noble/hashes for hashing/hex. See Plan-002 Phase 3 shared channel-id derivation.",
+                "@ai-sidekicks/contracts must stay isomorphic (Node + Cloudflare Workers + browser): node: builtins are forbidden. Use @noble/hashes for hashing/hex.",
             },
           ],
         },
@@ -225,7 +225,7 @@ export default tseslint.config(
       ],
     },
   },
-  // `Plan-006 §T3.1 — Append-path service writing integrity columns + Plan-022 Path 1 shred callback`
+  // `Plan-005 §T3.1 — Append-path service writing integrity columns + Plan-020 Path 1 shred callback`
   // precondition enforcement (PR #272 Codex round 3) — the unsigned-placeholder
   // append opt-in is TEST-ONLY. The `UnsignedPlaceholderAppendToken` type is
   // nominal and identity-checked, so the opt-in cannot be manufactured from
@@ -246,13 +246,13 @@ export default tseslint.config(
           selector:
             "MemberExpression[object.name='UnsignedPlaceholderAppendToken'][property.name='forTestsOnly']",
           message:
-            "UnsignedPlaceholderAppendToken.forTestsOnly() is TEST-ONLY (Plan-006 T3.1 precondition): production code must never enable SessionService.append's zero-filled placeholder writes. Durable writes belong to EventLogService.append.",
+            "UnsignedPlaceholderAppendToken.forTestsOnly() is TEST-ONLY (Plan-005 T3.1 precondition): production code must never enable SessionService.append's zero-filled placeholder writes. Durable writes belong to EventLogService.append.",
         },
         {
           selector:
             "MemberExpression[object.name='UnsignedPlaceholderAppendToken'][property.value='forTestsOnly']",
           message:
-            "UnsignedPlaceholderAppendToken['forTestsOnly'] is TEST-ONLY (Plan-006 T3.1 precondition): production code must never enable SessionService.append's zero-filled placeholder writes. Durable writes belong to EventLogService.append.",
+            "UnsignedPlaceholderAppendToken['forTestsOnly'] is TEST-ONLY (Plan-005 T3.1 precondition): production code must never enable SessionService.append's zero-filled placeholder writes. Durable writes belong to EventLogService.append.",
         },
       ],
     },
@@ -334,7 +334,7 @@ export default tseslint.config(
       "no-restricted-imports": "off",
     },
   },
-  // Plan-009 / Plan-010 — the two read-side projectors are PURE: no database,
+  // Plan-007 / Plan-008 — the two read-side projectors are PURE: no database,
   // no temp directory, no clock. Every caller treats each as a side-effect-free
   // fold over already-read rows, and every test in their suites drives them by
   // handing over a row and a probe result directly. The realistic purity break
@@ -373,14 +373,14 @@ export default tseslint.config(
             {
               regex: "^(?!@ai-sidekicks/contracts$).*$",
               message:
-                "The read-side projectors are pure (Plan-009 / Plan-010): @ai-sidekicks/contracts is the only import they may carry, because any other specifier can reach I/O transitively. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
+                "The read-side projectors are pure (Plan-007 / Plan-008): @ai-sidekicks/contracts is the only import they may carry, because any other specifier can reach I/O transitively. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
             },
           ],
         },
       ],
     },
   },
-  // Plan-005 T3.21 — the memo projection floor is the same PURITY claim as the two
+  // Plan-004 T3.21 — the memo projection floor is the same PURITY claim as the two
   // projectors above, stated the same way. `memo-projection.ts` is a fold over an
   // already-read canonical projection: it builds the memo turn and hands it to a
   // writer, and it persists nothing. Its import set is pinned at five specifiers
@@ -407,14 +407,14 @@ export default tseslint.config(
               regex:
                 "^(?!(?:@ai-sidekicks/contracts|@noble/hashes/blake3\\.js|@noble/hashes/utils\\.js|\\./transform-pipeline\\.js|\\.\\./drivers/outbound-frame\\.js)$).*$",
               message:
-                "The memo projection floor is pure (Plan-005 T3.21): it folds an already-read canonical projection into a turn and persists nothing, so its imports are the five this allow-list names and nothing else — a sibling that reaches the database or the filesystem pulls I/O into the fold behind it. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
+                "The memo projection floor is pure (Plan-004 T3.21): it folds an already-read canonical projection into a turn and persists nothing, so its imports are the five this allow-list names and nothing else — a sibling that reaches the database or the filesystem pulls I/O into the fold behind it. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
             },
           ],
         },
       ],
     },
   },
-  // I-010-20's daemon half, in its structural form: `worktree-projector.ts`
+  // I-008-20's daemon half, in its structural form: `worktree-projector.ts`
   // reports the expiry fields its caller read and derives no expiry of its own,
   // so clock math must be UNAVAILABLE to it rather than merely unwritten.
   // `no-restricted-globals` resolves the identifier, so a locally-shadowed
@@ -434,12 +434,12 @@ export default tseslint.config(
         {
           name: "Date",
           message:
-            "I-010-20: worktree-projector.ts reads no clock — it reports the expiry fields its caller handed it and derives no expiry of its own. Compute the instant in the caller and pass it in.",
+            "I-008-20: worktree-projector.ts reads no clock — it reports the expiry fields its caller handed it and derives no expiry of its own. Compute the instant in the caller and pass it in.",
         },
         {
           name: "performance",
           message:
-            "I-010-20: worktree-projector.ts reads no clock — it reports the expiry fields its caller handed it and derives no expiry of its own. Compute the instant in the caller and pass it in.",
+            "I-008-20: worktree-projector.ts reads no clock — it reports the expiry fields its caller handed it and derives no expiry of its own. Compute the instant in the caller and pass it in.",
         },
       ],
       "no-restricted-properties": [
@@ -449,13 +449,13 @@ export default tseslint.config(
           object: "globalThis",
           property: "Date",
           message:
-            "I-010-20: worktree-projector.ts reads no clock — reaching `Date` through the global object is the same read the identifier ban refuses. Compute the instant in the caller and pass it in.",
+            "I-008-20: worktree-projector.ts reads no clock — reaching `Date` through the global object is the same read the identifier ban refuses. Compute the instant in the caller and pass it in.",
         },
         {
           object: "globalThis",
           property: "performance",
           message:
-            "I-010-20: worktree-projector.ts reads no clock — reaching `performance` through the global object is the same read the identifier ban refuses. Compute the instant in the caller and pass it in.",
+            "I-008-20: worktree-projector.ts reads no clock — reaching `performance` through the global object is the same read the identifier ban refuses. Compute the instant in the caller and pass it in.",
         },
       ],
     },

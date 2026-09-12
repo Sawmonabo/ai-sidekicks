@@ -29,7 +29,7 @@
 //     before the label, e.g. "**130-event type registry**"). Bold/code wrappers
 //     are stripped before matching.
 //
-// Within-document only. Cross-document agreement (Spec-006's 130 vs Plan-006's
+// Within-document only. Cross-document agreement (Spec-005's 130 vs Plan-005's
 // 130) is the audit runbook's synthesis-stage Cross-Document Design-Fact
 // Reciprocity dimension, not this lint — a cross-doc registry here would be the
 // over-engineering trap. See
@@ -217,10 +217,10 @@ export function parseFile(
     // wrappers are stripped first, mirroring cell normalization, so `**N**` and
     // a backticked label never defeat the match):
     //   - colon form  `<label>: N`  — the number FOLLOWS the label
-    //     (Spec-006 "Total enumerated event types: **130**"); tried first so the
+    //     (Spec-005 "Total enumerated event types: **130**"); tried first so the
     //     pre-existing inline-declared-total convention resolves unchanged.
     //   - prefix form `N-<label>` / `N <label>` — the number PRECEDES the label
-    //     (Plan-006 "**130-event type registry across 19 categories**"). The
+    //     (Plan-005 "**130-event type registry across 19 categories**"). The
     //     number is left-anchored immediately before the label (only spaces /
     //     hyphens between) so a trailing "... across 19 categories" cannot supply
     //     the 19 in place of the 130.

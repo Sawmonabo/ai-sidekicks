@@ -19,7 +19,7 @@ Where should queue and intervention state live, and what authority should define
 
 ### Trigger
 
-Spec `004-queue-steer-pause-resume.md` requires durable semantics for queued work and active-run control.
+Spec `003-queue-steer-pause-resume.md` requires durable semantics for queued work and active-run control.
 
 ## Decision
 
@@ -119,7 +119,7 @@ Client-side queueing fails the durability and shared-observation requirements ou
 
 | Source | Type | Key Finding | URL/Location |
 | --- | --- | --- | --- |
-| `specs/004-queue-steer-pause-resume.md` | Canonical spec | Queue and intervention state belongs to runtime truth | [specs/004-queue-steer-pause-resume.md](../specs/004-queue-steer-pause-resume.md) |
+| `specs/003-queue-steer-pause-resume.md` | Canonical spec | Queue and intervention state belongs to runtime truth | [specs/003-queue-steer-pause-resume.md](../specs/003-queue-steer-pause-resume.md) |
 | `domain/queue-and-intervention-model.md` | Canonical domain doc | Queue items and interventions are durable runtime-controlled records rather than client-local state | [domain/queue-and-intervention-model.md](../domain/queue-and-intervention-model.md) |
 | `architecture/component-architecture-local-daemon.md` | Canonical architecture doc | Daemon is the local execution authority | [architecture/component-architecture-local-daemon.md](../architecture/component-architecture-local-daemon.md) |
 
@@ -136,9 +136,9 @@ Client-side queueing fails the durability and shared-observation requirements ou
 
 ### Related Specs
 
-- [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md)
-- [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md)
-- [Observability And Failure Recovery](../specs/020-observability-and-failure-recovery.md)
+- [Queue Steer Pause Resume](../specs/003-queue-steer-pause-resume.md)
+- [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md)
+- [Observability And Failure Recovery](../specs/018-observability-and-failure-recovery.md)
 
 ### Related ADRs
 

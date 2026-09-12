@@ -79,9 +79,9 @@ sidekicks cp presence --session <id>
 
 ## Related Specs
 
-- [Identity And User State](../specs/018-identity-and-user-state.md)
+- [Identity And User State](../specs/016-identity-and-user-state.md)
 
 ## Related Plans
 
-- [Shared Session Core](../plans/001-shared-session-core.md)
-- [Runtime Node Attach](../plans/003-runtime-node-attach.md)
+- [Session Core](../plans/001-session-core.md)
+- [Runtime Node Attach](../plans/002-runtime-node-attach.md)

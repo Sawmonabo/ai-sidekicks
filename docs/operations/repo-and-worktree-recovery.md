@@ -74,12 +74,12 @@ sidekicks worktree create --repo <mount-id> --branch <name>
 
 ## Related Specs
 
-- [Repo Attachment And Workspace Binding](../specs/009-repo-attachment-and-workspace-binding.md)
-- [Worktree Lifecycle And Execution Modes](../specs/010-worktree-lifecycle-and-execution-modes.md)
-- [Gitflow PR And Diff Attribution](../specs/011-gitflow-pr-and-diff-attribution.md)
+- [Repo Attachment And Workspace Binding](../specs/007-repo-attachment-and-workspace-binding.md)
+- [Worktree Lifecycle And Execution Modes](../specs/008-worktree-lifecycle-and-execution-modes.md)
+- [Gitflow PR And Diff Attribution](../specs/009-gitflow-pr-and-diff-attribution.md)
 
 ## Related Plans
 
-- [Repo Attachment And Workspace Binding](../plans/009-repo-attachment-and-workspace-binding.md)
-- [Worktree Lifecycle And Execution Modes](../plans/010-worktree-lifecycle-and-execution-modes.md)
-- [Gitflow PR And Diff Attribution](../plans/011-gitflow-pr-and-diff-attribution.md)
+- [Repo Attachment And Workspace Binding](../plans/007-repo-attachment-and-workspace-binding.md)
+- [Worktree Lifecycle And Execution Modes](../plans/008-worktree-lifecycle-and-execution-modes.md)
+- [Gitflow PR And Diff Attribution](../plans/009-gitflow-pr-and-diff-attribution.md)

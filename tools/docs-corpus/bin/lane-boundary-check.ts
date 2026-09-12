@@ -71,7 +71,7 @@ const TITLE_TOKEN_RE = /\bplan-(\d{3})\b/gi;
 
 // CONTRIBUTING §Topic segment: plan-scoped work embeds `plan-NNN-` in the
 // topic under ANY §Type-segment type (feat|fix|hotfix|chore|docs|test —
-// e.g. a workflow-only plan task legitimately rides `chore/plan-024-...`,
+// e.g. a workflow-only plan task legitimately rides `chore/plan-022-...`,
 // and the plan-execution scaffold names `test` for test-only shipments;
 // Codex P2, rounds 5-6). `release/` carries version topics, never plan
 // topics.

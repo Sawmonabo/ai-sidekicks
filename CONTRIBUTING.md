@@ -6,7 +6,7 @@ For decisions and rationale behind these choices, see [ADR-022 — V1 Toolchain 
 
 ## Repository State
 
-The repository is in mixed doc + code execution: [Plan-001](docs/plans/001-shared-session-core.md) has shipped all five phases, `package.json` is real (pnpm workspace + Turbo), and code PRs land tier by tier alongside governance docs. [`CLAUDE.md`](CLAUDE.md) §Current State is the live census of shipped PRs, active gates, and audit status — this file deliberately does not duplicate it.
+The repository is in mixed doc + code execution: [Plan-001](docs/plans/001-session-core.md) has shipped all five phases, `package.json` is real (pnpm workspace + Turbo), and code PRs land tier by tier alongside governance docs. [`CLAUDE.md`](CLAUDE.md) §Current State is the live census of shipped PRs, active gates, and audit status — this file deliberately does not duplicate it.
 
 ## Branch Model
 
@@ -26,7 +26,7 @@ Engineering-side branches follow the 2-segment [Conventional Branch](https://con
 <type>/<topic>
 ```
 
-This namespace is disjoint from [Spec-011](docs/specs/011-gitflow-pr-and-diff-attribution.md)'s product-side `run/<run-id>/<topic>` via the type-prefix (`feat/...` vs `run/...`), so both shapes coexist without collision.
+This namespace is disjoint from [Spec-009](docs/specs/009-gitflow-pr-and-diff-attribution.md)'s product-side `run/<run-id>/<topic>` via the type-prefix (`feat/...` vs `run/...`), so both shapes coexist without collision.
 
 Package scope lives in the commit subject (`feat(daemon): ...`), not the branch path. A branch identifies what kind of change is in flight; the commit identifies which package the diff lands in. Duplicating the package noun in both places adds noise without adding information.
 
@@ -37,12 +37,12 @@ Based on [Conventional Branch](https://conventional-branch.github.io/) with a lo
 | Type       | Use for                        | Example                                 |
 | ---------- | ------------------------------ | --------------------------------------- |
 | `feat/`    | New features                   | `feat/plan-001-monorepo-scaffold`       |
-| `fix/`     | Bug fixes                      | `fix/plan-023-renderer-leak`            |
+| `fix/`     | Bug fixes                      | `fix/plan-021-renderer-leak`            |
 | `hotfix/`  | Urgent post-release fixes      | `hotfix/cve-2026-1234-relay-token-leak` |
 | `release/` | Release preparation            | `release/v0.1.0`                        |
 | `chore/`   | Build / tooling / dependencies | `chore/bump-pnpm`                       |
 | `docs/`    | Documentation-only             | `docs/add-observability-adr`            |
-| `test/`    | Test-only additions            | `test/plan-004-conformance`             |
+| `test/`    | Test-only additions            | `test/plan-003-conformance`             |
 
 `docs/` and `test/` are local extensions. Conventional Branch defines five types; we add `docs/` for legibility — `docs/audit-realignment` reads correctly while `chore/audit-realignment` undersells doc work — and `test/` to mirror the Conventional Commits `test:` commit type, which the plan-execution scaffold already names as a branch type for test-only plan shipments.
 
@@ -181,7 +181,7 @@ gh pr create --title "feat(daemon): scaffold monorepo with pnpm + Turbo (Plan-00
   --body "$(cat <<'EOF'
 ## Summary
 
-Scaffold the V1 monorepo per [Plan-001](docs/plans/001-shared-session-core.md):
+Scaffold the V1 monorepo per [Plan-001](docs/plans/001-session-core.md):
 pnpm workspace, Turbo pipeline, daemon package skeleton, Vitest config.
 
 ## Test plan

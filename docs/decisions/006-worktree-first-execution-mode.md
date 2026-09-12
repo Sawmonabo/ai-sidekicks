@@ -76,8 +76,8 @@ We will use the four-mode execution taxonomy `read-only`, `branch`, `worktree`, 
 | Source | Type | Key Finding | URL/Location |
 | --- | --- | --- | --- |
 | `domain/repo-workspace-worktree-model.md` | Canonical domain doc | Worktree-backed execution is the default coding mode and the main checkout is not the default write target | [domain/repo-workspace-worktree-model.md](../domain/repo-workspace-worktree-model.md) |
-| `specs/010-worktree-lifecycle-and-execution-modes.md` | Canonical spec | Worktree-first is the default writable execution contract | [specs/010-worktree-lifecycle-and-execution-modes.md](../specs/010-worktree-lifecycle-and-execution-modes.md) |
-| `specs/011-gitflow-pr-and-diff-attribution.md` | Canonical spec | Worktree-backed execution supports attributable diff review and PR preparation | [specs/011-gitflow-pr-and-diff-attribution.md](../specs/011-gitflow-pr-and-diff-attribution.md) |
+| `specs/008-worktree-lifecycle-and-execution-modes.md` | Canonical spec | Worktree-first is the default writable execution contract | [specs/008-worktree-lifecycle-and-execution-modes.md](../specs/008-worktree-lifecycle-and-execution-modes.md) |
+| `specs/009-gitflow-pr-and-diff-attribution.md` | Canonical spec | Worktree-backed execution supports attributable diff review and PR preparation | [specs/009-gitflow-pr-and-diff-attribution.md](../specs/009-gitflow-pr-and-diff-attribution.md) |
 
 ### Related Domain Docs
 
@@ -90,9 +90,9 @@ We will use the four-mode execution taxonomy `read-only`, `branch`, `worktree`, 
 
 ### Related Specs
 
-- [Repo Attachment And Workspace Binding](../specs/009-repo-attachment-and-workspace-binding.md)
-- [Worktree Lifecycle And Execution Modes](../specs/010-worktree-lifecycle-and-execution-modes.md)
-- [Gitflow PR And Diff Attribution](../specs/011-gitflow-pr-and-diff-attribution.md)
+- [Repo Attachment And Workspace Binding](../specs/007-repo-attachment-and-workspace-binding.md)
+- [Worktree Lifecycle And Execution Modes](../specs/008-worktree-lifecycle-and-execution-modes.md)
+- [Gitflow PR And Diff Attribution](../specs/009-gitflow-pr-and-diff-attribution.md)
 
 ### Related ADRs
 

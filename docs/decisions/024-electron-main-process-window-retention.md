@@ -29,7 +29,7 @@ What anchors the reachability of the main-process `BrowserWindow` wrapper across
 
 ### Trigger
 
-Codex's PR #72 VERIFICATION observation: a non-smoke regression test for the "retention removed → process exits" failure mode was not feasible in the timeframe of PR #72, so the test was deferred. Lifting the test out of "Tier 8 remainder" deferral (per the user-affirmed production-hardened priority bar) required empirical evidence that the failure mode is real before any test design could discriminate it. The empirical evidence falsified the premise.
+Codex's PR #72 VERIFICATION observation: a non-smoke regression test for the "retention removed → process exits" failure mode was not feasible in the timeframe of PR #72, so the test was deferred. Lifting the test out of "Tier 7 remainder" deferral (per the user-affirmed production-hardened priority bar) required empirical evidence that the failure mode is real before any test design could discriminate it. The empirical evidence falsified the premise.
 
 ---
 
@@ -65,7 +65,7 @@ If the wrapper cannot be collected while the native object lives, and `window-al
 The antithesis is empirically correct about Electron 41.6.1's mechanism and correctly identifies that PR #72's commit message + the original comment encoded a falsified mechanism claim. This PR (PR2-Honest in the local notation) accepts that correction in two places:
 
 1. **The header comment above the `let mainWindow` declaration** is amended to cite this ADR and reference `BaseWindow::self_ref_` as the actual load-bearing mechanism. The user-side reference is reframed as "defensive consistency with the canonical Electron community pattern," not as the GC anchor.
-2. **The Spec-023 acceptance criterion** is amended (in the same PR) to drop the "must demonstrably FAIL when the module-scope retention reference is removed" clause — that clause is empirically false in Electron 41.6.1 — and to encode the observable lifecycle invariant directly (`queryObjects(BrowserWindow) >= 1` + `window-all-closed` does not fire during the probe iteration loop). The `>= 1` half of that criterion was tightened 2026-09-02 to the stable-count and per-window-delta checks the Step 0b bullet above describes, since the fixed non-instance match satisfies a bare `>= 1` with the instance gone; the criterion's subject is unchanged.
+2. **The Spec-021 acceptance criterion** is amended (in the same PR) to drop the "must demonstrably FAIL when the module-scope retention reference is removed" clause — that clause is empirically false in Electron 41.6.1 — and to encode the observable lifecycle invariant directly (`queryObjects(BrowserWindow) >= 1` + `window-all-closed` does not fire during the probe iteration loop). The `>= 1` half of that criterion was tightened 2026-09-02 to the stable-count and per-window-delta checks the Step 0b bullet above describes, since the fixed non-instance match satisfies a bare `>= 1` with the instance gone; the criterion's subject is unchanged.
 
 What does not change: the `let mainWindow` declaration itself. The asymmetric-risk argument in the Thesis stands. The cost of being wrong about Electron internals is paid out unbounded years from now in the form of "the desktop shell stopped booting after the Electron upgrade and we cannot bisect because the change happened in vendor code"; the cost of keeping a redundant reference is paid right now in the form of one comment that has to remain accurate. We pay the second cost.
 
@@ -77,7 +77,7 @@ The lifecycle regression test we ship in `apps/desktop/test/lifecycle.gc.test.ts
 
 ### Option A: Keep `let mainWindow` (Chosen)
 
-- **What:** Module-scope `let mainWindow: BrowserWindow | null = null;` with `closed`-handler nulling. Reframe header comment + Spec-023 AC to cite ADR-024 + `BaseWindow::self_ref_` as the load-bearing mechanism.
+- **What:** Module-scope `let mainWindow: BrowserWindow | null = null;` with `closed`-handler nulling. Reframe header comment + Spec-021 AC to cite ADR-024 + `BaseWindow::self_ref_` as the load-bearing mechanism.
 - **Steel man:** Matches the canonical Electron community pattern (zero learning-curve cost for an inheriting reader who has any Electron exposure). Provides defense-in-depth against a hypothetical future Electron release that shifts `self_ref_` semantics. Costs one `let`, one comment, one lint-disable — no runtime cost, no bundle-size cost, no maintenance burden beyond keeping the comment accurate.
 - **Weaknesses:** The variable is empirically a no-op for the failure mode the original PR #70 P1 claimed it prevented. A future reader who skims past the ADR citation in the comment could re-encode the false mechanism claim in a derived doc. Mitigation: the comment cites this ADR by number, and the ADR captures the falsification.
 
@@ -110,7 +110,7 @@ The lifecycle regression test we ship in `apps/desktop/test/lifecycle.gc.test.ts
 ## Reversibility Assessment
 
 - **Reversal cost:** ~5 minutes. Delete the `let mainWindow` declaration (1 line), the `closed`-handler nulling (3 lines), and the comment block (10 lines). Update the ADR-024 status to `superseded by ADR-NNN` or `deprecated`. Update `apps/desktop/src/main/index.ts` to reference the new mechanism inline.
-- **Blast radius:** Single file (`apps/desktop/src/main/index.ts`). Any Tier 4 lifecycle work that derives from this file would need to be re-derived from the new mechanism documentation, but no other file in the repo references `mainWindow` directly (verified by `grep -rn "mainWindow" --include="*.ts" .`).
+- **Blast radius:** Single file (`apps/desktop/src/main/index.ts`). Any Tier 3 lifecycle work that derives from this file would need to be re-derived from the new mechanism documentation, but no other file in the repo references `mainWindow` directly (verified by `grep -rn "mainWindow" --include="*.ts" .`).
 - **Migration path:** No migration required. The desktop shell continues to work identically (the `let mainWindow` is empirically a no-op for the failure mode it claimed to prevent; removing it changes nothing observable).
 - **Point of no return:** None. This is a Type 1 decision throughout the V1 lifecycle. Re-evaluation triggers (see Failure Mode Analysis below) signal the moment to revisit; they do not gate reversibility.
 
@@ -131,19 +131,19 @@ The lifecycle regression test we ship in `apps/desktop/test/lifecycle.gc.test.ts
 
 - **Convention parity with the Electron community.** An inheriting reader's intuition (from Electron tutorials, security checklist, third-party Electron apps) maps directly onto our code.
 - **Defense-in-depth against future Electron internals shift.** If `self_ref_` semantics change, our user-side reference buys diagnostic time at the upgrade boundary.
-- **Honest spec.** `Spec-023 §Acceptance Criteria` now encodes the observable lifecycle invariant directly (not the falsified "must FAIL when removed" predicate), and cites `ADR-024 §Antithesis — The Strongest Case Against` for the empirical mechanism truth.
+- **Honest spec.** `Spec-021 §Acceptance Criteria` now encodes the observable lifecycle invariant directly (not the falsified "must FAIL when removed" predicate), and cites `ADR-024 §Antithesis — The Strongest Case Against` for the empirical mechanism truth.
 - **Honest test.** `apps/desktop/test/lifecycle.gc.test.ts` asserts the observable contract and explicitly documents in its header that it is a future-regression guard, not a causal-mechanism demonstration.
 
 ### Negative (accepted trade-offs)
 
 - **Empirical no-op in the current fix-state.** The `let mainWindow` declaration does not prevent the failure mode the PR #70 P1 claimed it prevents. We carry one `let`, one comment, one lint-disable for asymmetric-risk reasons, not for current-fix-state mechanism reasons.
-- **Comment-rot risk if the inline ADR-024 citation is removed or weakened.** Mitigation: the ADR is named in the comment block and in Spec-023 AC; removing the citation in a future edit would surface in code review.
+- **Comment-rot risk if the inline ADR-024 citation is removed or weakened.** Mitigation: the ADR is named in the comment block and in Spec-021 AC; removing the citation in a future edit would surface in code review.
 - **The lifecycle test does not discriminate fix-state from a bug-state where `let mainWindow` is removed.** This is honest about what the test observes (the observable invariant holds in both states on Electron 41.6.1). A test that _did_ discriminate would require deliberately disabling `self_ref_` at the Electron binding level, which is out of scope for user-land.
 
 ### Unknowns
 
 - Whether `BaseWindow::self_ref_` will retain its current strong-anchor semantics in Electron 42+. This is the load-bearing assumption for the "empirical no-op" framing above. Re-evaluate at every Electron major bump.
-- Whether multi-window apps (Tier 4 lifecycle work) introduce a window that _is_ user-anchor-dependent — e.g., a transient settings window that does not go through `BaseWindow::self_ref_` for some reason we have not yet discovered. Reading the same files for the second-window case is the planned mitigation in Tier 4.
+- Whether multi-window apps (Tier 3 lifecycle work) introduce a window that _is_ user-anchor-dependent — e.g., a transient settings window that does not go through `BaseWindow::self_ref_` for some reason we have not yet discovered. Reading the same files for the second-window case is the planned mitigation in Tier 3.
 
 ---
 
@@ -311,7 +311,7 @@ async function loopInReturnedHelper() {
 ### Related ADRs
 
 - `ADR-016` — Electron desktop shell (V1 desktop architecture; this ADR is a derived contract addition).
-- `ADR-022` — V1 toolchain selection (Node 22.14 tier, moved 2026-09-01 from 22.12 with the `better-sqlite3` 13.x Node-API-10 prebuild; V8 14.6.202.34-electron.0 is the Electron 41.6.1 engine this ADR's probe measured, and the probe was re-run green under the Electron 44.x pin at Plan-023 T-023p-1B-4).
+- `ADR-022` — V1 toolchain selection (Node 22.14 tier, moved 2026-09-01 from 22.12 with the `better-sqlite3` 13.x Node-API-10 prebuild; V8 14.6.202.34-electron.0 is the Electron 41.6.1 engine this ADR's probe measured, and the probe was re-run green under the Electron 44.x pin at Plan-021 T-021p-1B-4).
 - `ADR-023` — V1 CI/CD and release automation (the CI surface that ensures the dead-code-elimination guarantee continues to hold: `release bundle excludes test-machinery markers`).
 
 ### Platform scope note
@@ -328,5 +328,5 @@ Every Electron and V8 line number above is tag-exact as of 2026-09-02: the Elect
 | --- | --- | --- |
 | 2026-05-17 | Triggered | Codex PR #72 VERIFICATION observed that no test demonstrably fails when `let mainWindow` is removed. User affirmed production-hardened priority — empirically investigate rather than defer. |
 | 2026-05-18 | Proposed | Empirical investigation of Electron 41.6.1 + V8 14.6.202.34-electron.0 surfaced `BaseWindow::self_ref_` as the load-bearing anchor; Codex's PR #70 P1 mechanism claim falsified. |
-| 2026-05-18 | Accepted | Spec-023 AC amended (commit 76714fa); regression test + probe enhancement shipped (commit 4ddab2a); user-side `let mainWindow` retained as defensive consistency against asymmetric risk of future Electron drift. |
+| 2026-05-18 | Accepted | Spec-021 AC amended (commit 76714fa); regression test + probe enhancement shipped (commit 4ddab2a); user-side `let mainWindow` retained as defensive consistency against asymmetric risk of future Electron drift. |
 | 2026-09-02 | Amended (§Antithesis evidence, §References) | Probe re-measured after event dispatch unwinds, with a plain-object negative control and the script inlined, the lifecycle guard tightened to a stable count plus a per-window close delta (the fixed non-instance match is unidentifiable from counts alone), and the loop-frame control inlined: the retained-while-open reading stands (the load-bearing claim); the 2026-05-18 `countAfterClose: 2` reading is withdrawn as a pre-destruction measurement — `OnWindowClosed` emits `closed` before the destroy task it posts runs the destructor's `self_ref_.Reset()`, so the wrapper was still rooted by `self_ref_` when it was sampled, and a closed window's wrapper is released once that task runs. Electron cites re-derived at the exact `v41.6.1` tag and the `gc()` mode semantics at V8 tag `14.6.202.34`; gitignored provenance paths retired. Status unchanged. |

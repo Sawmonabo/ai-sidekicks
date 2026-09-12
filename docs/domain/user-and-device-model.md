@@ -81,5 +81,5 @@ A device moves through three states and does not come back:
 
 ## Related Specs
 
-- [Spec-031: Remote Control](../specs/031-remote-control.md)
-- [Spec-003: Runtime Node Attach](../specs/003-runtime-node-attach.md)
+- [Spec-028: Remote Control](../specs/028-remote-control.md)
+- [Spec-002: Runtime Node Attach](../specs/002-runtime-node-attach.md)

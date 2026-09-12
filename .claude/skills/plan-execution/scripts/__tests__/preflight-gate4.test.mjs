@@ -3140,12 +3140,12 @@ test("CORPUS ORACLE negative control: perturbing a real id makes the oracle fail
   // returned no findings would pass it forever.
   const plansDir = resolve(REPO_ROOT_FOR_TESTS, "docs", "plans");
   const real = readFileSync(
-    resolve(plansDir, "006-session-event-taxonomy-and-audit-log.md"),
+    resolve(plansDir, "005-session-event-taxonomy-and-audit-log.md"),
     "utf8",
   );
   const perturbed = real.replace(
-    /\*\*Verifies invariant:\*\* I-006-/,
-    "**Verifies invariant:** I-006-99999-",
+    /\*\*Verifies invariant:\*\* I-005-/,
+    "**Verifies invariant:** I-005-99999-",
   );
   assert.notEqual(perturbed, real, "perturbation did not apply — the fixture shape moved");
   const r = verifyInvariantReferences(perturbed, { cache: new Map() });
@@ -3482,13 +3482,13 @@ function reconcileFencedRefs(planSource) {
 // should be argued for rather than done to quiet a failure.
 const PLANS_THAT_MUST_CARRY_MANIFEST_REFS = [
   "001",
-  "003",
+  "002",
+  "004",
   "005",
   "006",
   "007",
-  "009",
-  "010",
-  "024",
+  "008",
+  "022",
 ];
 
 // Shared by the live-corpus arm and its negative control, so the control drives
@@ -3662,14 +3662,14 @@ test("NEGATIVE CONTROL: a vanished Shipment Manifest passes both residues and is
   assert.equal(vacuous.manifestTotal, 0, "it contributes nothing — the silence the floor owns");
 
   // Half two — the floor turning that silence into a failure, driven through the
-  // same helper the corpus arm gates on. Plan-006 stands in for "a listed plan
+  // same helper the corpus arm gates on. Plan-005 stands in for "a listed plan
   // whose manifest vanished".
   const everyPlanButOne = new Set(
-    PLANS_THAT_MUST_CARRY_MANIFEST_REFS.filter((planNumber) => planNumber !== "006"),
+    PLANS_THAT_MUST_CARRY_MANIFEST_REFS.filter((planNumber) => planNumber !== "005"),
   );
   assert.deepEqual(
     missingFloorContributors(everyPlanButOne),
-    ["006"],
+    ["005"],
     "a listed plan that stopped contributing must be named",
   );
 
@@ -3863,23 +3863,23 @@ test("the screen is scoped by SHAPE — a prose descriptor is not a malformed id
   );
 });
 
-test("CORPUS: Plan-023's three Spec-§ invariant fields produce no gating finding", () => {
-  // Plan-023 T-023p-1-3 / T-023p-1-4 / T-023p-1-6 spell `Verifies invariant: Spec-023 §Security
+test("CORPUS: Plan-021's three Spec-§ invariant fields produce no gating finding", () => {
+  // Plan-021 T-021p-1-3 / T-021p-1-4 / T-021p-1-6 spell `Verifies invariant: Spec-021 §Security
   // Hardening Baseline …` — a SPEC clause in an invariant field. Whether the
   // field may name a spec at all is a field-CONTENT question under separate
   // adjudication; it is a different defect class from "an invariant id that
-  // cannot be resolved", and answering it here would have gated Plan-023 on a
+  // cannot be resolved", and answering it here would have gated Plan-021 on a
   // question this change never asked. Pinned so a later widening of the
   // malformed-id screen cannot swallow them by accident.
-  const plan023 = readFileSync(
-    resolve(REPO_ROOT_FOR_TESTS, "docs", "plans", "023-desktop-shell-and-renderer.md"),
+  const plan021 = readFileSync(
+    resolve(REPO_ROOT_FOR_TESTS, "docs", "plans", "021-desktop-shell-and-renderer.md"),
     "utf8",
   );
   assert.ok(
-    plan023.includes("Verifies invariant: Spec-023 §Security Hardening Baseline"),
-    "the Plan-023 spec-reference shape moved — re-derive this pin before trusting it",
+    plan021.includes("Verifies invariant: Spec-021 §Security Hardening Baseline"),
+    "the Plan-021 spec-reference shape moved — re-derive this pin before trusting it",
   );
-  const r = verifyInvariantReferences(plan023, { cache: new Map() });
+  const r = verifyInvariantReferences(plan021, { cache: new Map() });
   assert.deepEqual(r.findings, []);
 });
 
@@ -4000,7 +4000,7 @@ test("DISPATCH SMOKE: a live corpus phase is not halted by the new screen", () =
     REPO_ROOT_FOR_TESTS,
     "docs",
     "plans",
-    "006-session-event-taxonomy-and-audit-log.md",
+    "005-session-event-taxonomy-and-audit-log.md",
   );
   const r = runPreflight(planFile, 1, {});
   assert.doesNotMatch(

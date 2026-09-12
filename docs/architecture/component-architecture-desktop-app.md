@@ -65,9 +65,9 @@ The desktop app is the primary interactive client, but it must remain a client. 
 
 ## Related Specs
 
-- [Local IPC And Daemon Control](../specs/007-local-ipc-and-daemon-control.md)
-- [Live Timeline Visibility And Reasoning Surfaces](../specs/013-live-timeline-visibility-and-reasoning-surfaces.md)
-- [Notifications And Attention Model](../specs/019-notifications-and-attention-model.md)
+- [Local IPC And Daemon Control](../specs/006-local-ipc-and-daemon-control.md)
+- [Live Timeline Visibility And Reasoning Surfaces](../specs/011-live-timeline-visibility-and-reasoning-surfaces.md)
+- [Notifications And Attention Model](../specs/017-notifications-and-attention-model.md)
 
 ## Related ADRs
 

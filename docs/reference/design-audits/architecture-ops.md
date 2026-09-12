@@ -35,7 +35,7 @@ Boundaries between the three are clean. The system-context doc explicitly define
 | Artifact Storage      | Split local/shared | Payloads + manifests with visibility policy           |
 | Projection Layer      | Derived            | Read-optimized materializations from events           |
 
-Plan-006 mentions `session_events` and `session_snapshots` tables in passing (under "Data And Storage Changes") but never defines their columns, indexes, or constraints. Plan-019 mentions `notification_preferences` storage. No other plan or spec defines any table.
+Plan-005 mentions `session_events` and `session_snapshots` tables in passing (under "Data And Storage Changes") but never defines their columns, indexes, or constraints. Plan-017 mentions `notification_preferences` storage. No other plan or spec defines any table.
 
 **Critical gaps:**
 
@@ -50,7 +50,7 @@ Plan-006 mentions `session_events` and `session_snapshots` tables in passing (un
 
 **Verdict:** The transport hierarchy is well-defined (OS-local socket preferred, loopback fallback, version negotiation required). No wire format is specified.
 
-Spec-007 ("Local IPC And Daemon Control") defines:
+Spec-006 ("Local IPC And Daemon Control") defines:
 
 - Default transport: Unix domain socket on Unix-like, named pipe on Windows.
 - Loopback fallback: explicitly second-class, only when OS-local transport is unavailable.
@@ -64,7 +64,7 @@ Spec-007 ("Local IPC And Daemon Control") defines:
 - **No wire format.** The spec says "typed" repeatedly but never specifies the serialization format (JSON-RPC, protobuf, msgpack, or other). This is a blocking implementation decision.
 - **No WebSocket mention.** None of the reviewed architecture, spec, or plan documents mention WebSocket anywhere. If the product vision specifies WebSocket as the adapter layer, that decision has not propagated into the architecture or spec documentation.
 - **Control-plane transport is unspecified.** The boundary between client SDK and control plane is described structurally (the client SDK "talks to" the control plane) but the transport protocol is not named.
-- **Browser-only clients** are explicitly out of scope for v1 (Spec-007 "Open Questions"), which may constrain future transport decisions.
+- **Browser-only clients** are explicitly out of scope for v1 (Spec-006 "Open Questions"), which may constrain future transport decisions.
 
 ---
 
@@ -72,7 +72,7 @@ Spec-007 ("Local IPC And Daemon Control") defines:
 
 **Verdict:** The taxonomy categories are comprehensive and match the vision. The event envelope is specified at the field level but individual event type definitions do not exist.
 
-Spec-006 ("Session Event Taxonomy And Audit Log") requires these categories:
+Spec-005 ("Session Event Taxonomy And Audit Log") requires these categories:
 
 - Session lifecycle
 - Invite and membership
@@ -91,16 +91,16 @@ Key properties: events are immutable after append, replay supports cursor-based 
 **Gaps:**
 
 - **No individual event type definitions.** The taxonomy names categories but does not enumerate specific event types (e.g., `run.started`, `run.paused`, `approval.requested`). Implementers must derive these from domain models.
-- **Sequence assignment contradiction.** Spec-006 "Open Questions" states "No blocking open questions remain for v1" and makes a V1 decision that "session sequence numbers are assigned by the authoritative session-visible append path at write time." Plan-006 "Risks And Blockers" contradicts this: "Session-sequence assignment across local and shared producers remains unresolved." This is an internal inconsistency that must be reconciled.
+- **Sequence assignment contradiction.** Spec-005 "Open Questions" states "No blocking open questions remain for v1" and makes a V1 decision that "session sequence numbers are assigned by the authoritative session-visible append path at write time." Plan-005 "Risks And Blockers" contradicts this: "Session-sequence assignment across local and shared producers remains unresolved." This is an internal inconsistency that must be reconciled.
 - **No compaction policy.** The spec says high-volume payloads "may be compacted" but defines no trigger, retention window, or compaction format.
 
 ---
 
 ## 5. Visibility/Timeline Spec
 
-**Verdict:** Spec-013 covers the majority of vision entry types but does not enumerate them as discrete timeline-row types. Some entry types from the vision are absent or implicit.
+**Verdict:** Spec-011 covers the majority of vision entry types but does not enumerate them as discrete timeline-row types. Some entry types from the vision are absent or implicit.
 
-Spec-013 ("Live Timeline Visibility And Reasoning Surfaces") requires timeline rows to cover:
+Spec-011 ("Live Timeline Visibility And Reasoning Surfaces") requires timeline rows to cover:
 
 - Messages
 - Run state changes
@@ -124,12 +124,12 @@ It also defines: reasoning surfaces (normalized, policy-aware, with redaction pl
 | run state changes   | Explicit                                                                                                                                |
 | interventions       | Explicit                                                                                                                                |
 | handoff             | Not explicitly listed as a timeline row type                                                                                            |
-| blocked             | Covered via approval events and intervention rows (Spec-019 names `waiting_for_approval` explicitly), but not a named discrete row type |
+| blocked             | Covered via approval events and intervention rows (Spec-017 names `waiting_for_approval` explicitly), but not a named discrete row type |
 | paused              | Implicit under run state changes                                                                                                        |
 | resumed             | Implicit under run state changes                                                                                                        |
 | finished            | Implicit under run state changes                                                                                                        |
 
-**Gap:** "Handoff" is not mentioned in Spec-013. If handoff between agents or participants is a first-class timeline event, it needs to be added to the required row types. Run-state subtypes (paused, resumed, finished, blocked) are covered implicitly under "run state changes" but are not individually enumerated, which could lead to inconsistent implementation.
+**Gap:** "Handoff" is not mentioned in Spec-011. If handoff between agents or participants is a first-class timeline event, it needs to be added to the required row types. Run-state subtypes (paused, resumed, finished, blocked) are covered implicitly under "run state changes" but are not individually enumerated, which could lead to inconsistent implementation.
 
 ---
 
@@ -158,7 +158,7 @@ Trust boundaries are clearly stated:
 - **No authentication mechanism.** OAuth, JWT, SAML, passkeys -- nothing is named. The Identity Service is a responsibility box, not a buildable component.
 - **No token model.** No token format, lifetime, refresh strategy, or revocation mechanism.
 - **No encryption spec.** Transport security is named as a component but TLS requirements, certificate management, and end-to-end encryption for relay paths are unspecified.
-- **No permission scoping detail.** The Membership Policy Engine "determines session roles and participant capabilities" but the actual permission matrix (what can an owner do that a collaborator cannot?) is not defined in the architecture doc. This may exist in Spec-012 ("Approvals Permissions And Trust Boundaries"), which was not in the review scope.
+- **No permission scoping detail.** The Membership Policy Engine "determines session roles and participant capabilities" but the actual permission matrix (what can an owner do that a collaborator cannot?) is not defined in the architecture doc. This may exist in Spec-010 ("Approvals Permissions And Trust Boundaries"), which was not in the review scope.
 - **Invite security.** Invite tokens, link security, and rate limiting are unspecified.
 
 ---
@@ -224,7 +224,7 @@ Degradation modes are documented: collaborative mode degrades to partial local-o
 
 **Verdict:** The attention model is well-specified with clear separation between actionable and informational attention, run-scoped and session-scoped projections, and degradation paths.
 
-Spec-019 ("Notifications And Attention Model") defines:
+Spec-017 ("Notifications And Attention Model") defines:
 
 **Attention triggers:** pending approval/input, run completion, run failure, invite receipt, mention/direct request.
 
@@ -254,8 +254,8 @@ Spec-019 ("Notifications And Attention Model") defines:
 
 **Contradiction 1 -- Event sequence assignment.**
 
-- Spec-006 "Open Questions" states: "No blocking open questions remain for v1. V1 decision: session sequence numbers are assigned by the authoritative session-visible append path at write time."
-- Plan-006 "Risks And Blockers" states: "Session-sequence assignment across local and shared producers remains unresolved."
+- Spec-005 "Open Questions" states: "No blocking open questions remain for v1. V1 decision: session sequence numbers are assigned by the authoritative session-visible append path at write time."
+- Plan-005 "Risks And Blockers" states: "Session-sequence assignment across local and shared producers remains unresolved."
 - These directly contradict each other. The spec claims the question is resolved; the plan claims it is not.
 
 **Contradiction 2 -- Plan preconditions vs. ADR status.**
@@ -275,9 +275,9 @@ Spec-019 ("Notifications And Attention Model") defines:
 
 1. **Define database schemas.** No reviewed document contains a table definition, column list, or migration file. This is the single largest gap between documentation and implementation readiness. Both SQLite (local) and Postgres (shared) schemas need to be specified.
 
-2. **Choose a wire format for IPC.** Spec-007 defines transport (Unix socket / named pipe) and version negotiation but not serialization format. JSON-RPC, protobuf, msgpack, or another format must be decided. This affects `packages/contracts/` and `packages/client-sdk/` fundamentally.
+2. **Choose a wire format for IPC.** Spec-006 defines transport (Unix socket / named pipe) and version negotiation but not serialization format. JSON-RPC, protobuf, msgpack, or another format must be decided. This affects `packages/contracts/` and `packages/client-sdk/` fundamentally.
 
-3. **Resolve the sequence-assignment contradiction.** Spec-006 and Plan-006 disagree on whether session-sequence assignment across local and shared producers is resolved. One document must be corrected.
+3. **Resolve the sequence-assignment contradiction.** Spec-005 and Plan-005 disagree on whether session-sequence assignment across local and shared producers is resolved. One document must be corrected.
 
 4. **Accept the required ADRs.** ADR-001, ADR-002, ADR-004, ADR-007, and ADR-008 are listed as required but unchecked across all four reviewed plans. Plans cannot proceed under their own preconditions.
 

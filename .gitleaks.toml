@@ -111,13 +111,13 @@ useDefault = true
 #    (BL-126 record in `docs/archive/backlog-archive.md`, whose own prose
 #    still fires `Argon2id-encrypted`). `XChaCha20-Poly1305-wrapped` fires
 #    from no file in the current tree outside `.agents/tmp/`; its admitting
-#    line in `docs/specs/022-data-retention-and-gdpr.md` still carries the
+#    line in `docs/specs/020-data-retention-and-gdpr.md` still carries the
 #    token but now reads `content key (DEK), <token>`. Probed against
 #    v8.30.1: it fires as the next word after a `key`-family keyword and a
 #    separator (`,` `:` `=` alike, and after `keystore cache,`), not with a
 #    parenthetical before that separator or a word after it
 #    (`key (DEK), <token>`, `key, then <token>` yield nothing). Kept: the
-#    token is still in-tree in Spec-022, Plan-022, `local-sqlite-schema.md`
+#    token is still in-tree in Spec-020, Plan-020, `local-sqlite-schema.md`
 #    and that archive record, so a rephrasing into that shape re-triggers it.
 #
 # 3. PASETO v4 RFC test vectors — deliberate test keys (hex Ed25519 secret
@@ -126,7 +126,7 @@ useDefault = true
 #    in PROVENANCE.md alongside an upstream commit-SHA audit log. Path-only
 #    suppression scopes this allowlist to the fixture file.
 #
-# 4. `Ed25519PrivateKey`, the type name, surfaced by Plan-006 T2.3's signer
+# 4. `Ed25519PrivateKey`, the type name, surfaced by Plan-005 T2.3's signer
 #    golden-vector suite:
 #
 #    (a) NO ENTRY — deliberately removed 2026-07-27, and the reasoning is worth

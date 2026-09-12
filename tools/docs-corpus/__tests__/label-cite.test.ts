@@ -41,7 +41,7 @@ describe("label-cite — token → path resolution", () => {
   it("resolves Spec-/Plan-/ADR- tokens to their own governance tree", () => {
     const { root, cleanup } = setupRepo({
       "docs/specs/003-runtime-node-attach.md": FIVE_LINE_DOC,
-      "docs/plans/001-shared-session-core.md": FIVE_LINE_DOC,
+      "docs/plans/001-session-core.md": FIVE_LINE_DOC,
       "docs/decisions/019-windows-v1-tier.md": FIVE_LINE_DOC,
       "packages/runtime-daemon/src/node.ts":
         "// Spec-003:2 governs attach; Plan-001:3 sequences it; ADR-019:4 scopes it.\n",

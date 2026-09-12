@@ -4,7 +4,7 @@
 // Recovery tool: rebuild a plan's `### Shipment Manifest` block from gh PR
 // history. Use cases:
 //   1. Plan pre-dates the housekeeper's structured-manifest write path
-//      (Plan-001 / Plan-007 backfill — see Commit 5 of the cozy-crafting-
+//      (Plan-001 / Plan-006 backfill — see Commit 5 of the cozy-crafting-
 //      hummingbird plan).
 //   2. Post-merge-housekeeper crashed mid-manifest-write and the on-disk
 //      manifest drifted from git history.
@@ -127,7 +127,7 @@ const PHASE_TOKEN = String.raw`\d+[A-Z]?`;
 
 // Parse phase number from PR title/body. Returns integer >= 1 or null.
 // Checks (title first, body second; first match wins), most specific first:
-//   "T-023p-1C-1"  (plan-scoped task id — its SECOND segment is the phase it
+//   "T-021p-1C-1"  (plan-scoped task id — its SECOND segment is the phase it
 //             was authored under, and the id carries the plan inline, so it
 //             cannot be read off another plan's id. Ordered ahead of the prose
 //             forms because it is the only one the plan itself mints.)
@@ -140,14 +140,14 @@ const PHASE_TOKEN = String.raw`\d+[A-Z]?`;
 //
 // A supplement label resolves to the NUMBER it extends: `lib/manifest.mjs`
 // validates `phase:` as a positive integer, and the corpus's own rows agree —
-// Plan-023's `T-023p-1B-*` and `T-023p-1C-*` shipments are recorded as
+// Plan-021's `T-021p-1B-*` and `T-021p-1C-*` shipments are recorded as
 // `phase: 1`. The letter is not discarded, it lives where it is exact: the
 // `task:` field carries the id verbatim.
 //
 // Cross-plan defense (Codex P2 finding on PR #35 round 6 — mirrors the
 // parseTaskFromPr defense from round 1): the two PROSE patterns carry no
-// plan id inline, so a PR body citing "see Plan-001 Phase 5" in a Plan-024
-// PR could leak phase 5 into Plan-024's manifest. When the matched text
+// plan id inline, so a PR body citing "see Plan-001 Phase 5" in a Plan-022
+// PR could leak phase 5 into Plan-022's manifest. When the matched text
 // (title or body) contains a Plan-NNN reference NOT equal to the target
 // plan, that text is skipped. Texts with no Plan-NNN reference at all
 // remain captured (most PR titles are bare "Phase N" with no Plan ref —
@@ -182,7 +182,7 @@ export function parsePhaseFromPr({ title, body, plan }) {
 //   null when no task ID present
 //
 // Recognized shapes:
-//   T-NNN-N-N or T-NNNp-N-N (audit-runbook style, e.g. T-007p-3-1) — carries
+//   T-NNN-N-N or T-NNNp-N-N (audit-runbook style, e.g. T-006p-3-1) — carries
 //                            the plan id inline, so always safe to capture.
 //   TN.M       (Plan-001 phase-task style, e.g. T5.1) — does NOT carry the
 //                            plan id, so capture is gated by a same-text
@@ -196,15 +196,15 @@ export function parsePhaseFromPr({ title, body, plan }) {
 // mixed Plan-NNN refs surface as ambiguity for operator confirmation
 // rather than auto-mapping.
 export function parseTaskFromPr({ title, body, plan }) {
-  // The optional series letter covers every corpus id family: T-007p-2-4
+  // The optional series letter covers every corpus id family: T-006p-2-4
   // (primary), T-025d-14-1 (deploy), and future letters — the survey's
   // boundary rule already treats letters as id-extending characters, so the
   // extractor must parse what the boundary protects (Codex P2 round 4). The
   // phase segment takes the same supplement letter the plan headings use
-  // (T-023p-1B-4, T-023p-1C-1), and the id is captured VERBATIM — the letter
+  // (T-021p-1B-4, T-021p-1C-1), and the id is captured VERBATIM — the letter
   // is what distinguishes a supplement's task from its parent phase's.
   const planScopedPattern = new RegExp(String.raw`\bT-${plan}[a-z]?-${PHASE_TOKEN}-\d+\b`, "g");
-  // Multi-segment: Plan-001's TN.M (T5.1) and Plan-022's TN.M.K (T22.4.4)
+  // Multi-segment: Plan-001's TN.M (T5.1) and Plan-020's TN.M.K (T22.4.4)
   // are both live corpus grammars — a two-segment-only pattern silently
   // TRUNCATES T22.4.4 to "T22.4" and writes a wrong manifest task id
   // (surfaced by the Codex-r4 docs-only shipment test).
@@ -302,7 +302,7 @@ export function fetchMergedPrNumbers({ plan, ghRunner = defaultGhRunner }) {
 // GitHub's REST "list pull request files" endpoint is the only per-PR file
 // surface with real pagination. `gh pr view --json files` compiles to a single
 // `pullRequest.files(first: 100)` GraphQL page and silently drops everything
-// past it — the defect that halted this tool on a 263-file Plan-023 PR — so
+// past it — the defect that halted this tool on a 263-file Plan-021 PR — so
 // metadata still comes from `gh pr view` while the file list comes from
 // `gh api ... /files --paginate`, which walks every page.
 //
@@ -371,7 +371,7 @@ export function fetchPrDetails({ pr, ghRunner = defaultGhRunner }) {
 // `/^\d{3}$/`, so the `NNN-partial` dispatch qualifier the housekeeper accepts
 // cannot reach here. That is deliberate, not an oversight: `plan` is
 // interpolated into the identity regexes `parseTaskFromPr` and `titleTokenRe`
-// build, and `T-023-partial-\d+-\d+` matches no task id in the corpus.
+// build, and `T-021-partial-\d+-\d+` matches no task id in the corpus.
 // `resolvePlanFile` normalizes `-partial` for the callers that DO permit it,
 // which is why exit 3's message below interpolates `plan` raw — at that point
 // `plan` is already the bare number, and normalizing it there would advertise
@@ -510,7 +510,7 @@ export async function rebuildManifest({
     // manifest entry on it. File shape cannot make that call — three Codex
     // rounds each broke a path allow-list (deploy/-only shipments, root
     // config shipments like Plan-001 T1.1/T1.4, docs-only shipment tasks
-    // like Plan-022 T22.4.4/T22.4.5) — so the skip keys on the
+    // like Plan-020 T22.4.4/T22.4.5) — so the skip keys on the
     // synthesizer's own discriminator instead: a candidate with NO
     // plan-scoped task token in title/body AND no MATERIAL_PATH_PREFIXES
     // path is a governance/closure PR (Plan-001's #1/#29 shapes: doc-first

@@ -8,7 +8,7 @@
 #
 # Surface 1 (npm packages: @ai-sidekicks/contracts, @ai-sidekicks/client-sdk):
 #   release-please-action@v5 manifest mode (this file).
-# Surface 2 (desktop binary, Spec-027 §7b dual-trust): wired in a later PR.
+# Surface 2 (desktop binary, Spec-024 §7b dual-trust): wired in a later PR.
 # Surface 3 (Rust sidecar, 5 platform packages): wired in a later PR (no sidecar yet).
 #
 # release-please observes `develop` (the integration branch) per the 2026-04-26
@@ -156,7 +156,7 @@ jobs:
     # and `npm sbom` (CycloneDX 1.5 only, no pnpm-lockfile parsing).
     #
     # actions/attest@v4 is also the unified primitive for Surface 2 (desktop
-    # binary, Spec-027 §7b dual-trust) and Surface 3 (Rust sidecar) — wired in
+    # binary, Spec-024 §7b dual-trust) and Surface 3 (Rust sidecar) — wired in
     # later PRs. This job pins the action+permission shape now so later PRs
     # extend rather than re-discover.
     if: false

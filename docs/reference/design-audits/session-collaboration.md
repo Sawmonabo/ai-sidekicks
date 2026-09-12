@@ -22,13 +22,13 @@
 
 **Session join and relay.** Spec-008 separates join (membership action) from relay (connectivity action). Control plane provides session directory, invite resolution, presence registration, and relay coordination but never gains execution authority. ADR-008 establishes OS-local IPC as default local transport, control-plane APIs for shared coordination, and relay as secondary fallback.
 
-**Presence.** Spec-002 defines presence states: `online`, `idle`, `reconnecting`, `offline`. Default heartbeat interval is 15s with a 45s reconnect grace window. Spec-018 adds multi-device presence aggregation: one authenticated identity maps to one participant per session, with aggregated status preferring the highest-activity state across devices. Historical event authorship references stable participant ids, not mutable display names.
+**Presence.** Spec-002 defines presence states: `online`, `idle`, `reconnecting`, `offline`. Default heartbeat interval is 15s with a 45s reconnect grace window. Spec-016 adds multi-device presence aggregation: one authenticated identity maps to one participant per session, with aggregated status preferring the highest-activity state across devices. Historical event authorship references stable participant ids, not mutable display names.
 
 ### Signature Feature 2: Multi-User and Multi-Agent Chat
 
-**Channels.** The agent-channel-and-run-model defines channels as session-local communication streams with states `active`, `muted`, `archived`. Every session gets a default `main` channel at creation (Spec-001). New channels inherit session membership (v1 decision in Spec-016; channel-level permissions deferred).
+**Channels.** The agent-channel-and-run-model defines channels as session-local communication streams with states `active`, `muted`, `archived`. Every session gets a default `main` channel at creation (Spec-001). New channels inherit session membership (v1 decision in Spec-014; channel-level permissions deferred).
 
-**Multi-agent orchestration.** Spec-016 requires sessions to support multiple concurrent agents and channels. Cross-agent communication must use channel publication, artifact references, approvals, or run linkage. V1 explicitly prohibits direct run-to-run messaging. Parent-child run relationships must be durable and auditable. Internal helper runs must be distinguishable from user-visible agents.
+**Multi-agent orchestration.** Spec-014 requires sessions to support multiple concurrent agents and channels. Cross-agent communication must use channel publication, artifact references, approvals, or run linkage. V1 explicitly prohibits direct run-to-run messaging. Parent-child run relationships must be durable and auditable. Internal helper runs must be distinguishable from user-visible agents.
 
 **Delegation constraints.** V1 limits delegation to one parent-child layer. A child run cannot spawn its own child. Concurrent child runs are allowed but subject to per-runtime scheduler limits. Rejection for depth or capacity violations must be explicit, never silent.
 
@@ -36,13 +36,13 @@
 
 ### Signature Feature 3 (Partial): Queue, Steer, Pause, Resume
 
-The vision doc specifies that queue must be daemon-backed, steer must be an intervention against an active run, pause must be a runtime state (not a UI illusion), and resume must continue from persisted run state. Spec-016 depends on Spec-004 (Queue Steer Pause Resume) for admission scheduling. However, Spec-004 itself is outside the reviewed document set. The reviewed specs do not define queue semantics, intervention model, or run state machine details.
+The vision doc specifies that queue must be daemon-backed, steer must be an intervention against an active run, pause must be a runtime state (not a UI illusion), and resume must continue from persisted run state. Spec-014 depends on Spec-003 (Queue Steer Pause Resume) for admission scheduling. However, Spec-003 itself is outside the reviewed document set. The reviewed specs do not define queue semantics, intervention model, or run state machine details.
 
 ---
 
 ## 2. Spec Completeness
 
-### Spec-001: Shared Session Core
+### Spec-001: Session Core
 
 **What's specified:** Session as primary container, required interfaces (`SessionCreate`, `SessionRead`, `SessionJoin`, `SessionSubscribe`), default behaviors (active state, owner membership, main channel), `local-only` fallback, canonical event stream and snapshot projection requirements.
 
@@ -66,15 +66,15 @@ The vision doc specifies that queue must be daemon-backed, steer must be an inte
 
 **Assessment:** Clear boundary definitions. Relay negotiation will need its own protocol design pass before implementation.
 
-### Spec-016: Multi-Agent Channels and Orchestration
+### Spec-014: Multi-Agent Channels and Orchestration
 
 **What's specified:** Multiple concurrent agents, channel creation, parent-child run linkage, internal helper run visibility, one-level delegation depth limit, explicit rejection on depth/capacity violations, provider-agnostic orchestration, interface names (`ChannelCreate`, `OrchestrationRunCreate`, `ChildRunLinkRead`, `InternalRunFlag`).
 
-**What's hand-waved:** No payload shapes. No scheduling algorithm or admission control details. "Summarized row" publication format for child runs is undefined. Depends on Spec-004 (queue/steer/pause/resume) which was not reviewed. Run lifecycle is referenced as defined in `run-state-machine.md` (not in this review set). No channel naming, discovery, or listing mechanism.
+**What's hand-waved:** No payload shapes. No scheduling algorithm or admission control details. "Summarized row" publication format for child runs is undefined. Depends on Spec-003 (queue/steer/pause/resume) which was not reviewed. Run lifecycle is referenced as defined in `run-state-machine.md` (not in this review set). No channel naming, discovery, or listing mechanism.
 
-**Assessment:** Good behavioral boundaries and explicit v1 scoping decisions. The dependency on Spec-004 and the run state machine are material gaps for anyone implementing orchestration.
+**Assessment:** Good behavioral boundaries and explicit v1 scoping decisions. The dependency on Spec-003 and the run state machine are material gaps for anyone implementing orchestration.
 
-### Spec-018: Identity and Participant State
+### Spec-016: Identity and Participant State
 
 **What's specified:** One canonical participant per session per authenticated identity, multi-device presence aggregation with highest-activity-wins precedence, stable historical authorship via participant ids, placeholder identity fallback, interface names (`ParticipantProjectionRead`, `ParticipantStateUpdate`, `PresenceDetailRead`).
 
@@ -93,7 +93,7 @@ The vision doc specifies that queue must be daemon-backed, steer must be an inte
 - No time estimates or sizing on any plan.
 - No cross-plan dependency ordering is declared. Plans reference target paths that overlap but do not specify sequencing.
 
-### Plan-001: Shared Session Core
+### Plan-001: Session Core
 
 **Concrete target paths:** 6 specific files/directories across contracts, client-sdk, runtime-daemon, control-plane, and desktop. **Data changes:** sessions and session_memberships tables (control plane), session_events and session_snapshots (local SQLite). **Parallelization:** Contracts + control plane can parallel with daemon projection. Desktop waits for SDK stability. **Acceptance:** Contract tests, integration tests, manual multi-client verification.
 
@@ -111,13 +111,13 @@ The vision doc specifies that queue must be daemon-backed, steer must be an inte
 
 **Gaps:** Implicitly requires Plan-002's invite acceptance but does not declare this. "Session-join traffic requirements for admin or recovery flows remain unresolved" is listed as a risk -- this is an operational capacity question that affects relay sizing.
 
-### Plan-016: Multi-Agent Channels and Orchestration
+### Plan-014: Multi-Agent Channels and Orchestration
 
 **Concrete target paths:** 8 specific files/directories. **Data changes:** Channels, run_links, internal-run metadata in local persistence. **Parallelization:** Channel identity and run-link persistence can parallel once orchestration payloads are fixed.
 
 **Gaps:** Required ADRs include ADR-005 (provider-drivers-use-a-normalized-interface) which was not reviewed. Depends on run state machine defined elsewhere. No specification of how "provider-agnostic orchestration hooks" work concretely when the driver has no native subagent concept. "Scheduler-limit policy must remain visible" but no default scheduler limits are proposed.
 
-### Plan-018: Identity and Participant State
+### Plan-016: Identity and Participant State
 
 **Concrete target paths:** 7 specific files/directories. **Data changes:** Participants, participant-profile projections, device-presence/presence-lease storage. **Parallelization:** Participant mapping and presence aggregation can parallel once id/authorship contracts are fixed.
 
@@ -133,21 +133,21 @@ The vision doc specifies that queue must be daemon-backed, steer must be an inte
 - **Session-as-root-aggregate.** All five specs, all three domain models, and all three ADRs consistently treat session as the primary domain object.
 - **Separation of membership from presence.** Every doc that touches both concepts maintains the distinction between durable membership and ephemeral presence.
 - **Execution stays local.** All docs consistently place execution authority in the Local Runtime Daemon and coordination in the control plane. No spec or plan violates this boundary.
-- **Channel-as-communication-boundary.** Spec-016, the agent-channel-and-run model, and the vision doc all treat channels as the canonical communication surface. No doc introduces an alternative cross-agent messaging primitive.
+- **Channel-as-communication-boundary.** Spec-014, the agent-channel-and-run model, and the vision doc all treat channels as the canonical communication surface. No doc introduces an alternative cross-agent messaging primitive.
 
 ### Inconsistent or Ambiguous
 
 1. **`session_memberships` table ownership conflict.** Plan-001 "Data And Storage Changes" says: "Add shared `sessions` and `session_memberships` tables to Collaboration Control Plane storage." Plan-002 "Data And Storage Changes" says: "Add shared `session_invites`, `session_memberships`, and `participant_presences` tables." Both plans claim ownership of the `session_memberships` migration. This will cause a concrete implementation conflict.
 
-2. **Presence package claimed by three plans.** Plan-002 targets `packages/control-plane/src/presence/`. Plan-008 targets `packages/control-plane/src/presence/presence-register-service.ts`. Plan-018 targets `packages/control-plane/src/presence/presence-aggregation-service.ts`. No plan declares ownership of the presence package or specifies coordination order among these services.
+2. **Presence package claimed by three plans.** Plan-002 targets `packages/control-plane/src/presence/`. Plan-008 targets `packages/control-plane/src/presence/presence-register-service.ts`. Plan-016 targets `packages/control-plane/src/presence/presence-aggregation-service.ts`. No plan declares ownership of the presence package or specifies coordination order among these services.
 
 3. **Owner elevation has no mechanism.** The participant and membership model states: "`owner` is not a normal invite join mode; it is a bootstrap or explicit elevation role." No spec defines how a second owner is created, how elevation from collaborator to owner works, or what authorization is required. The only specified path to `owner` is session creation bootstrap.
 
-4. **Run lifecycle is a dangling reference.** The agent-channel-and-run-model says: "Run lifecycle is defined in `run-state-machine.md`." Spec-016's orchestration behavior (parent-child runs, delegation rejection, internal helper runs) depends on run states that are not defined in any reviewed document. The run state machine is assumed but never specified within this document set.
+4. **Run lifecycle is a dangling reference.** The agent-channel-and-run-model says: "Run lifecycle is defined in `run-state-machine.md`." Spec-014's orchestration behavior (parent-child runs, delegation rejection, internal helper runs) depends on run states that are not defined in any reviewed document. The run state machine is assumed but never specified within this document set.
 
-5. **Spec-016 depends on Spec-004 (Queue Steer Pause Resume).** The dependency is declared in the spec header, but Spec-004 is not in the reviewed set. Orchestration admission ("admission remains subject to explicit runtime scheduler limits") cannot be fully evaluated without the queue and intervention model.
+5. **Spec-014 depends on Spec-003 (Queue Steer Pause Resume).** The dependency is declared in the spec header, but Spec-003 is not in the reviewed set. Orchestration admission ("admission remains subject to explicit runtime scheduler limits") cannot be fully evaluated without the queue and intervention model.
 
-6. **Spec-006 (Session Event Taxonomy and Audit Log) is referenced but not reviewed.** The session-model domain doc references it. Every spec assumes a canonical session event stream, but the event format, schema, and taxonomy are not defined in any reviewed document.
+6. **Spec-005 (Session Event Taxonomy and Audit Log) is referenced but not reviewed.** The session-model domain doc references it. Every spec assumes a canonical session event stream, but the event format, schema, and taxonomy are not defined in any reviewed document.
 
 ---
 
@@ -155,12 +155,12 @@ The vision doc specifies that queue must be daemon-backed, steer must be an inte
 
 ### Explicitly Deferred by the Docs
 
-- Guest/anonymous participant identity (Spec-002, Spec-018): out of scope for v1.
-- Channel-level permission restrictions (Spec-016): deferred; new channels inherit session membership.
-- Direct run-to-run messaging (Spec-016): out of scope for v1; channels are the only cross-agent boundary.
-- Nested delegation beyond one parent-child layer (Spec-016): deferred to future spec revision.
+- Guest/anonymous participant identity (Spec-002, Spec-016): out of scope for v1.
+- Channel-level permission restrictions (Spec-014): deferred; new channels inherit session membership.
+- Direct run-to-run messaging (Spec-014): out of scope for v1; channels are the only cross-agent boundary.
+- Nested delegation beyond one parent-child layer (Spec-014): deferred to future spec revision.
 - `local-only` session promotion to shared mode (Spec-001): v1 decision is "not promotable in place."
-- Organization directory sync (Spec-018): out of scope.
+- Organization directory sync (Spec-016): out of scope.
 - Remembered-grant customization beyond base model (ADR-007): listed as an unknown.
 - Relay frequency in typical deployments (ADR-008): listed as an unknown.
 
@@ -192,7 +192,7 @@ These must be resolved before implementation can begin.
 
 ### 1. All Required ADRs Are `proposed`, Not `accepted`
 
-Every plan lists `[ ] Required ADRs are accepted` as an unchecked precondition. ADR-001 (session as primary domain object), ADR-007 (collaboration trust and permission model), and ADR-008 (default transports and relay boundaries) are all in `proposed` status with "Reviewers: Pending assignment." Additionally, Plans 001 and 016 depend on ADR-002, ADR-004, and ADR-005 which were not even in this review set. By the plans' own stated preconditions, no plan can proceed to implementation.
+Every plan lists `[ ] Required ADRs are accepted` as an unchecked precondition. ADR-001 (session as primary domain object), ADR-007 (device trust and permission model), and ADR-008 (default transports and relay boundaries) are all in `proposed` status with "Reviewers: Pending assignment." Additionally, Plans 001 and 016 depend on ADR-002, ADR-004, and ADR-005 which were not even in this review set. By the plans' own stated preconditions, no plan can proceed to implementation.
 
 **Resolution needed:** Accept or amend each ADR through the review process and update plan preconditions.
 
@@ -204,9 +204,9 @@ Every spec names interfaces (e.g., `SessionCreate`, `InviteAccept`, `Orchestrati
 
 ### 3. Cross-Plan Dependency Ordering Is Undefined
 
-Plan-002 requires Plan-001's session tables. Plan-008 requires Plan-002's invite acceptance. Plan-018 requires Plan-002's presence infrastructure. Plan-016 requires run state machines from outside this set. None of these dependencies are declared in the plans, and no global implementation sequencing exists.
+Plan-002 requires Plan-001's session tables. Plan-008 requires Plan-002's invite acceptance. Plan-016 requires Plan-002's presence infrastructure. Plan-014 requires run state machines from outside this set. None of these dependencies are declared in the plans, and no global implementation sequencing exists.
 
-**Resolution needed:** Produce a cross-plan dependency graph and implementation order. At minimum: Plan-001 ships first, then Plan-002, then Plans 008/018 can parallel, then Plan-016.
+**Resolution needed:** Produce a cross-plan dependency graph and implementation order. At minimum: Plan-001 ships first, then Plan-002, then Plans 008/018 can parallel, then Plan-014.
 
 ### 4. Shared Table and Package Ownership Conflicts
 
@@ -214,11 +214,11 @@ Plan-002 requires Plan-001's session tables. Plan-008 requires Plan-002's invite
 
 **Resolution needed:** Assign ownership of each shared table migration and shared package to exactly one plan. Other plans depend on that plan's output.
 
-### 5. Spec-006 (Event Taxonomy) and Run State Machine Are Missing Dependencies
+### 5. Spec-005 (Event Taxonomy) and Run State Machine Are Missing Dependencies
 
-Every spec assumes a canonical session event stream. Spec-016's orchestration depends on run states. Neither the event taxonomy nor the run state machine is defined in the reviewed documents. Without these, the event append and replay requirements in Spec-001 and the orchestration admission in Spec-016 are underspecified.
+Every spec assumes a canonical session event stream. Spec-014's orchestration depends on run states. Neither the event taxonomy nor the run state machine is defined in the reviewed documents. Without these, the event append and replay requirements in Spec-001 and the orchestration admission in Spec-014 are underspecified.
 
-**Resolution needed:** Confirm that Spec-006 and the run state machine doc exist, are approved, and are compatible with the assumptions made in Specs 001 and 016.
+**Resolution needed:** Confirm that Spec-005 and the run state machine doc exist, are approved, and are compatible with the assumptions made in Specs 001 and 016.
 
 ### 6. Invite Delivery Mechanism Is Unspecified
 

@@ -202,15 +202,15 @@ V1 ships 21 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 | 13 | Event audit log | Event-sourced persistence backbone |
 | 14 | Artifacts (local + relayed) | Diffs, files, and attachments; an artifact stays fetchable from a linked device while the publishing runtime node is offline via an eager relay pin of E2EE ciphertext, up to the artifact's retention TTL |
 | 15 | Desktop GUI | Electron shell + React/Vite renderer over the same typed SDK |
-| 16 | Multi-agent channels | Sidekick-to-sidekick coordination primitives per [Spec-016](docs/specs/016-multi-agent-channels-and-orchestration.md) |
-| 17 | Workflow authoring and execution | Full workflow engine with a visual node-graph builder, session/project/shared definition scopes, chat-invoked start (the intercepted `/workflow start` command, the composer affordance, and the `workflow_start` callback tool per [ADR-027](docs/decisions/027-chat-invoked-workflow-start.md)), and a park-and-recovery surface — a phase parked on a provider usage limit or a human wait is readable from one run-read and acted on through authorized run-cancel and run-resume operations, the resume carrying the audited definition re-pin — per [Spec-017](docs/specs/017-workflow-authoring-and-execution.md), [ADR-026](docs/decisions/026-visual-node-graph-workflow-authoring.md) |
-| 18 | MCP server configuration and governance | Server-config CRUD, operator-managed trusted-server store, status/health probing, server OAuth per [Spec-028](docs/specs/028-mcp-server-configuration-and-governance.md) + [Plan-028](docs/plans/028-mcp-server-configuration-and-governance.md) |
-| 19 | Session time-travel | Run rollback as a version-guarded intervention plus a forward `run.rolled_back` event, so the log never truncates; durable file restoration rides the turn-snapshot restore leg, and the superseded-turn timeline rendering is built by [Plan-013](docs/plans/013-live-timeline-visibility-and-reasoning-surfaces.md) |
+| 16 | Multi-agent channels | Sidekick-to-sidekick coordination primitives per [Spec-014](docs/specs/014-multi-agent-channels-and-orchestration.md) |
+| 17 | Workflow authoring and execution | Full workflow engine with a visual node-graph builder, session/project/shared definition scopes, chat-invoked start (the intercepted `/workflow start` command, the composer affordance, and the `workflow_start` callback tool per [ADR-027](docs/decisions/027-chat-invoked-workflow-start.md)), and a park-and-recovery surface — a phase parked on a provider usage limit or a human wait is readable from one run-read and acted on through authorized run-cancel and run-resume operations, the resume carrying the audited definition re-pin — per [Spec-015](docs/specs/015-workflow-authoring-and-execution.md), [ADR-026](docs/decisions/026-visual-node-graph-workflow-authoring.md) |
+| 18 | MCP server configuration and governance | Server-config CRUD, operator-managed trusted-server store, status/health probing, server OAuth per [Spec-025](docs/specs/025-mcp-server-configuration-and-governance.md) + [Plan-025](docs/plans/025-mcp-server-configuration-and-governance.md) |
+| 19 | Session time-travel | Run rollback as a version-guarded intervention plus a forward `run.rolled_back` event, so the log never truncates; durable file restoration rides the turn-snapshot restore leg, and the superseded-turn timeline rendering is built by [Plan-011](docs/plans/011-live-timeline-visibility-and-reasoning-surfaces.md) |
 | 20 | Session goals | Per-session structured goal with set/clear RPC and goal events |
 | 21 | Session callback tools | Daemon-registered tools exposed into every run, Cedar-governed |
 | 22 | Execution postures and sandbox profiles | Per-run sandbox posture as an authorization input, provider-uniform presets |
 | 23 | Realtime voice channels | Reserved, and capability-gated on upstream Codex realtime-flag stabilization |
-| 24 | Remote Control | Drive any session from any of your linked devices with full parity per [Spec-031](docs/specs/031-remote-control.md) + [Plan-031](docs/plans/031-remote-control.md) |
+| 24 | Remote Control | Drive any session from any of your linked devices with full parity per [Spec-028](docs/specs/028-remote-control.md) + [Plan-028](docs/plans/028-remote-control.md) |
 
 **V1.1 additions:** MLS relay E2EE, plus the criterion-gated sub-feature commitments named in ADR-015 (workflow BIND channel reuse; `human`-phase default timeout; automated GDPR erasure endpoint; direct-first artifact fetch).
 
@@ -218,51 +218,51 @@ V1 ships 21 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 
 ## Build Order
 
-Implementation follows the tiered dependency graph below. [Plan-001](docs/plans/001-shared-session-core.md) Shared Session Core is `completed`, [Plan-031](docs/plans/031-remote-control.md) Remote Control is `draft`, and every other plan is `approved`.
+Implementation follows the tiered dependency graph below. [Plan-001](docs/plans/001-session-core.md) Session Core is `completed`, [Plan-028](docs/plans/028-remote-control.md) Remote Control is `draft`, and every other plan is `approved`.
 
 ```
-Tier 1  ► Plan-001  Shared Session Core
-         Plan-024  Rust PTY Sidecar
-Tier 3  ► Plan-003  Runtime Node Attach
-Tier 4  ► Plan-005  Provider Driver Contract
-         Plan-006  Event Taxonomy and Audit Log
-         Plan-007  Local IPC and Daemon Control
-Tier 5  ► Plan-004  Queue, Steer, Pause, Resume
-         Plan-018  Identity and User State
-         Plan-022  Data Retention and GDPR
-Tier 6  ► Plan-009  Repo Attachment and Workspace Binding
-         Plan-010  Worktree Lifecycle
-         Plan-012  Approvals and Permissions
-         Plan-016  Multi-Agent Channels
-         Plan-021  Rate Limiting Policy
-         Plan-029  Provider Accounts and Credential Homes
-Tier 7  ► Plan-011  Git Flow, PR, Diff Attribution
-         Plan-014  Artifacts, Files, Attachments
-         Plan-015  Persistence, Recovery, Replay
-         Plan-028  MCP Server Configuration and Governance
-Tier 8  ► Plan-013  Live Timeline and Visibility
-         Plan-017  Workflow Authoring and Execution
-         Plan-019  Notifications and Attention
-         Plan-020  Observability and Failure Recovery
-         Plan-023  Desktop Shell and Renderer
-Tier 9  ► Plan-026  First-Run Three-Way-Choice Onboarding
-         Plan-030  Sidekick Definitions and Peer Invocation
-Tier 10 ► Plan-031  Remote Control
-Tier 11 ► Plan-027  Cross-Node Dispatch and Approval
+Tier 1  ► Plan-001  Session Core
+         Plan-022  Rust PTY Sidecar
+Tier 2  ► Plan-002  Runtime Node Attach
+Tier 3  ► Plan-004  Provider Driver Contract
+         Plan-005  Event Taxonomy and Audit Log
+         Plan-006  Local IPC and Daemon Control
+Tier 4  ► Plan-003  Queue, Steer, Pause, Resume
+         Plan-016  Identity and User State
+         Plan-020  Data Retention and GDPR
+Tier 5  ► Plan-007  Repo Attachment and Workspace Binding
+         Plan-008  Worktree Lifecycle
+         Plan-010  Approvals and Permissions
+         Plan-014  Multi-Agent Channels
+         Plan-019  Rate Limiting Policy
+         Plan-026  Provider Accounts and Credential Homes
+Tier 6  ► Plan-009  Git Flow, PR, Diff Attribution
+         Plan-012  Artifacts, Files, Attachments
+         Plan-013  Persistence, Recovery, Replay
+         Plan-025  MCP Server Configuration and Governance
+Tier 7  ► Plan-011  Live Timeline and Visibility
+         Plan-015  Workflow Authoring and Execution
+         Plan-017  Notifications and Attention
+         Plan-018  Observability and Failure Recovery
+         Plan-021  Desktop Shell and Renderer
+Tier 8  ► Plan-023  First-Run Three-Way-Choice Onboarding
+         Plan-027  Sidekick Definitions and Peer Invocation
+Tier 9  ► Plan-028  Remote Control
+Tier 10 ► Plan-024  Cross-Node Dispatch and Approval
 ```
 
-A tier's prerequisites are every tier above it — the numbers are stable labels, not a dense sequence, so the gap at 2 carries no meaning. See [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md) for the forward phase DAG, which is where the phases still to ship and their real dependencies live.
+A tier's prerequisites are every tier above it, and the sequence is dense — Tier N cannot start until Tier N-1 is committed. See [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md) for the forward phase DAG, which is where the phases still to ship and their real dependencies live.
 
 ---
 
 ## Project Status
 
-**Phase:** code execution is under way. A plan's code dispatches on tier order and its own `§Preconditions`; the forward DAG of phases still to ship is [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). [Plan-024](docs/plans/024-rust-pty-sidecar.md) Phases 4-5 (CI cross-compile, signing, and the measurement substrate) are the one hard-blocked lane, waiting on hardware and certificate procurement.
+**Phase:** code execution is under way. A plan's code dispatches on tier order and its own `§Preconditions`; the forward DAG of phases still to ship is [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). [Plan-022](docs/plans/022-rust-pty-sidecar.md) Phases 4-5 (CI cross-compile, signing, and the measurement substrate) are the one hard-blocked lane, waiting on hardware and certificate procurement.
 
 Current documentation corpus:
 
-- **28 V1 implementation plans** with step-by-step build instructions; [Plan-001](docs/plans/001-shared-session-core.md) is `completed`, [Plan-031](docs/plans/031-remote-control.md) is `draft`, and the other 26 are `approved`
-- **29 specifications** covering every feature and cross-cutting concern; 27 are `approved` and [Spec-031](docs/specs/031-remote-control.md) / [Spec-032](docs/specs/032-ios-remote-client.md) are `draft`
+- **28 V1 implementation plans** with step-by-step build instructions; [Plan-001](docs/plans/001-session-core.md) is `completed`, [Plan-028](docs/plans/028-remote-control.md) is `draft`, and the other 26 are `approved`
+- **29 specifications** covering every feature and cross-cutting concern; 27 are `approved` and [Spec-028](docs/specs/028-remote-control.md) / [Spec-029](docs/specs/029-ios-remote-client.md) are `draft`
 - **12 domain models** (run state machine, intervention model, user and device model, workflow model, etc.)
 - **15 architecture documents** (schemas, contracts, security, deployment, dependencies)
 - **12 operations runbooks** (CLI commands, SLOs, on-call routing, self-host secure defaults)

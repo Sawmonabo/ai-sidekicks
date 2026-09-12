@@ -45,7 +45,7 @@ The subagent has a question requiring information not in their brief.
 
 - **In-chat clarification** — short answer in the conversation (e.g., "X is idempotent", "use the V1 surface, not V1.1"). Append the user's exact phrasing to the subagent's brief and re-dispatch the same subagent.
 - **Plan / spec / ADR amendment** — the user (or the orchestrator on the user's instruction) edits the governing doc. Re-dispatch the analyst from scratch — the new dispatch reads the amended doc directly. Do NOT also append the in-chat exchange (that double-sources the same answer and confuses precedence).
-- **Pointer to existing canonical content** — the user names a doc section the subagent missed (e.g., "see Spec-024 § Idempotency"). Append the pointer + the relevant excerpt to the brief and re-dispatch.
+- **Pointer to existing canonical content** — the user names a doc section the subagent missed (e.g., "see Spec-022 § Idempotency"). Append the pointer + the relevant excerpt to the brief and re-dispatch.
 
 If the user's response is ambiguous (they answer the question but don't say which form they intend), default to in-chat clarification: append their phrasing and re-dispatch. If a downstream NEEDS_CONTEXT surfaces the same gap, that's the signal a doc amendment is needed.
 
@@ -57,7 +57,7 @@ The subagent cannot proceed. Strongest negative signal.
 
 - Plan-analyst: "Plan PR #4 internally contradicts itself — the goal section says X but the implementation steps say Y. Cannot decompose."
 - Implementer: "Cannot install `@types/node` — peer-dep conflict. Plan didn't anticipate. Need user input on resolution strategy."
-- Spec-reviewer: "Diff implements the V1.1 deferred surface from Spec-024, not the V1 surface the plan section asks for. Critical drift."
+- Spec-reviewer: "Diff implements the V1.1 deferred surface from Spec-022, not the V1 surface the plan section asks for. Critical drift."
 - Code-quality-reviewer: "Zero tests for new behavior. Task AC explicitly calls for tests. Unshippable as-is."
 - Code-reviewer: "Race condition in connection-pool init — under concurrent load this will deadlock. Reproduces in a 5-line test."
 
@@ -121,7 +121,7 @@ The default for ACTIONABLE is fix-in-PR. Deferring ACTIONABLE via Path A (file B
 
 When in doubt, present without a recommendation that softens ACTIONABLE. Lead with the concrete cost of fix-in-PR (file paths, scope creep into adjacent phase, test surface) and let the user choose. Recommendations biased toward defer-ACTIONABLE that fail audits 1 and 2 are framework violations.
 
-History: this anti-pattern surfaced on Plan-007 PR #19 Round 6 F5 (2026-04-29). The orchestrator argued rule-of-three to defer an upstream-watcher leak whose fix was actually one optional method on an existing contract. User caught the framing error in one sentence; recant cost was a wasted A/B presentation cycle.
+History: this anti-pattern surfaced on Plan-006 PR #19 Round 6 F5 (2026-04-29). The orchestrator argued rule-of-three to defer an upstream-watcher leak whose fix was actually one optional method on an existing contract. User caught the framing error in one sentence; recant cost was a wasted A/B presentation cycle.
 
 ### Inter-reviewer conflict adjudication
 
@@ -141,7 +141,7 @@ Three reviewers run in parallel against the same diff. Their findings sometimes 
 
 The earlier project rule was "all findings round-trip regardless of severity." Plan-001 PR #4 demonstrated the failure mode — R5/R6/R9 spiraled on cosmetic feedback. The first fix introduced binary OBSERVATION/ACTIONABLE: ACTIONABLE round-trips, OBSERVATION aggregates to a post-merge polish list.
 
-That binary scheme was copied from human-team review workflows where round-trip cost is human reviewer attention (expensive). Under AI-implementer economics, that calculus does not apply — round-trip cost is tokens, lifetime cost of unfixed cleanliness compounds, the PR is the cheapest moment to fix. Plan-007 PR #19 surfaced the failure mode of the binary scheme: 10 of 11 OBSERVATIONs in the Round-3 review were verification statements (reviewers showing their work, no fix needed), conflated with 1 real polish finding (citation drift) bucketed identically as "skip."
+That binary scheme was copied from human-team review workflows where round-trip cost is human reviewer attention (expensive). Under AI-implementer economics, that calculus does not apply — round-trip cost is tokens, lifetime cost of unfixed cleanliness compounds, the PR is the cheapest moment to fix. Plan-006 PR #19 surfaced the failure mode of the binary scheme: 10 of 11 OBSERVATIONs in the Round-3 review were verification statements (reviewers showing their work, no fix needed), conflated with 1 real polish finding (citation drift) bucketed identically as "skip."
 
 The three-label scheme separates the two concerns: VERIFICATION is reasoning (no-op), POLISH is fix-in-PR (eliminates the binary's "skip-and-rot" failure mode), ACTIONABLE is unchanged.
 

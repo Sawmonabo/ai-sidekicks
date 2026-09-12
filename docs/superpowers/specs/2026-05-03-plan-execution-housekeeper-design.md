@@ -19,33 +19,33 @@ The schema is defined by what's actually on disk. The four entries below — pas
 
 #### 1.1.1 Schema-by-example (verbatim, current HEAD)
 
-> **Path-form note.** Markdown-link URLs in the verbatim NS blocks below are written from **this spec's location** (`docs/superpowers/specs/`) using `../../<tree>/...`, so the `cite-target-existence` pre-commit hook resolves them correctly. The actual on-disk text in `docs/architecture/cross-plan-dependencies.md` uses one fewer `../` (`../<tree>/...`), since it lives one directory shallower. Field structure, prose, headings, and `:NNN` line cites are otherwise verbatim against HEAD. _(Re-sync 2026-07-21: the NS-01/NS-04/NS-09 References lines — and NS-01's Upstream parenthetical — now carry the durable §-anchor forms the live §6 records adopted in the corpus-wide line-cite → anchor conversion; the campaign-B16 Plan-024 Phase 3B insertion shifted the snapshot-era `:NNN` targets onto blank lines, so the stale numeric forms could no longer stand. The blocks otherwise remain the dated snapshots.)_
+> **Path-form note.** Markdown-link URLs in the verbatim NS blocks below are written from **this spec's location** (`docs/superpowers/specs/`) using `../../<tree>/...`, so the `cite-target-existence` pre-commit hook resolves them correctly. The actual on-disk text in `docs/architecture/cross-plan-dependencies.md` uses one fewer `../` (`../<tree>/...`), since it lives one directory shallower. Field structure, prose, headings, and `:NNN` line cites are otherwise verbatim against HEAD. _(Re-sync 2026-07-21: the NS-01/NS-04/NS-09 References lines — and NS-01's Upstream parenthetical — now carry the durable §-anchor forms the live §6 records adopted in the corpus-wide line-cite → anchor conversion; the campaign-B16 Plan-022 Phase 3B insertion shifted the snapshot-era `:NNN` targets onto blank lines, so the stale numeric forms could no longer stand. The blocks otherwise remain the dated snapshots.)_
 
 **NS-01 — `todo`, single-PR `code`, classic `Plan-NNN Phase N` heading** (`cross-plan-dependencies.md`:342-350):
 
 ```markdown
-### NS-01: Plan-024 Phase 1 — Rust crate scaffolding
+### NS-01: Plan-022 Phase 1 — Rust crate scaffolding
 
 - Status: `todo`
 - Type: code
 - Priority: `P1`
-- Upstream: none (`Plan-024 §Phase 1 — Rust Crate Scaffold + Protocol + Framing` — Phase 1 starts as soon as Plan-001 Phase 1 repo bootstrap is merged, which it is)
-- References: [Plan-024 §Phase 1 — Rust Crate Scaffold + Protocol + Framing](../../plans/024-rust-pty-sidecar.md#phase-1--rust-crate-scaffold--protocol--framing), [ADR-019](../../decisions/019-windows-v1-tier-and-pty-sidecar.md), this document §4 (Plan-024 standalone)
-- Summary: Scaffold the Rust PTY sidecar crate (T-024-1-1..5): workspace-root `Cargo.toml`, `packages/sidecar-rust-pty/{Cargo.toml,Cargo.lock,src/{main,framing,protocol,pty_session}.rs,tests/{framing_roundtrip,protocol_roundtrip,spawn_smoke}.rs}` + TS protocol mirror at `packages/contracts/src/pty-host-protocol.ts`. ~10 new files; no edits to existing TS source. Pins: `portable-pty 0.9`, `tokio 1.40`, `serde_with 3.7`, MSRV `1.85`, `cargo-zigbuild 0.22.2`. F-024-2-04 binds Phase 2/3 to Plan-001 T5.4 — Phase 1 itself is fully independent.
-- Exit Criteria: T-024-1-1..5 merged; Linux `cargo build --release` + `cargo test --release` green; Plan-024 Phase 1 Done Checklist flipped.
+- Upstream: none (`Plan-022 §Phase 1 — Rust Crate Scaffold + Protocol + Framing` — Phase 1 starts as soon as Plan-001 Phase 1 repo bootstrap is merged, which it is)
+- References: [Plan-022 §Phase 1 — Rust Crate Scaffold + Protocol + Framing](../../plans/022-rust-pty-sidecar.md#phase-1--rust-crate-scaffold--protocol--framing), [ADR-019](../../decisions/019-windows-v1-tier-and-pty-sidecar.md), this document §4 (Plan-022 standalone)
+- Summary: Scaffold the Rust PTY sidecar crate (T-022-1-1..5): workspace-root `Cargo.toml`, `packages/sidecar-rust-pty/{Cargo.toml,Cargo.lock,src/{main,framing,protocol,pty_session}.rs,tests/{framing_roundtrip,protocol_roundtrip,spawn_smoke}.rs}` + TS protocol mirror at `packages/contracts/src/pty-host-protocol.ts`. ~10 new files; no edits to existing TS source. Pins: `portable-pty 0.9`, `tokio 1.40`, `serde_with 3.7`, MSRV `1.85`, `cargo-zigbuild 0.22.2`. F-022-2-04 binds Phase 2/3 to Plan-001 T5.4 — Phase 1 itself is fully independent.
+- Exit Criteria: T-022-1-1..5 merged; Linux `cargo build --release` + `cargo test --release` green; Plan-022 Phase 1 Done Checklist flipped.
 ```
 
 **NS-04 — `todo`, multi-step `code` (cross-plan PR pair, internal 3-step sequence), heading WITHOUT `Phase N`** (`cross-plan-dependencies.md`:372-380; **snapshot date: 2026-05-03** — the verbatim block below reflects HEAD before §3a.1 PRs: shape rolls out. Once Plan-001 PR 1 of §10.1 ships, NS-04 will gain a `- PRs:` block per §3a.1 and the body Upstream prose will simplify; this block is preserved as the pre-amendment baseline for the matcher's behavior reasoning):
 
 ```markdown
-### NS-04: Plan-001 T5.4 cwd-translator + Plan-024 T-024-2-1 contracts pair
+### NS-04: Plan-001 T5.4 cwd-translator + Plan-022 T-022-2-1 contracts pair
 
 - Status: `todo`
 - Type: code (cross-plan PR pair, internally a 3-step sequence)
 - Priority: `P1`
-- Upstream: none (the 3-step sequence is internal: (a) `packages/contracts/src/pty-host.ts` interface-only PR for T-024-2-1 → (b) `packages/runtime-daemon/src/session/spawn-cwd-translator.ts` for T5.4 → (c) NodePtyHost impl T-024-2-2 lands as part of NS-05)
-- References: [Plan-001 §T5.4 — spawn-cwd-translator.ts daemon-layer cwd-translator](../../plans/001-shared-session-core.md#t54--spawn-cwd-translatorts-daemon-layer-cwd-translator), [Plan-024 §Preconditions](../../plans/024-rust-pty-sidecar.md#preconditions), [Plan-024 §Phase 2 — TS PtyHost Contract + NodePtyHost + Selector Default-Node](../../plans/024-rust-pty-sidecar.md#phase-2--ts-ptyhost-contract--nodeptyhost--selector-default-node), [Plan-024 §Phase 3 — RustSidecarPtyHost + Env-Var Opt-In](../../plans/024-rust-pty-sidecar.md#phase-3--rustsidecarptyhost--env-var-opt-in)
-- Summary: T5.4 wraps both `RustSidecarPtyHost` and `NodePtyHost` for OS-level cwd translation per I-024-5 to mitigate the Windows `ERROR_SHARING_VIOLATION` risk. F-024-2-04 binds T5.4 as a Precondition for **both** Plan-024 Phase 2 (NodePtyHost) **and** Phase 3 (RustSidecarPtyHost) — without it, Windows CI surfaces the sharing-violation regression. Clean sequence: ship the `PtyHost` contract interface alone, then T5.4 consumes it, then NS-05 consumes T5.4.
+- Upstream: none (the 3-step sequence is internal: (a) `packages/contracts/src/pty-host.ts` interface-only PR for T-022-2-1 → (b) `packages/runtime-daemon/src/session/spawn-cwd-translator.ts` for T5.4 → (c) NodePtyHost impl T-022-2-2 lands as part of NS-05)
+- References: [Plan-001 §T5.4 — spawn-cwd-translator.ts daemon-layer cwd-translator](../../plans/001-session-core.md#t54--spawn-cwd-translatorts-daemon-layer-cwd-translator), [Plan-022 §Preconditions](../../plans/022-rust-pty-sidecar.md#preconditions), [Plan-022 §Phase 2 — TS PtyHost Contract + NodePtyHost + Selector Default-Node](../../plans/022-rust-pty-sidecar.md#phase-2--ts-ptyhost-contract--nodeptyhost--selector-default-node), [Plan-022 §Phase 3 — RustSidecarPtyHost + Env-Var Opt-In](../../plans/022-rust-pty-sidecar.md#phase-3--rustsidecarptyhost--env-var-opt-in)
+- Summary: T5.4 wraps both `RustSidecarPtyHost` and `NodePtyHost` for OS-level cwd translation per I-022-5 to mitigate the Windows `ERROR_SHARING_VIOLATION` risk. F-022-2-04 binds T5.4 as a Precondition for **both** Plan-022 Phase 2 (NodePtyHost) **and** Phase 3 (RustSidecarPtyHost) — without it, Windows CI surfaces the sharing-violation regression. Clean sequence: ship the `PtyHost` contract interface alone, then T5.4 consumes it, then NS-05 consumes T5.4.
 - Exit Criteria: `spawn-cwd-translator.ts` + Linux/macOS unit tests + Windows-CI integration tests (I6 / W2 / W3) green; `PtyHost` interface live in contracts.
 ```
 
@@ -58,8 +58,8 @@ The schema is defined by what's actually on disk. The four entries below — pas
 - Type: governance (doc-only)
 - Priority: `P1` (was critical-path for NS-02)
 - Upstream: none
-- References: [Plan-001](../../plans/001-shared-session-core.md):358-399 (post-amendment; pre-amendment was :357-397)
-- Summary: Amended Plan-001 §Phase 5 Precondition (was :357 pre-amendment; now :358) to (a) canonicalize the four-lane Phase 5 split: **Lane A** (T5.1 / T5.5 / T5.6 unblocked once amendment lands) + **Lane B** (T5.4 paired with Plan-024 T-024-2-1, see NS-04) + **Lane C** (T5.2 after Plan-023-partial, see NS-06) + **Lane D** (T5.3 after Plan-023-partial + Plan-024 Phase 3, see NS-08); and (b) align Phase 5 Dependencies to include Plan-023 Tier 1 Partial substrate (per [BL-101](../../archive/backlog-archive.md#bl-101-c-3--plan-023-tier-1-partial-substrate-carve-out-mirrors-plan-007-partial--plan-008-bootstrap) (a) resolution 2026-04-30). Pre-amendment, Plan-001 §Phase 5 Precondition read as a monolithic gate ("Phase 5 cannot start until all three upstream Tier 1 substrates are merged") that conflicted with the per-task `Files:` lines at T5.1-T5.6; the amendment makes per-task gating canonical and resolves the conflict.
+- References: [Plan-001](../../plans/001-session-core.md):358-399 (post-amendment; pre-amendment was :357-397)
+- Summary: Amended Plan-001 §Phase 5 Precondition (was :357 pre-amendment; now :358) to (a) canonicalize the four-lane Phase 5 split: **Lane A** (T5.1 / T5.5 / T5.6 unblocked once amendment lands) + **Lane B** (T5.4 paired with Plan-022 T-022-2-1, see NS-04) + **Lane C** (T5.2 after Plan-021-partial, see NS-06) + **Lane D** (T5.3 after Plan-021-partial + Plan-022 Phase 3, see NS-08); and (b) align Phase 5 Dependencies to include Plan-021 Tier 1 Partial substrate (per [BL-101](../../archive/backlog-archive.md#bl-101-c-3--plan-021-tier-1-partial-substrate-carve-out-mirrors-plan-006-partial--plan-008-bootstrap) (a) resolution 2026-04-30). Pre-amendment, Plan-001 §Phase 5 Precondition read as a monolithic gate ("Phase 5 cannot start until all three upstream Tier 1 substrates are merged") that conflicted with the per-task `Files:` lines at T5.1-T5.6; the amendment makes per-task gating canonical and resolves the conflict.
 - Exit Criteria: Plan-001 §Phase 5 Precondition rewritten to enumerate the four-lane split with per-task gating; downstream NS-02 PRs cite Plan-001:358 directly. **Met.**
 ```
 
@@ -72,36 +72,36 @@ The schema is defined by what's actually on disk. The four entries below — pas
 - Type: cleanup (doc-only)
 - Priority: `P2`
 - Upstream: none (NS-12 resolved 2026-05-03 — the Plan-001 file co-ownership concern dissolves; NS-22's sweep targets at lines 12, 55, 121, 183, 297, 306, 308, 328, 337, 339 do not overlap with NS-12's edit ranges at lines 77-83 + 357-363)
-- References: [Plan-001](../../plans/001-shared-session-core.md):12, 122, 184, 307, 309, 329, 338, 340 (line numbers post-NS-12 — `0001-initial.sql` cites; three locators were deleted when the people-collaboration strip emptied the lines they named); [Plan-022](../../plans/022-data-retention-and-gdpr.md) — its four `0001-initial.ts` forward-declaration cites, converted from line numbers to durable §-anchors 2026-07-27 (a `Plan-022 §Preconditions` insert shifted three of the four, and the line-number form had already needed re-anchoring twice, on 2026-07-08 and 2026-07-09): `Plan-022 §Scope`, `Plan-022 §Target Areas`, `Plan-022 §Data And Storage Changes` (its SQLite `session_events.pii_payload` subsection), and `Plan-022 §Implementation Steps` (step 8); [ADR-022 §Context](../../decisions/022-v1-toolchain-selection.md#context) and [ADR-022 §Related Plans](../../decisions/022-v1-toolchain-selection.md#related-plans) (converted from line cites `:14, 299` on 2026-09-01 after an ADR-022 Decision Log insert shifted the second); [Plan-001](../../plans/001-shared-session-core.md) `session.ts:388` cite; Plan-008 — its two `session.ts:388` cite sites, converted from line numbers to durable §-anchors 2026-08-03 (the same repair this line already records for Plan-022, applied when the 2026-08-03 §Peer History Backfill On Join (V1) amendment inserted `I-008-13` + `CP-008-11` and shifted both locators; the earlier `line 188 → 199 post-Plan-008 Phase 1 YAML backfill` renumber is the second time these needed re-anchoring): `Plan-008` (the SSE-substrate bullet) and `Plan-008`. Both now carry the swept symbol-anchored form `packages/contracts/src/session.ts#SessionSubscribeRequest`, so this item's `session.ts:388` exit criterion reads clean against Plan-008
-- Summary: The cross-plan-deps audit (this PR) corrected two repo-truth drifts already present in §1 + §2 + §3 + §5: (a) migration filename `0001-initial.sql` → `0001-initial.ts` (live files are TypeScript per `packages/{runtime-daemon,control-plane}/src/migrations/`), and (b) the `packages/contracts/src/session.ts` SessionSubscribe block — the canonical anchor moved to former line 408 after Plan-001 Phase 2 contract evolution (pre-NS-22 anchor was line 388). Both drifts also appear in sibling docs that this audit's scope did not modify. Sweep Plan-001 (10 occurrences of `.sql` + 1 of `:388`), Plan-022 (4 occurrences of `.sql`), ADR-022 (2 occurrences of `.sql`), and Plan-008 (2 occurrences of `:388`). Single PR, doc-only, ~30 min. Archive (`backlog-archive.md`) is frozen and excluded from sweep.
+- References: [Plan-001](../../plans/001-session-core.md):12, 122, 184, 307, 309, 329, 338, 340 (line numbers post-NS-12 — `0001-initial.sql` cites; three locators were deleted when the people-collaboration strip emptied the lines they named); [Plan-020](../../plans/020-data-retention-and-gdpr.md) — its four `0001-initial.ts` forward-declaration cites, converted from line numbers to durable §-anchors 2026-07-27 (a `Plan-020 §Preconditions` insert shifted three of the four, and the line-number form had already needed re-anchoring twice, on 2026-07-08 and 2026-07-09): `Plan-020 §Scope`, `Plan-020 §Target Areas`, `Plan-020 §Data And Storage Changes` (its SQLite `session_events.pii_payload` subsection), and `Plan-020 §Implementation Steps` (step 8); [ADR-022 §Context](../../decisions/022-v1-toolchain-selection.md#context) and [ADR-022 §Related Plans](../../decisions/022-v1-toolchain-selection.md#related-plans) (converted from line cites `:14, 299` on 2026-09-01 after an ADR-022 Decision Log insert shifted the second); [Plan-001](../../plans/001-session-core.md) `session.ts:388` cite; Plan-008 — its two `session.ts:388` cite sites, converted from line numbers to durable §-anchors 2026-08-03 (the same repair this line already records for Plan-020, applied when the 2026-08-03 §Peer History Backfill On Join (V1) amendment inserted `I-008-13` + `CP-008-11` and shifted both locators; the earlier `line 188 → 199 post-Plan-008 Phase 1 YAML backfill` renumber is the second time these needed re-anchoring): `Plan-008` (the SSE-substrate bullet) and `Plan-008`. Both now carry the swept symbol-anchored form `packages/contracts/src/session.ts#SessionSubscribeRequest`, so this item's `session.ts:388` exit criterion reads clean against Plan-008
+- Summary: The cross-plan-deps audit (this PR) corrected two repo-truth drifts already present in §1 + §2 + §3 + §5: (a) migration filename `0001-initial.sql` → `0001-initial.ts` (live files are TypeScript per `packages/{runtime-daemon,control-plane}/src/migrations/`), and (b) the `packages/contracts/src/session.ts` SessionSubscribe block — the canonical anchor moved to former line 408 after Plan-001 Phase 2 contract evolution (pre-NS-22 anchor was line 388). Both drifts also appear in sibling docs that this audit's scope did not modify. Sweep Plan-001 (10 occurrences of `.sql` + 1 of `:388`), Plan-020 (4 occurrences of `.sql`), ADR-022 (2 occurrences of `.sql`), and Plan-008 (2 occurrences of `:388`). Single PR, doc-only, ~30 min. Archive (`backlog-archive.md`) is frozen and excluded from sweep.
 - Exit Criteria: All listed sibling-doc occurrences updated to current values; grep for `0001-initial\.sql` and `session\.ts:388` outside `docs/archive/` returns zero matches.
 ```
 
 **NS-09 — `blocked`, `code + governance`, Upstream uses `+`-separator with mixed `NS-NN + BL-NNN` tokens** (`cross-plan-dependencies.md`:422-430):
 
 ```markdown
-### NS-09: Plan-024 Phase 4 — CI cross-compile + signing
+### NS-09: Plan-022 Phase 4 — CI cross-compile + signing
 
 - Status: `blocked`
 - Type: code + governance
 - Priority: `P1`
 - Upstream: NS-07 (Phase 3 working sidecar) + BL-108 (procurement evidence)
-- References: [Plan-024 §Phase 4 — CI Cross-Compile Matrix + Signing Stages](../../plans/024-rust-pty-sidecar.md#phase-4--ci-cross-compile-matrix--signing-stages), [BL-108](../../backlog.md#bl-108-plan-024-windows--macos-signing-procurement-evidence)
+- References: [Plan-022 §Phase 4 — CI Cross-Compile Matrix + Signing Stages](../../plans/022-rust-pty-sidecar.md#phase-4--ci-cross-compile-matrix--signing-stages), [BL-108](../../backlog.md#bl-108-plan-022-windows--macos-signing-procurement-evidence)
 - Summary: 5-target `cargo-zigbuild` matrix (Windows MSVC, macOS x86_64/aarch64, Linux x86_64/aarch64) + Authenticode + Apple notarization. Phase 4 publishes signed pre-release binaries.
-- Exit Criteria: All 5 targets build green; signed artifacts attached to release draft; Plan-024 §Decision Log records signing-track choice + date; BL-108 closes.
+- Exit Criteria: All 5 targets build green; signed artifacts attached to release draft; Plan-022 §Decision Log records signing-track choice + date; BL-108 closes.
 ```
 
 **NS-15..NS-21 — `blocked`, `audit (doc-only chain)`, range-form heading covering 7 atomic PRs, Upstream uses `→`-separator chain** (`cross-plan-dependencies.md`:492-500):
 
 ```markdown
-### NS-15..NS-21: Tier 3-9 plan-readiness audits
+### NS-15..NS-21: Tier 2-9 plan-readiness audits
 
 - Status: `blocked`
 - Type: audit (doc-only chain)
 - Priority: `P2` (each tier is `P1` when its turn comes)
-- Upstream: NS-14 → NS-15 (Tier 3) → NS-16 (Tier 4) → ... → NS-21 (Tier 9)
-- References: [audit runbook](../../operations/plan-implementation-readiness-audit-runbook.md):89-91 ("Tiers: strictly serialized"), this document §5 (Tier 3-9 rows)
-- Summary: Tiers 3-9 audits run one PR per tier (per CLAUDE.md "8 tier-PRs of audit work owed before broad Tier 2+ code execution can resume"). Each tier-K audit PR commits the tier's plan amendments + tags `plan-readiness-audit-tier-K-complete`. Tier 8 includes Plan-017 — the only `review`-status plan, which must promote `review → approved` at its tier audit.
+- Upstream: NS-14 → NS-15 (Tier 2) → NS-16 (Tier 3) → ... → NS-21 (Tier 8)
+- References: [audit runbook](../../operations/plan-implementation-readiness-audit-runbook.md):89-91 ("Tiers: strictly serialized"), this document §5 (Tier 2-9 rows)
+- Summary: Tiers 2-8 audits run one PR per tier (per CLAUDE.md "8 tier-PRs of audit work owed before broad Tier 2+ code execution can resume"). Each tier-K audit PR commits the tier's plan amendments + tags `plan-readiness-audit-tier-K-complete`. Tier 7 includes Plan-015 — the only `review`-status plan, which must promote `review → approved` at its tier audit.
 - Exit Criteria: All 8 tier-PRs merged; all 27 plans cleared the audit; broad Tier 2+ code execution unblocked.
 ```
 
@@ -117,11 +117,11 @@ NS-14's Upstream sub-field also exhibits a sixth grammar form — free-form pros
 
 **Heading grammar.** Headings match `^### NS-(\d+)(?:\.\.NS-(\d+))?([a-z])?: (.+)$`. The structural anchor is `NS-NN`, with three observed shape variants in the corpus:
 
-1. **Plain numeric**: `### NS-01: Plan-024 Phase 1 — Rust crate scaffolding` (NS-01 through NS-12, NS-14, NS-22).
-2. **Suffix-letter sub-numbering**: `### NS-13a: Spec-status promotion gate clarification` / ``### NS-13b: Spec-027 `draft` → `approved` promotion`` (current corpus has NS-13a + NS-13b).
-3. **Range form (multi-PR chain)**: `### NS-15..NS-21: Tier 3-9 plan-readiness audits` — captures both endpoints (`15` and `21`); the housekeeper treats this as a multi-PR entry whose `PRs:` block (per §3a.1 amendment) enumerates one task per tier.
+1. **Plain numeric**: `### NS-01: Plan-022 Phase 1 — Rust crate scaffolding` (NS-01 through NS-12, NS-14, NS-22).
+2. **Suffix-letter sub-numbering**: `### NS-13a: Spec-status promotion gate clarification` / ``### NS-13b: Spec-024 `draft` → `approved` promotion`` (current corpus has NS-13a + NS-13b).
+3. **Range form (multi-PR chain)**: `### NS-15..NS-21: Tier 2-9 plan-readiness audits` — captures both endpoints (`15` and `21`); the housekeeper treats this as a multi-PR entry whose `PRs:` block (per §3a.1 amendment) enumerates one task per tier.
 
-The title is free-form prose; many entries reference `Plan-NNN Phase N` substrings (NS-01, NS-12), but several (NS-04 — uses task-IDs `T5.4` + `T-024-2-1`; NS-11 / NS-22 — no plan reference at all; NS-15..NS-21 — references "Tier" rather than Plan/Phase) do not. **The script MUST NOT assume a `Plan-NNN Phase N — title` shape.** Plan/phase identity is resolved by the **orchestrator** via heading-only candidate-lookup (per §4.3.2 four-rule matching: Plan+Phase, Plan+task-id, Plan+Tier, range-form Tier-K), not by the script. The script verifies the orchestrator's resolved candidate against the diff per §5.1 step 3; file references are extracted per §3a.4.
+The title is free-form prose; many entries reference `Plan-NNN Phase N` substrings (NS-01, NS-12), but several (NS-04 — uses task-IDs `T5.4` + `T-022-2-1`; NS-11 / NS-22 — no plan reference at all; NS-15..NS-21 — references "Tier" rather than Plan/Phase) do not. **The script MUST NOT assume a `Plan-NNN Phase N — title` shape.** Plan/phase identity is resolved by the **orchestrator** via heading-only candidate-lookup (per §4.3.2 four-rule matching: Plan+Phase, Plan+task-id, Plan+Tier, range-form Tier-K), not by the script. The script verifies the orchestrator's resolved candidate against the diff per §5.1 step 3; file references are extracted per §3a.4.
 
 **Sub-field grammar.** Every entry has the same seven sub-fields, each on its own line, each prefixed by `- ` (markdown list bullet):
 
@@ -131,9 +131,9 @@ The title is free-form prose; many entries reference `Plan-NNN Phase N` substrin
 - `- Upstream: <free-form-grammar>` — six observed shape variants in the corpus (verified via `^- Upstream:` grep at HEAD; line cites in `cross-plan-dependencies.md`):
   - `none` (NS-01, NS-11, NS-12, NS-13a, NS-22 — most common form for Tier 1 work)
   - `none` followed by a parenthetical justification (NS-01:347, NS-22:507) — the parenthetical is descriptive only; treat as `none` for cross-NS dependency analysis
-  - **Comma-separated NS references** with optional parenthetical (NS-13b:477 — `NS-13a (gate must exist before Spec-027 can clear it)`)
+  - **Comma-separated NS references** with optional parenthetical (NS-13b:477 — `NS-13a (gate must exist before Spec-024 can clear it)`)
   - **`+`-separated mixed `NS-NN + BL-NNN` tokens** (NS-05:387, NS-07:407, NS-08:417, NS-09:427, NS-10:437) — the housekeeper recognizes both `NS-NN` and `BL-NNN` token shapes; BL references mark backlog-gated work and do not participate in §6 ready-set re-derivation
-  - **`→`-separated chain (range / serial dispatch)** (NS-15..NS-21:497 — `NS-14 → NS-15 (Tier 3) → NS-16 (Tier 4) → ... → NS-21 (Tier 9)`) — the housekeeper expands `→` chains into ordered upstreams; the `... →` ellipsis form is summary prose that the script reads literally and the subagent expands per the body Summary's tier-enumeration
+  - **`→`-separated chain (range / serial dispatch)** (NS-15..NS-21:497 — `NS-14 → NS-15 (Tier 2) → NS-16 (Tier 3) → ... → NS-21 (Tier 8)`) — the housekeeper expands `→` chains into ordered upstreams; the `... →` ellipsis form is summary prose that the script reads literally and the subagent expands per the body Summary's tier-enumeration
   - **Free-form prose with check-mark** (NS-14:487 — ``Tier 1 audit committed (✓ PR #15 / commit `05125dc`)``) — the housekeeper treats this as the equivalent of `none` (the upstream is satisfied; check-mark prose names the resolution evidence)
 
   The housekeeper parses `Upstream:` by tokenizing on `,` / `+` / `→` (treating each as a separator), extracting `NS-(\d+)([a-z])?` and `BL-(\d+)` tokens, and treating the literal `none` plus check-mark prose as "no blocking upstream." Anything else falls through to a `concerns` entry of `kind: upstream_grammar_unrecognized` for user disambiguation rather than silent guess.
@@ -157,7 +157,7 @@ The `<one-line resolution context>` is composed by the subagent stage from manif
 **Mermaid graph (lines 282-336).** Each entry has a node line with class-attachment syntax `:::<class>`:
 
 ```mermaid
-NS01[NS-01: Plan-024 Phase 1<br/>Rust crate scaffolding]:::ready
+NS01[NS-01: Plan-022 Phase 1<br/>Rust crate scaffolding]:::ready
 NS12[NS-12: Plan-001 Phase 5 split + dep alignment]:::completed
 ```
 
@@ -186,7 +186,7 @@ Three current entries cover multiple atomic PRs (verified from corpus):
 
 - **NS-02** (line 355) — `- Type: code (recommended split into 3 atomic PRs)`
 - **NS-04** (line 375) — `- Type: code (cross-plan PR pair, internally a 3-step sequence)`
-- **NS-15..NS-21** (line 495) — `- Type: audit (doc-only chain)`; range-form heading (line 492) covers 7 atomic PRs; the literal phrase "1 PR per tier, sequential" appears in the mermaid label at line 302 (`NS15[NS-15..NS-21: Tiers 3-9 audits<br/>1 PR per tier, sequential]:::blocked`); the body Summary at line 499 phrases the same fact as "one PR per tier".
+- **NS-15..NS-21** (line 495) — `- Type: audit (doc-only chain)`; range-form heading (line 492) covers 7 atomic PRs; the literal phrase "1 PR per tier, sequential" appears in the mermaid label at line 302 (`NS15[NS-15..NS-21: Tiers 2-9 audits<br/>1 PR per tier, sequential]:::blocked`); the body Summary at line 499 phrases the same fact as "one PR per tier".
 
 The current schema has no machine-parseable per-PR completion marker — multi-PR semantics are encoded in (a) prose qualifiers on the `Type:` line, (b) the range-form heading shape (NS-15..NS-21), and (c) elaboration in `Summary:` + mermaid label. This is the **schema gap** that motivates §3a (Schema amendment scope) below.
 
@@ -212,7 +212,7 @@ Steps 1–4 are mechanical. Steps 5–7 are semantic (require _understanding_ th
 - The gap recurs on every plan-execution PR (already burned cycles on PR #27, PR #29 cleanup loops).
 - Manual housekeeping is precisely the failure mode the set-quantifier-reverification and canonicalization-sweep disciplines were written to prevent — but a discipline note is not a process gate. A process gate is.
 - Q1 of the brainstorm locked: housekeeping must ship in the **same PR** as the plan-execution work. Separate cleanup PRs are themselves a maintenance burden and create a temporary "in-flight stale" state on `develop`.
-- The next plan-execution PR (NS-01 / Plan-024 Phase 1) is queued; closing this gap before NS-04 dispatches means avoiding 5+ more manual cleanups across the Plan-024 chain.
+- The next plan-execution PR (NS-01 / Plan-022 Phase 1) is queued; closing this gap before NS-04 dispatches means avoiding 5+ more manual cleanups across the Plan-022 chain.
 
 ## 2. Goal & non-goals
 
@@ -259,7 +259,7 @@ Multi-PR entries gain an **eighth, optional** sub-field, `PRs:`. **Single-PR ent
 - Type: code (recommended split into 3 atomic PRs)
 - Priority: `P1`
 - Upstream: none (NS-12 resolved 2026-05-03 — Plan-001 §Phase 5 Precondition four-lane split is at HEAD; Lane A is now actionable directly against the per-task `Files:` rows)
-- References: [Plan-001](../../plans/001-shared-session-core.md):358-399, integration tests I1-I4 at Plan-001:200-203
+- References: [Plan-001](../../plans/001-session-core.md):358-399, integration tests I1-I4 at Plan-001:200-203
 - Summary: ...
 - Exit Criteria: All `PRs:` ticks checked.
 - PRs:
@@ -273,7 +273,7 @@ Note that this example preserves all the existing NS-02 sub-field shapes verbati
 **Grammar rules (machine-enforced by the housekeeper script):**
 
 - The `PRs:` sub-field is itself a markdown list bullet (`- PRs:`) followed by a nested markdown task list. Each item is `  - [ ] <task-id> — <description>` or `  - [x] <task-id> — <description> (PR #<N>, merged YYYY-MM-DD)`.
-- `<task-id>` matches the corresponding `T-NNN-P-K` task ID from the audit-derived `#### Tasks` block in the plan (e.g., `T5.1`, `T-024-2-1`).
+- `<task-id>` matches the corresponding `T-NNN-P-K` task ID from the audit-derived `#### Tasks` block in the plan (e.g., `T5.1`, `T-022-2-1`).
 - A checked tick MUST include a parenthetical `(PR #<N>, merged YYYY-MM-DD)` annotation. The housekeeper writes this when it ticks a box; manual entries must follow the same shape.
 - Task IDs must be unique within the `PRs:` block.
 - The amendment migrates NS-02, NS-04, and NS-15..NS-21 to this grammar. Future multi-PR entries are authored with `PRs:` from inception.
@@ -413,11 +413,11 @@ The orchestrator has these PR-metadata fields available at Phase E entry:
 
 | Field | Source | Required? |
 | --- | --- | --- |
-| `<plan-NNN>` | The plan dispatched (e.g., `024` from `docs/plans/024-...`) | Yes for code/governance dispatches; absent for cross-plan emergent work |
+| `<plan-NNN>` | The plan dispatched (e.g., `024` from `docs/plans/022-...`) | Yes for code/governance dispatches; absent for cross-plan emergent work |
 | `<phase-N>` | The plan Phase header just completed (e.g., `1` from `### Phase 1 — ...`) | Phase is the dispatch granularity for non-multi-PR entries; for multi-PR Lane entries (NS-02, NS-04, NS-15..NS-21) the dispatch granularity is `<task-id>` and `<phase-N>` MAY be passed alongside `<task-id>` for use by the §4.3.2 matching rules. When both are passed, §4.3.2 rule 2 (Plan + task-id) takes precedence over rule 1 (Plan + Phase) per the precedence clause below |
-| `<task-id>` | The task ID just completed (e.g., `T5.4`, `T-024-2-1`) | Yes when individual tasks dispatch (multi-PR phases like Plan-001 Lane A) |
+| `<task-id>` | The task ID just completed (e.g., `T5.4`, `T-022-2-1`) | Yes when individual tasks dispatch (multi-PR phases like Plan-001 Lane A) |
 | `<pr-tag>` | Conventional-commit footer or PR label (e.g., `plan-readiness-audit-tier-K-complete`) | Yes for audit dispatches (NS-14, NS-15..21); optional otherwise |
-| `<tier-K>` | Derived from `<pr-tag>` for audits, OR from plan §header for non-Phase-shaped plans (Plan-023-partial uses Tier-N nomenclature) | When applicable |
+| `<tier-K>` | Derived from `<pr-tag>` for audits, OR from plan §header for non-Phase-shaped plans (Plan-021-partial uses Tier-N nomenclature) | When applicable |
 
 #### 4.3.2 Heading-only matching
 
@@ -434,9 +434,9 @@ For each `### NS-...` heading in §6, extract candidate identity tokens:
 Match an NS-XX heading against the orchestrator's PR-metadata tuple `(plan, phase|task|tier)`:
 
 1. **Plan-NNN + Phase-N exact match**: heading contains `Plan-<plan-NNN>` AND `Phase <phase-N>` (e.g., NS-01 matches `(024, 1)`; NS-02 matches `(001, 5)`).
-2. **Plan-NNN + T-task-id exact match**: heading contains `Plan-<plan-NNN>` AND `T<task-id>` (e.g., NS-04 matches both `(001, T5.4)` and `(024, T-024-2-1)`; NS-06 matches `(001, T5.2)`).
+2. **Plan-NNN + T-task-id exact match**: heading contains `Plan-<plan-NNN>` AND `T<task-id>` (e.g., NS-04 matches both `(001, T5.4)` and `(024, T-022-2-1)`; NS-06 matches `(001, T5.2)`).
 3. **Plan-NNN + Tier-K exact match**: heading contains `Plan-<plan-NNN>` AND `Tier <tier-K>` (e.g., NS-03 matches `(023-partial, Tier 1)`; NS-14 matches `(002, Tier 2)`).
-4. **Tier-K range-form match**: heading is range-form `### NS-NN..NS-NN: ... Tier K1-K2 ...` AND `<tier-K>` falls within `[K1, K2]` (e.g., NS-15..NS-21 matches `(_, Tier 3)` through `(_, Tier 9)`).
+4. **Tier-K range-form match**: heading is range-form `### NS-NN..NS-NN: ... Tier K1-K2 ...` AND `<tier-K>` falls within `[K1, K2]` (e.g., NS-15..NS-21 matches `(_, Tier 2)` through `(_, Tier 8)`).
 
 **Rule precedence when multiple rules fire on the same NS heading.** If the orchestrator passes both `<phase-N>` and `<task-id>` (legitimate for multi-PR Lane entries — e.g., NS-02 dispatch as `(Plan-001, Phase 5, T5.1)`), rule 1 (Plan + Phase) AND rule 2 (Plan + task-id) might both fire on the same heading. **Rule 2 wins**: the more specific identity (Plan + task-id) is preferred over the broader (Plan + Phase). This prevents a natural `(Plan-001, Phase 5, T5.4)` lookup from returning 2 candidates (NS-02 via rule 1 + NS-04 via rule 2) — instead it returns 1 (NS-04 via rule 2). When task-id is passed, the orchestrator's intent is task-granular dispatch; rule 1 is treated as a coarser fallback only when task-id is absent. Rules 3 and 4 (Tier-based) are independent of rules 1/2 — they apply to a different heading-token kind.
 
@@ -461,9 +461,9 @@ Some NS shapes inherently do not map to a plan-execution-skill dispatch, even wi
 | NS-XX | Heading | Why out-of-scope for auto-dispatch |
 | --- | --- | --- |
 | NS-13a | `Spec-status promotion gate clarification` | Pure governance amendment, no Plan-NNN tie. Spec-promotion PRs aren't run through plan-execution skill. |
-| NS-13b | ``Spec-027 `draft` → `approved` promotion`` | Spec-promotion governance, References cite Plan-007 but the work is the spec-status flip not a Plan-007 Phase. |
+| NS-13b | ``Spec-024 `draft` → `approved` promotion`` | Spec-promotion governance, References cite Plan-006 but the work is the spec-status flip not a Plan-006 Phase. |
 | NS-22 | `Sibling-doc staleness sweep (cross-plan-deps audit propagation)` | Emergent multi-plan cleanup. References cite four plans + an ADR; no single Plan-NNN-Phase-N dispatch maps to it. |
-| NS-11 (partial) | `Plan-007-partial completion cleanup` | Heading has `Plan-007-partial` but no Phase / Task / Tier — the cleanup is the act of declaring `Plan-007-partial` complete. The orchestrator's lookup will not surface this from a code-PR's metadata; user must pass `--candidate-ns NS-11` if running the housekeeper as part of a Plan-007-partial completion PR. |
+| NS-11 (partial) | `Plan-006-partial completion cleanup` | Heading has `Plan-006-partial` but no Phase / Task / Tier — the cleanup is the act of declaring `Plan-006-partial` complete. The orchestrator's lookup will not surface this from a code-PR's metadata; user must pass `--candidate-ns NS-11` if running the housekeeper as part of a Plan-006-partial completion PR. |
 
 This is **correct scope**, not a coverage gap. The third-pass reviewer's framing presupposed the housekeeper _should_ match all 17 entries; in fact 4 of the 17 are emergent / governance / cleanup shapes that don't fit a deterministic dispatch model. Forcing them into the auto-lookup would re-introduce the prose-parsing brittleness the §4.1 architectural decision deletes.
 
@@ -531,7 +531,7 @@ Behavior (deterministic). The script branches on dispatch mode (`--candidate-ns`
      - `code` / `code (...)` → diff MUST touch `packages/` or `apps/` (any modification or addition counts; `.github/workflows/` and `packages/`-side build config like `Cargo.toml` also count as `code`-side per corpus precedent).
      - `audit (doc-only)` / `audit (doc-only chain)` → diff MUST be doc-only (NO `packages/` or `apps/` files touched).
      - `governance` / `governance (doc-only)` / `governance (load-bearing)` → diff MUST touch `docs/` AND no `packages|apps/` files (any `docs/` subdirectory counts: `decisions/`, `specs/`, `plans/`, `operations/`, `archive/`, `architecture/`, `domain/`, `backlog.md`).
-     - `code + governance` → diff MUST touch BOTH `docs/` AND `packages|apps/` (the `governance` side is typically `docs/plans/<NNN>-...md` §Decision Log + `docs/backlog.md` / `docs/archive/backlog-archive.md` BL-NNN movement; corpus precedent NS-09:425 Phase 4 ships CI workflow + Cargo.toml signing config + Plan-024 §Decision Log + BL-108 archival).
+     - `code + governance` → diff MUST touch BOTH `docs/` AND `packages|apps/` (the `governance` side is typically `docs/plans/<NNN>-...md` §Decision Log + `docs/backlog.md` / `docs/archive/backlog-archive.md` BL-NNN movement; corpus precedent NS-09:425 Phase 4 ships CI workflow + Cargo.toml signing config + Plan-022 §Decision Log + BL-108 archival).
      - `cleanup` / `cleanup (doc-only)` → permissive (no diff-shape constraint; cleanup may sweep arbitrary files). Surfaces a `concerns` entry of `kind: cleanup_diff_unverified` for user awareness but does NOT halt. Mismatch → halt with `kind: type_signature_mismatch` in `verification_failures` (ACTIONABLE: orchestrator misdispatched the wrong candidate for this PR's diff shape).
    - **File-overlap signal.** Extract candidate's file references via the §3a.4 heuristic (parses `References:` + `Summary:` sub-fields, includes brace-expansion AND directory-path extraction per §3a.4 step 2a). The extracted-references set has two kinds of entries: **file paths** (exact-match required) and **directory paths** (prefix-match: any diff-touched file whose path begins with the directory string counts as overlap). Compute intersection with the diff's touched-file set under both rules:
      - File-path entry: counts as overlap iff some diff-touched file path equals it.
@@ -546,11 +546,11 @@ Behavior (deterministic). The script branches on dispatch mode (`--candidate-ns`
      - `cleanup` / `cleanup (doc-only)` / `governance` / `governance (doc-only)` / `governance (load-bearing)` → SKIP this check (cleanup + governance work may legitimately touch files not pre-named in References).
 
    - **Plan-identity sanity check.** **Carve-out for cleanup / governance Types**: if candidate `- Type:` ∈ {`cleanup`, `cleanup (doc-only)`, `governance`, `governance (doc-only)`, `governance (load-bearing)`}, this check is SKIPped (parallel to the Type-signature permissivity for `cleanup` and the file-overlap SKIP for these Types — these shapes are explicit-candidate manual dispatches per §4.3.4 and their headings legitimately do not carry Plan-NNN / task-id / Tier-K tokens). Surface a `concerns` entry of `kind: plan_identity_skipped_for_manual_dispatch` for user awareness but do NOT halt. For all other Types, candidate's heading title MUST contain at least one of:
-     - The `--plan` arg if passed (substring `Plan-<plan-NNN>`, e.g., `Plan-024`).
-     - The `--task` arg if passed (substring match, e.g., `T5.4` or `T-024-2-1`).
+     - The `--plan` arg if passed (substring `Plan-<plan-NNN>`, e.g., `Plan-022`).
+     - The `--task` arg if passed (substring match, e.g., `T5.4` or `T-022-2-1`).
      - The `--tier` arg if passed, matched per **two** sub-rules (mirrors §4.3.2 rule 3 + rule 4):
        1. **Substring**: heading contains `Tier <tier-K>` literal (e.g., NS-14's heading `Tier 2 plan-readiness audit — Plan-002` matches `--tier 2`).
-       2. **Range arithmetic**: heading is range-form `### NS-NN..NS-NN: ... Tier K1-K2 ...` AND `<tier-K>` ∈ `[K1, K2]` (e.g., NS-15..NS-21's heading `Tier 3-9 plan-readiness audits` matches `--tier 5` because 5 ∈ [3, 9]). Without this branch, six of seven Tier audits (K=4,5,6,7,8,9) would FAIL plan-identity even though §4.3.2 rule 4 correctly auto-dispatched them. This catches orchestrator misdispatch — passing `--candidate-ns NS-01` when the PR is actually for Plan-007. Mismatch → halt with `kind: plan_identity_missing` in `verification_failures`. **Note on `--phase`**: phase is NOT in the disjunct list. Plan-identity is OR-semantics ("MUST contain at least one of"); adding `--phase` to an OR list filters nothing when `--plan` is already passed and matches. Tightening to discriminate phase-N within plan would require AND-of-passed-tokens semantics — a structural rule change beyond this design's scope. The orchestrator's heading-grep matcher (§4.3.2) already discriminates phase via rule 1 (Plan + Phase exact match); plan-identity here is verification, not derivation.
+       2. **Range arithmetic**: heading is range-form `### NS-NN..NS-NN: ... Tier K1-K2 ...` AND `<tier-K>` ∈ `[K1, K2]` (e.g., NS-15..NS-21's heading `Tier 2-9 plan-readiness audits` matches `--tier 4` because 5 ∈ [3, 9]). Without this branch, six of seven Tier audits (K=4,5,6,7,8,9) would FAIL plan-identity even though §4.3.2 rule 4 correctly auto-dispatched them. This catches orchestrator misdispatch — passing `--candidate-ns NS-01` when the PR is actually for Plan-006. Mismatch → halt with `kind: plan_identity_missing` in `verification_failures`. **Note on `--phase`**: phase is NOT in the disjunct list. Plan-identity is OR-semantics ("MUST contain at least one of"); adding `--phase` to an OR list filters nothing when `--plan` is already passed and matches. Tightening to discriminate phase-N within plan would require AND-of-passed-tokens semantics — a structural rule change beyond this design's scope. The orchestrator's heading-grep matcher (§4.3.2) already discriminates phase via rule 1 (Plan + Phase exact match); plan-identity here is verification, not derivation.
 
    Verification is per-candidate; for comma-list `--candidate-ns NS-XX,NS-YY`, the script verifies each independently and reports first-failure with remaining candidates' verification states enumerated.
 
@@ -574,7 +574,7 @@ In this mode the script does NOT apply candidate-side mechanical edits (steps 5a
 
 1'. **Reserve next free NS-NN.** Walk all `### NS-(\d+)` headings via the regex; find the highest captured integer (ignoring sub-numbering letters like `13a` / `13b` and range-form upper bounds — the canonical numbering authority is the integer prefix). Reserve `NN+1` as the new entry's number. Defensive check: verify `NN+1` is not already present anywhere in §6 (catches manual numbering races).
 
-2'. **Duplicate-title guard.** Derive the would-be-allocated heading title from the merged PR's title (stripped of conventional-commit prefix) OR from `<plan-NNN> Phase <phase-N>`. Search existing `### NS-...` headings for any whose title is a substring-equivalent of the would-be heading (e.g., AUTO-CREATE for "Plan-024 Phase 1" when NS-01 already exists with that exact prose). On duplicate-title risk → exit 5 with `kind: auto_create_duplicate_title` in `schema_violations` (subagent surfaces NEEDS_CONTEXT for user disambiguation — this usually means the orchestrator's §6 lookup missed an existing candidate).
+2'. **Duplicate-title guard.** Derive the would-be-allocated heading title from the merged PR's title (stripped of conventional-commit prefix) OR from `<plan-NNN> Phase <phase-N>`. Search existing `### NS-...` headings for any whose title is a substring-equivalent of the would-be heading (e.g., AUTO-CREATE for "Plan-022 Phase 1" when NS-01 already exists with that exact prose). On duplicate-title risk → exit 5 with `kind: auto_create_duplicate_title` in `schema_violations` (subagent surfaces NEEDS_CONTEXT for user disambiguation — this usually means the orchestrator's §6 lookup missed an existing candidate).
 
 3'. **Route the plan's `## Done Checklist` to the subagent.** (Same as `--candidate-ns` step 7 — the script does not tick it. The dispatched Phase still completes regardless of whether an NS existed pre-merge, so the checklist question is live on this branch too.)
 
@@ -640,7 +640,7 @@ One JSON file, two write stages, no versioning:
   "// — written by script —": "",
   "matched_entry": {
     "ns_id": "NS-01",
-    "heading": "### NS-01: Plan-024 Phase 1 — Rust crate scaffolding",
+    "heading": "### NS-01: Plan-022 Phase 1 — Rust crate scaffolding",
     "shape": "single-pr",
     "file": "docs/architecture/cross-plan-dependencies.md",
     "heading_line": 342
@@ -664,7 +664,7 @@ One JSON file, two write stages, no versioning:
   "verification_failures": [],
   "affected_files": [
     "docs/architecture/cross-plan-dependencies.md",
-    "docs/plans/024-rust-pty-sidecar.md"
+    "docs/plans/022-rust-pty-sidecar.md"
   ],
   "semantic_work_pending": [
     "compose_status_completion_prose",
@@ -759,22 +759,22 @@ This table is the falsification evidence for §4.3 + §5.1. Every NS entry in `c
 
 | NS-XX | Heading (truncated) | Type | Auto-dispatch lookup tuple (§4.3) | Verification (§5.1 step 3) | Outcome |
 | --- | --- | --- | --- | --- | --- |
-| **NS-01** | `Plan-024 Phase 1 — Rust crate scaffolding` | `code` | `(Plan-024, Phase 1)` → §4.3.2 rule 1 (Plan + Phase exact); 1 match | Type-sig: `code` ↔ diff touches `packages/sidecar-rust-pty/*` ✓; **file-overlap: PASS via file-path** — Summary brace-expands to `packages/sidecar-rust-pty/{Cargo.toml, Cargo.lock, src/{main,framing,protocol,pty_session}.rs, tests/{...}.rs}` + `packages/contracts/src/pty-host-protocol.ts`; diff intersects ✓; plan-identity: heading has `Plan-024` ✓ | ✅ AUTO (file-path) |
-| **NS-02** | `Plan-001 Phase 5 Lane A — sessionClient + pg.Pool + I7 (T5.1, T5.5, T5.6)` | `code (recommended split into 3 atomic PRs)` | `(Plan-001, Phase 5, T5.1\|T5.5\|T5.6)` → §4.3.2 rule 2 (Plan + task-id) per precedence; rule 1 (Plan + Phase) conditions also met but suppressed by §4.3.2 precedence clause; 1 match | Type-sig: `code (...)` ↔ each task PR touches `packages/...` ✓; **file-overlap: PASS via file-path for T5.1; PASS via doc-path overlap only for T5.5/T5.6** — Summary names `packages/client-sdk/src/sessionClient.ts` + `.../sessionClient.integration.test.ts` (T5.1 lane), but T5.5 (`SessionDirectoryService` / `Querier`) and T5.6 (`createSession` test) name no paths; their PRs PASS only via the References plan-link `docs/plans/001-shared-session-core.md` Decision Log overlap; plan-identity: heading has `Plan-001` ✓; multi-PR shape: `PRs:` block tick per §3a.1 | ✅ AUTO (mixed: file-path / doc-path-only per task) |
-| **NS-03** | `Plan-023-partial Tier 1 — Electron + React skeleton` | `code (single cohesive PR, 7 tasks)` | `(Plan-023-partial, Tier 1)` → §4.3.2 rule 3 (Plan + Tier exact); 1 match | Type-sig: `code (...)` ↔ diff touches `apps/desktop/...` ✓; **file-overlap: PASS via dir-prefix** — Summary contains `apps/desktop/` directory token + `packages/contracts/src/desktop-bridge.ts` file token; diff files start with `apps/desktop/` ✓ (per ACTIONABLE-4); plan-identity: heading has `Plan-023-partial` + `Tier 1` ✓; single-PR shape (per §3a.3 single-PR list) | ✅ AUTO (dir-prefix) |
-| **NS-04** | `Plan-001 T5.4 cwd-translator + Plan-024 T-024-2-1 contracts pair` | `code (cross-plan PR pair, internally a 3-step sequence)` | `(Plan-001, T5.4)` OR `(Plan-024, T-024-2-1)` → §4.3.2 rule 2 (Plan + task-id); 1 match | Type-sig: `code (...)` ↔ diff touches `packages/contracts/` + `packages/runtime-daemon/...` ✓; **file-overlap: PASS via doc-path overlap only** — Summary uses type names (`RustSidecarPtyHost`, `NodePtyHost`, `PtyHost`) without source-file paths; References pure-citation. (NS-04's `Upstream:` field at `cross-plan-dependencies.md`:377 inline-names `packages/contracts/src/pty-host.ts` + `packages/runtime-daemon/src/session/spawn-cwd-translator.ts`, but per §3a.4 step 5 scoping note `Upstream:` is NOT an extraction source — these source paths are deliberately discarded.) Extraction yields only `docs/plans/001-shared-session-core.md` + `docs/plans/024-rust-pty-sidecar.md`; diff touches those Decision Logs on governance side ✓; plan-identity: heading has BOTH `Plan-001 T5.4` and `Plan-024 T-024-2-1` ✓ (load-bearing here); multi-PR shape: `PRs:` block tick per §3a.1 | ✅ AUTO (doc-path-only) |
-| **NS-05** | `Plan-024 Phase 2 — NodePtyHost` | `code` | `(Plan-024, Phase 2)` → §4.3.2 rule 1; 1 match | Type-sig: `code` ↔ diff touches `packages/runtime-daemon/src/pty/...` ✓; **file-overlap: PASS via dir-prefix** — Summary names `packages/runtime-daemon/src/pty/` directory; diff files start with that prefix ✓ (per ACTIONABLE-4); plan-identity: heading has `Plan-024` ✓ | ✅ AUTO (dir-prefix) |
+| **NS-01** | `Plan-022 Phase 1 — Rust crate scaffolding` | `code` | `(Plan-022, Phase 1)` → §4.3.2 rule 1 (Plan + Phase exact); 1 match | Type-sig: `code` ↔ diff touches `packages/sidecar-rust-pty/*` ✓; **file-overlap: PASS via file-path** — Summary brace-expands to `packages/sidecar-rust-pty/{Cargo.toml, Cargo.lock, src/{main,framing,protocol,pty_session}.rs, tests/{...}.rs}` + `packages/contracts/src/pty-host-protocol.ts`; diff intersects ✓; plan-identity: heading has `Plan-022` ✓ | ✅ AUTO (file-path) |
+| **NS-02** | `Plan-001 Phase 5 Lane A — sessionClient + pg.Pool + I7 (T5.1, T5.5, T5.6)` | `code (recommended split into 3 atomic PRs)` | `(Plan-001, Phase 5, T5.1\|T5.5\|T5.6)` → §4.3.2 rule 2 (Plan + task-id) per precedence; rule 1 (Plan + Phase) conditions also met but suppressed by §4.3.2 precedence clause; 1 match | Type-sig: `code (...)` ↔ each task PR touches `packages/...` ✓; **file-overlap: PASS via file-path for T5.1; PASS via doc-path overlap only for T5.5/T5.6** — Summary names `packages/client-sdk/src/sessionClient.ts` + `.../sessionClient.integration.test.ts` (T5.1 lane), but T5.5 (`SessionDirectoryService` / `Querier`) and T5.6 (`createSession` test) name no paths; their PRs PASS only via the References plan-link `docs/plans/001-session-core.md` Decision Log overlap; plan-identity: heading has `Plan-001` ✓; multi-PR shape: `PRs:` block tick per §3a.1 | ✅ AUTO (mixed: file-path / doc-path-only per task) |
+| **NS-03** | `Plan-021-partial Tier 1 — Electron + React skeleton` | `code (single cohesive PR, 7 tasks)` | `(Plan-021-partial, Tier 1)` → §4.3.2 rule 3 (Plan + Tier exact); 1 match | Type-sig: `code (...)` ↔ diff touches `apps/desktop/...` ✓; **file-overlap: PASS via dir-prefix** — Summary contains `apps/desktop/` directory token + `packages/contracts/src/desktop-bridge.ts` file token; diff files start with `apps/desktop/` ✓ (per ACTIONABLE-4); plan-identity: heading has `Plan-021-partial` + `Tier 1` ✓; single-PR shape (per §3a.3 single-PR list) | ✅ AUTO (dir-prefix) |
+| **NS-04** | `Plan-001 T5.4 cwd-translator + Plan-022 T-022-2-1 contracts pair` | `code (cross-plan PR pair, internally a 3-step sequence)` | `(Plan-001, T5.4)` OR `(Plan-022, T-022-2-1)` → §4.3.2 rule 2 (Plan + task-id); 1 match | Type-sig: `code (...)` ↔ diff touches `packages/contracts/` + `packages/runtime-daemon/...` ✓; **file-overlap: PASS via doc-path overlap only** — Summary uses type names (`RustSidecarPtyHost`, `NodePtyHost`, `PtyHost`) without source-file paths; References pure-citation. (NS-04's `Upstream:` field at `cross-plan-dependencies.md`:377 inline-names `packages/contracts/src/pty-host.ts` + `packages/runtime-daemon/src/session/spawn-cwd-translator.ts`, but per §3a.4 step 5 scoping note `Upstream:` is NOT an extraction source — these source paths are deliberately discarded.) Extraction yields only `docs/plans/001-session-core.md` + `docs/plans/022-rust-pty-sidecar.md`; diff touches those Decision Logs on governance side ✓; plan-identity: heading has BOTH `Plan-001 T5.4` and `Plan-022 T-022-2-1` ✓ (load-bearing here); multi-PR shape: `PRs:` block tick per §3a.1 | ✅ AUTO (doc-path-only) |
+| **NS-05** | `Plan-022 Phase 2 — NodePtyHost` | `code` | `(Plan-022, Phase 2)` → §4.3.2 rule 1; 1 match | Type-sig: `code` ↔ diff touches `packages/runtime-daemon/src/pty/...` ✓; **file-overlap: PASS via dir-prefix** — Summary names `packages/runtime-daemon/src/pty/` directory; diff files start with that prefix ✓ (per ACTIONABLE-4); plan-identity: heading has `Plan-022` ✓ | ✅ AUTO (dir-prefix) |
 | **NS-06** | `Plan-001 T5.2 — renderer session-bootstrap` | `code` | `(Plan-001, T5.2)` → §4.3.2 rule 2 (Plan + task-id, no Phase in heading); 1 match | Type-sig: `code` ↔ diff touches `apps/desktop/src/renderer/...` ✓; **file-overlap: PASS via dir-prefix** — Summary names `apps/desktop/src/renderer/src/session-bootstrap/` directory; diff files start with that prefix ✓ (per ACTIONABLE-4); plan-identity: heading has `Plan-001 T5.2` ✓ | ✅ AUTO (dir-prefix) |
-| **NS-07** | `Plan-024 Phase 3 — RustSidecarPtyHost` | `code` | `(Plan-024, Phase 3)` → §4.3.2 rule 1; 1 match | Type-sig: `code` ↔ diff touches `packages/runtime-daemon/src/pty/...` ✓; **file-overlap: PASS via dir-prefix** — Summary names `packages/runtime-daemon/src/pty/` directory (same as NS-05); diff files start with that prefix ✓ (per ACTIONABLE-4); plan-identity: heading has `Plan-024` ✓ | ✅ AUTO (dir-prefix) |
+| **NS-07** | `Plan-022 Phase 3 — RustSidecarPtyHost` | `code` | `(Plan-022, Phase 3)` → §4.3.2 rule 1; 1 match | Type-sig: `code` ↔ diff touches `packages/runtime-daemon/src/pty/...` ✓; **file-overlap: PASS via dir-prefix** — Summary names `packages/runtime-daemon/src/pty/` directory (same as NS-05); diff files start with that prefix ✓ (per ACTIONABLE-4); plan-identity: heading has `Plan-022` ✓ | ✅ AUTO (dir-prefix) |
 | **NS-08** | `Plan-001 T5.3 — sidecar-lifecycle handler` | `code` | `(Plan-001, T5.3)` → §4.3.2 rule 2; 1 match | Type-sig: `code` ↔ diff touches `apps/desktop/src/main/sidecar-lifecycle.ts` ✓; **file-overlap: PASS via file-path** — Summary names exactly that file; diff touches it ✓; plan-identity: heading has `Plan-001 T5.3` ✓ | ✅ AUTO (file-path) |
-| **NS-09** | `Plan-024 Phase 4 — CI cross-compile + signing` | `code + governance` | `(Plan-024, Phase 4)` → §4.3.2 rule 1; 1 match | Type-sig: `code + governance` ↔ diff touches BOTH `.github/workflows/` + `packages/sidecar-rust-pty/Cargo.toml` (code side) AND `docs/plans/024-rust-pty-sidecar.md` §Decision Log + `docs/archive/backlog-archive.md` BL-108 archival (governance side) ✓; **file-overlap: PASS via doc-path overlap only** — Summary describes work in prose (cargo-zigbuild matrix, Authenticode, notarization) without naming source files; References extracts `docs/plans/024-rust-pty-sidecar.md` (markdown-link regex) AND `docs/backlog.md` (the bare-path regex matches `../backlog.md` from the `[BL-108](../../backlog.md#bl-108-...)` URL prefix because `#` is not in the bare-path char class; the markdown-link regex itself does NOT match the BL-108 link because it requires `\.md\)` literal which the `#`-bearing URL violates); diff touches `docs/plans/024-rust-pty-sidecar.md` ✓ (note: BL-108 archival lives in `docs/archive/backlog-archive.md`, which is a DIFFERENT file from the extracted `docs/backlog.md` — overlap rides only on the plan-link); plan-identity: heading has `Plan-024` ✓ (load-bearing here, paired with phase-distinctive Type-sig) | ✅ AUTO (doc-path-only) |
-| **NS-10** | `Plan-024 Phase 5 — measurement substrate` | `code + governance` | `(Plan-024, Phase 5)` → §4.3.2 rule 1; 1 match | Type-sig: `code + governance` ↔ diff touches `packages/runtime-daemon/src/telemetry/*` (code side) AND `docs/operations/runbooks/*` SLOs (governance side) ✓; **file-overlap: PASS via doc-path overlap only** — Summary describes work in prose (Codex `/resume` ≥ 99% green, sidecar crash-rate telemetry, BL-106 marker resolution) without naming source files; References extracts `docs/plans/024-rust-pty-sidecar.md` (markdown-link regex) AND `docs/backlog.md` (bare-path regex matches `../backlog.md` from the `[BL-106](../../backlog.md#bl-106-...)` URL prefix — same shape as NS-09's BL-108 reference); diff governance side touches `docs/plans/024-rust-pty-sidecar.md` ✓; plan-identity: heading has `Plan-024` ✓ | ✅ AUTO (doc-path-only) |
-| **NS-11** | `Plan-007-partial completion cleanup` | `cleanup` | NONE — heading has no `Phase N` / `T<task-id>` / `Tier K` substring; §4.3 lookup returns 0 candidates → would dispatch `--auto-create` if invoked auto. **Manual override required**: user passes `--candidate-ns NS-11` explicitly when running the housekeeper as part of a Plan-007-partial completion PR. | Type-sig: `cleanup` ↔ permissive (any diff allowed; surfaces `cleanup_diff_unverified` concern) ✓; **file-overlap: SKIP** for cleanup Type ✓; plan-identity: SKIPped per cleanup carve-out (heading does have `Plan-007-partial` substring; surfaces `plan_identity_skipped_for_manual_dispatch` concern) ✓ | ✅ EXPLICIT-CANDIDATE |
+| **NS-09** | `Plan-022 Phase 4 — CI cross-compile + signing` | `code + governance` | `(Plan-022, Phase 4)` → §4.3.2 rule 1; 1 match | Type-sig: `code + governance` ↔ diff touches BOTH `.github/workflows/` + `packages/sidecar-rust-pty/Cargo.toml` (code side) AND `docs/plans/022-rust-pty-sidecar.md` §Decision Log + `docs/archive/backlog-archive.md` BL-108 archival (governance side) ✓; **file-overlap: PASS via doc-path overlap only** — Summary describes work in prose (cargo-zigbuild matrix, Authenticode, notarization) without naming source files; References extracts `docs/plans/022-rust-pty-sidecar.md` (markdown-link regex) AND `docs/backlog.md` (the bare-path regex matches `../backlog.md` from the `[BL-108](../../backlog.md#bl-108-...)` URL prefix because `#` is not in the bare-path char class; the markdown-link regex itself does NOT match the BL-108 link because it requires `\.md\)` literal which the `#`-bearing URL violates); diff touches `docs/plans/022-rust-pty-sidecar.md` ✓ (note: BL-108 archival lives in `docs/archive/backlog-archive.md`, which is a DIFFERENT file from the extracted `docs/backlog.md` — overlap rides only on the plan-link); plan-identity: heading has `Plan-022` ✓ (load-bearing here, paired with phase-distinctive Type-sig) | ✅ AUTO (doc-path-only) |
+| **NS-10** | `Plan-022 Phase 5 — measurement substrate` | `code + governance` | `(Plan-022, Phase 5)` → §4.3.2 rule 1; 1 match | Type-sig: `code + governance` ↔ diff touches `packages/runtime-daemon/src/telemetry/*` (code side) AND `docs/operations/runbooks/*` SLOs (governance side) ✓; **file-overlap: PASS via doc-path overlap only** — Summary describes work in prose (Codex `/resume` ≥ 99% green, sidecar crash-rate telemetry, BL-106 marker resolution) without naming source files; References extracts `docs/plans/022-rust-pty-sidecar.md` (markdown-link regex) AND `docs/backlog.md` (bare-path regex matches `../backlog.md` from the `[BL-106](../../backlog.md#bl-106-...)` URL prefix — same shape as NS-09's BL-108 reference); diff governance side touches `docs/plans/022-rust-pty-sidecar.md` ✓; plan-identity: heading has `Plan-022` ✓ | ✅ AUTO (doc-path-only) |
+| **NS-11** | `Plan-006-partial completion cleanup` | `cleanup` | NONE — heading has no `Phase N` / `T<task-id>` / `Tier K` substring; §4.3 lookup returns 0 candidates → would dispatch `--auto-create` if invoked auto. **Manual override required**: user passes `--candidate-ns NS-11` explicitly when running the housekeeper as part of a Plan-006-partial completion PR. | Type-sig: `cleanup` ↔ permissive (any diff allowed; surfaces `cleanup_diff_unverified` concern) ✓; **file-overlap: SKIP** for cleanup Type ✓; plan-identity: SKIPped per cleanup carve-out (heading does have `Plan-006-partial` substring; surfaces `plan_identity_skipped_for_manual_dispatch` concern) ✓ | ✅ EXPLICIT-CANDIDATE |
 | **NS-12** | `Plan-001 Phase 5 split amendment + Phase 5 dep alignment` | `governance (doc-only)` | already `completed`; orchestrator's §4.3 lookup excludes entries whose `- Status:` is `` `completed` `` (no future dispatch maps to a completed entry) | n/a (already completed) | N/A marker-only |
 | **NS-13a** | `Spec-status promotion gate clarification` | `governance` | NONE — no `Plan-NNN` substring in heading; spec-status promotion is not run via plan-execution skill; §4.3 lookup returns 0 candidates → `--auto-create` would fire BUT the work is governance-only (a CONTRIBUTING.md / template amendment), not a plan-execution dispatch. | n/a (out-of-scope per §4.3.4) | ⛔ OUT-OF-SCOPE |
-| **NS-13b** | ``Spec-027 `draft` → `approved` promotion`` | `governance (load-bearing)` | NONE — no `Plan-NNN` substring in heading (heading mentions Spec-027, not Plan-NNN); §4.3 lookup returns 0 candidates → would dispatch `--auto-create` BUT spec-promotion PRs are governance-only and don't go through plan-execution skill. | n/a (out-of-scope per §4.3.4) | ⛔ OUT-OF-SCOPE |
+| **NS-13b** | ``Spec-024 `draft` → `approved` promotion`` | `governance (load-bearing)` | NONE — no `Plan-NNN` substring in heading (heading mentions Spec-024, not Plan-NNN); §4.3 lookup returns 0 candidates → would dispatch `--auto-create` BUT spec-promotion PRs are governance-only and don't go through plan-execution skill. | n/a (out-of-scope per §4.3.4) | ⛔ OUT-OF-SCOPE |
 | **NS-14** | `Tier 2 plan-readiness audit — Plan-002` | `audit (doc-only)` | `(Plan-002, Tier 2)` → §4.3.2 rule 3 (Plan + Tier); 1 match. **Audit dispatch convention**: orchestrator parses `<tier-K>` from PR-tag `plan-readiness-audit-tier-K-complete` per `plan-implementation-readiness-audit-runbook.md`:209 precedent. | Type-sig: `audit (doc-only)` ↔ diff touches only the Plan-002 doc + `docs/operations/audit-runbook.md` (no `packages/`) ✓; **file-overlap: SKIP** for audit Type ✓; plan-identity: heading has BOTH `Plan-002` and `Tier 2` ✓. **False-positive guard**: NS-14's body Summary contains `Plan-002 Phase 1-6` (describing 6 parallel Phase audit subagents). §4.3.2 heading-only matching prevents a future Plan-002 Phase 1 implementation PR from false-positive matching NS-14 — the heading does not contain `Phase 1` (only `Tier 2`), so a `(Plan-002, Phase 1)` lookup returns 0 candidates → `--auto-create`, correctly creating a new NS for the implementation work. | ✅ AUTO (audit SKIP) |
-| **NS-15..NS-21** | `Tier 3-9 plan-readiness audits` (range form) | `audit (doc-only chain)` | `(any-plan, Tier K)` for K∈{3,4,5,6,7,8,9} → §4.3.2 rule 4 (range-form heading covers tier K); 1 match per K via range arithmetic (per ACTIONABLE-3) | Type-sig: `audit (doc-only chain)` ↔ diff touches only `docs/plans/<NNN>-*.md` (the audited plan for tier K) ✓; **file-overlap: SKIP** for audit Type ✓; plan-identity: range-form heading has `Tier 3-9` covering tier K ✓ (range-arithmetic branch); multi-PR shape: `PRs:` block tick per §3a.1 (one tier per box, K=3..9) | ✅ AUTO (audit SKIP) |
+| **NS-15..NS-21** | `Tier 2-9 plan-readiness audits` (range form) | `audit (doc-only chain)` | `(any-plan, Tier K)` for K∈{3,4,5,6,7,8,9} → §4.3.2 rule 4 (range-form heading covers tier K); 1 match per K via range arithmetic (per ACTIONABLE-3) | Type-sig: `audit (doc-only chain)` ↔ diff touches only `docs/plans/<NNN>-*.md` (the audited plan for tier K) ✓; **file-overlap: SKIP** for audit Type ✓; plan-identity: range-form heading has `Tier 2-9` covering tier K ✓ (range-arithmetic branch); multi-PR shape: `PRs:` block tick per §3a.1 (one tier per box, K=3..9) | ✅ AUTO (audit SKIP) |
 | **NS-22** | `Sibling-doc staleness sweep (cross-plan-deps audit propagation)` | `cleanup (doc-only)` | NONE — no `Plan-NNN` / `Phase` / `Tier` in heading; sweep is emergent multi-plan cleanup; §4.3 lookup returns 0 candidates → `--auto-create` would fire BUT the §5.4 Type-inference rules explicitly halt `NEEDS_CONTEXT` for "diff touches `docs/plans/` of multiple plans without `packages/`" (§5.4 "Otherwise" rule). The user runs the housekeeper manually with `--candidate-ns NS-22` if/when a sweep PR is ready. | n/a (out-of-scope per §4.3.4) | ⛔ OUT-OF-SCOPE |
 
 #### 5.5.1 Falsification protocol
@@ -786,7 +786,7 @@ If a future NS entry shape doesn't fit any of the §4.3.2 four matching rules AN
 The Layer 2 subagent test suite (§8.2) includes a fixture for each non-trivial outcome class — orthogonal axes are (a) §4.3 lookup discriminator and (b) §5.1 step 3 file-overlap discriminator:
 
 - **Lookup axis**: AUTO-PASS via Plan+Phase (rule 1; NS-01/05/07/09/10), AUTO-PASS via Plan+task-id (rule 2; NS-06/08), AUTO-PASS via Plan+Phase+task-id (rules 1+2; NS-02), AUTO-PASS via Tier-K substring (rule 3; NS-14 precedent), AUTO-PASS via range-form Tier-K arithmetic (rule 4; NS-15..NS-21 + ACTIONABLE-3), EXPLICIT-CANDIDATE PASS (NS-11), OUT-OF-SCOPE manual fall-through (NS-22), false-positive guard (Plan-002 Phase 1 hypothetical).
-- **File-overlap axis**: PASS via file-path (NS-01/02-T5.1/08), PASS via dir-prefix (NS-03/05/06/07; ACTIONABLE-4), PASS via doc-path overlap only (NS-04/09/10/02-T5.5/T5.6 — documented limit), PASS via SKIP for cleanup/audit Types (NS-11/14/15..NS-21), `file_overlap_zero` halt (synthetic fixture: pass `--candidate-ns NS-01` with a Plan-007 PR diff), `file_overlap_unverifiable_for_sparse_body` SOFT-WARN (synthetic fixture: NS entry whose References + Summary contain no `.md` link AND no source-file token AND no directory token — defensive future-proofing; no current entry triggers it).
+- **File-overlap axis**: PASS via file-path (NS-01/02-T5.1/08), PASS via dir-prefix (NS-03/05/06/07; ACTIONABLE-4), PASS via doc-path overlap only (NS-04/09/10/02-T5.5/T5.6 — documented limit), PASS via SKIP for cleanup/audit Types (NS-11/14/15..NS-21), `file_overlap_zero` halt (synthetic fixture: pass `--candidate-ns NS-01` with a Plan-006 PR diff), `file_overlap_unverifiable_for_sparse_body` SOFT-WARN (synthetic fixture: NS entry whose References + Summary contain no `.md` link AND no source-file token AND no directory token — defensive future-proofing; no current entry triggers it).
 
 Re-running this fixture set after any §4.3 / §5.1 / §5.4 edit re-validates the table mechanically.
 
@@ -922,7 +922,7 @@ Today, Phase E's first step is "Append Progress Log" — written as its own comm
 [script]       ✓ Matched NS-01 (single-PR shape)
 [script]       ✓ Status flip: `todo` → `completed` (placeholder prose pending)
 [script]       ✓ Mermaid class swap: NS01 :::ready → :::completed
-[script]       ✓ Plan-024 §Phase 1 Done Checklist: 5 items ticked
+[script]       ✓ Plan-022 §Phase 1 Done Checklist: 5 items ticked
 [script]       Manifest written: .agents/tmp/housekeeper-manifest-PR30.json
 [orchestrator] ✓ Manifest valid (script stage)
 [orchestrator] Dispatching plan-execution-housekeeper subagent...
@@ -1024,14 +1024,14 @@ Orchestrator never auto-resolves NEEDS_CONTEXT or BLOCKED. Surfaces a structured
 Reason: subagent returned NEEDS_CONTEXT
 Subagent's question:
   "AUTO-CREATE mode dispatched (orchestrator's §4.3 lookup found 0 candidates for
-   --plan 029 --phase 2). Composing the new NS entry, but the diff signature doesn't
-   fit any §5.4 Type-classification rule: touches docs/plans/029-*.md AND
-   docs/plans/030-*.md AND no packages/ files. Per §5.4 'Otherwise → halt
-   NEEDS_CONTEXT': should this be a multi-plan governance entry, or did Plan-029
-   Phase 2 incorrectly modify Plan-030?"
+   --plan 026 --phase 2). Composing the new NS entry, but the diff signature doesn't
+   fit any §5.4 Type-classification rule: touches docs/plans/026-*.md AND
+   docs/plans/027-*.md AND no packages/ files. Per §5.4 'Otherwise → halt
+   NEEDS_CONTEXT': should this be a multi-plan governance entry, or did Plan-026
+   Phase 2 incorrectly modify Plan-027?"
 
 Manifest:    .agents/tmp/housekeeper-manifest-PR42.json
-Resume with: continue plan-execution Plan-029
+Resume with: continue plan-execution Plan-026
             (after answering subagent's question; pass answer in resume prompt)
 ```
 
@@ -1042,7 +1042,7 @@ Resume with: continue plan-execution Plan-029
 
 Reason: script exit 1 (--candidate-ns NS-99 not found in §6)
 Diagnostic:
-  Orchestrator dispatched the housekeeper with `--candidate-ns NS-99 --plan 024
+  Orchestrator dispatched the housekeeper with `--candidate-ns NS-99 --plan 022
   --phase 1`, but no `### NS-99` heading exists in cross-plan-dependencies.md §6.
   Possible causes:
     (a) Orchestrator's §4.3 lookup ran against a stale §6 snapshot (re-pull develop
@@ -1051,7 +1051,7 @@ Diagnostic:
     (c) §6 lost an entry between the lookup and the dispatch (concurrent edit on
         develop — unexpected).
 Manifest:    (none — script aborted before manifest write)
-Resume with: re-run §4.3 lookup, then continue plan-execution Plan-024
+Resume with: re-run §4.3 lookup, then continue plan-execution Plan-022
             (or pass corrected `--candidate-ns NS-XX` in resume prompt)
 ```
 
@@ -1101,10 +1101,10 @@ Test surface: `(args, repo state) → (file edits, manifest, exit code)`.
     ├── 01-single-pr-happy-path/
     │   ├── input/
     │   │   ├── docs/architecture/cross-plan-dependencies.md
-    │   │   └── docs/plans/024-rust-pty-sidecar.md
+    │   │   └── docs/plans/022-rust-pty-sidecar.md
     │   ├── expected/
     │   │   ├── docs/architecture/cross-plan-dependencies.md
-    │   │   └── docs/plans/024-rust-pty-sidecar.md
+    │   │   └── docs/plans/022-rust-pty-sidecar.md
     │   ├── args.json
     │   └── expected-manifest.json
     ├── 02-multi-pr-tick-only/                    # ≥1 unchecked → in_progress
@@ -1346,7 +1346,7 @@ Suggested PR boundaries: each of the four can be a separate PR, OR PRs 2–4 can
 
 The bootstrap is **not** a self-application: PR 4 ships the housekeeper, but PR 4 itself is housekept manually (one final manual cycle, since the housekeeper is being introduced _by_ PR 4 — it doesn't exist in the merged tree until PR 4 lands).
 
-The first AUTO-RUN happens on the **next** plan-execution PR after PR 4 merges. That PR's Phase E will dispatch the housekeeper for the first real-world invocation, against a non-trivial NS entry (likely NS-01 / Plan-024 Phase 1 since it's at the top of the dispatch queue). The first AUTO-RUN exercises the **full pipeline** end-to-end: orchestrator's §4.3 §6 lookup (must auto-find NS-01 from the merged PR's `(Plan-024, Phase 1)` metadata per §5.5 verification table row 1) → script verification (Type-sig + file-overlap + plan-identity per §5.1 step 3) → mechanical edits (status flip + mermaid recolor + plan-checklist tick) → subagent semantic stage (ready-set re-derivation + line-cite sweep + completion prose). Failure at any stage halts Phase E with the canonical exit-state taxonomy (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED per `references/failure-modes.md`); the user inspects + iterates per §10.3 validation window.
+The first AUTO-RUN happens on the **next** plan-execution PR after PR 4 merges. That PR's Phase E will dispatch the housekeeper for the first real-world invocation, against a non-trivial NS entry (likely NS-01 / Plan-022 Phase 1 since it's at the top of the dispatch queue). The first AUTO-RUN exercises the **full pipeline** end-to-end: orchestrator's §4.3 §6 lookup (must auto-find NS-01 from the merged PR's `(Plan-022, Phase 1)` metadata per §5.5 verification table row 1) → script verification (Type-sig + file-overlap + plan-identity per §5.1 step 3) → mechanical edits (status flip + mermaid recolor + plan-checklist tick) → subagent semantic stage (ready-set re-derivation + line-cite sweep + completion prose). Failure at any stage halts Phase E with the canonical exit-state taxonomy (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED per `references/failure-modes.md`); the user inspects + iterates per §10.3 validation window.
 
 PRs 1, 2, 3 also do not have housekeeper coverage:
 
@@ -1397,7 +1397,7 @@ Two paths:
 None remain open. Q11.1, Q11.2, Q11.3 and Q11.5 closed during patch; Q11.4, Q11.6 and Q11.7 were resolved at plan-write time by the implementation plan's locked decisions, and Q11.7 was further amended on 2026-07-27 when the mechanism it asked about was retired.
 
 - ~~Q11.1 NS-XX status set~~ — verified against §6 line 278: `todo / in_progress / blocked / completed`. Spec amended.
-- ~~Q11.2 Multiple plans per NS~~ — superseded by §4.3 architectural decision (matcher as verification, not derivation). The script no longer derives plan/phase identity from prose; the orchestrator's §4.3 candidate-lookup uses **heading-only** matching (`Plan-NNN` + `Phase N` | `T-task-id` | `Tier K` substrings), then passes the resolved candidate(s) as `--candidate-ns NS-XX[,NS-YY]` to the script. NS-04's multi-plan heading is handled by §4.3.2 rule 2 (Plan-NNN + task-id matches either `(Plan-001, T5.4)` or `(Plan-024, T-024-2-1)`); NS-22's no-Plan-NNN heading is correctly OUT-OF-SCOPE for auto-dispatch per §4.3.4 (manual housekeeping only). The §5.5 verification table traces all 17 corpus entries through the new design as falsification evidence.
+- ~~Q11.2 Multiple plans per NS~~ — superseded by §4.3 architectural decision (matcher as verification, not derivation). The script no longer derives plan/phase identity from prose; the orchestrator's §4.3 candidate-lookup uses **heading-only** matching (`Plan-NNN` + `Phase N` | `T-task-id` | `Tier K` substrings), then passes the resolved candidate(s) as `--candidate-ns NS-XX[,NS-YY]` to the script. NS-04's multi-plan heading is handled by §4.3.2 rule 2 (Plan-NNN + task-id matches either `(Plan-001, T5.4)` or `(Plan-022, T-022-2-1)`); NS-22's no-Plan-NNN heading is correctly OUT-OF-SCOPE for auto-dispatch per §4.3.4 (manual housekeeping only). The §5.5 verification table traces all 17 corpus entries through the new design as falsification evidence.
 - ~~Q11.3 Mermaid style variants~~ — verified against §6 lines 285–335: `:::class` attachment is the universal pattern; `classDef` definitions are stable. Spec amended.
 - ~~Q11.4 Subagent prompt template location~~ — resolved by Plan §Decisions-Locked D-1, and to neither of the two options this question posed: the canonical template lives in `.claude/skills/plan-execution/references/post-merge-housekeeper-contract.md` § Canonical Subagent Prompt Template, with the script holding a verbatim in-source copy pinned by a Layer 2 snapshot test. No separate `references/housekeeper-prompt-template.md` was ever created.
 - ~~Q11.5 Manifest pruning timing~~ — verified `lefthook.yml` has no `.agents/tmp/` prune job; §10.5 makes the lefthook addition explicit and recommends skipping for V1.

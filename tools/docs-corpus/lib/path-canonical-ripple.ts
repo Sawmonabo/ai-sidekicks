@@ -5,7 +5,7 @@
 // outside the configured exclude paths.
 //
 // PR #24 cascade (line 14 fixed, lines 58/153/218 missed; then sibling-file
-// 228 missed; then Tier-8 prose in three other plans missed) was specifically
+// 228 missed; then Tier-7 prose in three other plans missed) was specifically
 // because no single grep covered "every surface form of THIS deprecated path".
 // The registry plus this hook collapse the same-class sweep to one machine
 // pass.

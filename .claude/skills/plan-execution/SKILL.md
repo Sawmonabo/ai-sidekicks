@@ -142,7 +142,7 @@ The tool resolves the next-up phase, runs all mechanical gates (project-locality
 
 **On non-zero exit:** halt with `RESULT: NEEDS_CONTEXT` and surface the tool's `stdout` verbatim — the message is self-contained (failure type, file paths, remediation hint). Do not paraphrase; the message is the contract.
 
-The preflight is the authoritative source for these gates; SKILL.md prose does NOT duplicate the gate logic. To add a new mechanical check (e.g., a future "minimum CI version" gate), edit the tool, not this file. The motivating shape — manifest-mediated phase-walk (set-comparison of declared-tasks vs shipped-tasks) over title-count to handle substrate/namespace and partial/remainder carve-outs that ship phases non-contiguously across tiers (Plan-007 ships Phases 1-3 in Tier 1 and Phases 4+ in Tier 4) — lives in the tool source and its contract; SKILL.md does not restate it.
+The preflight is the authoritative source for these gates; SKILL.md prose does NOT duplicate the gate logic. To add a new mechanical check (e.g., a future "minimum CI version" gate), edit the tool, not this file. The motivating shape — manifest-mediated phase-walk (set-comparison of declared-tasks vs shipped-tasks) over title-count to handle substrate/namespace and partial/remainder carve-outs that ship phases non-contiguously across tiers (Plan-006 ships Phases 1-3 in Tier 1 and Phases 4+ in Tier 3) — lives in the tool source and its contract; SKILL.md does not restate it.
 
 #### 0.3 — Branch + scaffold decision
 
@@ -201,7 +201,7 @@ Dispatch the **plan-analyst** subagent via `Agent({subagent_type: "plan-executio
 - The cross-plan dependency map ([`docs/architecture/cross-plan-dependencies.md`](../../../docs/architecture/cross-plan-dependencies.md)).
 - The backlog + archive ([`docs/backlog.md`](../../../docs/backlog.md), [`docs/archive/backlog-archive.md`](../../../docs/archive/backlog-archive.md)) — the `BL-NNN` open-vs-shipped source of truth, so the analyst can classify a `Consumes:` clause-(d) `BL-NNN` as `completed` (collapses to a shipped provider) or open `todo` (a blocker forcing `status: blocked`).
 
-Tasks-block field shapes vary across plans (sub-header style in Plan-001 Phase 5; parenthesized inline in Plan-007 Phases 1-3); both carry the same fields. The analyst extracts them verbatim into DAG fields.
+Tasks-block field shapes vary across plans (sub-header style in Plan-001 Phase 5; parenthesized inline in Plan-006 Phases 1-3); both carry the same fields. The analyst extracts them verbatim into DAG fields.
 
 The plan-analyst returns a YAML DAG with this schema:
 
@@ -212,7 +212,7 @@ plan: NNN
 phase: N # Phase number from the plan's Implementation Phase Sequence
 pr: M # GitHub PR number for the Phase
 tasks:
-  - id: T1 # short stable id matching the audit Tasks-row id (T5.1, T-007p-1-1, etc.)
+  - id: T1 # short stable id matching the audit Tasks-row id (T5.1, T-006p-1-1, etc.)
     title: <one-line description>
     target_paths: [path/to/file1.ts, ...] # from audit Tasks-row "Files:"
     depends_on: [] # task ids this depends on (empty for level 0)
@@ -464,7 +464,7 @@ The phase has 5 steps in this exact order:
 
 3. **Append the shipment-manifest entry** to the plan body's `## Progress Log` → `### Shipment Manifest` YAML block in `docs/plans/NNN-*.md`. The entry records the squash-merge commit hash + audit-derived spec/invariant cites, so consumers (preflight Gate 3, future drift detectors) read the ship as one event.
    - Read the housekeeper manifest at `.agents/tmp/housekeeper-manifest-PR<N>.json` and call `buildFinalManifestEntry({ housekeeperManifestPath, dagTask, notesOverride })` from `lib/housekeeper-orchestrator-helpers.mjs`. The helper extracts the script-emitted `proposed_manifest_entry` (script-knowable fields: phase, task, pr, sha, merged_at, files; audit-derived fields left empty) and merges in the DAG task's `verifies_invariant` and `spec_coverage`. Pass any partial-ship caveats as `notesOverride` (free-form per-PR commentary).
-   - Apply the result via `appendManifestEntry(planSource, entry)` from `scripts/lib/manifest.mjs` (idempotent on `pr`; a second call with the same PR is a no-op). Read `docs/plans/NNN-*.md`, run `appendManifestEntry`, write the new source back. The plan template (`docs/plans/000-plan-template.md`) seeds the `### Shipment Manifest` block with `shipped: []`; older plans that pre-date the template (Plan-001, Plan-007) get backfilled by `rebuild-shipment-manifest.mjs`.
+   - Apply the result via `appendManifestEntry(planSource, entry)` from `scripts/lib/manifest.mjs` (idempotent on `pr`; a second call with the same PR is a no-op). Read `docs/plans/NNN-*.md`, run `appendManifestEntry`, write the new source back. The plan template (`docs/plans/000-plan-template.md`) seeds the `### Shipment Manifest` block with `shipped: []`; older plans that pre-date the template (Plan-001, Plan-006) get backfilled by `rebuild-shipment-manifest.mjs`.
    - If `buildFinalManifestEntry` returns null (the script emitted no proposed entry — `--squash-sha`/`--merged-at` was omitted, a Phase E configuration bug), halt and surface the gap to the user; do NOT silently skip the manifest write.
    - **Field semantics for the DAG merge (do not conflate the two):** `spec_coverage` = the UNION of the phase's task-level `Spec coverage:` cites — a breadth measure of what the phase TOUCHES, deliberately deferral-independent (a task's partial deferral does not shrink it). `verifies_invariant` = CURATED — only invariants whose verifying Test actually lands in this phase. When a reviewer challenges the breadth field with the curated-field rule (or vice versa), the correct response is this distinction, not a manifest edit.
 
@@ -530,7 +530,7 @@ Reviewers tag every finding with one of three severity labels:
 - **POLISH** — real improvement, fix in-PR (round-trips with ACTIONABLE).
 - **ACTIONABLE** — must fix to merge; round-trips immediately.
 
-Full routing rules per reviewer role, examples, "no label" recovery, and the round-trip cap rationale live in [`references/failure-modes.md` § Findings Discipline](references/failure-modes.md#findings-discipline). The three-label discipline replaces the prior binary OBSERVATION/ACTIONABLE scheme, which conflated VERIFICATION (no-op narrative) with POLISH (real fix needed) and bucketed both as "skip" — surfacing the failure mode in Plan-007 PR #19, where 10 of 11 OBSERVATIONs were verification statements but 1 was a real polish finding (citation drift) deferred only because of the bucket name.
+Full routing rules per reviewer role, examples, "no label" recovery, and the round-trip cap rationale live in [`references/failure-modes.md` § Findings Discipline](references/failure-modes.md#findings-discipline). The three-label discipline replaces the prior binary OBSERVATION/ACTIONABLE scheme, which conflated VERIFICATION (no-op narrative) with POLISH (real fix needed) and bucketed both as "skip" — surfacing the failure mode in Plan-006 PR #19, where 10 of 11 OBSERVATIONs were verification statements but 1 was a real polish finding (citation drift) deferred only because of the bucket name.
 
 ## Size-Classed Ceremony
 

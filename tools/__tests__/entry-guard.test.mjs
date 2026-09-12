@@ -51,7 +51,7 @@
 // 297 files where it covered 171, and the derived set is unchanged at nine.
 //
 // Ten since 2026-09-01. `apps/desktop/build/assert-webprefs.ts` took an
-// optional path argument (Plan-023 T-023p-1B-2, so its own test can drive the
+// optional path argument (Plan-021 T-021p-1B-2, so its own test can drive the
 // real script over fixtures instead of re-implementing its rules), which is
 // the second operand it had been missing — it already resolved `window.ts`
 // through `import.meta.url`, so it is exactly the hostile-path shape this file
@@ -173,7 +173,7 @@ const CLI_SCRIPTS = [
   // Runs from `pnpm build` and `pnpm build:smoke` in `apps/desktop`, and its
   // DEFAULT target is resolved from `import.meta.url` — so a spaced or
   // symlinked checkout is the exact path this file pins, and a silent no-op
-  // here is a green build over an unrun `Spec-023 §Security Hardening
+  // here is a green build over an unrun `Spec-021 §Security Hardening
   // Baseline` assertion. Listed since 2026-09-01, when it took the optional
   // path argument that made it evaluate both operands (see the header).
   {
@@ -188,8 +188,8 @@ const CLI_SCRIPTS = [
     stdin: "{\n",
     env: { PR_TITLE: "chore(repo): entry-guard fixture", PR_BRANCH: "chore/entry-guard-fixture" },
   },
-  // The two console budget CLIs (`Spec-023 §Console Design (Meridian)`
-  // §Budgets; Plan-023 I-023-14). Both resolve the desktop package from
+  // The two console budget CLIs (`Spec-021 §Console Design (Meridian)`
+  // §Budgets; Plan-021 I-021-14). Both resolve the desktop package from
   // `import.meta.url`, so a spaced or symlinked checkout is exactly the path
   // this file pins, and a silent no-op is a green CI budget step over an unrun
   // gate — for the heap CLI, whose budget is recorded ungated at this revision,

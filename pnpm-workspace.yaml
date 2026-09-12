@@ -54,35 +54,35 @@ allowBuilds:
   # `build/Release/` cannot hold a `.node` if no build ever runs.
   better-sqlite3: false
   lefthook: true
-  # Cloudflare Workers tooling (Plan-008 Tier 1 / BL-104 — wrangler@^4.86.0):
+  # Cloudflare Workers tooling (BL-104 — wrangler@^4.86.0):
   # - workerd: local Workers runtime invoked by `wrangler dev`. Approve: required.
   # - esbuild: Worker-bundle compiler invoked by wrangler. Approve: required.
   # - sharp: Cloudflare Images binding emulation pulled in via miniflare.
-  #   Plan-008 Tier 1 does not use the Images binding (tRPC + SSE substrate
+  #   The control-plane substrate does not use the Images binding (tRPC + SSE substrate
   #   only); deny postinstall to keep the build-script footprint minimal.
   #   Flip to `true` if/when a future plan exercises Images locally.
   workerd: true
   esbuild: true
   sharp: false
-  # Plan-024 Phase 2 (T-024-2-2) — runtime-daemon PTY backend dependencies:
+  # Plan-022 Phase 2 (T-022-2-2) — runtime-daemon PTY backend dependencies:
   # - node-pty: prebuild-install pulls a platform-specific .node binding
   #   for the in-process PTY backend. Required on every dev + CI platform
   #   (the daemon's local NodePtyHost cannot construct without it).
   # - koffi: FFI bindings used by NodePtyHost on Windows to call
-  #   `kernel32!GenerateConsoleCtrlEvent` for I-024-1 (Windows kill
+  #   `kernel32!GenerateConsoleCtrlEvent` for I-022-1 (Windows kill
   #   semantics). Listed in `optionalDependencies` so non-Windows installs
   #   skip the .node prebuild gracefully, but the build script itself
   #   must be approved for the cases where the prebuild does land
   #   (Windows CI today, the Phase 5 sidecar fallback path later).
   node-pty: true
   koffi: true
-  # Plan-023 Phase 1 (T-023p-1-1) — apps/desktop Electron substrate:
+  # Plan-021 Phase 1 (T-021p-1-1) — apps/desktop Electron substrate:
   # - electron: postinstall downloads the platform-specific Electron
   #   binary into node_modules/electron/dist via @electron/get. Required
   #   on every dev + CI platform that builds or runs the desktop shell;
   #   without the binary `electron-vite` and `electron .` cannot launch.
   electron: true
-  # Plan-023 Phase 1C — the endurance tier's heap-snapshot reader
+  # Plan-021 Phase 1C — the endurance tier's heap-snapshot reader
   # (`test/console/endurance/heap-snapshot-analysis.ts`) calls memlab's
   # `getHeapFromFile` on a `.heapsnapshot` this repo captures itself over
   # Electron's own CDP session. DENIED, all four, deliberately:
@@ -100,7 +100,7 @@ allowBuilds:
   "@memlab/cli": false
   puppeteer: false
   sleep: false
-  # Plan-023 Phase 1C — the console's self-hosted IBM Plex faces.
+  # Plan-021 Phase 1C — the console's self-hosted IBM Plex faces.
   #
   # DENIED, all three. Neither font package builds anything: the `woff2` files ship
   # in the tarball and Vite emits them as build assets, so nothing is compiled,
@@ -131,8 +131,8 @@ catalogs:
     # runner bump is its own PR that edits both lines.
     vitest: 4.1.5
     "@vitest/coverage-v8": 4.1.5
-    # Plan-023 Phase 1C (T-023p-1C-1) — the console's browser tier per
-    # `Spec-023 §Console Test Tiers`. `@vitest/browser-playwright` declares the
+    # Plan-021 Phase 1C (T-021p-1C-1) — the console's browser tier per
+    # `Spec-021 §Console Test Tiers`. `@vitest/browser-playwright` declares the
     # same EXACT peer on its runner (`peerDependencies: { vitest: "4.1.5" }`,
     # verified 2026-09-01 against the published manifest) that
     # `@vitest/coverage-v8` does, so it belongs in the lockstep set rather than

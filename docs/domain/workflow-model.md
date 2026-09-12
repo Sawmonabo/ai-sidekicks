@@ -13,7 +13,7 @@ This document covers `WorkflowDefinition`, `WorkflowVersion`, and `WorkflowRun`,
 - `WorkflowDefinition`: a named, durable definition record that describes a reusable sequence of phases. Scoped to one of the three `WorkflowScope` tiers below.
 - `WorkflowVersion`: an immutable snapshot of a workflow definition's phase structure at a point in time. Editing a definition creates a new version rather than mutating an existing one.
 - `WorkflowRun`: a single execution instance of a specific workflow version within a session. Each run tracks phase-level execution state independently.
-- `WorkflowScope`: the boundary within which a workflow definition is visible and executable — `session` (the authoring session), `project` (the sessions of one project), or `shared` (the daemon's cross-project tier). Scope identity is carried by a companion `scope_ref` value — the authoring session id at `session`, the canonical repository root at `project`, the empty string at `shared` — and definitions dedupe on `(scope, scope_ref, contentHash)`. Amended 2026-08-10 by the Tier-8 plan-readiness audit per `Spec-017 §Resolved Questions and V1 Scope Decisions`; the pre-amendment `channel` value is struck — it was never specified by Spec-017 and had no defined visibility semantics.
+- `WorkflowScope`: the boundary within which a workflow definition is visible and executable — `session` (the authoring session), `project` (the sessions of one project), or `shared` (the daemon's cross-project tier). Scope identity is carried by a companion `scope_ref` value — the authoring session id at `session`, the canonical repository root at `project`, the empty string at `shared` — and definitions dedupe on `(scope, scope_ref, contentHash)`. Amended 2026-08-10 by the Tier-7 plan-readiness audit per `Spec-015 §Resolved Questions and V1 Scope Decisions`; the pre-amendment `channel` value is struck — it was never specified by Spec-015 and had no defined visibility semantics.
 
 ## What This Is
 
@@ -30,7 +30,7 @@ The workflow model is the source of truth for how reusable, multi-phase executio
 
 - A workflow definition has exactly one active version at a time. Previous versions remain immutable and referenceable.
 - A workflow run executes exactly one version. If the definition changes while a run is in progress, the running instance continues on the version it started with.
-- Workflow scope is three-valued: `session`, `project`, or `shared`. A definition is visible and executable only within its declared scope's tier; run-start resolution walks the tiers most-specific-first (`session`, then `project`, then `shared`) with no merging across tiers, and editing a `shared` definition is copy-on-write into the editor's scope — never edit-in-place (`Spec-017 §Definition scope in the builder (SA-36)`).
+- Workflow scope is three-valued: `session`, `project`, or `shared`. A definition is visible and executable only within its declared scope's tier; run-start resolution walks the tiers most-specific-first (`session`, then `project`, then `shared`) with no merging across tiers, and editing a `shared` definition is copy-on-write into the editor's scope — never edit-in-place (`Spec-015 §Definition scope in the builder (SA-36)`).
 - Every workflow run belongs to exactly one session.
 - A workflow definition must contain at least one phase definition.
 - Version immutability is absolute: no mutation of phase definitions within a published version.
@@ -38,13 +38,13 @@ The workflow model is the source of truth for how reusable, multi-phase executio
 ## Relationships To Adjacent Concepts
 
 - `Session` is the containing boundary for workflow definitions and runs.
-- `Project` and the daemon-wide `shared` tier are the two broader scope tiers above `session`; a channel is never a workflow scope (the pre-amendment `channel` value is struck per `Spec-017 §Resolved Questions and V1 Scope Decisions`).
+- `Project` and the daemon-wide `shared` tier are the two broader scope tiers above `session`; a channel is never a workflow scope (the pre-amendment `channel` value is struck per `Spec-015 §Resolved Questions and V1 Scope Decisions`).
 - `WorkflowPhaseState` tracks per-phase execution progress within a workflow run. See [Workflow Phase Model](./workflow-phase-model.md).
-- `Run` (from the run state machine) is the execution primitive used by individual phases. Each phase execution routes through `OrchestrationRunCreate` per Spec-016/017 constraints.
+- `Run` (from the run state machine) is the execution primitive used by individual phases. Each phase execution routes through `OrchestrationRunCreate` per Spec-014/017 constraints.
 - `Agent` and `Channel` (from agent-channel-and-run model) provide the execution persona and communication surface for phase work.
 - `Artifact` stores phase outputs with `artifactType: 'workflow_output'`. Artifacts are outputs of runs created during phase execution, not of the workflow run itself.
-- `Approval` primitives from Plan-012 are used by `human-approval` gates within phases.
-- `SessionEvent` timeline captures workflow lifecycle events (`workflow.phase_started`, `workflow.phase_completed`, `workflow.phase_failed`, `workflow.phase_suspended`, `workflow.resumed`, `workflow.cancelled`, `workflow.gate_resolved`). The list is illustrative, not the registry: the authoritative set is the 24 `workflow.*` types across five categories enumerated in `Spec-017 §Workflow Timeline Integration`.
+- `Approval` primitives from Plan-010 are used by `human-approval` gates within phases.
+- `SessionEvent` timeline captures workflow lifecycle events (`workflow.phase_started`, `workflow.phase_completed`, `workflow.phase_failed`, `workflow.phase_suspended`, `workflow.resumed`, `workflow.cancelled`, `workflow.gate_resolved`). The list is illustrative, not the registry: the authoritative set is the 24 `workflow.*` types across five categories enumerated in `Spec-015 §Workflow Timeline Integration`.
 
 ## State Model
 
@@ -54,10 +54,10 @@ The workflow model is the source of truth for how reusable, multi-phase executio
 | --- | --- |
 | `pending` | The workflow run has been created but phase execution has not started. |
 | `running` | At least one phase is actively executing or the workflow is advancing between phases. |
-| `suspended` | A phase of the run is parked — awaiting a human, or waiting out a provider usage limit — and the run is neither progressing nor finished. The park's cause, and the resume instant where one was armed, are per-phase state (`Spec-017 §Park integrity and cancellability (SA-42)`). |
+| `suspended` | A phase of the run is parked — awaiting a human, or waiting out a provider usage limit — and the run is neither progressing nor finished. The park's cause, and the resume instant where one was armed, are per-phase state (`Spec-015 §Park integrity and cancellability (SA-42)`). |
 | `completed` | All phases have reached terminal states and the workflow finished successfully. |
 | `failed` | The workflow ended because a phase failed and the configured failure behavior resulted in a stop. |
-| `cancelled` | The workflow was explicitly cancelled by a user or system action, through `workflow.runCancel` (`Spec-017 §Operator run control (SA-45)`). |
+| `cancelled` | The workflow was explicitly cancelled by a user or system action, through `workflow.runCancel` (`Spec-015 §Operator run control (SA-45)`). |
 
 Allowed transitions:
 
@@ -103,9 +103,9 @@ WorkflowDefinition (1)
 
 ## Related Specs
 
-- [Workflow Authoring And Execution](../specs/017-workflow-authoring-and-execution.md)
-- [Multi Agent Channels And Orchestration](../specs/016-multi-agent-channels-and-orchestration.md)
-- [Shared Session Core](../specs/001-shared-session-core.md)
+- [Workflow Authoring And Execution](../specs/015-workflow-authoring-and-execution.md)
+- [Multi Agent Channels And Orchestration](../specs/014-multi-agent-channels-and-orchestration.md)
+- [Session Core](../specs/001-session-core.md)
 
 ## Related ADRs
 

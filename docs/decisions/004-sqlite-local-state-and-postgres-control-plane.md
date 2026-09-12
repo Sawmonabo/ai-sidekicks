@@ -120,7 +120,7 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 | Source | Type | Key Finding | URL/Location |
 | --- | --- | --- | --- |
 | `architecture/data-architecture.md` | Canonical architecture doc | Local and shared state belong to different trust and workload domains | [architecture/data-architecture.md](../architecture/data-architecture.md) |
-| `specs/015-persistence-recovery-and-replay.md` | Canonical spec | SQLite and Postgres split is part of the correctness contract | [specs/015-persistence-recovery-and-replay.md](../specs/015-persistence-recovery-and-replay.md) |
+| `specs/013-persistence-recovery-and-replay.md` | Canonical spec | SQLite and Postgres split is part of the correctness contract | [specs/013-persistence-recovery-and-replay.md](../specs/013-persistence-recovery-and-replay.md) |
 | `operations/local-persistence-repair-and-restore.md` | Canonical operations doc | Local persistence integrity and restore behavior are explicit operational requirements | [operations/local-persistence-repair-and-restore.md](../operations/local-persistence-repair-and-restore.md) |
 
 ### Related Domain Docs
@@ -137,9 +137,9 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 
 ### Related Specs
 
-- [Artifacts Files And Attachments](../specs/014-artifacts-files-and-attachments.md)
-- [Persistence Recovery And Replay](../specs/015-persistence-recovery-and-replay.md)
-- [Observability And Failure Recovery](../specs/020-observability-and-failure-recovery.md)
+- [Artifacts Files And Attachments](../specs/012-artifacts-files-and-attachments.md)
+- [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md)
+- [Observability And Failure Recovery](../specs/018-observability-and-failure-recovery.md)
 
 ### Related ADRs
 
@@ -153,4 +153,4 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 | 2026-04-14 | Proposed | Initial draft |
 | 2026-04-14 | Re-baselined | Reviewer assignment and acceptance validation remain incomplete |
 | 2026-04-15 | Accepted | ADR accepted |
-| 2026-07-08 | Reaffirmed | Cross-node artifact pull-forward ([ADR-015 amendment 2026-07-08](./015-v1-feature-scope-definition.md#amendment-2026-07-08-v11-deferred-features-3--2-cross-node-shared-artifacts-pulled-into-v1)) conforms to this split: shared-artifact ciphertext lives in the relay object store ([Spec-014 §Cross-Node Artifact Relay](../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1)), while Postgres gains only coordination rows + per-user wrapped CEKs (`artifact_relay_blobs`, `artifact_relay_recipients`) — no payload bytes cross into either database, and the SQLite-local / Postgres-shared boundary holds unchanged |
+| 2026-07-08 | Reaffirmed | Cross-node artifact pull-forward ([ADR-015 amendment 2026-07-08](./015-v1-feature-scope-definition.md#amendment-2026-07-08-v11-deferred-features-3--2-cross-node-shared-artifacts-pulled-into-v1)) conforms to this split: shared-artifact ciphertext lives in the relay object store ([Spec-012 §Cross-Node Artifact Relay](../specs/012-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1)), while Postgres gains only coordination rows + per-user wrapped CEKs (`artifact_relay_blobs`, `artifact_relay_recipients`) — no payload bytes cross into either database, and the SQLite-local / Postgres-shared boundary holds unchanged |

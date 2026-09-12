@@ -617,7 +617,7 @@ test("regexParsePreconditionsLine emits plan_unshipped alongside a satisfied loc
 });
 
 test("extractPlanNumber pulls leading number from filename", () => {
-  assert.equal(extractPlanNumber("/abs/docs/plans/001-shared-session-core.md"), 1);
+  assert.equal(extractPlanNumber("/abs/docs/plans/001-session-core.md"), 1);
   assert.equal(extractPlanNumber("007-foo.md"), 7);
 });
 

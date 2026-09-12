@@ -119,9 +119,9 @@ Leaky abstraction is a manageable risk if the driver contract is intentionally s
 
 | Source | Type | Key Finding | URL/Location |
 | --- | --- | --- | --- |
-| `specs/005-provider-driver-contract-and-capabilities.md` | Canonical spec | Provider integrations use a normalized contract with explicit capability advertisement | [specs/005-provider-driver-contract-and-capabilities.md](../specs/005-provider-driver-contract-and-capabilities.md) |
+| `specs/004-provider-driver-contract-and-capabilities.md` | Canonical spec | Provider integrations use a normalized contract with explicit capability advertisement | [specs/004-provider-driver-contract-and-capabilities.md](../specs/004-provider-driver-contract-and-capabilities.md) |
 | `architecture/component-architecture-local-daemon.md` | Canonical architecture doc | Driver management belongs inside the local daemon edge | [architecture/component-architecture-local-daemon.md](../architecture/component-architecture-local-daemon.md) |
-| `specs/020-observability-and-failure-recovery.md` | Canonical spec | Provider failures are surfaced through canonical product failure categories rather than provider-specific runtime truth | [specs/020-observability-and-failure-recovery.md](../specs/020-observability-and-failure-recovery.md) |
+| `specs/018-observability-and-failure-recovery.md` | Canonical spec | Provider failures are surfaced through canonical product failure categories rather than provider-specific runtime truth | [specs/018-observability-and-failure-recovery.md](../specs/018-observability-and-failure-recovery.md) |
 
 ### Related Domain Docs
 
@@ -136,9 +136,9 @@ Leaky abstraction is a manageable risk if the driver contract is intentionally s
 
 ### Related Specs
 
-- [Provider Driver Contract And Capabilities](../specs/005-provider-driver-contract-and-capabilities.md)
-- [Runtime Node Attach](../specs/003-runtime-node-attach.md)
-- [Observability And Failure Recovery](../specs/020-observability-and-failure-recovery.md)
+- [Provider Driver Contract And Capabilities](../specs/004-provider-driver-contract-and-capabilities.md)
+- [Runtime Node Attach](../specs/002-runtime-node-attach.md)
+- [Observability And Failure Recovery](../specs/018-observability-and-failure-recovery.md)
 
 ### Related ADRs
 
@@ -151,4 +151,4 @@ Leaky abstraction is a manageable risk if the driver contract is intentionally s
 | 2026-04-14 | Proposed | Initial draft |
 | 2026-04-14 | Re-baselined | Reviewer assignment and acceptance validation remain incomplete |
 | 2026-04-15 | Accepted | ADR accepted |
-| 2026-08-26 | Extended — replay contract added to the driver boundary | [ADR-029](./029-canonical-transcript-is-authoritative.md) rules the daemon's canonical transcript authoritative for the content of a provider session. The normalized interface this ADR established is what makes such a transcript derivable at all; ADR-029 adds one clause to this boundary's price of admission — a driver must accept a canonical transcript replayed into a fresh session, or declare that it cannot and run on the memo projection floor. The `exportTranscript` / `replayTranscript` operations and the `transcript_replay` capability flag land in [Spec-005](../specs/005-provider-driver-contract-and-capabilities.md); the normalized-interface decision itself is unchanged and this ADR stays `accepted`. |
+| 2026-08-26 | Extended — replay contract added to the driver boundary | [ADR-029](./029-canonical-transcript-is-authoritative.md) rules the daemon's canonical transcript authoritative for the content of a provider session. The normalized interface this ADR established is what makes such a transcript derivable at all; ADR-029 adds one clause to this boundary's price of admission — a driver must accept a canonical transcript replayed into a fresh session, or declare that it cannot and run on the memo projection floor. The `exportTranscript` / `replayTranscript` operations and the `transcript_replay` capability flag land in [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md); the normalized-interface decision itself is unchanged and this ADR stays `accepted`. |

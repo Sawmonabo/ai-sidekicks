@@ -10,21 +10,21 @@
 // boundaries, and every later `prettier --check` passes because prettier
 // produced the corrupted form and is idempotent on it. Formatting-stable is not
 // the same as correct, which is why no existing gate saw either instance:
-//   - `Spec-015 §NTP Sync Precondition` — `<env | file>` widened a 3-column row
+//   - `Spec-013 §NTP Sync Precondition` — `<env | file>` widened a 3-column row
 //     to 4 and the delimiter row was "repaired" to 4 dashes to match.
 //   - failure-mode-catalog CAT-10 (PR #267) — an unescaped `|| true` in a
 //     2-column row, caught only by a human reading the commit.
 // (Durable §-anchors in this tree are convention-held, not gate-held: the
 // label-cite sweep covers `packages/` + `apps/`, not `tools/`, which is how an
 // earlier draft of this header shipped a §-anchor naming a heading that does
-// not exist in Spec-015 — Codex, PR #269 round 1.)
+// not exist in Spec-013 — Codex, PR #269 round 1.)
 //
 // What the violation kinds cost, per the GFM tables extension
 // (https://github.github.com/gfm/#tables-extension-, fetched 2026-07-28):
 //   - delimiter vs header mismatch — "The header row must match the delimiter
 //     row in the number of cells. If not, a table will not be recognized." The
 //     block stops being a table outright and renders as a paragraph of literal
-//     pipe text. This was the live state of the Spec-015 matrix.
+//     pipe text. This was the live state of the Spec-013 matrix.
 //   - body row WIDER than the header — "If there are greater, the excess is
 //     ignored." The surplus cell is dropped from the rendered output, so the
 //     failure is silent content LOSS rather than a visible mess.
@@ -177,7 +177,7 @@
 //      (`| --- | : |`) is not recognized, so neither that row nor the rows below
 //      it are compared. GFM does not recognize it either, which is what makes
 //      declining the honest answer: a malformed delimiter CELL goes unreported,
-//      while a well-formed delimiter with the wrong cell COUNT — the Spec-015
+//      while a well-formed delimiter with the wrong cell COUNT — the Spec-013
 //      class — is still the check's primary finding (Codex, PR #269 round 3).
 
 import { readFileSync } from "node:fs";
@@ -635,7 +635,7 @@ export function formatTableArityViolations(violations: TableArityViolation[]): s
   // The remedy is direction-specific and the two directions are OPPOSITES, so
   // the guidance is keyed on direction rather than on kind. A row wider than its
   // header is a stray pipe to escape, and widening the delimiter to match is
-  // exactly what made the Spec-015 typo permanent. A row narrower than its
+  // exactly what made the Spec-013 typo permanent. A row narrower than its
   // header is a missing cell — and when the short row IS the delimiter, widening
   // it is the correct repair. One unconditional trailer told that second case
   // never to do the only thing that fixes it.

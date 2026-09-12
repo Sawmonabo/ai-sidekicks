@@ -20,7 +20,7 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 - execute tools and terminals within local trust policy
 - persist local events, receipts, projections, and runtime bindings
 - expose the local control surface used by the desktop app and CLI
-- push coordination data (node liveness, relay connectivity, session metadata) to the Control Plane: request-response and relay negotiation over tRPC/SSE, liveness events over WebSocket (JSON-RPC 2.0), and the relay WSS connection over binary wire frames (not JSON-RPC) — per ADR-014 and [Spec-031](../specs/031-remote-control.md)
+- push coordination data (node liveness, relay connectivity, session metadata) to the Control Plane: request-response and relay negotiation over tRPC/SSE, liveness events over WebSocket (JSON-RPC 2.0), and the relay WSS connection over binary wire frames (not JSON-RPC) — per ADR-014 and [Spec-028](../specs/028-remote-control.md)
 - authenticate to the Control Plane using PASETO v4 tokens when pushing liveness, relay coordination, and session metadata
 
 ## Component Boundaries
@@ -32,7 +32,7 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 | `Git Engine` | Owns repo attach, worktree lifecycle, branch strategy, diff generation, and PR preparation. |
 | `Workspace Service` | Resolves execution roots, file access policy, attachments, and local filesystem context. |
 | `Tool And Terminal Service` | Runs shell commands, terminal sessions, and local tools under policy control. All PTY access flows through the `PtyHost` interface in `packages/contracts/` (see §PTY Backend Strategy). |
-| `Local Persistence Layer` | Stores canonical local event log, command receipts, runtime bindings, projections, and recovery metadata. All SQLite writes are isolated to a single writer worker thread per [Spec-015 §Writer Concurrency](../specs/015-persistence-recovery-and-replay.md#writer-concurrency); V1 driver pin is `better-sqlite3` **13.0.3** exact (Node-API; moved from `^12.9.0` on 2026-09-01 with the Electron-44 pin move per [ADR-022 §Decision Log](../decisions/022-v1-toolchain-selection.md#decision-log) and [Spec-015 §Driver Pin](../specs/015-persistence-recovery-and-replay.md#driver-pin)). |
+| `Local Persistence Layer` | Stores canonical local event log, command receipts, runtime bindings, projections, and recovery metadata. All SQLite writes are isolated to a single writer worker thread per [Spec-013 §Writer Concurrency](../specs/013-persistence-recovery-and-replay.md#writer-concurrency); V1 driver pin is `better-sqlite3` **13.0.3** exact (Node-API; moved from `^12.9.0` on 2026-09-01 with the Electron-44 pin move per [ADR-022 §Decision Log](../decisions/022-v1-toolchain-selection.md#decision-log) and [Spec-013 §Driver Pin](../specs/013-persistence-recovery-and-replay.md#driver-pin)). |
 | `Local IPC Gateway` | Exposes stable local control APIs to renderer and CLI clients. |
 | `Control-Plane Adapter` | Produces SessionJoin, RelayNegotiation, PresenceRegister (this node's own liveness heartbeat), and SessionResumeAfterReconnect payloads, and forwards canonical events over the control-plane transport to the user's connected devices. |
 
@@ -49,7 +49,7 @@ Per [ADR-019](../decisions/019-windows-v1-tier-and-pty-sidecar.md), all PTY acce
 - **`RustSidecarPtyHost`** — primary on Windows. Spawns a child-process Rust sidecar built on `portable-pty` (wezterm) and communicates via LSP-style Content-Length framing over stdio (JSON control channel + length-prefixed binary data channel). The sidecar's lifecycle is tied to the daemon's session lifecycle; supervisor auto-restarts on crash and surfaces backpressure to the caller.
 - **`NodePtyHost`** — primary on macOS and Linux (in-process, zero per-spawn process overhead). Also ships as the Windows fallback for cases where the sidecar binary is missing, fails to start, or is explicitly disabled for debugging.
 
-The platform selector enforces the defaults above; consumers of `PtyHost` never see the backend choice. Implementation detail for the sidecar (crate structure, IPC protocol, distribution, signing, test matrix) lives in Plan-024 (tracked under BL-078).
+The platform selector enforces the defaults above; consumers of `PtyHost` never see the backend choice. Implementation detail for the sidecar (crate structure, IPC protocol, distribution, signing, test matrix) lives in Plan-022 (tracked under BL-078).
 
 ## Data Flow
 
@@ -71,7 +71,7 @@ The platform selector enforces the defaults above; consumers of `PtyHost` never 
 - The local event store is unavailable or inconsistent.
 - Worktree creation or repo binding fails before a run can start.
 - Terminal or tool subprocesses outlive the client connection and require daemon-owned cleanup.
-- The daemon loses connectivity to the Control Plane; work on this machine continues, but remote devices cannot reach it — liveness push, relay negotiation, and device-registry reads degrade per [Spec-031 §Fallback Behavior](../specs/031-remote-control.md#fallback-behavior).
+- The daemon loses connectivity to the Control Plane; work on this machine continues, but remote devices cannot reach it — liveness push, relay negotiation, and device-registry reads degrade per [Spec-028 §Fallback Behavior](../specs/028-remote-control.md#fallback-behavior).
 
 ## Related Domain Docs
 
@@ -82,11 +82,11 @@ The platform selector enforces the defaults above; consumers of `PtyHost` never 
 
 ## Related Specs
 
-- [Runtime Node Attach](../specs/003-runtime-node-attach.md)
-- [Queue Steer Pause Resume](../specs/004-queue-steer-pause-resume.md)
-- [Provider Driver Contract And Capabilities](../specs/005-provider-driver-contract-and-capabilities.md)
-- [Local IPC And Daemon Control](../specs/007-local-ipc-and-daemon-control.md)
-- [Worktree Lifecycle And Execution Modes](../specs/010-worktree-lifecycle-and-execution-modes.md)
+- [Runtime Node Attach](../specs/002-runtime-node-attach.md)
+- [Queue Steer Pause Resume](../specs/003-queue-steer-pause-resume.md)
+- [Provider Driver Contract And Capabilities](../specs/004-provider-driver-contract-and-capabilities.md)
+- [Local IPC And Daemon Control](../specs/006-local-ipc-and-daemon-control.md)
+- [Worktree Lifecycle And Execution Modes](../specs/008-worktree-lifecycle-and-execution-modes.md)
 
 ## Related ADRs
 

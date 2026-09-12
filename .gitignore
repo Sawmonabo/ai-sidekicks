@@ -113,5 +113,5 @@ tmp/
 # Local git worktrees (per-session isolated workspaces; never shared via origin)
 .worktrees/
 
-# Rust build artifacts — Plan-024 sidecar crate (per cargo workspace at repo root)
+# Rust build artifacts — Plan-022 sidecar crate (per cargo workspace at repo root)
 target/

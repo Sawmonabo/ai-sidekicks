@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship the `@ai-sidekicks/crypto-paseto` workspace package — PASETO v4.public + v4.local primitives, PAE helper, and in-memory KeyRing — as the cryptographic substrate that Plan-002 invite-token minting (CP-002-4) and Plan-018 refresh-token issuance depend on.
+**Goal:** Ship the `@ai-sidekicks/crypto-paseto` workspace package — PASETO v4.public + v4.local primitives, PAE helper, and in-memory KeyRing — as the cryptographic substrate that Plan-002 invite-token minting (CP-002-4) and Plan-016 refresh-token issuance depend on.
 
 **Architecture:** In-house TypeScript library built directly on `@noble/curves` (Ed25519), `@noble/ciphers` (XChaCha20), and `@noble/hashes` (BLAKE2b + `equalBytes` + `randomBytes`). No upstream `paseto`/`paseto-js` dependency — satisfies ADR-010:129–136 in-house-lib mandate. Surface is a flat barrel (`src/index.ts`) mirroring `packages/contracts/`. A test-only `encryptV4LocalDeterministic` seam under `src/internal/` enables RFC vector encrypt round-trips without exposing nonce-injection to production callers.
 
@@ -16,10 +16,10 @@
 | --- | --- |
 | [Design spec](../specs/2026-05-20-crypto-paseto-substrate-design.md) | Public surface contract; threat model; invariants I1–I6 |
 | [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md):129–136 | In-house lib mandate; dual-primitive coverage; audited deps; RFC conformance release gate |
-| [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md):29 | Plan-018 v4.local dependency declared |
-| Plan-025 §Tier 1 Partial PR Sequence (lines 256–297) | Owning plan; carves Phase 1 substrate out from Tier 7 relay implementation |
+| [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md):29 | Plan-016 v4.local dependency declared |
+| Plan-025 §Tier 1 Partial PR Sequence (lines 256–297) | Owning plan; carves Phase 1 substrate out from Tier 6 relay implementation |
 | Spec-025 | Context only; `spec_coverage: []` (Spec-025 governs the relay surface, not package primitives) |
-| Cross-plan dependencies §5 + Plan-025 Substrate-vs-Namespace Carve-Out | Names Plan-018 Tier 5 as the persistence owner for KeyRing |
+| Cross-plan dependencies §5 + Plan-025 Substrate-vs-Namespace Carve-Out | Names Plan-016 Tier 4 as the persistence owner for KeyRing |
 | [Plan-implementation readiness-audit runbook](../../operations/plan-implementation-readiness-audit-runbook.md) §Per-Phase Audit Semantics | Admits `substrate_exempt` for this phase |
 | Plan-002 Phase 2 precondition | Downstream consumer (CP-002-4) — invite-token minting |
 | [CONTRIBUTING.md](../../../CONTRIBUTING.md) | GitFlow-lite; Conventional Branch; Conventional Commits |
@@ -147,7 +147,7 @@ Expected: branch created, working tree clean.
   "version": "0.0.0",
   "type": "module",
   "license": "Apache-2.0",
-  "description": "PASETO v4.public + v4.local primitives for AI Sidekicks (substrate for Plan-002 / Plan-018 auth).",
+  "description": "PASETO v4.public + v4.local primitives for AI Sidekicks (substrate for Plan-002 / Plan-016 auth).",
   "engines": {
     "node": ">=22.12.0"
   },
@@ -1351,7 +1351,7 @@ export interface KeyRingEntry {
 /**
  * In-memory key ring with rotation semantics.
  *
- * Phase 1 scope: no persistence, no I/O. Plan-018 Tier 5 will load entries
+ * Phase 1 scope: no persistence, no I/O. Plan-016 Tier 4 will load entries
  * from its storage backend and hand them to the constructor.
  *
  * Constructor invariants (design spec §3.3):
@@ -1426,7 +1426,7 @@ feat(crypto-paseto): add in-memory KeyRing with rotation
 KeyRing constructor enforces exactly-one-active invariant. rotate(next)
 is immutable — returns a new instance with the prior active entry's
 retiredAt set to the rotation timestamp. No persistence at this layer;
-Plan-018 Tier 5 owns the storage backend per cross-plan-deps §5.
+Plan-016 Tier 4 owns the storage backend per cross-plan-deps §5.
 
 Refs: ADR-010, Plan-025
 EOF
@@ -2164,13 +2164,13 @@ Open a new backlog item under `docs/backlog.md` with:
 
 File: `docs/architecture/cross-plan-dependencies.md` §6. Append a changelog entry noting Plan-025 Tier 1 Partial Phase 1 substrate merged with the squash-merge SHA.
 
-- [ ] **Item 4: Plan-025 Tier 7 unblock note**
+- [ ] **Item 4: Plan-025 Tier 6 unblock note**
 
-No code change; just record in §6 changelog that the Tier 7 relay-server work (Fastify, WebSocket, `/healthz`/`/readyz`/`/metrics`, rate-limiter, Docker/Caddyfile, operator runbook, Spec-027 rows) is unblocked against the substrate but explicitly out of scope for this PR.
+No code change; just record in §6 changelog that the Tier 6 relay-server work (Fastify, WebSocket, `/healthz`/`/readyz`/`/metrics`, rate-limiter, Docker/Caddyfile, operator runbook, Spec-024 rows) is unblocked against the substrate but explicitly out of scope for this PR.
 
-- [ ] **Item 5: (Optional) Plan-018 reference**
+- [ ] **Item 5: (Optional) Plan-016 reference**
 
-No change required — ADR-010:29 already declares the dependency. Plan-018 will pick up the workspace dep when its Tier 5 phase starts.
+No change required — ADR-010:29 already declares the dependency. Plan-016 will pick up the workspace dep when its Tier 4 phase starts.
 
 ---
 
@@ -2184,5 +2184,5 @@ No change required — ADR-010:29 already declares the dependency. Plan-018 will
 | Constant-time discipline in TypeScript (compiler does not enforce) | Use `equalBytes` for all MAC/signature compares; never `===` or `Buffer.compare` on secret material. Code-review checklist enforces. |
 | Supply-chain on `@noble/*` | Pinned to `^2`; `pnpm-workspace.yaml` has `minimumReleaseAge: 1440` + `blockExoticSubdeps: true`. SBOM coverage in CI. |
 | Key material in test fixtures triggers gitleaks | Allow-list scoped narrowly to `packages/crypto-paseto/src/__tests__/__fixtures__/v4.json` per Task 8 Step 4 (conditional). |
-| KeyRing persistence pre-empting Plan-018 Tier 5 | In-memory only; constructor accepts pre-loaded entries — no DB/file I/O at this layer. |
+| KeyRing persistence pre-empting Plan-016 Tier 4 | In-memory only; constructor accepts pre-loaded entries — no DB/file I/O at this layer. |
 | Test vectors might assume PASETO 2.x library behavior incompatible with noble 2.x | Tasks 9 + 10 surface mismatches as test failures; file `BL-NNN` before merge if any vector diverges. |
