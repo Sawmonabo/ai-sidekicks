@@ -14,7 +14,7 @@
 
 ## Goal
 
-Implement the replay-backed session timeline, child-run visibility, policy-aware reasoning surfaces, and composer usage meters used by the primary collaboration experience.
+Implement the replay-backed session timeline, child-run visibility, policy-aware reasoning surfaces, and composer usage meters used by the primary session experience.
 
 ## Scope
 
