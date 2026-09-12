@@ -1,22 +1,20 @@
 // What every `LeaseLine` suite needs before it asserts anything.
 //
-// The line's cases are split by responsibility — the holder projection, the claim
-// call, the transition ledger, the viewer-identity gate, and the role gate each have
-// their own module — and all five render the same component against the same cast,
-// the same session ids, and the same bridges. Those live here rather than in
-// whichever file was written first, on this package's rule that shared scaffolding
-// lives once: a second copy of `servingBridge` would be a second answer to "what
-// does a SERVED lease reply look like", and the two would drift the first time the
-// registered reply grew a member.
+// The line's cases are split by responsibility — the holding projection, the claim
+// call, the transition ledger, and the viewer-identity gate each have their own module
+// — and all four render the same component against the same session ids and the same
+// bridges. Those live here rather than in whichever file was written first, on this
+// package's rule that shared scaffolding lives once: a second copy of `servingBridge`
+// would be a second answer to "what does a SERVED lease reply look like", and the two
+// would drift the first time the registered reply grew a member.
 //
-// The wire calls run against the real bridge — the fixture's growth port, which now
-// SERVES both lease operations from the playing scenario's script. So there are two
-// refusing bridges here rather than one, and the difference is the whole of what each
-// drives: the terminal scenario scripts the contested take, so its refusal is the
-// DAEMON's and carries a holder; the flagship scripts neither call, so its refusal is
-// the fixture's own `reply-unscripted` — the port saying the scenario never answered.
-// A hand-rolled stub would let either render pass against a shape the port does not
-// produce.
+// The wire calls run against the real bridge — the fixture's growth port, which SERVES
+// both lease operations from the playing scenario's script. So there are two refusing
+// bridges here rather than one, and the difference is the whole of what each drives:
+// the terminal scenario scripts the contested take, so its refusal is the DAEMON's; the
+// flagship scripts neither call, so its refusal is the fixture's own `reply-unscripted`
+// — the port saying the scenario never answered. A hand-rolled stub would let either
+// render pass against a shape the port does not produce.
 //
 // The lease STATE is a value here, built directly rather than folded from a
 // scenario, because `lease-model.test.ts` already holds the fold to the wire and
@@ -28,7 +26,6 @@
 import { render, type RenderResult } from "@testing-library/react";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import type { CallerMembershipRoleResult } from "../../store/index.js";
 import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { TERMINAL_SCENARIO } from "../../bridge/scenario/terminal/terminal.js";
 import {
@@ -37,7 +34,6 @@ import {
   VIEWER_PARTICIPANT,
 } from "./lease-model.test-support.js";
 import { LeaseLine } from "./LeaseLine.js";
-import type { TerminalParticipantMark } from "./participant-mark.js";
 import type { TerminalViewerIdentity } from "./viewer-identity.js";
 import { UNREAD_TERMINAL_LEASE, type TerminalLeaseState } from "./lease-model.js";
 import type { TerminalLeaseTransition } from "./lease-transition.js";
@@ -75,10 +71,10 @@ export const OTHER_SESSION_ID: string = FLAGSHIP_SCENARIO.sessionId;
  * and a case can read exactly which session's answer reached the screen.
  */
 export class HeldLeaseWire {
-  /** What a daemon says when somebody else has the shell. The wire's own shape. */
+  /** What a daemon says when the shell is already held. The wire's own shape. */
   public static readonly LEASE_CONFLICT: { readonly code: string; readonly message: string } = {
     code: "terminal.lease_conflict",
-    message: "Another participant holds the shell.",
+    message: "The shell is already held.",
   };
 
   readonly #heldSessionIds: string[] = [];
@@ -185,12 +181,6 @@ export function bridgeRejectingWith(rejection: unknown): ConsoleBridge {
   };
 }
 
-export function markFor(participantId: string): TerminalParticipantMark | undefined {
-  return participantId === OTHER_PARTICIPANT
-    ? { hueStep: 3, ringTreatment: "dashed", displayName: undefined }
-    : undefined;
-}
-
 export function leaseState(overrides: Partial<TerminalLeaseState>): TerminalLeaseState {
   return { ...UNREAD_TERMINAL_LEASE, ...overrides };
 }
@@ -236,24 +226,10 @@ export const VIEWER_IDENTITY_READ: TerminalViewerIdentity = {
   participantId: VIEWER_PARTICIPANT,
 };
 
-/**
- * The role every case below renders under unless it is about the acquisition gate.
- *
- * A collaborator rather than an owner, and read: taking the shell is open to both, so
- * a case about a HOLDING renders the control it names, and the one role the gate
- * refuses is exercised where it belongs.
- */
-export const CALLER_ROLE_COLLABORATOR: CallerMembershipRoleResult = {
-  status: "read",
-  participantId: VIEWER_PARTICIPANT,
-  role: "collaborator",
-};
-
 export function renderLease(
   state: TerminalLeaseState,
   bridge: ConsoleBridge = refusingBridge(),
   viewerIdentity: TerminalViewerIdentity = VIEWER_IDENTITY_READ,
-  callerRole: CallerMembershipRoleResult = CALLER_ROLE_COLLABORATOR,
   hasSteppableRun = true,
 ): RenderResult {
   return render(
@@ -261,15 +237,13 @@ export function renderLease(
       bridge={bridge}
       sessionId={SESSION_ID}
       state={state}
-      markFor={markFor}
       viewerIdentity={viewerIdentity}
-      callerRole={callerRole}
       hasSteppableRun={hasSteppableRun}
     />,
   );
 }
 
-/** The single affordance 8.8 puts in the header, as something a test can press. */
+/** The single affordance the line puts in its header, as something a test can press. */
 export function claimControl(container: HTMLElement): HTMLButtonElement {
   const control = container.querySelector(".meridian-lease-line__claim");
   if (!(control instanceof HTMLButtonElement)) {

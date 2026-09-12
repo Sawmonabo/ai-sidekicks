@@ -82,10 +82,7 @@ export {
   POSITION_SIBLING_OBSERVER_CAP,
   RELAYED_TOOL_CALL_ROW_CAP,
 } from "./constants/browser-caps.js";
-export {
-  COMPOSING_NAMED_CAP,
-  COMPOSING_RECEIVED_STALE_MS,
-} from "./constants/collaboration-caps.js";
+export { AGENT_RUNS_NAMED_CAP } from "./constants/collaboration-caps.js";
 export {
   DIFF_FILE_LIST_SCROLL_THRESHOLD,
   DIFF_INTRALINE_CACHE_ENTRY_CAP,
@@ -182,7 +179,6 @@ export {
   WORKFLOW_CANCEL_REASON_BYTE_CAP,
 } from "./constants/workflows-caps.js";
 export {
-  CAST_BAR_CHIP_CAP,
   DECK_RESTORED_PANE_CAP,
   LOAD_PROGRESS_MAX,
   LOAD_PROGRESS_MIN,

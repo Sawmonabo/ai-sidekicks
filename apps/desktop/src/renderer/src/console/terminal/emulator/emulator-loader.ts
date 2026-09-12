@@ -1,9 +1,9 @@
 // The one edge into the emulator's code, and the only one that is asynchronous.
 //
-// WHY THIS MODULE EXISTS. `Spec-023 §Console Design (Meridian)` §Budgets bounds the
-// renderer's initial bundle "excluding lazy chunks (terminal, node graph, math,
-// diagrams, browser tools)" — so the terminal is named a LAZY chunk by the budget
-// it is measured against. `xterm-adapter.ts` pulls in `@xterm/xterm`, five addons,
+// WHY THIS MODULE EXISTS. The renderer's initial-bundle budget excludes the lazy
+// chunks — the terminal, the node graph, math, diagrams, and the browser tools — so the
+// terminal is named a LAZY chunk by the budget it is measured against.
+// `xterm-adapter.ts` pulls in `@xterm/xterm`, five addons,
 // and the library's own stylesheet; reached by a static import from a component the
 // console mounts at boot, every one of those bytes lands in the document the
 // operator waits for, whether or not a terminal is ever opened.

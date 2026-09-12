@@ -1,9 +1,8 @@
 // The question a palette prefill asks before it takes somebody's line.
 //
-// An alert dialog rather than an inline hint, on the console's own precedent
-// (`collaboration/members/RevokeConfirmation.tsx`): it traps focus, it does not
-// dismiss on an outside press, and its description states the cost of the act rather
-// than restating the act. A browser `confirm()` is not a candidate — it is a main
+// An alert dialog rather than an inline hint, on the console's own precedent for a
+// destructive confirmation: it traps focus, it does not dismiss on an outside press,
+// and its description states the cost of the act rather than restating the act. A browser `confirm()` is not a candidate — it is a main
 // process modal this console does not style, cannot test, and cannot render in an
 // auxiliary window.
 //

@@ -11,13 +11,8 @@
 // form is working around: `channel.configUpdate` is registered on no transport, and a
 // control offered against it would claim a capability the plane does not have.
 //
-// TWO ARMS, NOT A WIZARD. The kind decides which fields exist. A `general` channel
-// carries the five `ChannelConfig` members under one disclosure; a `direct` channel
-// carries a single other-human picker and none of the five, because the wire's own
-// validation couples them — a direct channel requires exactly two distinct humans and
-// refuses every agent-turn member, and a general one refuses the pair. The fields are
-// ABSENT on the direct arm rather than disabled: a disabled field says a value could
-// be set here and is being withheld, which on that arm is untrue.
+// ONE FORM AND NO ARMS. A name, and the three `ChannelConfig` members under one
+// disclosure. There is no second kind of channel to branch on.
 //
 // ONE WIRE MUTATION PER EXPLICIT ACTION. Cancel sends nothing — it is renderer-local
 // and there is nothing to withdraw — and Create sends exactly one `channel.create`,
@@ -25,10 +20,9 @@
 // reaches the coordinator's single-flight rule rather than the wire.
 //
 // WHERE EACH REFUSAL LANDS. `channel.name_reserved` marks the NAME field and names the
-// reserved word, because that is the field a person has to change; `channel.not_found`
-// on the direct arm means the person chosen is no longer a member, so it renders
-// against the PICKER. Everything else renders under the submit control, verbatim —
-// the daemon's own code and the daemon's own sentence, never a paraphrase.
+// reserved word, because that is the field a person has to change. Everything else
+// renders under the submit control, verbatim — the daemon's own code and the daemon's
+// own sentence, never a paraphrase.
 // `channel.inactive` is deliberately not handled here: nothing this form does can
 // reach an archived channel, and a branch for it would be a rendering for a refusal
 // this surface cannot provoke.
@@ -37,23 +31,13 @@ import { useCallback, useEffect, useMemo, useReducer } from "react";
 
 import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
 
-import {
-  GROWTH_CHANNEL_KINDS,
-  type ConsoleBridge,
-  type GrowthChannelCreateReceipt,
-} from "../../bridge/index.js";
+import { type ConsoleBridge, type GrowthChannelCreateReceipt } from "../../bridge/index.js";
 import { InlineRefusal, WireFigure, formatDateTime } from "../../primitives/index.js";
 import { useSessionScopedState } from "../../seats/index.js";
-import { type ChannelActivityLabels } from "../activity-model.js";
 import { WireMutationCoordinator, useWireMutation } from "../mutation-coordinator.js";
-import {
-  CHANNEL_NAME_RESERVED_CODE,
-  CHANNEL_NOT_FOUND_CODE,
-  channelCreateMutation,
-} from "./channel-writes.js";
-import { CreateChannelDraft, type CreateChannelContext } from "./create-channel-draft.js";
+import { CHANNEL_NAME_RESERVED_CODE, channelCreateMutation } from "./channel-writes.js";
+import { CreateChannelDraft } from "./create-channel-draft.js";
 import { CreateChannelPolicyFields } from "./CreateChannelPolicyFields.js";
-import { DirectChannelPicker } from "./DirectChannelPicker.js";
 
 /**
  * The one subject this form's coordinator keys on.
@@ -84,12 +68,12 @@ const CREATE_TIME_DECISIONS: readonly CreateTimeDecision[] = [
   {
     label: "Who it is for",
     consequence:
-      "A channel either includes this session's agents or it is for people only. A channel's audience is settled by the daemon at creation and never inferred from who happens to be in it.",
+      "A channel either includes this session's sidekicks or it is read by none of them. A channel's audience is settled by the daemon at creation and never inferred from what happens to be in it.",
   },
   {
     label: "How agents take turns",
     consequence:
-      "Turn policy, ordering, moderation, and the per-agent turn cap belong to the channel, not to a run inside it. A channel whose rhythm turns out wrong is replaced, not reconfigured.",
+      "Moderation and the per-agent turn cap belong to the channel, not to a run inside it. A channel whose rhythm turns out wrong is replaced, not reconfigured.",
   },
 ];
 
@@ -97,10 +81,6 @@ export interface CreateChannelProps {
   readonly bridge: ConsoleBridge;
   /** The session the channel is created in. `undefined` means nothing can be sent. */
   readonly sessionId: string | undefined;
-  /** Which participant this window is, where that has been read. One half of a pair. */
-  readonly viewerParticipantId: string | undefined;
-  readonly participantIds: readonly string[];
-  readonly labels: ChannelActivityLabels;
 }
 
 export function CreateChannel(props: CreateChannelProps): React.JSX.Element {
@@ -113,11 +93,9 @@ export function CreateChannel(props: CreateChannelProps): React.JSX.Element {
   //
   // AND IT IS HELD FOR THE SESSION, not for the mount, which is the console's one rule
   // for state addressed by a subject. A `useState` initializer keeps its draft across a
-  // re-address, and everything in that draft is about the session it was typed in: the
-  // picked participant above all, whose id means a different person — or nobody — in
-  // the session arrived at. Re-seeded DURING the render that first sees a new session,
-  // so the first committed frame there is already a clean form rather than one carrying
-  // a pair nobody in this session chose. The address field beside it in `browser/pane/`
+  // re-address, and everything in that draft is about the session it was typed in.
+  // Re-seeded DURING the render that first sees a new session, so the first committed
+  // frame there is already a clean form. The address field beside it in `browser/pane/`
   // is the same rule with the same reasoning.
   const { value: draft } = useSessionScopedState(bridge, sessionId, () => new CreateChannelDraft());
   const [, noteDraftEdited] = useReducer((edits: number) => edits + 1, 0);
@@ -145,31 +123,16 @@ export function CreateChannel(props: CreateChannelProps): React.JSX.Element {
     };
   }, [createCoordinator]);
 
-  // Composed once per render and handed to both asks, so what the control is enabled
-  // by and what the press composes are measured against ONE reading of who is still in
-  // this session. Two readings taken a line apart would be the same value today and the
-  // seam a later refresh lands in.
-  const context: CreateChannelContext = useMemo(
-    () => ({
-      sessionId,
-      viewerParticipantId: props.viewerParticipantId,
-      liveParticipantIds: props.participantIds,
-    }),
-    [sessionId, props.viewerParticipantId, props.participantIds],
-  );
-  const readiness = draft.readiness(context);
+  const readiness = draft.readiness(sessionId);
   const isCreating = create.pendingKey !== undefined;
   const refusal = create.refusalByKey[CREATE_SUBJECT_KEY];
   const nameRefusal = refusal?.code === CHANNEL_NAME_RESERVED_CODE ? refusal : undefined;
-  const pickerRefusal = refusal?.code === CHANNEL_NOT_FOUND_CODE ? refusal : undefined;
-  const otherRefusal =
-    nameRefusal === undefined && pickerRefusal === undefined ? refusal : undefined;
+  const otherRefusal = nameRefusal === undefined ? refusal : undefined;
 
   const submit = useCallback(() => {
-    // Asked AGAIN at the press rather than closing over the render's answer: the live
-    // participant set moves without this form being touched, so the reading that
-    // enabled the control is not evidence about the moment it was pressed.
-    const ready = draft.readiness(context);
+    // Asked AGAIN at the press rather than closing over the render's answer, so the
+    // request that is sent is composed from the draft as it stands at the press.
+    const ready = draft.readiness(sessionId);
     if (ready.status !== "ready") {
       return;
     }
@@ -188,7 +151,7 @@ export function CreateChannel(props: CreateChannelProps): React.JSX.Element {
       publishReceipt(settlement);
       draft.resetIfUnchangedSince(submitted);
     });
-  }, [context, createCoordinator, draft, publishReceipt]);
+  }, [sessionId, createCoordinator, draft, publishReceipt]);
 
   return (
     <section className="meridian-create-channel" aria-label="Creating a channel">
@@ -228,37 +191,7 @@ export function CreateChannel(props: CreateChannelProps): React.JSX.Element {
         )}
       </label>
 
-      <div
-        className="meridian-create-channel__kinds"
-        role="group"
-        aria-label="What kind of channel"
-      >
-        {GROWTH_CHANNEL_KINDS.map((kind) => (
-          <button
-            key={kind}
-            type="button"
-            className="meridian-create-channel__kind"
-            aria-pressed={draft.kind === kind}
-            onClick={() => {
-              draft.setKind(kind);
-            }}
-          >
-            {KIND_LABEL[kind]}
-          </button>
-        ))}
-      </div>
-
-      {draft.kind === "direct" ? (
-        <DirectChannelPicker
-          draft={draft}
-          participantIds={props.participantIds}
-          viewerParticipantId={props.viewerParticipantId}
-          labels={props.labels}
-          refusal={pickerRefusal}
-        />
-      ) : (
-        <CreateChannelPolicyFields draft={draft} />
-      )}
+      <CreateChannelPolicyFields draft={draft} />
 
       {readiness.status === "incomplete" && readiness.missing.length > 0 ? (
         <p className="meridian-create-channel__incomplete">
@@ -301,9 +234,3 @@ export function CreateChannel(props: CreateChannelProps): React.JSX.Element {
     </section>
   );
 }
-
-/** How each kind reads on its control. Total over the closed two. */
-const KIND_LABEL: Readonly<Record<string, string>> = {
-  general: "A named channel",
-  direct: "Between two people",
-};

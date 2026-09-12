@@ -48,7 +48,6 @@ describe("refusal extensions — the registry is the set, and it is closed", () 
     // to a closed set rather than a silent change to what survives a rebuild.
     expect([...CONSOLE_REFUSAL_EXTENSION_MEMBERS].sort()).toStrictEqual([
       "failedBindingIds",
-      "holderParticipantId",
       "operationId",
       "owningDocument",
       "referencingArtifacts",

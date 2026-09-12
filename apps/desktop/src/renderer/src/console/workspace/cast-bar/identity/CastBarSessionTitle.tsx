@@ -1,9 +1,8 @@
 // The display title a session read carried, where it carried one.
 //
-// Its own module for the one-component rule, and it earns one: what a nameless
-// session renders is a decision `Spec-023 §Console Design (Meridian)` states — "by
-// its identifier and participants, never by an invented title" — and this is where
-// that sentence is obeyed rather than a fragment of the header's arrangement.
+// Its own module for the one-component rule, and it earns one: a nameless session is
+// rendered by its identifier and never by an invented title, and this is where that
+// rule is obeyed rather than a fragment of the header's arrangement.
 //
 // WHY THE TITLE IS LABELLED AS METADATA. No registered session shape carries a
 // first-class name field — `SessionSnapshot` is `id`, `state`, `config`, `metadata`,

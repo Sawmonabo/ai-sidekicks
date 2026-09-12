@@ -12,9 +12,9 @@
 // scenario is not playing takes a refusal too rather than this session's readings,
 // because activity is a fact about ONE session's Awareness room and lending another's
 // would be a fabrication the indicators would render as confidently as a reading. An
-// EMPTY reading is neither: a scenario that states a frame with both lists empty has
+// EMPTY reading is neither: a scenario that states a frame with an empty list has
 // been asked and answered, and the indicators render nothing — which is their
-// ordinary state and the one `TypingActivity` returns `null` for.
+// ordinary state.
 //
 // THE TWO REFUSALS CARRY DIFFERENT CODES, AND THAT IS THE POINT. A scenario that
 // declares no frames has a gap in the SCRIPT — this fixture stands in for the wire

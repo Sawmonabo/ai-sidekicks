@@ -6,9 +6,8 @@
 // seam is clean because nothing here is part of the report: a block is derived from a
 // state and from a method name, and the state module knows about neither.
 //
-// `Spec-023 §Daemon Supervision Lifecycle` step 3 is the rule underneath both halves:
-// mutating operations are blocked while the supervisor is not serving, and read-only
-// subscriptions continue.
+// The rule underneath both halves: mutating operations are blocked while the
+// supervisor is not serving, and read-only subscriptions continue.
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import type { FrameStore } from "./frame-store.js";
@@ -17,8 +16,8 @@ import type { ShellState } from "./shell-state.js";
 /**
  * The daemon methods this console treats as mutating, and no others.
  *
- * `Spec-023 §Daemon Supervision Lifecycle` step 3 blocks mutating operations and
- * permits read-only subscriptions, and the classification is a registration's own
+ * Mutating operations are blocked while the supervisor is not serving and read-only
+ * subscriptions are permitted, and the classification is a registration's own
  * `mutating` flag rather than a judgement made here.
  *
  * WHICH REGISTRATION, THOUGH — AND THE FIRST ANSWER WAS THE WRONG INSTRUMENT. This
@@ -33,8 +32,8 @@ import type { ShellState } from "./shell-state.js";
  * the probe is one of them, and a re-check dispatched through a stopped supervisor is
  * a write this window had no business putting.
  *
- * So the authority is the CORPUS registration — `api-payload-contracts.md`, per
- * namespace — of which the shipped handlers are the subset that has landed.
+ * So the authority is the registered method contract, per namespace, of which the
+ * shipped handlers are the subset that has landed.
  * Review holds the tuple to that subset in the one direction a check can support: every
  * shipped `mutating: true` registration is named here, and nothing named here is shipped
  * `mutating: false`. What that cannot answer — a corpus-registered verb whose
@@ -42,9 +41,8 @@ import type { ShellState } from "./shell-state.js";
  *
  * AND A VERB THE DAEMON PROXIES IS STILL THIS CONSOLE'S WRITE. `session.join` reaches
  * the control plane THROUGH the daemon rather than terminating in it, and a durable
- * act is no less durable for having been forwarded — the roster it changes is the
- * session's, which is why `bridge/daemon/daemon-reply-registry.ts` binds it as a
- * record.
+ * act is no less durable for having been forwarded, which is why
+ * `bridge/daemon/daemon-reply-registry.ts` binds it as a record.
  *
  * The table stays a closed tuple so "exactly these and no others" is countable, and so
  * an added mutating verb is a deliberate edit here rather than a control that silently

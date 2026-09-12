@@ -36,7 +36,7 @@ import { type ConsoleRefusal } from "../../core/index.js";
 import { type ApprovalRecord, type SessionGoalProjection } from "../../bridge/index.js";
 import { type ApprovalResolveRequest } from "./approvals-wire.js";
 import { isApprovalAnswerable } from "./approval-offer.js";
-import { canClearSessionGoal } from "./goal/goal-authorization.js";
+import { canClearSessionGoal } from "./goal/goal-clear-eligibility.js";
 
 /** The owner these rows are contributed under. One per family, one live at a time. */
 export const APPROVAL_COMMAND_OWNER = "approvals-family";
@@ -76,8 +76,6 @@ export interface ApprovalCommandInput {
   readonly resolveRefusalByApprovalId: ReadonlyMap<string, ConsoleRefusal>;
   readonly resolve: (request: ApprovalResolveRequest) => void;
   readonly goal: SessionGoalProjection;
-  /** Whether this window's role may mutate the goal, as the card resolved it. */
-  readonly canMutateGoal: boolean;
   /** Whether a goal mutation is already settling. One at a time, never queued. */
   readonly isMutatingGoal: boolean;
   readonly clearGoal: () => void;
@@ -140,7 +138,7 @@ export function approvalCommandRows(input: ApprovalCommandInput): readonly Appro
         : "Reject the pending request",
     });
   }
-  if (canClearSessionGoal(input.goal, input.canMutateGoal, input.isMutatingGoal)) {
+  if (canClearSessionGoal(input.goal, input.isMutatingGoal)) {
     rows.push({ kind: "clear-goal", record: undefined, title: "Clear the session goal" });
   }
   return rows;
@@ -156,7 +154,7 @@ export function approvalCommandRows(input: ApprovalCommandInput): readonly Appro
  */
 export function performApprovalCommand(row: ApprovalCommandRow, input: ApprovalCommandInput): void {
   if (row.kind === "clear-goal") {
-    if (canClearSessionGoal(input.goal, input.canMutateGoal, input.isMutatingGoal)) {
+    if (canClearSessionGoal(input.goal, input.isMutatingGoal)) {
       input.clearGoal();
     }
     return;

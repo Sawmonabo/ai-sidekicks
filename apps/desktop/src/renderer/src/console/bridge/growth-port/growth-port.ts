@@ -278,13 +278,10 @@ export function createRefusingGrowthPort(): GrowthPort {
     channelMute: async () => growthUnavailable("channelMute"),
     channelUnmute: async () => growthUnavailable("channelUnmute"),
     channelArchive: async () => growthUnavailable("channelArchive"),
-    channelRosterRead: async () => growthUnavailable("channelRosterRead"),
     participantPresenceDetailRead: async () => growthUnavailable("participantPresenceDetailRead"),
     terminalControlHolderRead: async () => growthUnavailable("terminalControlHolderRead"),
-    // presence — the two Awareness activity fields
+    // presence — the run-keyed Awareness activity field
     presenceActivityRead: async () => growthUnavailable("presenceActivityRead"),
-    presenceComposingSet: async () => growthUnavailable("presenceComposingSet"),
-    presenceComposingClear: async () => growthUnavailable("presenceComposingClear"),
     // the shell
     shellNotificationPermissionRead: async () =>
       growthUnavailable("shellNotificationPermissionRead"),

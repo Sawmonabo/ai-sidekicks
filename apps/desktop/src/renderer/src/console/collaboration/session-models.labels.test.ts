@@ -89,14 +89,3 @@ describe("sessionProjectionLabels — the three ways the join is empty", () => {
     expect(labels.runLabel(RUN_ID)).toBe(RUN_ID);
   });
 });
-
-describe("sessionProjectionLabels — the participant label", () => {
-  it("names the participant the log named, and the id where it named none", () => {
-    const labels = sessionProjectionLabels(
-      storeHolding([{ kind: "participant", id: "participant-priya", body: { name: "Priya" } }]),
-    );
-
-    expect(labels.participantLabel("participant-priya")).toBe("Priya");
-    expect(labels.participantLabel("participant-tomas")).toBe("participant-tomas");
-  });
-});

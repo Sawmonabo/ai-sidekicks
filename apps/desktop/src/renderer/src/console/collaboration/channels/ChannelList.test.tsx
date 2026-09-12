@@ -34,22 +34,12 @@ describe("channel list — the rows", () => {
   });
 
   it("wears an unnamed channel's own identifier, because that is what it has", async () => {
-    // `name` is optional on the wire and its omission is the signal for a channel with
-    // no friendly label — a `direct` one, in practice. The row shows the id rather
-    // than a blank, because a row with no label is a row nobody can name.
+    // `name` is optional on the wire, and the row shows the id rather than a blank:
+    // a row with no label is a row nobody can name.
     const { container } = await renderChannelListSettled(
       loaded([channel(CHANNEL_RELAY, "active")]),
     );
     expect(container.querySelector(".meridian-channel-row__name")?.textContent).toBe(CHANNEL_RELAY);
-  });
-
-  it("keeps the member count one hover away rather than beside the name", async () => {
-    // Three figures of equal weight is a row nobody scans. Name, audience and state
-    // decide whether a person opens it; the count is on the row's own control.
-    const { container } = await renderChannelListSettled(loaded([mainChannel()]));
-    const open = container.querySelector<HTMLButtonElement>(".meridian-channel-row__open");
-    expect(open?.title).toBe("4 members");
-    expect(open?.textContent ?? "").not.toContain("4 members");
   });
 
   it("collapses archived channels behind one closed disclosure", async () => {
@@ -168,10 +158,10 @@ describe("channel list — what it offers", () => {
     expect(archivedControls).toStrictEqual(["meridian-channel-row__open"]);
   });
 
-  it("offers no pause-channel, no mute-participant, and no configuration-update control", async () => {
-    // None of the three has a verb anywhere in the corpus: `channel.pause` and a
-    // per-channel participant mute do not exist, and every `ChannelConfig` member is
-    // fixed at creation, which is what the panel below says out loud.
+  it("offers neither a pause-channel nor a configuration-update control", async () => {
+    // Neither has a verb anywhere in the corpus: `channel.pause` does not exist, and
+    // every `ChannelConfig` member is fixed at creation, which is what the panel below
+    // says out loud.
     const { container } = await renderChannelListSettled(
       loaded([mainChannel(), channel(CHANNEL_RELAY, "muted", "relay")]),
     );
@@ -180,7 +170,6 @@ describe("channel list — what it offers", () => {
       .join(" ")
       .toLowerCase();
     expect(controlText).not.toContain("pause");
-    expect(controlText).not.toContain("mute participant");
     expect(controlText).not.toContain("edit");
     expect(controlText).not.toContain("settings");
   });
@@ -219,9 +208,8 @@ describe("channel list — the absences", () => {
   });
 
   it("offers a way back into a stream that refused to open", async () => {
-    // A refused subscribe is terminal for the read, exactly as it is for the roster
-    // beside it: nothing re-runs the effect that opened it, so a column with no
-    // control is a directory a person cannot get back.
+    // A refused subscribe is terminal for the read: nothing re-runs the effect that
+    // opened it, so a column with no control is a directory a person cannot get back.
     let reopenCount = 0;
     const { container } = await renderChannelListSettled(
       { kind: "failed", refusal: refuse("daemon", "ratelimit.exceeded", "Too many streams.") },

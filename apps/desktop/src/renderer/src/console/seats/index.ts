@@ -246,15 +246,6 @@ export {
 export { PENDING_PANE_BODY_ATTRIBUTE, reservedBodyRegion } from "./pane/pending-pane-body.js";
 export { LoadedLazyBody, type LazyBodyLoader } from "./lazy-body/lazy-body.js";
 
-export {
-  actorFollowHandler,
-  registerActorFollowHandler,
-  unregisterActorFollowHandler,
-  type ActorFollowHandler,
-  type ActorFollowOutcome,
-  type ActorFollowRequest,
-} from "./slots/actor-follow-seat.js";
-
 // The floor seat — the deck's half of "Step in", filled by the family that owns the
 // deck and called by the family that owns the run controls. The release call is on the
 // door and the composer seat's is not, because this handler closes over one live deck
@@ -315,12 +306,6 @@ export {
   type SidebarRowDragBinder,
   type SidebarRowDragTarget,
 } from "./slots/sidebar-sections.js";
-
-// The window's one overlay body, read by the frame. `registerWindowOverlaySeat` and
-// `unregisterWindowOverlaySeat` are deliberately absent: their only reader is this
-// directory's own suite, and a door line no production module reads is what
-// `apps/desktop/AGENTS.md` §Module shape rejects.
-export { sessionOpenerFor, windowOverlayRenderer } from "./slots/window-overlay-seat.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */
@@ -503,13 +488,12 @@ export {
 export { useGrowthReadOnMount } from "./read/growth-read.js";
 
 // Which participant this window is, composed once for the four sibling view families
-// that ask it. The read lives on the growth port and the roster chaining lives in the
+// that ask it. The read lives on the growth port and the holding rule lives in the
 // store, and neither family may reach the other — so the adapter between them was
 // written out at three composition roots and the narrowing at six. Here it is one
-// module: the identity alone for a surface that only needs to know who is looking,
-// the identity chained to the session roster for one that gates a control on the
-// caller's role, and the served-or-refused narrowing for a reader holding its own
-// outcome.
+// module: the identity against a session id for a surface that holds no store, the
+// identity against a session STORE for one that renders it beside that store's own
+// rows, and the served-or-refused narrowing for a reader holding its own outcome.
 // IN `identity/` AND NOT BESIDE THE OTHER SEATS. The seam is the subject rather than
 // a count of what the root will hold: `terminal/lease/viewer-identity.ts` still
 // holds its own effect for the same question and folds in here, which is what makes
@@ -521,13 +505,9 @@ export { useGrowthReadOnMount } from "./read/growth-read.js";
 // The port's own reply shape rides along, because the question has ONE composition and
 // a family that holds its own reading of it must name that reading's inner type rather
 // than re-deriving the reply beside it — which is how two names for one shape appear.
-// `CallerParticipantIdentity` stays off: every reader of the hook narrows on `status`
-// and annotates nothing, so a specifier for it would be a dead export.
 export {
   CALLER_PARTICIPANT_ORIGIN,
   callerParticipantIdentityFrom,
-  useCallerMembershipRoleFor,
-  useCallerParticipantIdentity,
   type CallerParticipantOutcome,
 } from "./identity/caller-participant.js";
 

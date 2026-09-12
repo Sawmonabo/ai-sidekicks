@@ -24,7 +24,7 @@
 // screen costs one more entry in a set the predicate scans; a modal in no airspace
 // costs a native view painted over it.
 //
-// NON-MODAL FAMILIES DO NOT COME HERE. A menu, a select, a combobox, and a tooltip
+// NON-MODAL FAMILIES DO NOT COME HERE. A menu, a select, and a combobox
 // are anchored boxes that cover what they cover, and a popup that claimed the whole
 // window would suppress every native view in it for the length of a menu press.
 

@@ -1,46 +1,36 @@
-// What the fixture answers for the channel plane, the membership plane, and the one
-// session-scoped fact the roster renders beside them.
+// What the fixture answers for the channel plane, and the one session-scoped fact the
+// console renders beside it.
 //
 // A module of its own rather than a block inside `growth/growth-port.ts`, on
-// `workflows/workflow-reads.ts`'s rule: these eight operations share one disposition
+// `workflows/workflow-reads.ts`'s rule: these six operations share one disposition
 // and one reason for it, and the port would carry both twice over if they lived inline.
 //
 // EVERY ONE OF THEM REFUSES WHERE THE SCENARIO SCRIPTS NOTHING, and that is the
 // finding rather than an omission. The served set's own rule admits an empty answer
 // only where "there is none" is a state a session can really be in, and none of these
-// eight is:
+// six is:
 //
-//   • The CHANNEL ROSTER is not the directory. Every session has at least the
-//     bootstrap channel — `channel.list` serves it from the session's own membership
-//     count — so an empty roster would assert that a caller may see no channel at
-//     all, which contradicts the reply the surface reads beside it. A row this read
-//     did not name is a channel whose audience nobody asked after, and the directory
-//     draws exactly that: the row, without a badge.
-//   • The MEMBERSHIP ROSTER is the same claim about people. A session always has the
-//     membership that admitted its own opener, so a reply naming none is not an empty
-//     session but an unasked question, and the ledger renders the controls that need
-//     an identifier as unreachable rather than as forbidden.
 //   • The PRESENCE DETAIL is addressed by a SUBJECT. "This participant is on no
 //     device" is a claim about a named person, and inventing it for a person nobody
 //     asked after is the invention the script-only rule exists to stop — the more so
 //     because the aggregate beside it says they are online.
 //   • The FOUR LIFECYCLE VERBS are writes. There is no such thing as the archival
 //     that happened and produced nothing.
-//   • The TERMINAL-CONTROL HOLDER is the closest call of the eight, because `null` is
+//   • The TERMINAL-CONTROL HOLDER is the closest call of the six, because `null` is
 //     a value the registered member really takes — nobody holds the lease, or the
 //     holding node reads offline. It is still not the unscripted answer: `null` is a
 //     CLAIM that the lease is free, the surface is required to draw that state
 //     distinctly from every other, and a fixture that made it the default would put
 //     the claim on screen in every scenario that never mentioned the terminal.
 //
-// So all eight are declared script-only in `call-plane/script-only-operations.ts`,
+// So all six are declared script-only in `call-plane/script-only-operations.ts`,
 // and the sweep in
 // `growth/growth-port.test.ts` holds each to the `reply-unscripted` refusal rather
 // than to the `wire-unregistered` one a build with no stand-in would take.
 //
 // AND EVERY ONE OF THEM THAT CARRIES A SESSION IS SCOPED TO THE ONE BEING PLAYED
-// before its script is consulted at all. That is five of the eight; `namesPlayedSession`
-// below states the guard and why it is one guard rather than five.
+// before its script is consulted at all. That is three of the six; `namesPlayedSession`
+// below states the guard and why it is one guard rather than three.
 //
 // AND ALL FOUR WRITES DO A SECOND THING, which is why they are the one group here that
 // is not a bare call to the scripted-write seam. A served create, mute, unmute or
@@ -67,7 +57,6 @@ import type { ScenarioEngine } from "../../scenario/runtime/index.js";
  * the set — or named in the set and never implemented — is a compile error.
  */
 export const FIXTURE_SERVED_COLLABORATION_OPERATION_IDS: readonly [
-  "channelRosterRead",
   "channelCreate",
   "channelMute",
   "channelUnmute",
@@ -75,7 +64,6 @@ export const FIXTURE_SERVED_COLLABORATION_OPERATION_IDS: readonly [
   "participantPresenceDetailRead",
   "terminalControlHolderRead",
 ] = [
-  "channelRosterRead",
   "channelCreate",
   "channelMute",
   "channelUnmute",
@@ -114,14 +102,8 @@ export function fixtureCollaborationReads(
   channelLifecycle: FixtureChannelLifecycle,
 ): Pick<GrowthPort, FixtureServedCollaborationOperationId> {
   return {
-    // The three facts `channel.list` has never carried, per channel the caller may
-    // see. The REQUEST travels with the call as it does for every entity-scoped read
-    // here: this one is session-scoped, and a scenario answering it still reads which
-    // session was asked about rather than answering every session with one roster.
-    channelRosterRead: async (request) =>
-      await answerSessionScopedRead(engine, "channel.rosterRead", "channelRosterRead", request),
     // The CREATE is scoped here and answered there. The scoping is this module's
-    // because it is the same guard the four reads take; the act — the receipt, and the
+    // because it is the same guard the two reads take; the act — the receipt, and the
     // `channel.created` frame that tells the session about it — belongs beside the
     // three moves, which is also what keeps the guard out of a module this one
     // imports.
@@ -155,12 +137,12 @@ export function fixtureCollaborationReads(
 /**
  * Whether a request names the session this scenario is playing.
  *
- * ONE GUARD FOR THE FIVE ANSWERS THAT CARRY A SESSION, and the reason it is one rather
- * than five is that the mistake it prevents is one mistake. `answerFromScriptedReply`
+ * ONE GUARD FOR THE THREE ANSWERS THAT CARRY A SESSION, and the reason it is one rather
+ * than three is that the mistake it prevents is one mistake. `answerFromScriptedReply`
  * validates nothing about the request — a scripted reply that is flat is served to
  * whoever asks — so every handler here answered for ANY session id, and an experiment
- * addressed to one session could read another's channels, people, devices and lease,
- * or create a channel in it. Worse than the fabrication itself: a subject-scoping
+ * addressed to one session could read another's devices and lease, or create a channel
+ * in it. Worse than the fabrication itself: a subject-scoping
  * regression on any surface above would look identical to the fixture working, because
  * the wrong session still got a full answer.
  *
@@ -170,7 +152,7 @@ export function fixtureCollaborationReads(
  *
  * `callerParticipantRead` next door already reads its request this way, and the
  * REFUSAL is the one difference between the two. That read's wire is unregistered on
- * this build, so it takes the unregistered refusal the live bridge takes; these eight
+ * this build, so it takes the unregistered refusal the live bridge takes; these six
  * are SERVED, so a wrong-session request takes the scenario's own `reply-unscripted` —
  * this room scripts no answer about that session, and naming an unregistered wire
  * would send a reader to a document owing something the fixture already stands in for.
@@ -185,8 +167,8 @@ function namesPlayedSession(
 /**
  * One session-scoped READ: scoped, then answered from the script, then refused by name.
  *
- * The four reads differ only in which call they consult and which operation they
- * answer for, so they compose here rather than four times over — and the guard, the
+ * The two reads differ only in which call they consult and which operation they
+ * answer for, so they compose here rather than twice over — and the guard, the
  * scripted seam and the unscripted refusal stay in one order that no handler can get
  * half right.
  */

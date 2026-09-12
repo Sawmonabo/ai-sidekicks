@@ -1,15 +1,15 @@
-// What both cast-bar suites build: a store standing in for a session, the two beats
-// that name a person and an agent, and the mount that hands back the bar element.
+// What the session-header suites build: a store standing in for a session, and the
+// mount that hands back the header element.
 //
-// One module rather than a copy in each, because the two suites assert against the
-// SAME bar — one about the names it renders, the other about the absences it must not
-// dress up — and two spellings of "a session with these members in it" would let one
-// file pass against a bar the other never builds.
+// One module rather than a copy in each, because the suites assert against the SAME
+// header — one about the readings it renders, the others about the absences it must not
+// dress up — and two spellings of "a session in this state" would let one file pass
+// against a header the others never build.
 
 import { render } from "@testing-library/react";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
-import { PARTICIPANT_PRIYA } from "../../bridge/scenario/flagship/flagship-cast.js";
+import { PARTICIPANT_YOU } from "../../bridge/scenario/flagship/flagship-cast.js";
 import { SessionStore, type ConsoleEntity } from "../../store/index.js";
 import type { ConsoleScenario } from "../../bridge/scenario/runtime/index.js";
 
@@ -19,7 +19,7 @@ export interface TimelineRow {
   readonly sequence: number;
   readonly kind: string;
   readonly actorId: string;
-  /** The event's own payload — where every label and every correlation id lives. */
+  /** The event's own payload — where every correlation id lives. */
   readonly payload?: Readonly<Record<string, unknown>>;
 }
 
@@ -41,7 +41,6 @@ export interface StoreWithOptions {
 }
 
 export function storeWith(
-  participantIds: readonly string[],
   timeline: readonly TimelineRow[] = [],
   options: StoreWithOptions = {},
 ): SessionStore {
@@ -52,7 +51,7 @@ export function storeWith(
   store.initialise({
     cursor: timeline.length,
     entities: options.entities ?? [],
-    participantJoinLog: participantIds,
+    participantJoinLog: [PARTICIPANT_YOU],
     ...(options.readFromCursor === undefined ? {} : { readFromCursor: options.readFromCursor }),
     timeline: timeline.map((row) => ({
       id: `event-${String(row.sequence)}`,
@@ -67,65 +66,31 @@ export function storeWith(
   return store;
 }
 
-/** The membership beat that names a person, in the shape the wire registers. */
-export function admittedMember(
-  sequence: number,
-  participantId: string,
-  handle: string,
-): TimelineRow {
-  return {
-    sequence,
-    kind: "membership.created",
-    actorId: participantId,
-    payload: {
-      membershipId: `membership-${String(sequence)}`,
-      participantId,
-      role: "collaborator",
-      identityHandle: handle,
-    },
-  };
-}
-
 /**
- * The attach beat that names an agent.
+ * A scenario that answers none of the header's three reads.
  *
- * Its actor is the person who attached the agent and never the agent — which is why
- * the name has to be read off the payload's `agentId` rather than off the envelope.
- */
-export function attachedAgent(sequence: number, agentId: string, name: string): TimelineRow {
-  return {
-    sequence,
-    kind: "agent.attached",
-    actorId: "participant-you",
-    payload: { sessionId: SESSION_ID, agentId, name, state: "ready", actor: "participant-you" },
-  };
-}
-
-/**
- * A scenario that answers none of the bar's three reads.
- *
- * The bar puts an identity read, a health read and a spend read the moment it mounts,
+ * The header puts an identity read, a health read and a spend read the moment it mounts,
  * so every case here renders inside a bridge whether it is about those reads or not.
  * This is the one that keeps the other cases about what they are about: it scripts no
  * reply at all, so all three refuse, and a case that says nothing about a reading gets
- * a bar whose readings are all honestly absent rather than one carrying a figure some
+ * a header whose readings are all honestly absent rather than one carrying a figure some
  * other suite's scenario happened to declare.
  *
  * `CastBar.readings.test.tsx` is where a scenario that DOES answer them lives.
  */
 export const CAST_BAR_SILENT_SCENARIO: ConsoleScenario = {
   id: "cast-bar-silent",
-  label: "Cast bar, nothing read",
+  label: "Session header, nothing read",
   purpose: "A session whose identity, health and spend reads all refuse.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: [PARTICIPANT_PRIYA],
+  participantIdsInJoinOrder: [PARTICIPANT_YOU],
   startedAtIso: "2026-01-01T14:20:00.000Z",
   beats: [],
   replies: [],
 };
 
 export interface RenderBarOptions {
-  /** Which scenario the bar's reads are answered from. Silent by default. */
+  /** Which scenario the header's reads are answered from. Silent by default. */
   readonly scenario?: ConsoleScenario;
 }
 
@@ -138,7 +103,7 @@ export function renderBar(element: React.JSX.Element, options: RenderBarOptions 
   );
   const bar = container.querySelector(".meridian-cast-bar");
   if (!(bar instanceof HTMLElement)) {
-    throw new Error("CastBar rendered no bar element");
+    throw new Error("CastBar rendered no header element");
   }
   return bar;
 }

@@ -41,7 +41,7 @@ import { createFixtureAuxiliaryWindowPort, readFixtureShell } from "../shell/aux
 import { resolveScriptedReply, assertScriptedReplyOnContract } from "./call-door.js";
 import { FixtureChannelLifecycle } from "../collaboration/channel-lifecycle.js";
 import { createFixtureGrowthPort } from "../growth/growth-port.js";
-import { createSettledCallFolds } from "./settled-call-folds.js";
+import { SETTLED_CALL_FOLDS } from "./settled-call-folds.js";
 import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./served-operations.js";
 import { refuseAbsentCapability } from "./refusal.js";
 import { playScenarioTransportOutages } from "./transport-outages.js";
@@ -83,13 +83,10 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
   // One host per bridge, because the assertion sequence is per WINDOW: see its own
   // declaration for why the count lives here and not on the scenario.
   const ceremonyHost = new ScriptedCeremonyRunner(scenarioEngine);
-  // ONE CHANNEL LIFECYCLE PER BRIDGE, and it is composed here because two doors read
-  // it: the growth port answers the four acts through it, and the call door's
-  // `channel.list` fold reads the membership each create recorded. Built inside either
-  // one, the other would be answering from a second fixture's memory of this session's
-  // channels.
+  // ONE CHANNEL LIFECYCLE PER BRIDGE, composed here rather than inside the growth port
+  // so that a second door needing it later takes this instance rather than building a
+  // second fixture's memory of this session's channels.
   const channelLifecycle = new FixtureChannelLifecycle(scenarioEngine);
-  const settledCallFolds = createSettledCallFolds(channelLifecycle);
   const updaterState: UpdateState = options.scenario.updaterState ?? { status: "idle" };
   // Read ONCE and handed to both the namespace and the port below, so a fixture
   // window cannot be on the shell arm for one and the no-shell arm for the other.
@@ -107,7 +104,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
       ): Promise<DaemonResult<MethodName>> =>
         assertScriptedReplyOnContract(
           method,
-          await resolveScriptedReply(scenarioEngine, method, params, settledCallFolds),
+          await resolveScriptedReply(scenarioEngine, method, params, SETTLED_CALL_FOLDS),
         ) as DaemonResult<MethodName>,
       subscribe: <EventName extends DaemonEvent>(
         event: EventName,
@@ -126,7 +123,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
           scenarioEngine,
           procedure,
           input,
-          settledCallFolds,
+          SETTLED_CALL_FOLDS,
         )) as CpOutput<ProcedureName>,
       subscribeRelay: (sessionId, handler): Unsubscribe =>
         subscribeToScenarioRelay(scenarioEngine, sessionId, handler),

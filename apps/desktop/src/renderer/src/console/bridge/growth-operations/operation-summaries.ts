@@ -263,15 +263,9 @@ export const GROWTH_OPERATION_SUMMARIES: Readonly<Record<GrowthOperationId, stri
     "return a muted channel to the ordinary attention weight, the one lifecycle move that is reversible",
   channelArchive:
     "retire a channel terminally, so the directory can sink it below the live rows and stop offering it as somewhere to work",
-  channelRosterRead:
-    "read each channel's kind, its member pair where it has one, and the configuration whose audience says whether this session's agents read it — the three facts a directory needs to badge a row and to label a direct channel by the other human in it",
   // presence.ts
   presenceActivityRead:
-    "read the session's live activity state — who is composing where, and which runs are working where — so the indicators beside a channel and a roster row have a producer at all",
-  presenceComposingSet:
-    "say that this participant is composing in one channel, so the indicator the console renders for everyone else has a sender on this machine too",
-  presenceComposingClear:
-    "say that this participant has stopped, so a reader's indicator ends on a signal rather than on the receiver's stale bound",
+    "read the session's live activity state — which runs are working where — so the indicators beside a channel have a producer at all",
   // run-records.ts
   runRecordInterventionHistoryRead:
     "read every durable intervention raised against one run — its origin discriminator, the admitting principal on the participant arm, the queue item it admitted, and the decrypted directive where the authoring participant's key still opens it",

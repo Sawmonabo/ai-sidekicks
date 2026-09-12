@@ -54,7 +54,7 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "terminalReleaseWriteLease",
   "workspaceExecutionContextRead",
   ...FIXTURE_SERVED_COLLABORATION_OPERATION_IDS,
-  // It has no honest empty answer: "Nobody is composing anywhere" is a claim about
+  // It has no honest empty answer: "No run is working anywhere" is a claim about
   // the room that nothing checked.
   "presenceActivityRead",
   "shellNotificationPermissionRead",

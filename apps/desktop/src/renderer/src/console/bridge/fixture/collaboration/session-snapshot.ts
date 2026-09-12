@@ -8,61 +8,28 @@
 // session already CONTAINS at the moment a store opens on it.
 //
 // AND THAT MOMENT IS WHAT SCOPES IT. What a session contains LATER is a fold of the
-// delivered log over this base state, and it lives in `session-membership.ts`
-// beside the channel plane that reads it. The two are one reading in two halves rather
-// than two answers: that module's opening term is this module's snapshot, so a roster
-// this file derives and a roster the channel plane counts cannot disagree about who a
-// scenario declares — only about what has happened to them since.
+// delivered log over this base state, and each plane that needs one owns its own fold:
+// `channel-directory.ts` folds the four `channel.*` kinds over the scripted directory
+// reply. This file is every such fold's opening term and answers nothing about what has
+// happened since.
 //
 // WHAT THE BASE STATE HONESTLY IS
 //
-// Cursor zero, the session's roster, and the memberships that roster holds. Zero
-// rather than a position derived from the scenario's beats, because a base state
-// ahead of the stream would make the store discard every beat below it; the
-// subscription is replay-then-tail, so nothing is missed by starting at the bottom. A
-// re-read therefore lands behind an initialised store's cursor and is a silent no-op,
-// which is `SessionStore.admitsSnapshotAt`'s documented behaviour and not a defect of
-// this derivation: repairing a degraded store needs a read that carries a position,
-// and this one cannot until the wire does.
+// Cursor zero, the join log, and the scripted timeline cursors. Zero rather than a
+// position derived from the scenario's beats, because a base state ahead of the stream
+// would make the store discard every beat below it; the subscription is
+// replay-then-tail, so nothing is missed by starting at the bottom. A re-read therefore
+// lands behind an initialised store's cursor and is a silent no-op, which is
+// `SessionStore.admitsSnapshotAt`'s documented behaviour and not a defect of this
+// derivation: repairing a degraded store needs a read that carries a position, and this
+// one cannot until the wire does.
 //
-// WHY THE ROSTER IS IN THE BASE STATE AND NOT PROJECTED FROM A BEAT
-//
-// Because it is the only place it CAN be, and because it is where the daemon puts it
-// too. `SessionStore.initialise` merges a snapshot's entities into the partitions
-// directly, which is the one path into the store that needs no registered projector —
-// and the console registers none for `membership.*`: the composition root installs
-// `RUN_LIFECYCLE_PROJECTORS` and nothing else, and participant projection belongs to
-// the collaboration family, which owns those surfaces and has not landed yet. So a
-// fixture that left the roster to a beat would be waiting on a projector nobody has
-// written, and every role-gated control would render closed against a store that had
-// never held a participant.
-//
-// It is also not a liberty the snapshot was not already taking. `participantJoinLog`
-// has always carried the WHOLE roster at cursor zero, including people whose
-// `membership.created` beat has not been delivered yet — because hue allocation keys
-// on join order and a wheel allocated one member at a time would recolour the session
-// as it loaded. The join order and the roles are two facts about one roster, and this
-// carries the second on the same terms as the first.
-//
-// The day the collaboration family registers a `membership.*` projector, nothing here
-// changes and nothing here competes with it: this establishes the roster the session
-// opens with, and the projector folds the changes that arrive afterwards onto it
-// through the same merge.
-//
-// WHY ONLY A DECLARED MEMBERSHIP BECOMES A PARTICIPANT ENTITY
-//
-// A scenario's join order holds everything that gets a hue, agents included, and an
-// agent is attached rather than admitted — it holds no membership and no role. Filing
-// one under the `participant` partition would put a row in front of `membershipRoleOf`
-// that resolves to no role and reads exactly like a member whose role went unread. So
-// the members are exactly the ids `membershipRoleByParticipantId` names, and an id in
-// the join order with no entry contributes nothing rather than an empty row.
-//
-// NOTHING IS INVENTED ONTO THE ROW EITHER. A scenario states a role and nothing else,
-// so a `state: "active"` supplied by this module would be a default presented as a
-// reading, which is the one thing the fixture must not do.
-
-import type { MembershipRole } from "@ai-sidekicks/contracts";
+// IT CARRIES NO ENTITIES, AND THAT IS A READING RATHER THAN A GAP. Every partition a
+// surface reads is projected from the delivered log by a registered projector, so a
+// base state that filed rows of its own would be a second source of truth for them. The
+// one thing it does carry that no beat can supply is the JOIN LOG: hue allocation keys
+// on join order, and a wheel allocated one entry at a time would recolour the session
+// as it loaded — so the whole order is established at cursor zero, agents included.
 
 import { scriptedSessionReadMember } from "./scripted-session-read.js";
 import type { ConsoleScenario } from "../../scenario/runtime/index.js";
@@ -71,12 +38,11 @@ import type { SessionSnapshot } from "../../../store/index.js";
 /**
  * The base state one scenario establishes for one session.
  *
- * Scoped to the session the scenario is PLAYING, and the scoping is the same rule the
- * join log has always been under rather than a new one: a roster is a fact about one
- * session, and lending this session's to another would colour a stranger's rows as if
- * they were hers and hand a surface a role in a session it may not even be a member
- * of. Another id therefore reads as an empty session rather than as a refusal — the
- * read IS answered, and what it found for that session is nothing.
+ * Scoped to the session the scenario is PLAYING: a join log is a fact about one
+ * session, and lending this session's to another would colour a different session's
+ * rows off this one's wheel. Another id therefore reads as an empty session rather
+ * than as a refusal — the read IS answered, and what it found for that session is
+ * nothing.
  */
 export function fixtureSessionSnapshot(
   scenario: ConsoleScenario,
@@ -87,7 +53,7 @@ export function fixtureSessionSnapshot(
   }
   return {
     cursor: BASE_STATE_CURSOR,
-    entities: participantEntitiesOf(scenario),
+    entities: [],
     participantJoinLog: scenario.participantIdsInJoinOrder,
     // Carried UNREAD from the scenario's own reply, which is where a daemon puts it.
     // The store's resume rule owns the shape and the narrowing, so a scenario that
@@ -99,42 +65,8 @@ export function fixtureSessionSnapshot(
 }
 
 /**
- * One entity a snapshot carries, derived from the snapshot rather than named again.
- *
- * The store family publishes `SessionSnapshot` through its door and not the element
- * type, and a second declaration of that shape here would be one this module could
- * keep compiling against after the family moved it.
- */
-type SnapshotEntity = SessionSnapshot["entities"][number];
-
-/** The body a participant row carries its role on, spelled as the wire spells it. */
-type ParticipantEntityBody = Readonly<Record<"role", MembershipRole>>;
-
-/**
  * The position the fixture's read answers at. See the header for why it is the bottom
  * of the stream rather than the top. Exported for one reader: the scenario wire-truth
  * walk derives the first admissible beat position from it, so the two cannot drift.
  */
 export const BASE_STATE_CURSOR = 0;
-
-/**
- * One participant entity per declared membership, in join order.
- *
- * Ordered by the join log rather than by the role map's own key order: the partition
- * is keyed, so order changes no lookup, but it is what a reader walking the map in a
- * debugger sees — and a roster that reads in a different order from the hue wheel is
- * a discrepancy someone has to rule out before they can trust either.
- */
-function participantEntitiesOf(scenario: ConsoleScenario): readonly SnapshotEntity[] {
-  const roleByParticipantId = scenario.membershipRoleByParticipantId ?? {};
-  const entities: SnapshotEntity[] = [];
-  for (const participantId of scenario.participantIdsInJoinOrder) {
-    const role = roleByParticipantId[participantId];
-    if (role === undefined) {
-      continue;
-    }
-    const body: ParticipantEntityBody = { role };
-    entities.push({ kind: "participant", id: participantId, body });
-  }
-  return entities;
-}

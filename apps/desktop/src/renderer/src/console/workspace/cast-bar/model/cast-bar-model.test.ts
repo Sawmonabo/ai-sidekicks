@@ -1,185 +1,101 @@
-// The cast bar's derivation, and the claim that makes it honest.
+// The session header's derivation: when it may say nothing needs anybody, and how much
+// it says is waiting when something does.
 //
-// The first case is the load-bearing one: every key in the verb table is checked
-// against the contracts package's own event census. Without it this module could put
-// a verb on a chip for a kind the wire does not have, which is exactly the invented
-// verb `cast-bar-model.ts` forbids — and no rendering test would ever notice, because
-// the fixture would simply never produce that kind.
-//
-// Attention is no longer a second kind table here: it is held per lifecycle by
-// `store/session/outstanding-asks/outstanding-ask-journal.ts`, whose co-located test
-// makes the same census claim over the kinds it keys on, and read through
-// `outstanding-asks.ts`. The case below is the seam — that this derivation reads that
-// ledger rather than the newest row.
+// The all-clear's third conjunct is the one that reaches outside the log. The header
+// draws an amber mark this fold cannot see — the node's health — so the verdict is an
+// input here rather than a second derivation in the component, and the cases below are
+// what says the strip can no longer contradict itself.
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleSessionEvent } from "../../../store/index.js";
-import {
-  CAST_LABEL_SOURCE_BY_EVENT_KIND,
-  CAST_VERB_BY_EVENT_KIND,
-  castChipAccessibleName,
-} from "./cast-bar-model.js";
-import { castBarOver, castEvent, wheelFor, withRun } from "./cast-bar-model.test-support.js";
+import { deriveCastBar } from "./cast-bar-model.js";
+import { castBarOver, castEvent, ledgerOver, withRun } from "./cast-bar-model.test-support.js";
 
-const REGISTERED_EVENT_TYPES: ReadonlySet<string> = new Set<string>(
-  SESSION_EVENT_CATEGORY_BY_TYPE.keys(),
-);
+const AGENT = "agent-architect";
 
-/** The same event, carrying the payload a label is read off. */
-function withPayload(
-  base: ConsoleSessionEvent,
-  payload: Readonly<Record<string, unknown>>,
-): ConsoleSessionEvent {
-  return { ...base, payload };
-}
-
-describe("the verb vocabulary — wire truth", () => {
-  it("names only event kinds the contracts package registers", () => {
-    const unregistered = Object.keys(CAST_VERB_BY_EVENT_KIND).filter(
-      (kind) => !REGISTERED_EVENT_TYPES.has(kind),
-    );
-    expect(unregistered).toStrictEqual([]);
-  });
-
-  it("negative control: the census is a real set, and a made-up kind is not in it", () => {
-    // Without this, an empty or wrongly-imported census would make both assertions
-    // above pass over nothing at all.
-    expect(REGISTERED_EVENT_TYPES.size).toBeGreaterThan(100);
-    expect(REGISTERED_EVENT_TYPES.has("run.started")).toBe(false);
-  });
-});
-
-describe("the label vocabulary — wire truth", () => {
-  it("names only event kinds the contracts package registers", () => {
-    const unregistered = Object.keys(CAST_LABEL_SOURCE_BY_EVENT_KIND).filter(
-      (kind) => !REGISTERED_EVENT_TYPES.has(kind),
-    );
-    expect(unregistered).toStrictEqual([]);
-  });
-});
-
-describe("deriveCastBar — the name each participant was given", () => {
-  it("takes the identity handle off a membership beat's own payload", () => {
-    const wheel = wheelFor(["participant-priya"]);
-    const model = castBarOver({
-      assignments: wheel.assignments(),
-      timeline: [
-        withPayload(castEvent(1, "participant-priya", "membership.created"), {
-          participantId: "participant-priya",
-          identityHandle: "priya",
-        }),
-      ],
-      isDegraded: false,
-      isNodeUnwell: false,
-      chipCap: 8,
-    });
-    expect(model.members[0]?.label).toBe("priya");
-  });
-
-  it("keys an agent's name off the payload's agent id and never off the actor", () => {
-    // The person who attached the agent is the actor. Keying on the envelope would
-    // put the agent's name on that person's chip and leave the agent unnamed.
-    const wheel = wheelFor(["participant-you", "agent-architect"]);
-    const model = castBarOver({
-      assignments: wheel.assignments(),
-      timeline: [
-        withPayload(castEvent(1, "participant-you", "agent.attached"), {
-          agentId: "agent-architect",
-          name: "Architect",
-        }),
-      ],
-      isDegraded: false,
-      isNodeUnwell: false,
-      chipCap: 8,
-    });
-    expect(model.members[0]?.label).toBeUndefined();
-    expect(model.members[1]?.label).toBe("Architect");
-  });
-
-  it("lets a later config update rename an agent, because the fold's last writer wins", () => {
-    const wheel = wheelFor(["agent-architect"]);
-    const model = castBarOver({
-      assignments: wheel.assignments(),
-      timeline: [
-        withPayload(castEvent(1, "participant-you", "agent.attached"), {
-          agentId: "agent-architect",
-          name: "Architect",
-        }),
-        withPayload(castEvent(2, "participant-you", "agent.config_updated"), {
-          agentId: "agent-architect",
-          name: "Planner",
-        }),
-      ],
-      isDegraded: false,
-      isNodeUnwell: false,
-      chipCap: 8,
-    });
-    expect(model.members[0]?.label).toBe("Planner");
-  });
-
-  it("negative control: an unnamed participant, and an empty handle, carry no label", () => {
-    // Without this, the cases above would pass over a fold that invented a label
-    // from the id — and an empty string would blank the chip rather than leave the
-    // id on it.
-    const wheel = wheelFor(["participant-you", "participant-priya"]);
-    const model = castBarOver({
-      assignments: wheel.assignments(),
-      timeline: [
-        withPayload(castEvent(1, "participant-priya", "membership.created"), {
-          participantId: "participant-priya",
-          identityHandle: "",
-        }),
-      ],
-      isDegraded: false,
-      isNodeUnwell: false,
-      chipCap: 8,
-    });
-    expect(model.members[0]?.label).toBeUndefined();
-    expect(model.members[1]?.label).toBeUndefined();
-  });
-});
-
-describe("castChipAccessibleName — the identifier and the verb", () => {
-  it("speaks the label and the verb, which is the name the model composes", () => {
-    const wheel = wheelFor(["participant-priya"]);
-    const model = castBarOver({
-      assignments: wheel.assignments(),
-      timeline: [
-        withPayload(castEvent(1, "participant-priya", "membership.created"), {
-          participantId: "participant-priya",
-          identityHandle: "priya",
-        }),
-        withRun(castEvent(2, "participant-priya", "run.waiting_for_approval"), "run-a"),
-      ],
-      isDegraded: false,
-      isNodeUnwell: false,
-      chipCap: 8,
-    });
-    const member = model.members[0];
-    expect(member).toBeDefined();
-    // The documented example is the head of the name. The clause after it is the
-    // attention fold, which is not suppressed as redundant when the verb happens to
-    // be a waiting one: the two are folded from different questions.
-    expect(member === undefined ? "" : castChipAccessibleName(member)).toBe(
-      "priya, waiting on approval, waiting on you",
+describe("deriveCastBar — the all-clear line", () => {
+  it("says nothing needs you only when nothing does", () => {
+    expect(castBarOver([castEvent(1, AGENT, "run.running")]).standing).toBe("all-clear");
+    expect(castBarOver([castEvent(1, AGENT, "run.waiting_for_approval")]).standing).toBe(
+      "attention",
     );
   });
 
-  it("falls back to the id, and adds the frozen clause when the projection is stale", () => {
-    const wheel = wheelFor(["participant-you"]);
-    const model = castBarOver({
-      assignments: wheel.assignments(),
-      timeline: [castEvent(1, "participant-you", "run.running")],
-      isDegraded: true,
+  it("keeps a block standing while a parallel run moves on, and counts it", () => {
+    // The defect: attention was read off the newest row, so an agent waiting on an
+    // approval in one run and working in another looked clear, and the header said
+    // "Nothing needs you" over a run that was still blocked.
+    const model = castBarOver([
+      withRun(castEvent(1, AGENT, "run.waiting_for_approval"), "run-a"),
+      withRun(castEvent(2, AGENT, "run.running"), "run-b"),
+      withRun(castEvent(3, AGENT, "tool.invoked"), "run-b"),
+    ]);
+    expect(model.standing).toBe("attention");
+    expect(model.outstandingAskCount).toBe(1);
+  });
+
+  it("negative control: the block clears once that run itself moves on", () => {
+    // Without this, the case above would pass over a fold that never cleared
+    // anything, which would leave the header permanently amber.
+    const model = castBarOver([
+      withRun(castEvent(1, AGENT, "run.waiting_for_approval"), "run-a"),
+      withRun(castEvent(2, AGENT, "run.running"), "run-b"),
+      withRun(castEvent(3, AGENT, "run.running"), "run-a"),
+    ]);
+    expect(model.standing).toBe("all-clear");
+    expect(model.outstandingAskCount).toBe(0);
+  });
+
+  it("refuses to claim all-clear over an incomplete projection", () => {
+    // A store with a sequence gap cannot know whether something needs an answer, and
+    // "Nothing needs you." over an incomplete projection is a claim the console has
+    // no standing to make.
+    const model = castBarOver([], { isDegraded: true });
+    expect(model.standing).toBe("attention");
+    // And no figure, because nothing was counted: the degradation is reported by the
+    // banner above, and a count of zero beside it would read as a count of asks.
+    expect(model.outstandingAskCount).toBe(0);
+  });
+
+  it("refuses to claim all-clear while the node's health mark is amber", () => {
+    // The mark the header draws beside this line is one this fold cannot see, and a
+    // line saying nothing is amber printed next to an amber mark is the strip
+    // contradicting itself. The log here is spotless: the verdict alone decides it.
+    const model = castBarOver([], { isNodeUnwell: true });
+    expect(model.standing).toBe("attention");
+    expect(model.outstandingAskCount).toBe(0);
+  });
+
+  it("says the count is partial where the window opened partway through the log", () => {
+    // The all-clear line is a CLAIM about everything, and a resumed read establishes a
+    // window whose head is somewhere in the middle: the request lifecycles below it
+    // have no base-state carrier, so zero read is not zero. The strip says which, and
+    // the log here is otherwise spotless — the read position alone decides it.
+    const model = deriveCastBar({
+      outstandingAsks: ledgerOver([], { readFromCursor: "cursor-42" }),
+      isDegraded: false,
       isNodeUnwell: false,
-      chipCap: 8,
     });
-    const member = model.members[0];
-    expect(member).toBeDefined();
-    expect(member === undefined ? "" : castChipAccessibleName(member)).toBe(
-      "participant-you, working, the connection dropped, so this may be out of date",
-    );
+    expect(model.standing).toBe("earlier-unread");
+  });
+
+  it("lets a block the console DID read outrank the rows it did not", () => {
+    // Two true things, one line: a reader with a block in front of them gains nothing
+    // from a sentence about rows below the window, and the pair would leave them
+    // deciding which is the news.
+    const blocked = [withRun(castEvent(1, AGENT, "run.waiting_for_approval"), "run-a")];
+    const model = deriveCastBar({
+      outstandingAsks: ledgerOver(blocked, { readFromCursor: "cursor-42" }),
+      isDegraded: false,
+      isNodeUnwell: false,
+    });
+    expect(model.standing).toBe("attention");
+    expect(model.outstandingAskCount).toBe(1);
+  });
+
+  it("negative control: the same spotless log with a healthy node IS the all-clear", () => {
+    // Without this the cases above would pass over a fold that had stopped saying the
+    // line at all, which is the failure the line exists to avoid from the other side.
+    expect(castBarOver([]).standing).toBe("all-clear");
   });
 });

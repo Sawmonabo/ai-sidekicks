@@ -32,7 +32,7 @@
 // content; that one reports on the read behind the content, and it is the half whose
 // inputs stop being "a store and a selector".
 //
-// WHAT IS DELIBERATELY NOT HERE. `caller-membership-role.ts` beside this module is
+// WHAT IS DELIBERATELY NOT HERE. `caller-identity.ts` beside this module is
 // a bridge read wearing a hook, with a refusal vocabulary of its own; the frame
 // store's hooks are `shell/frame-hooks.ts`'s. Three jobs in one module is what this
 // file used to be, and the door publishes each of them from the module that

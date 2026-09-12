@@ -48,8 +48,6 @@ export function inertBridge(): ConsoleBridge {
 export function renderCard(
   overrides: {
     goal?: SessionGoalProjection;
-    canMutate?: boolean | undefined;
-    authorizationRefusal?: ConsoleRefusal;
     isMutating?: boolean;
     onUpdate?: (text: string) => void;
     onClear?: () => void;
@@ -65,8 +63,6 @@ export function renderCard(
     bridge: overrides.bridge ?? inertBridge(),
     sessionId: overrides.sessionId ?? FIRST_SESSION_ID,
     goal: overrides.goal ?? NO_GOAL,
-    canMutate: "canMutate" in overrides ? overrides.canMutate : true,
-    authorizationRefusal: overrides.authorizationRefusal,
     isMutating: overrides.isMutating ?? false,
     refusal: undefined,
     onUpdate: overrides.onUpdate ?? vi.fn(),

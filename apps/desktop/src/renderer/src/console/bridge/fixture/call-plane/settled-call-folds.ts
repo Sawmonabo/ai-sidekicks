@@ -29,7 +29,6 @@
 // one module that is supposed to be generic over all of them.
 
 import { foldChannelDirectoryOverLog } from "../collaboration/channel-directory.js";
-import type { FixtureChannelLifecycle } from "../collaboration/channel-lifecycle.js";
 import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /** The registered method whose answer is the session's channel directory. */
@@ -39,21 +38,18 @@ const CHANNEL_LIST_METHOD = "channel.list";
 export type SettledCallFolds = Readonly<Record<string, SettledCallFold>>;
 
 /**
- * The table for one bridge, closed over the plane state its folds read and write.
+ * Which calls fold, and the fold each one takes.
  *
- * BUILT PER BRIDGE RATHER THAN DECLARED AT MODULE LEVEL, because a fold is not a pure
- * function of the log: the channel directory needs one fact the log cannot carry, which
- * only the instance this bridge composed holds. A module constant could reach it, and a
- * second instance built here would be a second fixture answering for one session.
+ * A MODULE CONSTANT RATHER THAN A PER-BRIDGE BUILD, because every fold here is a pure
+ * function of the engine and the settled value: the engine carries the log and the
+ * clock, and a fold holds nothing between calls. A builder closing over fixture state
+ * would be a second place a plane's facts live, and the honest home for a fact the log
+ * cannot carry is a named constant in the plane's own module.
  */
-export function createSettledCallFolds(
-  channelLifecycle: FixtureChannelLifecycle,
-): SettledCallFolds {
-  return Object.freeze({
-    [CHANNEL_LIST_METHOD]: (engine: ScenarioEngine, _request: unknown, settled: unknown) =>
-      foldChannelDirectoryOverLog(engine, channelLifecycle.membershipByCreatedChannelId, settled),
-  });
-}
+export const SETTLED_CALL_FOLDS: SettledCallFolds = Object.freeze({
+  [CHANNEL_LIST_METHOD]: (engine: ScenarioEngine, _request: unknown, settled: unknown) =>
+    foldChannelDirectoryOverLog(engine, settled),
+});
 
 /**
  * Fold one resolved reply, or hand it back untouched.

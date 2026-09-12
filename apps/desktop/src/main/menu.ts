@@ -54,11 +54,10 @@
 // bare-launchable list: the auxiliary renderer's context picker has landed, and
 // what it still lacks is a candidate source a context-less window can reach.
 //
-// `registerMenuSection` is the second seam (Codex closing round). An owning plan
-// EXTENDs this menu with its own section rather than editing this template:
-// Plan-026 T7.3 registers the `Session` section's _Set up collaboration_ /
-// _Set up providers_ entries through it, gated on this phase merged, which is the
-// owner `Plan-026 §Risks And Blockers` names. Sections are a RUNTIME registry
+// `registerMenuSection` is the second seam. An owning family EXTENDs this menu with
+// its own section rather than editing this template — the onboarding family registers
+// the `Session` section's _Set up providers_ entry through it. Sections are a RUNTIME
+// registry
 // where routes are a static list, and the difference is not stylistic: a
 // section's registrant is a main-process module (Plan-026's walkthrough host),
 // so it can call in, whereas a renderer route module cannot. A section whose

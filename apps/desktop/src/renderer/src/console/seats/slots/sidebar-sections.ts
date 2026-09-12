@@ -1,32 +1,22 @@
 // The session sidebar's sections, and the seat each one is filled through.
 //
-// `Spec-023 §Console Design (Meridian)` §The surface set: "The session sidebar
-// shows the session's other work as independently loaded sections — goal,
-// channels, runs, agents, repos and worktrees, approvals, artifacts, members —
-// each a composition of its own read, opening panes; a section carrying an amber
-// or red item is open and every other section is collapsed."
-//
 // THREE FAMILIES FILL THIS ONE SIDEBAR
 //
-// The sidebar itself is the composer family's (T-023p-1C-3), and it renders
-// sections it does not own: repos and artifacts are the repos family's
-// (T-023p-1C-5), channels, agents, and members the collaboration family's
-// (T-023p-1C-4), and goal, runs, and approvals its own. Without a seat those
+// The sidebar itself is the composer family's, and it renders sections it does not
+// own: repos and artifacts are the repos family's, channels and agents the session
+// surfaces family's, and goal, runs, and approvals its own. Without a seat those
 // branches would each have to edit the sidebar component, which is one file and
 // therefore a conflict per branch.
 //
-// THE SET IS THE SPEC'S SET, IN THE SPEC'S ORDER
+// THE SET IS CLOSED, AND THE ORDER IS RENDER ORDER
 //
-// All eight, including `goal` and `approvals`. This tuple drives
-// `SidebarSectionId`, registration, and render order, so a section missing from it
-// cannot be registered at all: a conforming sidebar could not be built against a
-// substrate that has no seat for two sections the spec requires, and the family
-// that owns them would have to reopen this shared contract to add them — or route
-// them somewhere the spec did not put them.
+// This tuple drives `SidebarSectionId`, registration, and render order, so a section
+// missing from it cannot be registered at all: the family that owns a new section
+// would have to reopen this shared contract to add it.
 //
 // An approvals PANE and the frame's approval banner are not substitutes for the
 // section and never were: the pane is a whole surface a person navigates to and the
-// banner is room-wide attention, while the section is the sidebar's own
+// banner is session-wide attention, while the section is the sidebar's own
 // independently loaded read of what this session is waiting on.
 
 import { KeyedRegistry, type ConsoleRefusal } from "../../core/index.js";
@@ -37,11 +27,9 @@ import { type ConsolePaneAddress, type ConsolePaneOpener } from "../pane/index.j
 /**
  * Every sidebar section, in render order.
  *
- * The order IS the sidebar's order, so this tuple is what a person sees — and it
- * is `Spec-023 §Console Design (Meridian)` §The surface set's own order, quoted in
- * this module's header and compared to the transcription in `sidebar-sections.test.ts`
- * by an ordered comparison. `repos` is the spec's "repos and worktrees": one
- * section, and the id names the entity kind its cards open panes for.
+ * The order IS the sidebar's order, so this tuple is what a person sees. `repos`
+ * covers repos and worktrees as one section, and the id names the entity kind its
+ * cards open panes for.
  *
  * The tuple is the declaration and the union is derived from it, for the reason
  * `seats/pane/pane-kinds.ts` gives about its own set.
@@ -54,7 +42,6 @@ export const SIDEBAR_SECTION_IDS = [
   "repos",
   "approvals",
   "artifacts",
-  "members",
 ] as const;
 
 /** One sidebar section. Derived from the enumeration, never restated. */
@@ -172,11 +159,11 @@ export interface SidebarSectionDescriptor {
   /**
    * This section's items as a tree, for the column to fold.
    *
-   * The design track asks for "rollup status per section: child-to-parent over the
-   * session › channel › run tree; grouping pinned, needs-attention, running, then
-   * the rest". The TREE is the family's — only it knows what its rows are and how
-   * they nest — and the FOLD is the column's, because what the fold decides is the
-   * open-or-collapsed rule stated over the whole set.
+   * Rollup status per section folds child-to-parent over the session › channel ›
+   * run tree, grouping pinned, needs-attention, running, then the rest. The TREE is
+   * the family's — only it knows what its rows are and how they nest — and the FOLD
+   * is the column's, because what the fold decides is the open-or-collapsed rule
+   * stated over the whole set.
    *
    * A section that supplies one need not also supply {@link attention}: the column
    * folds the tree's own levels child-to-parent and reaches the same answer from the
@@ -225,7 +212,6 @@ export class SidebarSectionRegistry {
 /** The process-wide registry the three contributing families call at module scope. */
 export const sidebarSectionRegistry: SidebarSectionRegistry = new SidebarSectionRegistry();
 
-// Consumed by T-023p-1C-3
 /** One section's body, or `undefined` while nobody has filled it. */
 export function sidebarSectionRenderer(
   id: SidebarSectionId,
@@ -237,9 +223,8 @@ export function sidebarSectionRenderer(
 // The rollup tree, and the bulk-selection seam.
 // --------------------------------------------------------------------------
 //
-// `Spec-023 §Console Design (Meridian)` puts two more things on this seat, and both
-// are the same split as `attention` above: the family REPORTS and the sidebar
-// DECIDES.
+// Two more things sit on this seat, and both are the same split as `attention`
+// above: the family REPORTS and the sidebar DECIDES.
 //
 //   • The rollup. The section's items as a session › channel › run tree, grouped.
 //     One attention value per section cannot express "which of my children is
@@ -247,8 +232,8 @@ export function sidebarSectionRenderer(
 //     folds it child-to-parent. The fold is the sidebar's because the rule it
 //     serves — "a section carrying an amber or red item is open and every other
 //     section is collapsed" — is stated over the whole set.
-//   • Bulk selection. A bulk act crosses sections (three queued items here, two
-//     invites there), so the selection cannot live inside one section's body. The
+//   • Bulk selection. A bulk act crosses sections — queued items here, worktrees
+//     there — so the selection cannot live inside one section's body. The
 //     column owns it and hands each section a narrow face: is this row selected,
 //     toggle it, and what did its own reply say. A section that never calls it is
 //     a section with no bulk-eligible rows, which is not an error.
@@ -256,7 +241,7 @@ export function sidebarSectionRenderer(
 /**
  * How a rollup's items group, in the order a person reads them.
  *
- * The design track's own order and its own four groups. Declared as a tuple so the
+ * Four groups, declared as a tuple so the
  * union is derived from it and the render order is the declaration — the same shape
  * `SIDEBAR_SECTION_IDS` takes, for the same reason.
  */
@@ -320,8 +305,8 @@ export type SidebarRowDragBinder = (
 /**
  * Which acts a bulk selection can carry, and what each one is.
  *
- * Closed, and closed at the two the design track names: cancel several queued
- * items, retire several worktrees. Both are destructive, which is why there is no
+ * Closed at two: cancel several queued items, retire several worktrees. Both are
+ * destructive, which is why there is no
  * `isDestructive` member — a boolean that is `true` on every row is a member nothing
  * reads.
  */

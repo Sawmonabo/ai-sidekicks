@@ -1,7 +1,7 @@
 // Which participant this window is — the one composition of that question.
 //
 // WHY THE SEAT AND NOT `store/`. The read is the growth port's
-// `callerParticipantRead`, which lives in `bridge/`; `store/session/caller-membership-role.ts` sits BELOW that
+// `callerParticipantRead`, which lives in `bridge/`; `store/session/caller-identity.ts` sits BELOW that
 // family on the console's DAG and may not reach up for it, which is why it declares
 // `CallerParticipantReader` as an injected function and states that a composition root
 // must adapt the port's outcome into that shape. Three composition roots then wrote
@@ -17,17 +17,6 @@
 // It publishes no door of its own — `bridge/readings/index.ts` records the rule, and
 // a sub-door exporting what no sibling inside the family takes is a dead export.
 //
-// TWO HOOKS BECAUSE THERE ARE TWO QUESTIONS, not because there are two mechanisms.
-// A surface that gates a control on the caller's ROLE needs the identity chained to
-// the session roster, and that chaining is the store's — it holds the roster and it
-// owns the settlement rule that keeps a previous session's identity from being looked
-// up in a new session's store. A surface that only needs to know WHICH participant is
-// looking needs no roster at all, and handing it the chained hook would subscribe it
-// to a partition it never reads. The identity-only arm therefore goes through the
-// family's own `growth-read.ts` — the seat that already owns "ask one growth operation
-// once per subject and hold the answer against it" — rather than through a second
-// holder written here.
-//
 // ONE NARROWING, EXPORTED. Turning the port's outcome into "the identifier, or the
 // refusal that says why not" is a single expression, and it was written out at six
 // sites that then disagreed about what to do with the refusing arm: three carried it,
@@ -37,15 +26,14 @@
 
 import { useCallback } from "react";
 
-import { membershipRoleOf, type ConsoleBridge, type GrowthReading } from "../../bridge/index.js";
+import { type ConsoleBridge } from "../../bridge/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import {
-  useCallerMembershipRole,
-  type CallerMembershipRoleResult,
+  useCallerIdentity,
+  type CallerIdentityResult,
   type CallerParticipantReader,
   type SessionStore,
 } from "../../store/index.js";
-import { useGrowthReadOnMount } from "../read/growth-read.js";
 
 /**
  * Names a refusal the caller-identity read itself did not name.
@@ -69,11 +57,6 @@ export type CallerParticipantOutcome = Awaited<
   ReturnType<ConsoleBridge["growth"]["callerParticipantRead"]>
 >;
 
-/** Which participant this window is, or why that could not be read. */
-export type CallerParticipantIdentity =
-  | { readonly status: "read"; readonly participantId: string }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
-
 /**
  * The served/refused narrowing, written once.
  *
@@ -90,77 +73,30 @@ export function callerParticipantIdentityFrom(
 }
 
 /**
- * Which participant this window is, asked once per session and held against it.
- *
- * Three arms and not two: `undefined` is the not-yet-answered absence, which is a
- * different fact from a read that landed and refused. A surface that collapses them
- * renders its fail-closed shape either way and says nothing about which it is in —
- * the distinction is here so a surface that wants to speak can.
- */
-export function useCallerParticipantIdentity(
-  bridge: ConsoleBridge,
-  sessionId: string | undefined,
-): CallerParticipantIdentity | undefined {
-  return callerParticipantIdentityOf(
-    useGrowthReadOnMount({
-      bridge,
-      subject: sessionId,
-      request: sessionId === undefined ? undefined : { sessionId },
-      origin: CALLER_PARTICIPANT_ORIGIN,
-      ask: askCallerParticipant,
-    }),
-  );
-}
-
-/**
- * This window's own membership role for one session: the identity read, chained.
+ * Which participant this window is for one session, held against that session's store.
  *
  * The adapter is memoised on the bridge and the SESSION ID rather than on the store
- * that holds it, because the chaining hook keys its read on the reader's identity: a
+ * that holds it, because the holding hook keys its read on the reader's identity: a
  * fresh function every pass would re-read the identity every pass, and a dependency
  * list naming the store rather than the subject the closure captures reads as a
  * callback that could be rebound without re-reading.
  */
-export function useCallerMembershipRoleFor(
+export function useCallerIdentityFor(
   bridge: ConsoleBridge,
   sessionStore: SessionStore,
-): CallerMembershipRoleResult {
+): CallerIdentityResult {
   const sessionId = sessionStore.sessionId;
   const readCallerParticipant = useCallback<CallerParticipantReader>(
     async () => callerParticipantIdentityFrom(await askCallerParticipant(bridge, { sessionId })),
     [bridge, sessionId],
   );
-  // The role is read off the store's own roster entry through the bridge's one
-  // narrowing read — the store names no wire member, so the reader is injected.
-  return useCallerMembershipRole(readCallerParticipant, sessionStore, membershipRoleOf);
+  return useCallerIdentity(readCallerParticipant, sessionStore);
 }
 
-/**
- * The one call, at module scope so every render hands the read the same function.
- *
- * `useGrowthReadOnMount` reads it through a ref rather than through its dependency
- * list, so a fresh closure would re-ask nothing — but a stable one states that there
- * is nothing per-render about how this question is asked.
- */
+/** The one call, at module scope so every render hands the read the same function. */
 function askCallerParticipant(
   bridge: ConsoleBridge,
   request: { readonly sessionId: string },
 ): Promise<CallerParticipantOutcome> {
   return bridge.growth.callerParticipantRead(request);
-}
-
-/** The seat's own read, projected onto the three arms a surface renders from. */
-function callerParticipantIdentityOf(
-  reading: GrowthReading<CallerParticipantOutcome> | undefined,
-): CallerParticipantIdentity | undefined {
-  if (reading === undefined) {
-    return undefined;
-  }
-  if (reading.kind === "unreadable") {
-    return { status: "refused", refusal: reading.refusal };
-  }
-  const identity = callerParticipantIdentityFrom(reading.outcome);
-  return typeof identity === "string"
-    ? { status: "read", participantId: identity }
-    : { status: "refused", refusal: identity };
 }

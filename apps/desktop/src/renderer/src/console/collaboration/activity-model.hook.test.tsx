@@ -1,77 +1,70 @@
-// The composing lookup, driven through React the way the roster reads it.
+// The channel activity binding, driven through React the way a row reads it.
 //
-// The claim is not "the registry knows who is composing" — `activity-model.test.ts`
-// covers that. It is that a reader bound to the registry LEARNS, without anything
-// else re-rendering it: the roster used to sample the registry during render and
-// subscribe to nothing, so a pencil appeared only when some unrelated prop moved.
+// The claim is not "the registry knows which run is working" — `activity-model.test.ts`
+// covers that. It is that a reader bound to the registry LEARNS, without anything else
+// re-rendering it: a surface that sampled the registry during render and subscribed to
+// nothing would move only when some unrelated prop did.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "../core/index.js";
-import { frozenStartMilliseconds } from "../core/frozen-instant.test-support.js";
-import { ActivityIndicatorRegistry, useComposingLookup } from "./activity-model.js";
+import { ActivityIndicatorRegistry, useChannelActivity } from "./activity-model.js";
 
-const PARTICIPANT_ID = "participant-one";
+const CHANNEL_ID = "channel-review";
 
-/** Renders whatever the subscribed lookup answers for one participant, and nothing else. */
-function ComposingProbe(props: {
-  readonly registry: ActivityIndicatorRegistry;
-}): React.JSX.Element {
-  const composingChannelFor = useComposingLookup(props.registry);
-  return <p>{composingChannelFor(PARTICIPANT_ID) ?? "nowhere"}</p>;
+/** Renders how many runs the subscribed reading names for one channel, and nothing else. */
+function ActivityProbe(props: { readonly registry: ActivityIndicatorRegistry }): React.JSX.Element {
+  const activity = useChannelActivity(props.registry, CHANNEL_ID);
+  return <p>{String(activity.agentRuns.length)}</p>;
 }
 
-function registryOnFrozenTime(): ActivityIndicatorRegistry {
-  return new ActivityIndicatorRegistry(new ManualClock(frozenStartMilliseconds()));
-}
-
-describe("composing lookup — subscribed, not sampled", () => {
+describe("channel activity — subscribed, not sampled", () => {
   it("re-renders a reader when an indicator arrives", () => {
-    const registry = registryOnFrozenTime();
-    const { container } = render(<ComposingProbe registry={registry} />);
-    expect(container.textContent).toBe("nowhere");
+    const registry = new ActivityIndicatorRegistry();
+    const { container } = render(<ActivityProbe registry={registry} />);
+    expect(container.textContent).toBe("0");
 
     act(() => {
-      registry.noteComposing({
-        participantId: PARTICIPANT_ID,
-        channelId: "channel-review",
+      registry.noteAgentActivity({
+        runId: "run-1",
+        channelId: CHANNEL_ID,
         since: "2026-01-01T10:00:00.000Z",
       });
     });
-    expect(container.textContent).toBe("channel-review");
+    expect(container.textContent).toBe("1");
   });
 
   it("re-renders a reader when the indicator clears", () => {
-    const registry = registryOnFrozenTime();
-    registry.noteComposing({
-      participantId: PARTICIPANT_ID,
-      channelId: "channel-review",
+    const registry = new ActivityIndicatorRegistry();
+    registry.noteAgentActivity({
+      runId: "run-1",
+      channelId: CHANNEL_ID,
       since: "2026-01-01T10:00:00.000Z",
     });
-    const { container } = render(<ComposingProbe registry={registry} />);
-    expect(container.textContent).toBe("channel-review");
+    const { container } = render(<ActivityProbe registry={registry} />);
+    expect(container.textContent).toBe("1");
 
     act(() => {
-      registry.clearComposing(PARTICIPANT_ID);
+      registry.clearAgentActivity("run-1");
     });
-    expect(container.textContent).toBe("nowhere");
+    expect(container.textContent).toBe("0");
   });
 
-  it("hands back one lookup until something changes", () => {
-    // The identity IS the reading: React's external-store binding compares snapshots
-    // by identity and re-reads whenever they differ, so a fresh function per call
-    // would never converge — and a single function held for the registry's life would
-    // never move a memoized roster at all.
-    const registry = registryOnFrozenTime();
-    const first = registry.composingLookup();
-    expect(registry.composingLookup()).toBe(first);
+  it("negative control: a run in another channel moves this reader not at all", () => {
+    // Without this the two cases above would pass over a binding that re-rendered every
+    // row on every change anywhere, which is the cost this per-channel memo exists to
+    // avoid.
+    const registry = new ActivityIndicatorRegistry();
+    const { container } = render(<ActivityProbe registry={registry} />);
 
-    registry.noteComposing({
-      participantId: PARTICIPANT_ID,
-      channelId: "channel-review",
-      since: "2026-01-01T10:00:00.000Z",
+    act(() => {
+      registry.noteAgentActivity({
+        runId: "run-1",
+        channelId: "channel-main",
+        since: "2026-01-01T10:00:00.000Z",
+      });
     });
-    expect(registry.composingLookup()).not.toBe(first);
+
+    expect(container.textContent).toBe("0");
   });
 });

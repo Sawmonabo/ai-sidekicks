@@ -80,9 +80,9 @@ describe("the hook that holds a window's row offers", () => {
   });
 
   it("presses against the COMMITTED window, never the one a discarded render built", () => {
-    // The ref is written from the layout phase for `ledger-actor-follow-seat.ts`'
-    // reason: a render React discards still runs the body, and a press against a
-    // window that never reached the screen would scroll to a row nobody can see.
+    // The ref is written from the layout phase rather than the render body: a render
+    // React discards still runs the body, and a press against a window that never
+    // reached the screen would scroll to a row nobody can see.
     const reached: string[] = [];
     let binding: LedgerRowOffersBinding | undefined;
 

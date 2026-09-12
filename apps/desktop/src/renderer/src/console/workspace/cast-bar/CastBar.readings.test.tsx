@@ -1,4 +1,4 @@
-// The three things the bar READS, once each session is scripted to answer them.
+// The three things the session header READS, once each session is scripted to answer them.
 //
 // `CastBar.absence.test.tsx` next door is this suite's negative half and stays that
 // way: it renders against a scenario that answers none of the three, and every one of
@@ -27,8 +27,8 @@ const DISPLAY_TITLE = "Ship the ledger";
  * The silent scenario with answers added, so a case varies one reply and nothing else.
  *
  * Built from the silent one rather than from a scenario a screen was designed around:
- * what is under test is the bar's reading of a reply, so the roster, the beats, and
- * the clock all stay exactly what the other suite renders against.
+ * what is under test is the header's reading of a reply, so the beats and the clock
+ * stay exactly what the other suites render against.
  */
 function scenarioAnswering(replies: ConsoleScenario["replies"]): ConsoleScenario {
   return { ...CAST_BAR_SILENT_SCENARIO, id: "cast-bar-answers", replies };
@@ -96,25 +96,20 @@ function budgetReply(
   };
 }
 
-/** The bar over a session with one member, answered by `replies`. */
+/** The header over an open session, answered by `replies`. */
 async function barAnswering(replies: ConsoleScenario["replies"]): Promise<HTMLElement> {
-  const bar = renderBar(
-    <CastBar
-      sessionId={SESSION_ID}
-      sessionStore={storeWith(["participant-you"])}
-      onFollow={() => undefined}
-    />,
-    { scenario: scenarioAnswering(replies) },
-  );
+  const bar = renderBar(<CastBar sessionId={SESSION_ID} sessionStore={storeWith()} />, {
+    scenario: scenarioAnswering(replies),
+  });
   await settle();
   return bar;
 }
 
-describe("the cast bar — the session it is naming", () => {
+describe("the session header — the session it is naming", () => {
   it("renders the wire's own session state, underscore and all", async () => {
     // `purge_requested` rather than `active`: it is the one state whose wire spelling
-    // a renderer would be tempted to tidy, and rule 4 forbids exactly that. A bar
-    // showing "Purge requested" is a bar that edited a value the daemon sent.
+    // a renderer would be tempted to tidy, and the figure rules forbid exactly that. A
+    // header showing "Purge requested" is one that edited a value the daemon sent.
     const bar = await barAnswering([sessionReadReply("purge_requested")]);
 
     expect(bar.querySelector(".meridian-cast-bar__identity")?.textContent).toContain(
@@ -136,7 +131,7 @@ describe("the cast bar — the session it is naming", () => {
   });
 
   it("negative control: a session with no title renders none rather than a placeholder", async () => {
-    // Without this the case above would pass over a bar that drew a "not named" badge
+    // Without this the case above would pass over a header that drew a "not named" badge
     // for every untitled session — which is most of them, and which would report a
     // missing answer where the answer is that this session has no name.
     const bar = await barAnswering([sessionReadReply("active")]);
@@ -146,7 +141,7 @@ describe("the cast bar — the session it is naming", () => {
   });
 });
 
-describe("the cast bar — the node's health, in one mark", () => {
+describe("the session header — the node's health, in one mark", () => {
   it("counts the components that are not healthy and names them", async () => {
     const bar = await barAnswering([
       healthReply("degraded", { "session-store": "healthy", relay: "degraded", pty: "failing" }),
@@ -171,7 +166,7 @@ describe("the cast bar — the node's health, in one mark", () => {
   });
 
   it("negative control: a healthy node gets no mark at all", async () => {
-    // Without this the cases above would pass over a bar that marked every node —
+    // Without this the cases above would pass over a header that marked every node —
     // and a mark that is always on screen is a mark nobody sees when it matters.
     const bar = await barAnswering([
       healthReply("healthy", { "session-store": "healthy", relay: "healthy" }),
@@ -194,7 +189,7 @@ describe("the cast bar — the node's health, in one mark", () => {
   });
 
   it("negative control: the same session with a healthy node does say it", async () => {
-    // Without this the case above would pass over a bar that had stopped drawing the
+    // Without this the case above would pass over a header that had stopped drawing the
     // line at all — and a console that never reports the all-clear is the same defect
     // read from the other side.
     const bar = await barAnswering([healthReply("healthy", { relay: "healthy" })]);
@@ -216,7 +211,7 @@ describe("the cast bar — the node's health, in one mark", () => {
   });
 });
 
-describe("the cast bar — the accountant's figure", () => {
+describe("the session header — the accountant's figure", () => {
   it("renders the committed figure the accountant settled, and sums nothing", async () => {
     const bar = await barAnswering([budgetReply(12_47, "priced")]);
     const spend = bar.querySelector(".meridian-cast-bar__spend");
@@ -240,7 +235,7 @@ describe("the cast bar — the accountant's figure", () => {
   });
 
   it("negative control: an unanswered read draws no figure at all", async () => {
-    // Without this the cases above would pass over a bar that rendered a zero for a
+    // Without this the cases above would pass over a header that rendered a zero for a
     // session it had read nothing about — which is the one rendering that is actively
     // false, because "$0.00" is a claim and an absence is not.
     const bar = await barAnswering([]);

@@ -4,7 +4,7 @@
 // SPLIT OFF `growth-slate.ts` ON `growth-entry.ts`'S OWN SEAM. That module states the
 // rule this one applies: a row's CONTENT is its table's and a row's SHAPE is a
 // type-only module's, because a type-only module has no reason to change when a row
-// lands. The ledger is prose — four sentences per row, sixty-two rows — and carrying
+// lands. The ledger is prose — four sentences per row, fifty-seven rows — and carrying
 // this vocabulary beside it put two concepts in one module.
 //
 // THE UNION IS HERE AND THE ROWS ARE NEXT DOOR, WHICH THE COMPILER STILL PAIRS.
@@ -19,7 +19,7 @@
 //
 // AND THE ROW CARRIES ONLY WHAT A RUNNING CONSOLE READS. `consumingSurface` left for
 // `growth-slate-consumers.ts` — a split by CONSUMER and not by size — because no module
-// in the shipped renderer has ever read it, so carrying it here put sixty-two sentences
+// in the shipped renderer has ever read it, so carrying it here put fifty-seven sentences
 // written for a reader of the plan on the document every session downloads.
 
 /** A row's stable identifier. Used by port entries and by the manifest. */
@@ -67,7 +67,6 @@ export type GrowthSlateRowId =
   | "workspace-execution-context"
   | "mount-health-identity-verdict"
   | "channel-lifecycle-verbs"
-  | "channel-roster-read"
   | "participant-presence-detail"
   | "terminal-control-holder"
   | "presence-activity-fields"

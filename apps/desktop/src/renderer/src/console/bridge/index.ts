@@ -378,23 +378,18 @@ export { openObservedSubscription } from "./transport/observed-subscription.js";
 export type { GrowthOperationSignatures } from "./growth-signatures/signature-table.js";
 
 // The channel plane's shapes, published because the collaboration family RENDERS
-// them: an audience badge, a pair-labelled row, a create form whose every field is one
-// member of `GrowthChannelConfig`, and the receipts the four lifecycle writes answer
-// with. They leave through the module that DECLARES them rather than through
-// `growth-values/index.js`, on the `console-no-barrel-chain` rule — and the three
-// vocabularies are here rather than on that inner door because their only readers are
-// outside this family, which is exactly what a sub-module door does not publish.
+// them: a create form whose every field is one member of `GrowthChannelConfig`, and
+// the receipts the four lifecycle writes answer with. They leave through the module
+// that DECLARES them rather than through `growth-values/index.js`, on the
+// `console-no-barrel-chain` rule — and the audience vocabulary is here rather than on
+// that inner door because its only reader is outside this family, which is exactly
+// what a sub-module door does not publish.
 export {
   GROWTH_CHANNEL_AUDIENCES,
-  GROWTH_CHANNEL_KINDS,
-  GROWTH_CHANNEL_TURN_POLICIES,
   type GrowthChannelAudience,
   type GrowthChannelConfig,
   type GrowthChannelCreateReceipt,
-  type GrowthChannelKind,
   type GrowthChannelLifecycleReceipt,
-  type GrowthChannelRosterEntry,
-  type GrowthChannelTurnPolicy,
 } from "./growth-values/channels.js";
 
 // The presence plane's detail card, which renders the devices behind one person's
@@ -687,20 +682,14 @@ export { readRollbackBoundaryPayload } from "./daemon/rollback-boundary-payload.
 // `TimelineRow`.
 export { readEarlierTimelinePage } from "./daemon/timeline-page.js";
 
-// The three body reads that narrow a wire shape, all through the door because each
-// has a production reader above this family. `membershipRoleOf` is the injected
-// lookup `useCallerMembershipRole` takes: the store's roster holds the role and
-// deliberately names no wire member, so the read that narrows one lives here and
-// travels to the surfaces that gate a control on the caller's role — the approvals
-// goal editor and `terminal/pane/BoundTerminalPane.tsx`, which takes it through
-// `useCallerMembershipRole` to decide whether this viewer may hold the write lease.
-// `stampedExecutionPostureOf` is the composer's posture chip's: it parses the
-// candidate against the registered `RunStateChangeEvent` shape, which is the whole
-// point — a surface checking two members loosely and asserting the type admitted a
-// body with no `networkAccess`, and the chip then rendered an empty label beside two
-// full ones. This door line waited on a production consumer and now has one, in
-// `shell/composer/chips/chip-models.ts`.
-export { membershipRoleOf, stampedExecutionPostureOf } from "./daemon/entity-body-reads.js";
+// The body read that narrows a wire shape, through the door because it has a
+// production reader above this family. `stampedExecutionPostureOf` is the composer's
+// posture chip's: it parses the candidate against the registered
+// `RunStateChangeEvent` shape, which is the whole point — a surface checking two
+// members loosely and asserting the type admitted a body with no `networkAccess`, and
+// the chip then rendered an empty label beside two full ones. This door line waited on
+// a production consumer and now has one, in `shell/composer/chips/chip-models.ts`.
+export { stampedExecutionPostureOf } from "./daemon/entity-body-reads.js";
 
 // The reported node state a payload member carries. Through the door for the reason
 // the line above is: the narrowing runs against the contract's own schema, which this
@@ -709,7 +698,7 @@ export { membershipRoleOf, stampedExecutionPostureOf } from "./daemon/entity-bod
 // line a door line rather than a claim.
 export { readNodeState } from "./daemon/node-state-read.js";
 
-// The two Awareness activity fields' readings, through the door because the
+// The Awareness activity field's readings, through the door because the
 // collaboration family folds a snapshot of them into its indicator registry and a
 // view family may not reach past a barrel into this one. They leave through
 // `growth-values/presence.js`, the module that DECLARES them, on the rule the
@@ -717,7 +706,6 @@ export { readNodeState } from "./daemon/node-state-read.js";
 export type {
   GrowthActivitySnapshot,
   GrowthAgentActivityReading,
-  GrowthComposingReading,
 } from "./growth-values/presence.js";
 
 // The WebAuthn ceremony seam. Through the door because the sign-in family is the

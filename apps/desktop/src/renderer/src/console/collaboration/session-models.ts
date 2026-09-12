@@ -121,7 +121,7 @@ export class CollaborationSessionModelHolder {
    * Switching sessions disposes the previous set before building the next, so no
    * subscription and no timer survives a session the sidebar has left. Every other
    * ask for the session already held joins that set rather than starting a rival
-   * projection of one session's channels and presence.
+   * projection of one session's channels and their live activity.
    *
    * "Already held" is the SUBJECT and not the session id, by the same predicate the
    * hook renders through — and it has to be, or the two would disagree: a
@@ -235,18 +235,15 @@ export function useSessionModels(
 }
 
 /**
- * Resolve a participant and a run to words, against the session's own projection.
+ * Resolve a run to words, against the session's own projection.
  *
- * The activity fields carry ids and no names, so this is the one place one becomes
- * readable. It reads the
- * store's projection at call time rather than holding a copy, and falls back to the
- * wire id — which is a string an operator can act on — rather than to a blank or to
- * a composed placeholder that would read as a name nobody chose.
+ * The activity field carries an id and no name, so this is the one place one becomes
+ * readable. It reads the store's projection at call time rather than holding a copy,
+ * and falls back to the wire id — which is a string an operator can act on — rather
+ * than to a blank or to a composed placeholder that would read as a name nobody chose.
  */
 export function sessionProjectionLabels(sessionStore: SessionStore): ChannelActivityLabels {
   return {
-    participantLabel: (participantId) =>
-      projectedName(sessionStore, "participant", participantId) ?? participantId,
     // TWO READS, BECAUSE THE TWO PARTITIONS ARE KEYED BY DIFFERENT IDENTIFIERS. A run
     // entity is keyed by its run id and carries no name of its own — no registered
     // run-lifecycle payload names one, so the projector's body table cannot write one
@@ -278,7 +275,7 @@ function buildSessionModels(
   sessionStore: SessionStore,
 ): CollaborationSessionModels {
   const clock = consoleClockFor(bridge);
-  const activity = new ActivityIndicatorRegistry(clock);
+  const activity = new ActivityIndicatorRegistry();
   return {
     subject: { bridge, sessionStore },
     clock,
@@ -301,7 +298,7 @@ const RUN_AGENT_MEMBER = "agentId";
 /** One stored entity, or `undefined` where this log carried no row for it. */
 function projectedEntity(
   sessionStore: SessionStore,
-  kind: "participant" | "run" | "agent",
+  kind: "run" | "agent",
   id: string,
 ): ConsoleEntity | undefined {
   return sessionStore.snapshot().partitions[kind][id];
@@ -310,7 +307,7 @@ function projectedEntity(
 /** One entity's projected display name, when the log carried one. */
 function projectedName(
   sessionStore: SessionStore,
-  kind: "participant" | "run" | "agent",
+  kind: "run" | "agent",
   id: string,
 ): string | undefined {
   return readWireString(projectedEntity(sessionStore, kind, id)?.body?.["name"]);

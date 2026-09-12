@@ -1,6 +1,6 @@
 // What the fixture answers a roster read with, driven over the real scenario engine.
 //
-// Three claims, and each one is a way the arm could look right and be wrong:
+// Four claims, and each one is a way the arm could look right and be wrong:
 //
 //   • **A frame is chosen by the frozen clock, not by array position.** A fixture that
 //     always answered with the last frame would pass every "the roster is served"
@@ -15,7 +15,10 @@
 //   • **The two health axes move independently.** The frame pair either side of the
 //     departure beat has to disagree in OPPOSITE directions on the two axes, which is
 //     the state the never-mask rule exists for and the reason the settings scenario
-//     carries a roster at all.
+//     carries a roster at all — and the shape admits an outright disagreement, not
+//     only the one-step kind those frames happen to ship.
+//   • **A below-floor machine stays in the set.** A roster that dropped one would pass
+//     every node-count assertion above while hiding one of this user's own machines.
 //
 // The seam's own vocabulary — the procedure name, the presence event set, the shipped
 // frames' conformance to the registered response schema — is the suite beside
@@ -68,6 +71,26 @@ function axesOf(
   const entry = nodes.find((node) => node.nodeId === nodeId);
   expect(entry, `no roster row for ${nodeId}`).toBeDefined();
   return { state: entry?.state ?? "", healthState: entry?.healthState ?? null };
+}
+
+/** A scenario carrying exactly the frames a case names, in the order it names them. */
+function scenarioWithFrames(frames: readonly ScenarioRuntimeNodeRosterFrame[]): ConsoleScenario {
+  return { ...SETTINGS_SCENARIO, runtimeNodeRoster: frames };
+}
+
+/**
+ * The first populated row the settings scenario ships, for a case to widen.
+ *
+ * Widened rather than written here, so a synthetic frame cannot drift from the
+ * registered response shape every shipped frame is held to next door. The scenario
+ * opens on an EMPTY roster, which is a reading in its own right and carries no row.
+ */
+function shippedRosterRow(): RuntimeNodeRosterEntry {
+  const row = (SETTINGS_SCENARIO.runtimeNodeRoster ?? []).flatMap((frame) => frame.nodes)[0];
+  if (row === undefined) {
+    throw new Error("the settings scenario carries no populated roster frame to build from");
+  }
+  return row;
 }
 
 describe("the fixture roster read", () => {
@@ -139,11 +162,6 @@ describe("the fixture roster read", () => {
 });
 
 describe("the frame current at a tick", () => {
-  /** A scenario carrying exactly the frames a case names, in the order it names them. */
-  function scenarioWithFrames(frames: readonly ScenarioRuntimeNodeRosterFrame[]): ConsoleScenario {
-    return { ...SETTINGS_SCENARIO, runtimeNodeRoster: frames };
-  }
-
   /** The `atMs` of the frame the read answered with, read back off its single node. */
   function answeredFrameId(scenario: ConsoleScenario, elapsedMs: number): string {
     return servedNodes(rosterAt(scenario, elapsedMs))[0]?.nodeId ?? "";
@@ -158,13 +176,11 @@ describe("the frame current at a tick", () => {
    * for the same identifier.
    */
   function frameAt(atMs: number, nodeId: string): ScenarioRuntimeNodeRosterFrame {
-    // The first POPULATED frame, not the first: that scenario opens on an empty roster,
-    // which is a reading in its own right and carries no row to widen.
-    const node = (SETTINGS_SCENARIO.runtimeNodeRoster ?? []).flatMap((frame) => frame.nodes)[0];
-    if (node === undefined) {
-      throw new Error("the settings scenario carries no populated roster frame to build from");
-    }
-    return { atMs, nodes: [{ ...node, nodeId: nodeId as NodeId }], controlHolder: null };
+    return {
+      atMs,
+      nodes: [{ ...shippedRosterRow(), nodeId: nodeId as NodeId }],
+      controlHolder: null,
+    };
   }
 
   it("negative control: is the latest due frame even where the literal is unsorted", () => {
@@ -206,5 +222,41 @@ describe("the two health axes", () => {
     const after = axesOf(servedNodes(rosterAt(SETTINGS_SCENARIO, 320)), "node-builder");
     expect(before).toStrictEqual({ state: "online", healthState: "degraded" });
     expect(after).toStrictEqual({ state: "degraded", healthState: "online" });
+  });
+
+  it("can disagree outright, which the wire admits by construction", () => {
+    // The frames this scenario ships differ by one step on each axis. The shape admits
+    // more than that — a slot the daemon has given up on while the sweep still finds
+    // the machine answering — and a page built only against the shipped pair would
+    // have no reading for it. Widened off a shipped row, so the synthetic frame
+    // carries the registered response shape.
+    const outright = shippedRosterRow();
+    const nodes = servedNodes(
+      rosterAt(
+        scenarioWithFrames([
+          {
+            atMs: 0,
+            controlHolder: null,
+            nodes: [{ ...outright, state: "offline", healthState: "online" }],
+          },
+        ]),
+        0,
+      ),
+    );
+    expect(axesOf(nodes, outright.nodeId)).toStrictEqual({
+      state: "offline",
+      healthState: "online",
+    });
+  });
+});
+
+describe("what the roster refuses to hide", () => {
+  it("keeps a below-floor machine in the set rather than hiding it", () => {
+    // Admit-not-eject: a node whose reported wire version is below the session's floor
+    // is rendered read-only, never dropped. A roster that filtered it would pass every
+    // node-count assertion above and hide one of this user's own machines from her.
+    const nodes = servedNodes(rosterAt(SETTINGS_SCENARIO, 320));
+    expect(nodes.filter((node) => node.readOnly)).toHaveLength(1);
+    expect(nodes).toHaveLength(2);
   });
 });

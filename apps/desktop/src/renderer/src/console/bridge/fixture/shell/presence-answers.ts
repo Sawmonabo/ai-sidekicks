@@ -1,38 +1,31 @@
-// The fixture's presence answers: who is composing where, and which host this node is on.
+// The fixture's presence answers: which run is working where, and which host this
+// node is on.
 //
 // A MODULE OF ITS OWN RATHER THAN A BLOCK IN THE PORT, on `shell-answers.ts`' rule.
 // Both operations answer a fact the SCENARIO states about the node this fixture stands
 // for rather than about a session's contents, and both refuse — never invent — where
 // it has stated none, so the pair and the reasoning that admits them stay one unit.
 //
-// WHY THE ACTIVITY READ IS SERVED, AND WHY THE COMPOSER'S TWO WRITES ARE NOT
+// WHY THE ACTIVITY READ IS SERVED
 //
-// The read is served so a scenario that states who is composing where can drive the
+// It is served so a scenario that states which run is working where can drive the
 // indicators at all: every one of them rendered permanently empty while the operation
 // refused, which is a surface whose only reachable state is its absence. Its
-// unscripted arm REFUSES rather than serving two empty lists, on the runtime-node
+// unscripted arm REFUSES rather than serving an empty list, on the runtime-node
 // roster's rule — a scenario that has not said has left the question unasked, and
-// "nobody is composing" is a claim about the room that nothing checked.
-//
-// The composer's `presenceComposingSet` / `presenceComposingClear` are writes with no
-// empty state and no receipt, and there is a second reason beside that one: what a
-// publish PRODUCES is somebody else's reading, so the fixture serving them would have
-// to write into the very snapshot the read above answers from — a fixture publishing
-// to itself, which would show this window its own indicator, something no real
-// Awareness client ever does. They refuse, and the emitter's own fail-closed rule
-// (it stops after a refusal) is exercised by that refusal rather than around it.
+// "no run is working" is a claim about the room that nothing checked.
 //
 // WHY THE CONTROL-PLANE HOST READ IS SERVED FROM THE SCENARIO AND FROM NOWHERE ELSE
 //
-// A minted invitation is only sendable as a link, and the link is composed from this
-// host — so leaving the read refusing left the one-time reveal permanently unable to
-// show what a person would actually paste, which is the whole act. It is served from
-// a scenario member the author writes down, exactly as the caller-identity read is,
-// and refused by a scenario that names none. What it may never do is INVENT one: a
-// plausible hostname nobody declared would put a copyable link in front of a person
-// that opens nothing, and that is worse than the sentence saying the host has not
-// been read. A scenario declaring one is not that — it is a fixture stating a fact
-// about the node it stands for, like every other fact in it.
+// A link to this node is composed from this host — so leaving the read refusing left
+// every surface that shows one permanently unable to show what a person would
+// actually paste. It is served from a scenario member the author writes down, exactly
+// as the caller-identity read is, and refused by a scenario that names none. What it
+// may never do is INVENT one: a plausible hostname nobody declared would put a
+// copyable link in front of a person that opens nothing, and that is worse than the
+// sentence saying the host has not been read. A scenario declaring one is not that —
+// it is a fixture stating a fact about the node it stands for, like every other fact
+// in it.
 
 import { readActivityFromScenario } from "../growth/activity.js";
 import { type GrowthPort } from "../../growth-port/index.js";

@@ -8,9 +8,9 @@
 // holder, what an offline host did to the lease, and which transitions the ledger
 // keeps.
 //
-// `Spec-023 §Console Design (Meridian)` 8.8 gives this module its one hard rule:
-// **the holder is a wire field and is never derived from the last observed
-// claim**. So nothing here reads the outcome of a `session.takeControl` call.
+// This module has one hard rule: **the holder is a wire field and is never derived
+// from the last observed claim**. So nothing here reads the outcome of a
+// `session.takeControl` call.
 // The lease state is a fold over `pty.control_changed` events — the registered
 // event type whose payload carries the holder, the holder it replaced, and the
 // reason — and a claim the console made changes the surface only when the
@@ -41,8 +41,8 @@ import {
 /**
  * Who holds the shell, from the viewer's seat.
  *
- * `not-checked` is not a synonym for `unheld`: 8.8 makes a free lease an explicit
- * state that reads differently from a suppressed one, and "no transition has ever
+ * `not-checked` is not a synonym for `unheld`: a free lease is an explicit state that
+ * reads differently from a suppressed one, and "no transition has ever
  * been read" is neither. `unrecognized-transition` is a fifth answer for the same
  * kind of reason — the log carried a transition this build cannot read, so the
  * holder is neither the free lease nor whoever held it before. Declared as a tuple
@@ -61,9 +61,9 @@ export type TerminalLeaseHolding = (typeof TERMINAL_LEASE_HOLDINGS)[number];
 /**
  * Whether the control plane can vouch for the holder.
  *
- * 8.8: "Never shows a holder the control plane cannot vouch for. When the holding
- * node reads offline, `controlHolder` resolves to null and the surface renders
- * unheld." The wire answers that on a `runtimenode.roster` read whose carrying
+ * Never show a hold the control plane cannot vouch for: when the holding node reads
+ * offline, `controlHolder` resolves to null and the surface renders unheld. The wire
+ * answers that on a `runtimenode.roster` read whose carrying
  * member the shipped schema does not yet have, so the caller supplies the reading
  * from the log instead — `node-presence-model.ts` folds the registered
  * `runtime_node.*` events the store already holds. `not-checked` stays the honest

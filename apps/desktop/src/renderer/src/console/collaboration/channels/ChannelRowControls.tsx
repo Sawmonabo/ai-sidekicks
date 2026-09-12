@@ -35,12 +35,6 @@ export interface ChannelRowLifecycle {
  * nothing to unmute on a terminal row, and offering it would suggest the channel
  * could come back.
  *
- * A DIRECT ROW IS OFFERED THESE EXACTLY AS ANY OTHER ROW IS, and the pair gating is
- * met one layer up rather than here: a `direct` channel the caller is outside of is
- * omitted from the reply, so there is no row for a control to sit on. A caller-side
- * check would be the console re-deriving a filter the daemon already applied, over
- * data the daemon deliberately did not send.
- *
  * EVERY CONTROL ON THE LIST CLOSES WHILE ONE MOVE IS UNSETTLED, not only this row's:
  * the coordinator behind them applies one at a time, and a control that leads only to
  * that refusal is worse than a control that waits.

@@ -9,7 +9,7 @@
 // property of `@xterm/xterm`'s own behaviour, so it is testable through the adapter
 // against the real library rather than against a mirror of it.
 //
-// TWO OF `Spec-023 §Console Libraries`' FIVE CONSTRAINTS LIVE HERE, and each one is
+// TWO OF THE WRAPPER'S FIVE CONSTRAINTS LIVE HERE, and each one is
 // a line of code rather than a note a reviewer has to remember:
 //
 //   1. **Bound the CONTEXTS this page creates, not the terminals drawing on one.**
@@ -174,7 +174,7 @@ export class TerminalAddonSuite {
     }
   }
 
-  /** The visible grid, as text. `Spec-023 §Console Libraries`' serialize addon. */
+  /** The visible grid, as text, through the serialize addon. */
   public serialize(): string {
     return this.#serializeAddon?.serialize() ?? "";
   }

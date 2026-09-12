@@ -112,36 +112,6 @@
   cursor: pointer;
 }
 
-.meridian-create-channel__kinds {
-  display: flex;
-  gap: var(--meridian-space-2);
-}
-
-.meridian-create-channel__kind,
-.meridian-create-channel__candidate {
-  display: flex;
-  align-items: center;
-  gap: var(--meridian-space-2);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
-  background: transparent;
-  color: var(--meridian-text-muted);
-  font-family: var(--meridian-font-sans);
-  font-size: var(--meridian-text-xs);
-  padding-block: var(--meridian-space-1);
-  padding-inline: var(--meridian-space-2);
-  cursor: pointer;
-}
-
-/* `accent-text` and not `accent`: the first is the palette's ink for accent-coloured
-   text on a NEUTRAL ground and is measured against all four grounds, and the second is
-   the FILL. Painting the fill as ink is what the accessibility tier caught here. */
-.meridian-create-channel__kind[aria-pressed="true"],
-.meridian-create-channel__candidate[aria-pressed="true"] {
-  border-color: var(--meridian-accent);
-  color: var(--meridian-accent-text);
-}
-
 .meridian-create-channel__policy {
   display: flex;
   flex-direction: column;
@@ -154,16 +124,6 @@
   cursor: pointer;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
-}
-
-.meridian-create-channel__direct,
-.meridian-create-channel__candidates {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
 }
 
 .meridian-create-channel__actions {

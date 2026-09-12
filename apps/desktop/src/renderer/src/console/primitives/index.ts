@@ -441,7 +441,7 @@ export type { FileRestoreDisclosureProps } from "./restore/FileRestoreDisclosure
 
 // The overlay shells, each registering what it mounts in the window's airspace
 // (`Spec-023 §Console Design (Meridian)` 12.3 — "at the primitive layer, never per
-// overlay instance"): the anchored five register their popup, the two modal wrappers
+// overlay instance"): the anchored four register their popup, the two modal wrappers
 // register the backdrop beside it through the one helper that owns that difference
 // (`overlay/modal-airspace.ts`, off this door — its only callers are those two), and
 // the hook is published for the surface that IS airspace and mounts no popup. Reaching
@@ -454,4 +454,3 @@ export { OverlayDialogPopup } from "./overlay/OverlayDialogPopup.js";
 export { OverlayMenuPopup } from "./overlay/OverlayMenuPopup.js";
 export { OverlayPopoverPopup } from "./overlay/OverlayPopoverPopup.js";
 export { OverlaySelectPopup } from "./overlay/OverlaySelectPopup.js";
-export { OverlayTooltipPopup } from "./overlay/OverlayTooltipPopup.js";

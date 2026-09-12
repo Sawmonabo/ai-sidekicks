@@ -3,9 +3,9 @@
 // Plan-023 Phase 1 (T-023p-1-3) substrate: single-instance lock + main window.
 // Plan-023 Phase 1B (T-023p-1B-1) adds the renderer scheme registration and the
 // bundle handler. Tier 8 remainder layers Sentry init, daemon supervisor
-// (`utilityProcess.fork`), the `sidekicks://` DEEP-LINK handler (a different
-// scheme from the renderer's — that one carries invite URLs), auto-updater,
-// crash reporter, and second-instance focus handling against this same surface.
+// (`utilityProcess.fork`), the `sidekicks://` DEEP-LINK handler (a different scheme
+// from the renderer's), auto-updater, crash reporter, and second-instance focus
+// handling against this same surface.
 //
 // Startup order is load-bearing and is asserted by `startup-order.test.ts`:
 //
@@ -124,10 +124,9 @@ function resolveFixtureScenarioQuery(): string {
   return `?${FIXTURE_SCENARIO_QUERY_PARAMETER}=${encodeURIComponent(scenarioId)}`;
 }
 
-// Plan-023 §Risks And Blockers: without `requestSingleInstanceLock()`, a
-// `sidekicks://invite/<token>` deep-link arriving at a second instance would
-// race with the first instance's daemon state. The lock is the correct pattern
-// even at Tier 1, before the deep-link handler ships at Tier 8 remainder.
+// Without `requestSingleInstanceLock()`, a `sidekicks://` deep link arriving at a
+// second instance would race with the first instance's daemon state. The lock is the
+// correct pattern even before the deep-link handler ships.
 const gotTheLock = app.requestSingleInstanceLock();
 
 // The two probes live in `./probes/`, not here (Plan-023 Phase 1B).

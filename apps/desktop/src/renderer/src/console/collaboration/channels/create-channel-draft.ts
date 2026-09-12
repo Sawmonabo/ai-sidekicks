@@ -17,40 +17,19 @@
 // all; one of them touched sends what the form holds, because a person who unchecked
 // a box has said something and a form that could not send `false` would silently keep
 // the session's own gate on.
-//
-// A `direct` CHANNEL CARRIES NO POLICY, AND THE REQUEST IS WHERE THAT IS ENFORCED.
-// The wire's own validation couples the kind to the pair — a direct channel requires
-// exactly two distinct humans and refuses every agent-turn member, a general one
-// refuses the pair — so the direct arm composes a request with no `config` member at
-// all rather than one carrying an audience the daemon would have to reject. The form
-// above draws no such field either; this is the second half of the same rule, stated
-// where a request is built.
-//
-// AND THE PAIR IS CANONICALIZED BEFORE IT IS SENT, by the rule `create-channel-pair.ts`
-// owns: the two ids are sorted, so the pair a form composes does not depend on who was
-// picked first — order carries no meaning on this wire, and two orderings of one pair
-// would read as two channels. That module also owns WHO may be in the pair, which is
-// the same rule the picker draws from and this file's readiness admits by.
 
 import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
 
-import type {
-  GrowthChannelAudience,
-  GrowthChannelConfig,
-  GrowthChannelKind,
-  GrowthChannelTurnPolicy,
-} from "../../bridge/index.js";
+import type { GrowthChannelAudience, GrowthChannelConfig } from "../../bridge/index.js";
 import { Emitter, type Unsubscribe } from "../../core/index.js";
 import type { ChannelCreateRequest } from "./channel-writes.js";
 import {
   CHANNEL_MODERATION_FIELDS,
   draftSnapshotsMatch,
-  readIdentifierList,
   readTurnCap,
   type ChannelModerationField,
   type CreateChannelDraftSnapshot,
 } from "./create-channel-fields.js";
-import { canonicalMemberPair, isDirectChannelCandidate } from "./create-channel-pair.js";
 
 /**
  * Whether the form composes a request, or what it is still missing.
@@ -58,7 +37,7 @@ import { canonicalMemberPair, isDirectChannelCandidate } from "./create-channel-
  * `nameRefusal` is its own member rather than another entry in `missing`, because it
  * is a refusal AGAINST A FIELD — it marks the name box and names the reserved word —
  * while `missing` is a list of things nobody has said yet. Collapsing them would put
- * "you may not call it that" in the same sentence as "you have not chosen anybody".
+ * "you may not call it that" in the same sentence as "you have not chosen a name".
  */
 export type CreateChannelReadiness =
   | { readonly status: "ready"; readonly request: ChannelCreateRequest }
@@ -68,41 +47,15 @@ export type CreateChannelReadiness =
       readonly nameRefusal: string | undefined;
     };
 
-/**
- * Everything outside the draft that a readiness answer depends on.
- *
- * ONE PARAMETER RATHER THAN THREE POSITIONAL ONES, because two of these are
- * `string | undefined` and a caller that transposed them would compose a pair from the
- * wrong half with nothing to say so. Named at every call site, the mistake is not
- * available.
- *
- * ALL THREE ARE READS THE CALLER ALREADY HOLDS, which is why none of them is a field:
- * a copy inside the draft would be a second answer to a question already asked, and it
- * would be the STALE answer exactly when it matters — the live participant set moves
- * under a mounted form every time somebody's membership ends.
- */
-export interface CreateChannelContext {
-  /** The session the channel would be created in. `undefined` means nothing can be sent. */
-  readonly sessionId: string | undefined;
-  /** Which participant this window is, where that has been read. One half of a pair. */
-  readonly viewerParticipantId: string | undefined;
-  /** Who is still in this session, as the membership fold answers it right now. */
-  readonly liveParticipantIds: readonly string[];
-}
-
 export class CreateChannelDraft {
   readonly #changes = new Emitter<void>("create channel draft");
   #name = "";
-  #kind: GrowthChannelKind = "general";
-  // The one policy member the form opens with a value in: the empty state is
-  // `general` with audience `participants`, so the draft holds that rather than
-  // leaving the reader to infer it from an unset select.
+  // The one policy member the form opens with a value in: the empty state is audience
+  // `participants`, so the draft holds that rather than leaving the reader to infer it
+  // from an unset select.
   #audience: GrowthChannelAudience | undefined = "participants";
-  #turnPolicy: GrowthChannelTurnPolicy | undefined;
-  #roundRobinOrder = "";
   #turnsPerAgent = "";
   #moderation = new Map<ChannelModerationField, boolean>();
-  #otherParticipantId: string | undefined;
 
   /** Subscribe to edits. Returns an idempotent unsubscribe. */
   public onChange(listener: () => void): Unsubscribe {
@@ -113,13 +66,9 @@ export class CreateChannelDraft {
   public snapshot(): CreateChannelDraftSnapshot {
     return {
       name: this.#name,
-      kind: this.#kind,
       audience: this.#audience,
-      turnPolicy: this.#turnPolicy,
-      roundRobinOrder: this.#roundRobinOrder,
       turnsPerAgent: this.#turnsPerAgent,
       moderation: CHANNEL_MODERATION_FIELDS.map((field) => this.#moderation.get(field)),
-      otherParticipantId: this.#otherParticipantId,
     };
   }
 
@@ -129,11 +78,10 @@ export class CreateChannelDraft {
    * WHAT A RESET AFTER A WIRE ACT IS FOR, and what it is not. Emptying the form once a
    * create settles is what makes the next one start clean, and that is only true of the
    * draft the create CONSUMED. A wire call is a round trip whose length this console does
-   * not decide and the fields stay live for it — the sibling create-invite form leaves
-   * its controls live while a mint is in flight, and a text box that went dead mid-trip
-   * would drop keystrokes a person had already committed — so a draft that has moved on
-   * since the press is their next channel, and clearing it would be this surface taking
-   * work away as a reward for the work it just finished.
+   * not decide and the fields stay live for it — a text box that went dead mid-trip would
+   * drop keystrokes a person had already committed — so a draft that has moved on since
+   * the press is their next channel, and clearing it would be this surface taking work
+   * away as a reward for the work it just finished.
    *
    * THE SAME RULE THE ROW OVERLAY BESIDE IT KEEPS. `channel-model.ts` applies a lifecycle
    * receipt only while the read is still the exact reading it was answered against; this
@@ -159,13 +107,9 @@ export class CreateChannelDraft {
    */
   public reset(): void {
     this.#name = "";
-    this.#kind = "general";
     this.#audience = "participants";
-    this.#turnPolicy = undefined;
-    this.#roundRobinOrder = "";
     this.#turnsPerAgent = "";
     this.#moderation = new Map();
-    this.#otherParticipantId = undefined;
     this.#changes.emit();
   }
 
@@ -178,48 +122,12 @@ export class CreateChannelDraft {
     this.#changes.emit();
   }
 
-  public get kind(): GrowthChannelKind {
-    return this.#kind;
-  }
-
-  /**
-   * Choose the kind.
-   *
-   * The policy entries are LEFT STANDING when the kind moves to `direct` rather than
-   * dropped: they are not sent on that arm, so nothing composed from them can reach
-   * the daemon, and a person who tries `direct` and comes back should not find the
-   * turn policy they chose two minutes ago quietly gone.
-   */
-  public setKind(value: GrowthChannelKind): void {
-    this.#kind = value;
-    this.#changes.emit();
-  }
-
   public get audience(): GrowthChannelAudience | undefined {
     return this.#audience;
   }
 
   public setAudience(value: GrowthChannelAudience | undefined): void {
     this.#audience = value;
-    this.#changes.emit();
-  }
-
-  public get turnPolicy(): GrowthChannelTurnPolicy | undefined {
-    return this.#turnPolicy;
-  }
-
-  public setTurnPolicy(value: GrowthChannelTurnPolicy | undefined): void {
-    this.#turnPolicy = value;
-    this.#changes.emit();
-  }
-
-  /** The round-robin order as typed: identifiers separated by commas. */
-  public get roundRobinOrder(): string {
-    return this.#roundRobinOrder;
-  }
-
-  public setRoundRobinOrder(value: string): void {
-    this.#roundRobinOrder = value;
     this.#changes.emit();
   }
 
@@ -243,35 +151,14 @@ export class CreateChannelDraft {
     this.#changes.emit();
   }
 
-  /** The other human in a `direct` pair, as picked. */
-  public get otherParticipantId(): string | undefined {
-    return this.#otherParticipantId;
-  }
-
-  public setOtherParticipantId(value: string | undefined): void {
-    this.#otherParticipantId = value;
-    this.#changes.emit();
-  }
-
   /**
    * The request this draft composes, or what it is still missing.
    *
-   * The session, the viewer, and who is still in the session are ARGUMENTS and never
-   * fields, for the reason the attach form gives about its own catalog: all three are
-   * reads their owner already holds, and a copy inside the draft would be a second
-   * answer to a question already asked. An unread viewer is passed as the `undefined`
-   * it is and the direct arm fails closed — a pair composed from a caller identity
-   * nobody established would put two people in a room neither of them chose.
-   *
-   * AND THE PICK IS RE-ADMITTED ON EVERY ASK, against the live set as it is NOW. A
-   * draft holds an id and a membership ends without asking it: the person picked can
-   * be revoked or suspended a second after they were chosen, and a form that checked
-   * only that it held SOME id went on offering Create for a pair containing somebody
-   * the daemon would have to refuse. The candidate rule is the picker's own, so what
-   * is drawable and what is submittable move together.
+   * The session is an ARGUMENT and never a field, for the reason the attach form gives
+   * about its own catalog: it is a read its owner already holds, and a copy inside the
+   * draft would be a second answer to a question already asked.
    */
-  public readiness(context: CreateChannelContext): CreateChannelReadiness {
-    const { sessionId, viewerParticipantId } = context;
+  public readiness(sessionId: string | undefined): CreateChannelReadiness {
     const name = this.#name.trim();
     const missing: string[] = [];
     if (sessionId === undefined) {
@@ -284,97 +171,30 @@ export class CreateChannelDraft {
       name === MAIN_CHANNEL_NAME
         ? `\`${MAIN_CHANNEL_NAME}\` is the session's own channel, and no new channel may take that name.`
         : undefined;
-    const turnsPerAgent = readTurnCap(this.#turnsPerAgent);
-    if (this.#kind === "general" && turnsPerAgent === "unreadable") {
+    if (readTurnCap(this.#turnsPerAgent) === "unreadable") {
       missing.push("a whole number of turns per agent, or none at all");
-    }
-    if (
-      this.#kind === "general" &&
-      this.#turnPolicy === "round-robin" &&
-      readIdentifierList(this.#roundRobinOrder) === undefined
-    ) {
-      // A non-empty agent order is part of what a round-robin channel IS
-      // (`Spec-016 §Turn Policies`), refused at create time when it is absent. A form
-      // that declared itself ready without one would compose a request the daemon
-      // must refuse, and the person would meet that refusal after the press instead
-      // of at the field that could still answer it.
-      //
-      // ONLY WHERE THIS FORM CHOSE THE POLICY. An unset policy is the session's own,
-      // and this console does not read which one that is — asking for an order there
-      // would be demanding a value against a policy nobody here can see.
-      missing.push("the round-robin order this policy requires");
-    }
-    if (this.#kind === "direct") {
-      const picked = this.#otherParticipantId;
-      if (picked === undefined) {
-        missing.push("the other person in the pair");
-      } else if (
-        !isDirectChannelCandidate(picked, context.liveParticipantIds, viewerParticipantId)
-      ) {
-        // A DIFFERENT SENTENCE FROM "nobody is picked", because they are different
-        // facts and only one of them is about somebody. Saying "the other person in
-        // the pair" for a pick that has just been revoked would report the person's
-        // own choice as though they had never made it.
-        missing.push("somebody who is still in this session — the person picked is no longer one");
-      }
-      if (viewerParticipantId === undefined) {
-        missing.push("which participant this window is");
-      }
     }
     if (missing.length > 0 || nameRefusal !== undefined || sessionId === undefined) {
       return { status: "incomplete", missing, nameRefusal };
     }
-    return { status: "ready", request: this.#request(sessionId, viewerParticipantId, name) };
-  }
-
-  #request(
-    sessionId: string,
-    viewerParticipantId: string | undefined,
-    name: string,
-  ): ChannelCreateRequest {
-    if (this.#kind === "direct") {
-      return {
-        sessionId,
-        name,
-        kind: "direct",
-        // Both members are present by the readiness check above; the pair is built
-        // from them in canonical order and carries no policy at all.
-        memberPair: canonicalMemberPair(this.#otherParticipantId ?? "", viewerParticipantId ?? ""),
-      };
-    }
     const config = this.#config();
-    return config === undefined
-      ? { sessionId, name, kind: "general" }
-      : { sessionId, name, kind: "general", config };
+    return {
+      status: "ready",
+      request: config === undefined ? { sessionId, name } : { sessionId, name, config },
+    };
   }
 
   /**
    * What the form actually collected, or `undefined` where it collected nothing.
    *
-   * A `round-robin` policy always carries its order out of here, and that is the
-   * readiness check above rather than a rule restated: a draft holding that policy
-   * with an empty order composes no request at all, so there is no arm on which this
-   * could send the policy without it.
-   *
-   * AND THE ORDER LEAVES UNDER NO OTHER POLICY, which is the same rule read the other
-   * way. `Spec-016 §Turn Policies` makes the order the fixed sequence a round-robin
-   * channel takes its turns in, so it says nothing under `free-form`, under
-   * `request-based`, or under the session's own policy — and every `GrowthChannelConfig`
-   * member is fixed at creation, so a channel created carrying one would hold an agent
-   * order forever that its policy never reads and no mutation can remove. The typed
-   * text is kept rather than cleared: switching the policy back restores it without
-   * re-entry, the same standing the `direct` arm gives the policy fields it does not
-   * send. `turnsPerAgent` deliberately takes no such rule — it overrides the session's
-   * per-agent consecutive-turn limit under every policy rather than under one.
+   * `turnsPerAgent` leaves only where it reads as a number: the unreadable arm is
+   * refused at readiness above, so there is no arm on which this sends a cap the person
+   * did not type.
    */
   #config(): GrowthChannelConfig | undefined {
-    const roundRobinOrder =
-      this.#turnPolicy === "round-robin" ? readIdentifierList(this.#roundRobinOrder) : undefined;
     const turnsPerAgent = readTurnCap(this.#turnsPerAgent);
     const moderation = this.#moderationConfig();
     const config: GrowthChannelConfig = {
-      ...(this.#turnPolicy === undefined ? {} : { turnPolicy: this.#turnPolicy }),
-      ...(roundRobinOrder === undefined ? {} : { roundRobinOrder }),
       ...(moderation === undefined ? {} : { moderation }),
       ...(this.#audience === undefined ? {} : { audience: this.#audience }),
       ...(typeof turnsPerAgent === "number" ? { turnsPerAgent } : {}),

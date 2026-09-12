@@ -1,8 +1,8 @@
 // Whether this session has a run a person could step into.
 //
-// `Spec-023 §Console Design (Meridian)` 8.9 puts one aside under the lease line — that
-// stepping in pauses a run and hands you the conversation, and that it never moves the
-// keyboard. An aside is a clarification, and a clarification about a control nobody
+// One aside sits under the lease line — that stepping in pauses a run and hands you
+// the conversation, and that it never moves the keyboard. An aside is a clarification,
+// and a clarification about a control nobody
 // can reach right now is noise on every terminal pane that is not running anything.
 // So the sentence renders when there is something to step into and not otherwise.
 //

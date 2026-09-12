@@ -6,9 +6,9 @@
 // kept across a detach, disposed once — and this owns its relationship to a host
 // that comes and goes, which is where both the size seam and the write gate live.
 //
-// `Spec-023 §Console Libraries` constraint 5 is here: **`disableStdin` plus
-// wire-level gating for watchers.** Watch mode is the default, so stdin starts
-// disabled and opens only when the lease says this participant holds the shell — and
+// The wrapper's fifth constraint is here: **`disableStdin` plus wire-level gating for
+// watchers.** Watch mode is the default, so stdin starts disabled and opens only when
+// the lease says this window holds the shell — and
 // the keystrokes go to the wire, never into the local buffer, because the daemon is
 // what echoes a shared shell. The gate is applied twice on purpose: the option stops
 // the DOM listener and the check inside `onData` stops a programmatic write. The
@@ -121,10 +121,10 @@ export class TerminalHostBinding {
   }
 
   /**
-   * Say whether this participant may type. The answer is the lease's, folded from the
-   * log and handed down. Disabled is the default and the fallback: 8.8 makes watch
-   * mode what every non-holder gets, and a guess here would guess in the direction
-   * that lets somebody type into a shell they do not hold.
+   * Say whether this window may type. The answer is the lease's, folded from the log
+   * and handed down. Disabled is the default and the fallback: watch mode is what a
+   * window without the hold gets, and a guess here would guess in the direction that
+   * writes into a shell this window does not hold.
    *
    * The lease's answer is REMEMBERED rather than applied and forgotten, so a surface
    * that is told the lease while the emulator is off screen still gets the gate it

@@ -97,8 +97,6 @@ describe("the readings that are not a goal", () => {
         bridge={inertBridge()}
         sessionId={FIRST_SESSION_ID}
         goal={A_GOAL}
-        canMutate
-        authorizationRefusal={undefined}
         isMutating={false}
         refusal={refuse("session-goal", "goal_mutation_in_flight", "A goal change is settling.")}
         onUpdate={vi.fn()}
@@ -117,8 +115,6 @@ describe("the readings that are not a goal", () => {
         bridge={inertBridge()}
         sessionId={FIRST_SESSION_ID}
         goal={A_GOAL}
-        canMutate
-        authorizationRefusal={undefined}
         isMutating={false}
         refusal={deliveryRefusalNaming(["binding-a", "binding-b"])}
         onUpdate={vi.fn()}
@@ -140,8 +136,6 @@ describe("the readings that are not a goal", () => {
         bridge={inertBridge()}
         sessionId={FIRST_SESSION_ID}
         goal={A_GOAL}
-        canMutate
-        authorizationRefusal={undefined}
         isMutating={false}
         refusal={refuse("session-goal", "session.goal_delivery_failed", "Delivery failed.")}
         onUpdate={vi.fn()}
@@ -151,29 +145,5 @@ describe("the readings that are not a goal", () => {
 
     expect(screen.getByText(/the goal did not change/)).not.toBeNull();
     expect(document.querySelector(".meridian-goal__failed-bindings")).toBeNull();
-  });
-
-  it("says why no control is offered when the role read itself refused", () => {
-    // The missing control and the reason it is missing are one surface: a person
-    // who holds the role sees the code that says the console could not check it,
-    // rather than a card that looks read-only for no stated reason.
-    renderCard({
-      canMutate: undefined,
-      authorizationRefusal: refuse(
-        "growth-port",
-        "wire-unregistered",
-        "This build cannot read which participant this window is.",
-      ),
-    });
-    expect(screen.getByText("wire-unregistered")).not.toBeNull();
-    expect(screen.queryByRole("button")).toBeNull();
-  });
-
-  it("negative control: an unknown role with nothing refused says nothing", () => {
-    // Without this, a card that rendered a standing "role unknown" notice would
-    // pass the case above while claiming a refusal on every ordinary mount.
-    renderCard({ canMutate: undefined });
-    expect(screen.queryByText("wire-unregistered")).toBeNull();
-    expect(screen.queryByRole("status")).toBeNull();
   });
 });

@@ -13,8 +13,8 @@
 // SO THE REGISTER IS A LEDGER OF LIFECYCLES AND NOT A VIEW OF ROWS. It is advanced by
 // every event the store admits and by every row a backward page recovers, it is seeded
 // from the base state a read establishes, and it is cleared by NOTHING that replaces or
-// prunes the window. What it holds per lifecycle is two positions and an opener, which
-// is all any reader needs and is far smaller than the rows those positions came from.
+// prunes the window. What it holds per lifecycle is two positions, which is all any
+// reader needs and is far smaller than the rows those positions came from.
 //
 // AND IT IS ORDER-INSENSITIVE BY CONSTRUCTION, which is the property that makes the
 // backward walk safe. Rows arrive at the tail in order and at the head in reverse, so a
@@ -47,7 +47,7 @@ import {
 } from "./outstanding-ask-vocabulary.js";
 
 /**
- * One request lifecycle, as two positions and the identity of whoever opened it.
+ * One request lifecycle, as two positions.
  *
  * POSITIONS RATHER THAN A BOOLEAN, which is what makes the register order-insensitive:
  * a terminal that arrives before its own opener — the ordinary case on a backward page —
@@ -59,13 +59,6 @@ export interface OutstandingRequestRecord {
   readonly openedAtSequence: number | undefined;
   /** Where the newest terminal sat, or `undefined` while none has been seen. */
   readonly closedAtSequence: number | undefined;
-  /**
-   * Who the OPENING event was attributed to.
-   *
-   * The opener's and never a resolver's: an approver is not the participant who was
-   * blocked, so the identity an ask is attributed to is read once, when it opens.
-   */
-  readonly opener: string | undefined;
 }
 
 /** One run's newest known state, as the position it was read at and what it means. */
@@ -73,7 +66,6 @@ export interface OutstandingRunRecord {
   readonly atSequence: number;
   /** Whether that state is one a person has to act on. */
   readonly needsAttention: boolean;
-  readonly opener: string | undefined;
 }
 
 /** Everything the register knows, as one immutable reading. */
@@ -142,7 +134,6 @@ export class OutstandingAskJournal {
         runId: entity.id,
         atSequence: seed.cursor,
         needsAttention: isAttentionRunState(entity.state),
-        opener: entity.attributedTo,
       });
     }
   }
@@ -182,7 +173,6 @@ export class OutstandingAskJournal {
         runId: runIdOf(event) ?? uncorrelatedKey(event),
         atSequence: event.sequence,
         needsAttention: ATTENTION_RUN_STATE_KINDS.includes(event.kind),
-        opener: event.actorId,
       });
       return;
     }
@@ -211,7 +201,6 @@ export class OutstandingAskJournal {
     this.#runsByRunId.set(record.runId, {
       atSequence: record.atSequence,
       needsAttention: record.needsAttention,
-      opener: record.opener,
     });
     this.#revision += 1;
   }
@@ -224,7 +213,6 @@ export class OutstandingAskJournal {
     this.#requestsByKey.set(requestKey, {
       openedAtSequence: event.sequence,
       closedAtSequence: held?.closedAtSequence,
-      opener: event.actorId,
     });
     this.#revision += 1;
   }
@@ -237,7 +225,6 @@ export class OutstandingAskJournal {
     this.#requestsByKey.set(requestKey, {
       openedAtSequence: held?.openedAtSequence,
       closedAtSequence: atSequence,
-      opener: held?.opener,
     });
     this.#revision += 1;
   }

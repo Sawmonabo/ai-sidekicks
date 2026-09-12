@@ -7,8 +7,8 @@
 // makes that last one true on the FIRST committed render — is
 // `lease-claim.test.tsx`.
 //
-// 8.9's line is here too: stepping in is a different act from taking the shell, and
-// this surface says so in copy rather than growing a second affordance, which is a
+// The step-in line is here too: stepping in is a different act from taking the shell,
+// and this surface says so in copy rather than growing a second affordance, which is a
 // claim about this control and belongs beside it.
 
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
@@ -20,7 +20,6 @@ import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-suppo
 import { LeaseLine } from "./LeaseLine.js";
 import { UNREAD_TERMINAL_LEASE } from "./lease-model.js";
 import {
-  CALLER_ROLE_COLLABORATOR,
   OTHER_SESSION_ID,
   SESSION_ID,
   VIEWER_IDENTITY_READ,
@@ -28,7 +27,6 @@ import {
   HeldLeaseWire,
   claimControl,
   leaseState,
-  markFor,
   refusingBridge,
   renderLease,
   scriptlessLeaseBridge,
@@ -59,9 +57,8 @@ describe("the claim control — one affordance, and three things it never does",
   it("renders the port's own refusal beside the control", async () => {
     // The FIXTURE's refusal and not a daemon's: this bridge plays a scenario that
     // scripts neither lease call, so a served operation with nothing to answer from
-    // takes `reply-unscripted`. The daemon-side arm — a scripted refusal naming a
-    // holder — is `LeaseLine.refusal-holder.test.tsx`'s, and the two are different
-    // facts about the same control.
+    // takes `reply-unscripted`. The daemon-side arm — a scripted refusal — is the
+    // rejection cases below, and the two are different facts about the same control.
     const { container } = renderLease(
       leaseState({ holding: "unheld", holderVouching: "vouched" }),
       scriptlessLeaseBridge(),
@@ -78,7 +75,7 @@ describe("the claim control — one affordance, and three things it never does",
       leaseState({ holding: "unheld", holderVouching: "vouched" }),
       bridgeRejectingWith({
         code: "terminal.lease_conflict",
-        message: "Another participant holds the shell.",
+        message: "The shell is already held.",
       }),
     );
     fireEvent.click(claimControl(container));
@@ -88,7 +85,7 @@ describe("the claim control — one affordance, and three things it never does",
     // The code the daemon sent, verbatim, and its sentence beside it — which is
     // what tells the person that waiting, rather than pressing again, is the move.
     expect(container.textContent).toContain("terminal.lease_conflict");
-    expect(container.textContent).toContain("Another participant holds the shell.");
+    expect(container.textContent).toContain("The shell is already held.");
   });
 
   it("negative control: it does not flatten that rejection into a call-failed code", async () => {
@@ -97,13 +94,13 @@ describe("the claim control — one affordance, and three things it never does",
     // sentence, which is a lease conflict a person cannot tell from a dead preload.
     const { container } = renderLease(
       leaseState({ holding: "unheld", holderVouching: "vouched" }),
-      bridgeRejectingWith({ code: "permission_denied", message: "You may not take the shell." }),
+      bridgeRejectingWith({ code: "shell_unavailable", message: "The shell is not running." }),
     );
     fireEvent.click(claimControl(container));
     await waitFor(() => {
       expect(container.querySelector(".meridian-refusal--inline")).not.toBeNull();
     });
-    expect(container.textContent).toContain("permission_denied");
+    expect(container.textContent).toContain("shell_unavailable");
     expect(container.textContent).not.toContain("call-failed");
     expect(container.textContent).not.toContain("[object Object]");
   });
@@ -235,9 +232,7 @@ describe("the claim control — one affordance, and three things it never does",
         bridge={heldWire.bridge}
         sessionId={SESSION_ID}
         state={state}
-        markFor={markFor}
         viewerIdentity={VIEWER_IDENTITY_READ}
-        callerRole={CALLER_ROLE_COLLABORATOR}
         hasSteppableRun
       />,
     );
@@ -249,9 +244,7 @@ describe("the claim control — one affordance, and three things it never does",
         bridge={heldWire.bridge}
         sessionId={OTHER_SESSION_ID}
         state={state}
-        markFor={markFor}
         viewerIdentity={VIEWER_IDENTITY_READ}
-        callerRole={CALLER_ROLE_COLLABORATOR}
         hasSteppableRun
       />,
     );
@@ -294,7 +287,7 @@ describe("the claim control — one affordance, and three things it never does",
     expect(Object.keys({ terminalId: SESSION_ID })).not.toStrictEqual(["sessionId"]);
   });
 
-  it("negative control: a state that is not the viewer's calls acquire", async () => {
+  it("negative control: a hold this window does not have calls acquire", async () => {
     const bridge = servingBridge();
     const acquire = vi.spyOn(bridge.growth, "terminalAcquireWriteLease");
     const release = vi.spyOn(bridge.growth, "terminalReleaseWriteLease");
@@ -314,7 +307,7 @@ describe("the claim control — one affordance, and three things it never does",
   });
 });
 
-describe("stepping in is not this control (8.9)", () => {
+describe("stepping in is not this control", () => {
   it("says so in copy rather than growing a second affordance", () => {
     const { container } = renderLease(UNREAD_TERMINAL_LEASE);
     expect(container.textContent).toContain("It never moves the keyboard");
@@ -324,13 +317,12 @@ describe("stepping in is not this control (8.9)", () => {
 
   it("says nothing about stepping in where no run could be stepped into", () => {
     // The clarification is about a control, and a control nobody can reach is not
-    // worth a paragraph on every idle terminal — 8.9 renders it where it clarifies
+    // worth a paragraph on every idle terminal — it renders where it clarifies
     // something, which is the visible-steppable-run condition and nothing else.
     const { container } = renderLease(
       UNREAD_TERMINAL_LEASE,
       refusingBridge(),
       VIEWER_IDENTITY_READ,
-      CALLER_ROLE_COLLABORATOR,
       false,
     );
     expect(container.textContent).not.toContain("It never moves the keyboard");

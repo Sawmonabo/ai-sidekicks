@@ -6,13 +6,12 @@
 // the family that reaches `bridge.growth`, and the only place that turns a rejection
 // into something a person reads.
 //
-// WHAT IT DOES NOT DO, which is the whole reason it can be this small.
-// `Spec-023 §Console Design (Meridian)` 8.8's second Never — the holder is never
-// derived from the last observed claim — is met here by a hook that returns no
-// holder at all. It reports exactly two renderer-local facts (a call is out; a call
-// was refused) and the fold in `lease-model.ts` owns everything else. The moment
-// this file acquires a rule about WHO HOLDS the shell, that rule belongs in the fold
-// where it can be tested without React.
+// WHAT IT DOES NOT DO, which is the whole reason it can be this small. The holder is
+// never derived from the last observed claim, and that is met here by a hook that
+// returns no holder at all. It reports exactly two renderer-local facts (a call is out;
+// a call was refused) and the fold in `lease-model.ts` owns everything else. The moment
+// this file acquires a rule about WHERE THE SHELL IS HELD, that rule belongs in the
+// fold where it can be tested without React.
 //
 // BOTH OF THOSE FACTS ARE ABOUT A SUBJECT, AND THE SUBJECT IS STAMPED ON THEM.
 // They are renderer-local, not session-local, so nothing outside this hook can tell
@@ -47,7 +46,7 @@
 
 import { useCallback } from "react";
 
-import { normalizeWireRejection, type ExtendedConsoleRefusal } from "../../core/index.js";
+import { normalizeWireRejection, type ConsoleRefusal } from "../../core/index.js";
 import { useGenerationLatch, useSubjectScopedState } from "../../store/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 
@@ -68,14 +67,13 @@ const TERMINAL_LEASE_REFUSAL_ORIGIN = "terminal-lease";
 export interface TerminalLeaseClaim {
   readonly isInFlight: boolean;
   /**
-   * What refused the last dispatch, with whatever registered members it carried.
+   * What refused the last dispatch: the wire's own code and sentence, and nothing more.
    *
-   * The EXTENDED refusal rather than the bare one, because 8.8's naming rule is met
-   * from a member the wire sent — `holderParticipantId`, registered in
-   * `core/refusal-extensions.ts` — and a surface handed the narrow type would have to
-   * re-read it off an unvalidated value the normalizer has already read once.
+   * The BARE refusal, because the line renders a code and a detail. A hold this window
+   * does not have belongs to another of the one user's windows, so there is no
+   * identifier on a refusal for this surface to name.
    */
-  readonly refusal: ExtendedConsoleRefusal | undefined;
+  readonly refusal: ConsoleRefusal | undefined;
   readonly acquire: () => void;
   readonly release: () => void;
 }
@@ -91,7 +89,7 @@ export interface TerminalLeaseClaim {
  */
 interface TerminalLeaseClaimReading {
   readonly isInFlight: boolean;
-  readonly refusal: ExtendedConsoleRefusal | undefined;
+  readonly refusal: ConsoleRefusal | undefined;
 }
 
 /**
@@ -114,11 +112,11 @@ const IDLE_TERMINAL_LEASE_CLAIM: TerminalLeaseClaimReading = {
  * `lease-model.ts` where the fold can be tested without React.
  *
  * The served arm deliberately sets NO holder. `terminalAcquireWriteLease` answering
- * "served" means the daemon accepted the claim, not that this participant now holds
- * the shell — the holder is the wire field the transition carries, and a surface
- * that moved on the reply would show a keyboard to somebody whose broadcast never
- * arrived. The registered reply DOES carry a `controlHolder`, and 8.8's second Never
- * is precisely that it may not be read as one: the fold owns the holder.
+ * "served" means the daemon accepted the claim, not that this window now holds the
+ * shell — the holder is the wire field the transition carries, and a surface that moved
+ * on the reply would show a keyboard for a hold whose broadcast never arrived. The
+ * registered reply DOES carry a `controlHolder`, and it may not be read as one: the
+ * fold owns the holder.
  */
 export function useTerminalLeaseClaim(
   bridge: ConsoleBridge,

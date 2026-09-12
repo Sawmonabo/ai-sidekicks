@@ -1,8 +1,8 @@
-// The two entity-body members a surface may only have after they have been checked.
+// The entity-body member a surface may only have after it has been checked.
 //
-// WHY THEY LIVE IN THE BRIDGE AND NOT BESIDE THE STORE'S OTHER SELECTORS. Both read
-// a member some projector wrote into an entity body — an untyped record — and both
-// answer a REGISTERED wire shape, so each has to narrow `unknown` against the shape
+// WHY IT LIVES IN THE BRIDGE AND NOT BESIDE THE STORE'S OTHER SELECTORS. The read
+// takes a member some projector wrote into an entity body — an untyped record — and
+// answers a REGISTERED wire shape, so it has to narrow `unknown` against the shape
 // the corpus registers rather than against a mirror of it. A mirror is what stood
 // here before and it is exactly what the console's schema chokepoint forbids above
 // this family: the hand-written narrowing checked what its author remembered to
@@ -11,18 +11,18 @@
 // beside them — every one a value the contract refuses outright — then handed the
 // result to a surface as a valid permission posture.
 //
-// So the reads sit where the canonical shapes may be imported. That is not a
+// So the read sits where the canonical shapes may be imported. That is not a
 // relocation of convenience: `store/` is BELOW `bridge/` on the console DAG, so a
-// store module cannot reach one of these narrowings by import at all, and the seam
-// that carries one downward is a parameter. `store/session/caller-membership-role.ts` already takes its
-// caller-identity read that way.
+// store module cannot reach this narrowing by import at all, and the seam that
+// carries one downward is a parameter — which is how `store/session/caller-identity.ts`
+// already takes its caller-identity read.
 //
-// BOTH RETURN PRIMITIVES OR STORED REFERENCES, never a value built per call, so they
-// stay usable as `useStore` selectors: `Object.is` on a string is value equality, and
-// the posture read returns the stored object it narrowed rather than a copy of it.
+// IT RETURNS A STORED REFERENCE, never a value built per call, so it stays usable as
+// a `useStore` selector: the read returns the stored object it narrowed rather than a
+// copy of it.
 
-import { MembershipRoleSchema, RunStateChangeEventSchema } from "@ai-sidekicks/contracts";
-import type { ExecutionPosture, MembershipRole } from "@ai-sidekicks/contracts";
+import { RunStateChangeEventSchema } from "@ai-sidekicks/contracts";
+import type { ExecutionPosture } from "@ai-sidekicks/contracts";
 
 import type { ConsoleEntity } from "../../store/index.js";
 
@@ -31,8 +31,8 @@ import type { ConsoleEntity } from "../../store/index.js";
  *
  * WHY THIS IS A READ AND NOT A SECOND SUBSCRIPTION. `run.running` is an
  * ordinary session event: it reaches this store through the apply chokepoint like
- * every other one, and `Spec-006 §Run Lifecycle (run_lifecycle)` puts
- * `executionPosture` on that durable payload, stamped on `run.running` alone —
+ * every other one, and the run-lifecycle payload carries `executionPosture` on that
+ * durable body, stamped on `run.running` alone —
  * the post-setup-gate transition where the resolved root and effective posture are
  * final. So the posture a surface wants is already in the run's body by the time
  * the run is on screen, and opening `run.subscribeState` to obtain it would be a
@@ -68,48 +68,17 @@ export function stampedExecutionPostureOf(
 }
 
 /**
- * The membership role the roster carries for one participant, or `undefined`.
- *
- * `bridge/growth-signatures/identity.ts` states the reasoning this selector is the other
- * half of: the session's participant roster already carries every member's role,
- * so a role member on the caller-identity read would be a second source of truth
- * for a fact this partition owns — and the two could disagree with nothing able to
- * say which was right. What no registered read supplies is which entry in the
- * roster this window IS; given that, the role is this lookup.
- *
- * `undefined` when the participant is not in the partition and equally when the
- * entry carries no parseable role. Never a default role: an unread role rendered
- * as `viewer` would hide a control an owner is entitled to, and one rendered as
- * `owner` would offer a control the daemon will refuse.
- *
- * Takes the ROSTER ENTRY rather than the state and an id, which is what makes it the
- * same shape as the posture read beside it and what keeps this family from naming a
- * store state at all. A hook that holds the state picks the entry with the store's
- * own `selectEntity` and hands it here; `MembershipRoleReader` in `store/session/caller-membership-role.ts`
- * declares exactly this signature for that injection.
- */
-export function membershipRoleOf(
-  participant: ConsoleEntity | undefined,
-): MembershipRole | undefined {
-  const parsed = MembershipRoleSchema.safeParse(participant?.body?.[MEMBERSHIP_ROLE_MEMBER]);
-  return parsed.success ? parsed.data : undefined;
-}
-
-/**
  * The body member `run.running` stamps the posture on, spelled as the registered
  * shape spells it.
  *
  * Read off `packages/contracts/src/runControl.ts` — `RunStateChangeEvent`'s
- * `executionPosture?`, whose comment records the same stamping rule Spec-006's
+ * `executionPosture?`, whose comment records the same stamping rule the
  * run-lifecycle payload does. `event.ts` is deliberately not the source here: it
  * registers no `run.running` payload variant at all and the string appears nowhere
  * in it, so the name would have had to be invented from that file rather than
  * read.
  */
 const STAMPED_EXECUTION_POSTURE_MEMBER = "executionPosture";
-
-/** The body member a participant entry carries its role on, spelled as the roster spells it. */
-const MEMBERSHIP_ROLE_MEMBER = "role";
 
 /**
  * The five members the registered event requires beside the posture.
@@ -138,8 +107,8 @@ const POSTURE_CARRIER_MEMBERS = {
  * WHY THE PARSE RUNS THROUGH AN EVENT. `@ai-sidekicks/contracts` exports the
  * `ExecutionPosture` TYPE and no parser for it: `runControl.ts` keeps its posture
  * schema module-private on purpose, because exporting one there would claim a
- * Plan-005 symbol name in this package's barrel, and `provider-driver.ts` — which
- * owns the type — ships none either. `RunStateChangeEventSchema` is the one
+ * driver-owned symbol name in this package's barrel, and `provider-driver.ts` —
+ * which owns the type — ships none either. `RunStateChangeEventSchema` is the one
  * exported shape that composes that schema, so running it over a fixed carrier is
  * the only way to reach the canonical parse, and reaching it is worth a carrier.
  *

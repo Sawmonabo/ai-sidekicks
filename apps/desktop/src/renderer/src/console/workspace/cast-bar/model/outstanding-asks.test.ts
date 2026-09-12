@@ -2,7 +2,7 @@
 //
 // The load-bearing case is `run A waiting, run B busier`: an agent blocked on an
 // approval in one run and emitting an ordinary row from another. Reading attention
-// off the newest row answers "clear" there, which is the bar saying "Nothing needs
+// off the newest row answers "clear" there, which is the header saying "Nothing needs
 // you" over a run that is still blocked. Every case below asserts against the ask's
 // own lifecycle instead.
 //
@@ -38,7 +38,7 @@ function logOf(drafts: readonly EventDraft[]): readonly ConsoleSessionEvent[] {
   }));
 }
 
-/** What the bar reads after this log reached a store through its apply chokepoint. */
+/** What the header reads after this log reached a store through its apply chokepoint. */
 function outstandingAfter(drafts: readonly EventDraft[]): OutstandingAsks {
   const store = new SessionStore({ sessionId: FOLD_SESSION_ID });
   store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
@@ -54,7 +54,6 @@ describe("foldOutstandingAsks — an ask closes on its own terminal and nothing 
       { kind: "tool.invoked", actor: "agent-architect", payload: { runId: "run-b" } },
     ]);
     expect(outstanding.count).toBe(1);
-    expect([...outstanding.participantIds]).toStrictEqual(["agent-architect"]);
   });
 
   it("clears run A once run A itself moves on", () => {
@@ -64,7 +63,6 @@ describe("foldOutstandingAsks — an ask closes on its own terminal and nothing 
       { kind: "run.running", actor: "agent-architect", payload: { runId: "run-a" } },
     ]);
     expect(outstanding.count).toBe(0);
-    expect(outstanding.participantIds.size).toBe(0);
   });
 
   it("closes an approval only on a terminal carrying its own request id", () => {
@@ -89,7 +87,7 @@ describe("foldOutstandingAsks — an ask closes on its own terminal and nothing 
     expect(outstandingAfter(resolved).count).toBe(0);
   });
 
-  it("attributes an ask to whoever opened it, never to whoever resolved it", () => {
+  it("counts an ask by its own opening row, never by whoever resolved it", () => {
     // Every `driver_ask.*` row carries its `runId`, which is what the wire requires of
     // all four shapes — a fixture that omitted it would be asserting over a payload no
     // daemon emits.
@@ -110,7 +108,6 @@ describe("foldOutstandingAsks — an ask closes on its own terminal and nothing 
         payload: { runId: "run-a", askId: "ask-2" },
       },
     ]);
-    expect([...outstanding.participantIds]).toStrictEqual(["agent-scout"]);
     expect(outstanding.count).toBe(1);
   });
 
@@ -137,7 +134,6 @@ describe("foldOutstandingAsks — an ask closes on its own terminal and nothing 
       },
     ]);
     expect(outstanding.count).toBe(1);
-    expect([...outstanding.participantIds]).toStrictEqual(["agent-architect"]);
   });
 
   it("does not let one run's ask terminal close another run's ask of the same id", () => {
@@ -154,7 +150,6 @@ describe("foldOutstandingAsks — an ask closes on its own terminal and nothing 
       },
     ]);
     expect(outstanding.count).toBe(1);
-    expect([...outstanding.participantIds]).toStrictEqual(["agent-scout"]);
   });
 
   it("holds a provider ask that named no run open rather than clearing it", () => {
@@ -166,7 +161,6 @@ describe("foldOutstandingAsks — an ask closes on its own terminal and nothing 
       { kind: "driver_ask.responded", actor: "participant-you", payload: { askId: "ask-1" } },
     ]);
     expect(outstanding.count).toBe(1);
-    expect([...outstanding.participantIds]).toStrictEqual(["agent-scout"]);
   });
 
   it("still closes an ask on its own run's terminal, which is what makes the scope a key and not a wall", () => {
@@ -183,14 +177,13 @@ describe("foldOutstandingAsks — an ask closes on its own terminal and nothing 
       },
     ]);
     expect(outstanding.count).toBe(0);
-    expect(outstanding.participantIds.size).toBe(0);
   });
 
   it("does not let an approval's own askId open a provider ask nothing can close", () => {
-    // `Spec-006 §Approval Flow (approval_flow)` puts `askId` on `approval.requested` where the
-    // request came from a provider permission ask. Matching a lifecycle by which
-    // member the payload carries would open a `driver_ask` here that no
-    // `driver_ask.*` terminal names, leaving the bar amber for the session's life.
+    // The wire puts `askId` on `approval.requested` where the request came from a
+    // provider permission ask. Matching a lifecycle by which member the payload carries
+    // would open a `driver_ask` here that no `driver_ask.*` terminal names, leaving the
+    // header amber for the session's life.
     const outstanding = outstandingAfter([
       {
         kind: "approval.requested",
@@ -214,12 +207,11 @@ describe("foldOutstandingAsks — an ask closes on its own terminal and nothing 
     expect(outstanding.count).toBe(1);
   });
 
-  it("counts an ask the wire attributed to nobody, which no chip could show", () => {
+  it("counts an ask the wire attributed to nobody", () => {
     const outstanding = outstandingAfter([
       { kind: "approval.requested", payload: { approvalRequestId: "req-1" } },
     ]);
     expect(outstanding.count).toBe(1);
-    expect(outstanding.participantIds.size).toBe(0);
   });
 
   // The negative control: an ordinary log folds to nothing outstanding. Without it
@@ -232,6 +224,5 @@ describe("foldOutstandingAsks — an ask closes on its own terminal and nothing 
       { kind: "run.completed", actor: "agent-architect", payload: { runId: "run-a" } },
     ]);
     expect(outstanding.count).toBe(0);
-    expect(outstanding.participantIds.size).toBe(0);
   });
 });

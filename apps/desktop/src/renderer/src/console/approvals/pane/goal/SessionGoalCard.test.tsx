@@ -1,9 +1,8 @@
-// The goal card: no control without a role, no optimism, and clearing is its own act.
+// The goal card: no optimism, and clearing is its own act.
 //
-// Three of the five rules are only checkable here, because each is the ABSENCE of
-// something a card like this usually has — a control offered to everyone, a text
-// field that keeps showing what you typed after you sent it, and a single control
-// whose empty value means "clear".
+// Two of the five rules are only checkable here, because each is the ABSENCE of
+// something a card like this usually has — a text field that keeps showing what you
+// typed after you sent it, and a single control whose empty value means "clear".
 //
 // The other two subjects — the editor's SEAT (which subject a draft belongs to) and
 // the FOLD's non-goal readings — are `SessionGoalCard.seat-and-fold.test.tsx` beside
@@ -15,27 +14,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ACCENT_FILL_CLASS } from "../../../primitives/index.js";
 import { A_GOAL, NO_GOAL, renderCard } from "./session-goal-card.test-support.js";
-
-describe("eligibility is supplied, never derived", () => {
-  it("offers no control at all when the role has not been read", () => {
-    renderCard({ canMutate: undefined });
-    expect(screen.queryByRole("button")).toBeNull();
-    // The reading is still there — a read-only participant sees the goal, they
-    // just cannot change it.
-    expect(screen.getByText("No goal set")).not.toBeNull();
-  });
-
-  it("offers no control to a role that may not mutate", () => {
-    renderCard({ canMutate: false, goal: A_GOAL });
-    expect(screen.queryByRole("button")).toBeNull();
-    expect(screen.getByText("Ship the approvals pane")).not.toBeNull();
-  });
-
-  it("negative control: a role that may mutate is offered one", () => {
-    renderCard({ canMutate: true, goal: A_GOAL });
-    expect(screen.getByRole("button", { name: "Change goal" })).not.toBeNull();
-  });
-});
 
 describe("setting and clearing are two acts", () => {
   it("names the act after the current state, and prefills from the log", () => {

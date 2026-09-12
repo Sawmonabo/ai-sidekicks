@@ -40,7 +40,7 @@ function rowOf(
   return actorId === undefined ? base : { ...base, actorId };
 }
 
-/** How many lifecycles the ledger holds open — an opener with no terminal after it. */
+/** How many lifecycles the ledger holds open — an opening with no terminal after it. */
 function openCountOf(ledger: OutstandingAskLedger): number {
   let open = 0;
   for (const request of ledger.requestsByKey.values()) {
@@ -114,7 +114,7 @@ describe("OutstandingAskJournal — what a base state establishes", () => {
     });
 
     expect(openCountOf(journal.ledger)).toBe(1);
-    expect(journal.ledger.runsByRunId.get("run-a")?.opener).toBe("agent-scout");
+    expect(journal.ledger.runsByRunId.get("run-a")?.atSequence).toBe(12);
   });
 
   it("reports the request classes as unread where the read opened partway through", () => {

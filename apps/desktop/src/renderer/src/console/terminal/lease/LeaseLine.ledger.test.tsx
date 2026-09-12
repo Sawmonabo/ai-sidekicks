@@ -1,6 +1,6 @@
 // The transition ledger — one click away, every reason its own line.
 //
-// 8.8 puts the history behind a disclosure, and `lease-transition.ts`'s sentence
+// The history sits behind a disclosure, and `lease-transition.ts`'s sentence
 // table is total over the closed reason set — so the three automatic reasons must not
 // collapse into one line. What this file asserts is the DISCLOSURE and the rendering;
 // the fold that produces the transitions and their counts is `lease-model.test.ts`'s.

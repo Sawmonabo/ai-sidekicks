@@ -45,7 +45,6 @@ import { useCallbackToolRegistry } from "./posture/callback-tool-registry.js";
 import { SessionGoalCard } from "./goal/SessionGoalCard.js";
 import { useApprovalCommands } from "./approval-commands.js";
 import { useApprovalsReader, useSessionGoalMutation } from "./approvals-hooks.js";
-import { useGoalMutationAuthorization } from "./goal/goal-authorization.js";
 import { useArrivalAnnouncement } from "./body/arrival-announcement.js";
 import { partitionRecords, providerAsksIn, refusalOfPhase } from "./body/approvals-read-fold.js";
 import { DaemonHostedToolsSection } from "./body/DaemonHostedToolsSection.js";
@@ -64,7 +63,6 @@ export function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Elem
     props.sessionStore.sessionId,
     props.bridgeContext.frameStore,
   );
-  const goalAuthorization = useGoalMutationAuthorization(bridge, props.sessionStore);
   const timeline = useSessionStore(props.sessionStore, selectTimeline);
   const goal = useMemo(() => foldSessionGoal(timeline), [timeline]);
 
@@ -172,7 +170,6 @@ export function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Elem
       reader.resolve(request);
     },
     goal,
-    canMutateGoal: goalAuthorization.canMutate === true,
     isMutatingGoal: goalMutation.isMutating,
     clearGoal: goalMutation.clear,
   });
@@ -189,13 +186,6 @@ export function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Elem
         bridge={bridge}
         sessionId={props.sessionStore.sessionId}
         goal={goal}
-        // Resolved rather than assumed: the caller-identity read chained to this
-        // session's own roster answers which role this window holds, and the goal
-        // contract admits an owner and a collaborator. A role still being read, one
-        // whose read refused, and one the roster does not carry all leave this
-        // undefined — the fail-closed arm — and the refusal beside it says which.
-        canMutate={goalAuthorization.canMutate}
-        authorizationRefusal={goalAuthorization.refusal}
         isMutating={goalMutation.isMutating}
         refusal={goalMutation.refusal}
         onUpdate={goalMutation.update}

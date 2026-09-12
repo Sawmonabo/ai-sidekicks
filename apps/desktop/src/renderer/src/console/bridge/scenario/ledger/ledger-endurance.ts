@@ -228,17 +228,6 @@ export function createLedgerEnduranceScenario(
       ...ENDURANCE_AGENTS.map((agent) => agent.agentId),
     ],
     viewingParticipantId: PARTICIPANT_YOU,
-    // The roster every role gate resolves through. The viewer is an owner, which is what
-    // lets a role-gated control be driven in this scenario at all; Priya's
-    // `collaborator` is the same value her `membership.created` beat carries — one fact,
-    // stated where the roster is read from and replayed where the log records it
-    // arriving. The agents are absent on purpose: an agent is attached rather than
-    // admitted and holds no membership, so a row here would resolve to a role no daemon
-    // granted.
-    membershipRoleByParticipantId: {
-      [PARTICIPANT_YOU]: "owner",
-      [PARTICIPANT_PRIYA]: "collaborator",
-    },
     startedAtIso: STARTED_AT_ISO,
     beats: scriptLedgerBeats({
       sessionId: SESSION_ID,

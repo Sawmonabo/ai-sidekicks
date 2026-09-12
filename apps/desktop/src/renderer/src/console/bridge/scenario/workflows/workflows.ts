@@ -126,12 +126,6 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
   // Absent, the caller-identity read refuses and every operator control on a parked
   // run reads as unchecked rather than as adjudicated.
   viewingParticipantId: WORKFLOWS_PARTICIPANT_YOU,
-  // And their role, which is what makes this scenario able to drive a role-gated
-  // control at all: the identity read answers the viewer, and the role a run pane's
-  // operator controls gate on is this entry, looked up in the roster the session read
-  // establishes. Owner, because the story this fixture tells is a person adjudicating
-  // their own session's parked run.
-  membershipRoleByParticipantId: { [WORKFLOWS_PARTICIPANT_YOU]: "owner" },
   startedAtIso: "2026-01-01T07:00:00.000Z",
   beats: [
     {

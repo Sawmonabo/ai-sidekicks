@@ -52,7 +52,6 @@ const GLYPH_BY_SECTION_ID: Readonly<Record<SidebarSectionId, GlyphName>> = {
   repos: "repo",
   approvals: "approval",
   artifacts: "artifact",
-  members: "member",
 };
 
 /**

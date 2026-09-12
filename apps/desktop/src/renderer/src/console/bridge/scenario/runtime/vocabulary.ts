@@ -1,8 +1,7 @@
 // A scenario: the script the fixture bridge plays, held as DATA.
 //
-// `Spec-023 §Console Design (Meridian)` §The fixture bridge: "the fixture bridge
-// serves scripted scenarios over async generators with a frozen clock … the fixture
-// clock is the only clock the renderer reads in fixture mode."
+// The fixture bridge serves scripted scenarios over async generators with a frozen
+// clock, and that clock is the only one the renderer reads in fixture mode.
 //
 // A scenario is therefore DATA, not code: an ordered script of events with the
 // millisecond each is due, plus canned replies for request/response calls. That
@@ -32,7 +31,7 @@
 // that resolves it and re-exported from this directory's door beside the shape
 // below.
 
-import type { MembershipRole, UpdateState } from "@ai-sidekicks/contracts";
+import type { UpdateState } from "@ai-sidekicks/contracts";
 
 // Type-only, and into a subtree the console ABSORBS rather than one that mounts into
 // it — `.dependency-cruiser.mjs`'s `console-not-plan-subtree` names the three absorbed
@@ -69,46 +68,17 @@ export interface ConsoleScenario {
    * Which of those participants this window IS, where the scenario states one.
    *
    * OPTIONAL, and the optionality is the point: join order is who opened the session
-   * and who followed, on any machine, so reading its head as "me" is a fabrication —
-   * and a surface handed a fabricated identity renders a role gate as though it had
-   * been checked. A scenario that does not say leaves this absent and the fixture
-   * refuses the caller-identity read, which is the honest "not checked" answer.
+   * and who followed, so reading its head as "me" is a fabrication — and a surface
+   * handed a fabricated identity attributes rows to somebody who is not looking. A
+   * scenario that does not say leaves this absent and the fixture refuses the
+   * caller-identity read, which is the honest "not checked" answer.
    *
-   * When present it must be a member of `participantIdsInJoinOrder`: an identity
-   * outside the roster is a viewer of some other session, and every surface that
-   * resolves a role would look it up and find nothing. `scenario/wire-truth/wire-truth.ts`
-   * holds every scenario to that, the substrate's own two included.
+   * When present it must be one of `participantIdsInJoinOrder`: an identity outside
+   * that list is a viewer of some other session, and every surface that resolves it
+   * would look it up and find nothing. `scenario/wire-truth/wire-truth.ts` holds every
+   * scenario to that, the substrate's own two included.
    */
   readonly viewingParticipantId?: string;
-  /**
-   * The membership role each MEMBER of the roster holds, keyed by participant id.
-   *
-   * The fact `viewingParticipantId` is useless without. An identity read answers
-   * WHICH entry of the roster this window is; every role-gated control then resolves
-   * the role by looking that id up in the session's participant projection
-   * (`store/session/selectors.ts`'s `membershipRoleOf`) — so a scenario that states a viewer
-   * and no roles serves a successful identity read into a roster that holds nothing,
-   * and every owner- and collaborator-gated control renders closed for a reason
-   * nothing checked. That is indistinguishable, on screen, from a member who simply
-   * has no elevated role.
-   *
-   * NOT A SECOND COPY OF THE ROSTER. `participantIdsInJoinOrder` stays the sole home
-   * of the ORDER, which is what the hue allocator consumes; this is a different fact
-   * about the same people, and `scenario/wire-truth/wire-truth.ts` holds every key in it to
-   * that list. Keyed rather than ordered for exactly that reason — an ordered second
-   * list would be the order declared twice.
-   *
-   * PARTIAL ON PURPOSE, and the partiality carries meaning. A scenario's join order
-   * holds everything that gets a hue, agents included, and an agent is attached
-   * rather than admitted: it holds no membership and no role. So the members of the
-   * session are exactly the keys here, and an id in the join order with no entry is
-   * something the fixture does not claim to know the membership of.
-   *
-   * `MembershipRole` is the contract's, imported: it is the union
-   * `MembershipRoleSchema` parses on the way back out, so a role stated here and a
-   * role read there cannot be two vocabularies.
-   */
-  readonly membershipRoleByParticipantId?: Readonly<Record<string, MembershipRole>>;
   readonly beats: readonly ScenarioBeat[];
   readonly replies: readonly ScenarioReply[];
   /**
@@ -121,11 +91,10 @@ export interface ConsoleScenario {
    * scenario declares the DISPOSITION and the fixture applies it to whatever position
    * arrives.
    *
-   * It is a scenario member rather than a `replies` row for the reason the roster
-   * above is: the reply table answers a call with one fixed value, and this refuses
-   * one ARM of a call — a read carrying a position — while the same call with no
-   * position is served in the same scenario, which is what makes the console's
-   * recovery observable at all.
+   * It is a scenario member rather than a `replies` row because the reply table
+   * answers a call with one fixed value, and this refuses one ARM of a call — a read
+   * carrying a position — while the same call with no position is served in the same
+   * scenario, which is what makes the console's recovery observable at all.
    *
    * OPTIONAL, and its absence means the ordinary thing: this daemon resolves what it
    * acknowledged. A scenario that scripts no acknowledged position submits nothing and
@@ -155,9 +124,9 @@ export interface ConsoleScenario {
    *
    * OPTIONAL, and the absence is the honest answer rather than a gap: the attach
    * declaration is a machine's claim about its own identity, contract version, health
-   * and capabilities, and `Spec-023 §Trust Stance` puts its composition in the main
-   * process, off the node registry — never in a renderer, which may not vouch for a
-   * machine on its own word. A scenario that names none leaves the attach control
+   * and capabilities, and its composition belongs in the main process, off the node
+   * registry — never in a renderer, which may not vouch for a machine on its own
+   * word. A scenario that names none leaves the attach control
    * unmountable and the surface says so, which is exactly what a window with no such
    * registry behind it should say.
    *

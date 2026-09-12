@@ -1,5 +1,5 @@
-// The three arms where the fold refuses to answer, held to 8.8's prohibitions rather
-// than to its own shape.
+// The three arms where the fold refuses to answer, held to the lease line's
+// prohibitions rather than to its own shape.
 //
 // Each is asserted as a PROPERTY rather than as an example output, and each has a
 // negative control, because all three would pass against a fold that simply returned

@@ -1,11 +1,7 @@
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 
-import {
-  useCallerParticipantIdentity,
-  usePushDrivenRead,
-  type SidebarSectionContext,
-} from "../../seats/index.js";
-import { useSessionDegraded, useSessionPartition } from "../../store/index.js";
+import { usePushDrivenRead, type SidebarSectionContext } from "../../seats/index.js";
+import { useSessionDegraded } from "../../store/index.js";
 import { ChannelList } from "./ChannelList.js";
 import { type CollaborationSessionModels } from "../session-models.js";
 
@@ -16,10 +12,8 @@ import { type CollaborationSessionModels } from "../session-models.js";
  * a hook cannot be called conditionally — so the absence is rendered by the mount
  * above and the read is subscribed to here.
  *
- * IT IS ALSO WHERE THE STORE IS, which is why two facts the list cannot reach for
- * itself are resolved here and handed down: who else is in this session, and which
- * participant this window is. Both are the store's or are chained to it, and the list
- * holds no store at all.
+ * IT IS ALSO WHERE THE STORE IS, which is why the degraded flag the list cannot reach
+ * for itself is read here and handed down: the list holds no store at all.
  */
 export function ChannelsSectionBody(props: {
   readonly context: SidebarSectionContext;
@@ -34,27 +28,9 @@ export function ChannelsSectionBody(props: {
   // subscribes only to its channel read, so a store entering or leaving its degraded
   // state without that read settling moved the flag and re-rendered nothing.
   const isCatchingUp = useSessionDegraded(context.sessionStore);
-  const participantEntities = useSessionPartition(sessionStore, "participant");
-  // WHO THIS SESSION HAS PROJECTED, which is every participant the log has named.
-  // Nothing narrows it further: no projector in this console writes a membership
-  // state onto a participant entity, so a filter for the ones whose membership has
-  // ended would be a predicate with no producer behind it — it would read as a
-  // guarantee the log cannot make. Eligibility for the act the picker below offers
-  // is the daemon's answer and arrives as a refusal.
-  const participantIds = useMemo(() => Object.keys(participantEntities), [participantEntities]);
-  // WHICH PARTICIPANT THIS WINDOW IS, through the console's one composition of that
-  // question rather than a second implementation of it. The IDENTITY arm and not the
-  // role-chained one: nothing on this surface gates on a role, because eligibility for
-  // every act here is the daemon's answer and arrives as a refusal — so taking the
-  // chained hook would subscribe this section to a roster partition it never reads.
   // The id off the store ONCE, so the read below and every callback beside it name the
   // same subject rather than each re-reading the store that holds it.
   const sessionId = sessionStore.sessionId;
-  const caller = useCallerParticipantIdentity(bridge, sessionId);
-  // The read arm and nothing else. A viewer that is still being read and one whose
-  // read refused are both "not known", and the two surfaces below fail closed on that
-  // in their own way rather than being handed a guess.
-  const viewerParticipantId = caller?.status === "read" ? caller.participantId : undefined;
   // The read's OWN re-open, not a rebuild of the set: a refused subscribe leaves this
   // column terminal for the life of the window, and the directory that refused is the
   // only one that has to be re-opened.
@@ -71,8 +47,6 @@ export function ChannelsSectionBody(props: {
       state={state}
       bridge={bridge}
       sessionId={sessionId}
-      viewerParticipantId={viewerParticipantId}
-      participantIds={participantIds}
       openPane={context.openPane}
       activity={models.activity}
       labels={models.labels}

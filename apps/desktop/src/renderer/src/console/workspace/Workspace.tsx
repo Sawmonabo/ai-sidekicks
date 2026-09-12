@@ -8,9 +8,9 @@
 // THE DECISIONS THIS SURFACE MAKES:
 //
 //   • **The layout is restored once, at mount, and saved through the persistence
-//     chokepoint.** `Spec-023 §Persistence on the renderer scheme`: "Layout, scroll
-//     position, selection, pins, and expansion sets persist per install", and
-//     "Projections never persist and are re-derived on reconnect". Nothing about a
+//     chokepoint.** Layout, scroll position, selection, pins, and expansion sets
+//     persist per install; projections never persist and are re-derived on
+//     reconnect. Nothing about a
 //     session's own state is written — the snapshot holds pane ids, kinds, entity
 //     refs, and widths, which is the `layout` value class and nothing beyond it.
 //   • **Saves are coalesced by the write itself.** Dragging a separator produces a
@@ -24,17 +24,16 @@
 //   • **Refusals are rendered where they happened.** What a restore dropped belongs
 //     to the deck and renders inside it; what a detach or a save refused changes
 //     what the whole surface can do and takes the workspace banner: the refusal
-//     grammar of `Spec-023 §Meridian, the design language` renders a refusal of that
-//     reach "as a **banner** across the workspace when it changes what the whole room
-//     can do".
+//     grammar renders a refusal of that reach as a BANNER across the workspace when
+//     it changes what the whole room can do.
 //   • **The sidebar is the outer split, and the deck's own group is untouched.**
-//     `Spec-023 §Console Design (Meridian)` §Layout grammar: "The workspace is a cast
-//     bar on top, the deck of panes below it, and a collapsible session sidebar". Two
+//     The workspace is a cast bar on top, the deck of panes below it, and a
+//     collapsible session sidebar. Two
 //     nested panel groups rather than one: the deck owns the arrangement of its panes
 //     and this surface owns the split between the deck and the sidebar, so a sidebar
 //     resize is not a deck layout and never reaches the deck's own record.
-//   • **A detached pane keeps its slot.** `Spec-023 §The surface set`: "the main
-//     window shows the moved pane's slot as a placeholder with a focus control". That
+//   • **A detached pane keeps its slot.** The main window shows the moved pane's slot
+//     as a placeholder with a focus control. That
 //     suppresses the BODY, not the pane: closing the pane would delete its width and
 //     its position, and the window closing or crashing would then have nowhere to put
 //     it back. The hand-off's own lifecycle — its detached set, its crash records, and
@@ -55,7 +54,6 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 import { DECK_RESTORED_PANE_CAP, type ConsoleRefusal } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
 import { consoleCommandSurface } from "../palette/index.js";
-import { useAnnounce } from "../primitives/index.js";
 import { routeSessionId, type ConsoleRoute } from "../routing/index.js";
 import { type FrameStore, type SessionStore } from "../store/index.js";
 import { type DraftStore, type UiStateStore } from "../persistence/index.js";
@@ -87,7 +85,6 @@ import {
   type ConsolePaneOpener,
   type ConsolePaneRegistry,
 } from "../seats/index.js";
-import { useActorFollow } from "./cast-bar/actor-follow.js";
 import {
   NO_WORKSPACE_BANNERS,
   dismissWorkspaceBanner,
@@ -149,11 +146,6 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
   const registry = props.paneRegistry;
   const layout = useDeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
   const deckState = useDeckLayoutState(layout);
-  // Read HERE and not inside the follow callback: a hook may not be called from one,
-  // and a workspace mounted outside `LiveAnnouncerProvider` should fail on this line
-  // rather than the first time somebody presses a chip.
-  const announce = useAnnounce();
-  const sessionStore = props.sessionStore;
   // WHAT THIS ROOM CANNOT DO, ADDRESSED BY THE SESSION IT CANNOT DO IT IN. The bridge
   // is the subject and the session the key, which is this console's one session pairing:
   // every refusal that lands here was raised by a call or a write made through that
@@ -224,11 +216,10 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
   );
 
   const auxiliaryPanes = useAuxiliaryPanes({ sessionId, onRefused: raise });
-  const onFollow = useActorFollow({ layout, sessionStore, announce });
   // The deck's half of Step in, filled for as long as this workspace is mounted. The
   // run controls that press it live in another view family and reach this deck through
   // the seat rather than through an import.
-  useTakeTheFloorSeat({ layout, bridge: props.bridge, sessionStore });
+  useTakeTheFloorSeat({ layout, bridge: props.bridge, sessionStore: props.sessionStore });
 
   const composer = composerSeatRenderer();
   const focusedPane = useFocusedPaneAddress(deckState.panes, deckState.focusedPaneId);
@@ -271,7 +262,7 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
           onDismiss={dismiss}
         />
       ))}
-      <CastBar sessionId={sessionId} sessionStore={props.sessionStore} onFollow={onFollow} />
+      <CastBar sessionId={sessionId} sessionStore={props.sessionStore} />
       <Group
         className="meridian-workspace__split"
         elementRef={splitReference}

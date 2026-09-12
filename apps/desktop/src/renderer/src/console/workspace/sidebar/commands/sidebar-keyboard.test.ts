@@ -93,10 +93,10 @@ describe("sidebar chords — the DOM-free cursor", () => {
 
   it("expands rather than opening a pane where the section names none", () => {
     const { model, container, openedPanes } = mountKeyboard();
-    model.setCursor("members");
+    model.setCursor("goal");
     press(container, "Enter", "Enter");
     expect(openedPanes).toStrictEqual([]);
-    expect(model.isSectionOpen("members")).toBe(true);
+    expect(model.isSectionOpen("goal")).toBe(true);
   });
 
   it("negative control: a chord the sidebar does not bind moves nothing", () => {

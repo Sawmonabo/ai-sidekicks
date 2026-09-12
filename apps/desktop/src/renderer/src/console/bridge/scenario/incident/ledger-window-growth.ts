@@ -63,9 +63,6 @@ export const LEDGER_WINDOW_GROWTH_INCIDENT_SCENARIO: ConsoleScenario = composeIn
     // allocator's input, and the order the recording itself establishes.
     participantIdsInJoinOrder: [PARTICIPANT_YOU, ...LANE_AGENT_IDS],
     viewingParticipantId: PARTICIPANT_YOU,
-    // The one MEMBER of the session. The four lanes are attached rather than admitted,
-    // so they hold no membership and take no role — which is what a partial map means.
-    membershipRoleByParticipantId: { [PARTICIPANT_YOU]: "owner" },
     startedAtIso: "2026-01-14T11:20:00.000Z",
     replies: [
       {

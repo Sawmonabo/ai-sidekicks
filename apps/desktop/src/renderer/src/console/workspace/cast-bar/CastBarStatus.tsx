@@ -12,15 +12,11 @@
 // that did not answer renders the "not checked" kind of nothing, which is the one thing
 // a health surface must never dress up as healthy. A read still in flight also renders
 // nothing, deliberately — a bar that grew a badge a few hundred milliseconds after it
-// drew would move every chip beside it.
+// drew would move everything beside it.
 //
-// WHY THE UNWELL MARK IS AMBER AND THIS IS NOT A CONTRADICTION. The chip's amber
-// ground was removed by this same lane on the rule that a chip is never coloured for
-// attention: hue on a CHIP is identity, because chips are how a person tells one
-// participant from another. This is not a chip about a participant, it is the one
-// place the bar reports a measurement, and rule 3 spends amber on exactly this — a
-// person is needed. It carries the count in words as well, so the fact survives a
-// reader who cannot separate the hues.
+// WHY THE UNWELL MARK IS AMBER. This is the one place the bar reports a measurement,
+// and amber is spent on exactly this — a person is needed. It carries the count in
+// words as well, so the fact survives a reader who cannot separate the hues.
 
 import { Chip, Nothing } from "../../primitives/index.js";
 import { type CastBarHealthVerdict } from "./model/cast-bar-readings.js";

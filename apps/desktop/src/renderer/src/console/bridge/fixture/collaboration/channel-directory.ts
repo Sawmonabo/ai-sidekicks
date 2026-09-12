@@ -16,20 +16,19 @@
 // this session's log actually said about this channel — and the scripted reply is its
 // opening term rather than its whole answer.
 //
-// AND THE MEMBERSHIP COMES FROM THE ACT, BECAUSE THE LOG CANNOT CARRY IT. `channel.created`
-// is registered as exactly `{channelId, name?}`, so a walk over the log establishes that a
-// channel exists and nothing about who is in it. `ChannelListResponseChannel.participantCount`
-// is required, so a created row has to carry one — and counting the creation's AUTHOR
-// answered one member for every channel anybody creates and zero for a scenario declaring
-// no viewer, neither of which is a fact about a channel. So the lifecycle records what its
-// own create request supported and hands it here; a creation this fixture did not perform
-// — an authored beat — takes the session's own membership, which is what a general channel
-// has and all such a frame supports.
+// AND THE PARTICIPANT COUNT COMES FROM THE ACT, BECAUSE THE LOG CANNOT CARRY IT.
+// `channel.created` is registered as exactly `{channelId, name?}`, so a walk over the log
+// establishes that a channel exists and can fill in no count for it, while
+// `ChannelListResponseChannel.participantCount` is required. So the lifecycle records what
+// its own create put there and hands it here; a creation this fixture did not perform — an
+// authored beat — takes the same figure, which is the one person driving this runtime.
 
 import type { ChannelState, SessionEventType } from "@ai-sidekicks/contracts";
 
-import { CHANNEL_CREATED_EVENT_KIND } from "./channel-lifecycle.js";
-import { fixtureSessionMembershipCount } from "./session-membership.js";
+import {
+  CHANNEL_CREATED_EVENT_KIND,
+  CREATED_CHANNEL_PARTICIPANT_COUNT,
+} from "./channel-lifecycle.js";
 import {
   isWireRecord,
   payloadContradictsSession,
@@ -79,11 +78,7 @@ const CHANNEL_STATE_BY_LIFECYCLE_KIND: Readonly<Record<ChannelLifecycleKind, Cha
  * door to refuse — folding a state into a shape nothing recognised would replace a
  * legible contract failure with a mystery.
  */
-export function foldChannelDirectoryOverLog(
-  engine: ScenarioEngine,
-  membershipByCreatedChannelId: ReadonlyMap<string, number>,
-  scripted: unknown,
-): unknown {
+export function foldChannelDirectoryOverLog(engine: ScenarioEngine, scripted: unknown): unknown {
   if (!isWireRecord(scripted)) {
     return scripted;
   }
@@ -91,10 +86,7 @@ export function foldChannelDirectoryOverLog(
   if (!Array.isArray(channels)) {
     return scripted;
   }
-  const { stateByChannelId, creationsInLogOrder } = deliveredChannelDirectory(
-    engine,
-    membershipByCreatedChannelId,
-  );
+  const { stateByChannelId, creationsInLogOrder } = deliveredChannelDirectory(engine);
   if (stateByChannelId.size === 0) {
     return scripted;
   }
@@ -131,10 +123,8 @@ interface DeliveredChannelCreation {
   /**
    * How many people are in the channel.
    *
-   * The act's own answer where this fixture performed the create — a `direct` channel is
-   * its member pair and every other channel takes the session's membership — and the
-   * session's membership for a creation that arrived as an authored beat, which carries
-   * no kind and no pair and so supports no narrower reading.
+   * The act's own answer where this fixture performed the create, and the same figure for
+   * a creation that arrived as an authored beat, which carries no count at all.
    */
   readonly participantCount: number;
 }
@@ -166,15 +156,11 @@ interface DeliveredChannelDirectory {
  * AND EVERY FRAME IS HELD TO ITS OWN ENVELOPE'S SESSION BEFORE IT MOVES A ROW. A
  * transition is keyed by `channelId` alone, so a frame delivered on this session whose
  * payload names another one used to move this session's channel on the strength of a
- * claim about somebody else's — the identical defect the membership projection closed on
- * its own five kinds, in a fold that no longer agreed with it. The rule is
+ * claim about somebody else's. The rule is
  * `core/wire-session-attribution.ts`'s and {@link statesThisSession} states which of its
  * two arms each kind warrants and why.
  */
-function deliveredChannelDirectory(
-  engine: ScenarioEngine,
-  membershipByCreatedChannelId: ReadonlyMap<string, number>,
-): DeliveredChannelDirectory {
+function deliveredChannelDirectory(engine: ScenarioEngine): DeliveredChannelDirectory {
   const stateByChannelId = new Map<string, ChannelState>();
   const creationByChannelId = new Map<string, DeliveredChannelCreation>();
   for (const event of engine.deliveredEvents()) {
@@ -192,24 +178,11 @@ function deliveredChannelDirectory(
       creationByChannelId.set(channelId, {
         channelId,
         name: readWireString(payload["name"]),
-        participantCount:
-          membershipByCreatedChannelId.get(channelId) ?? sessionMembershipCount(engine),
+        participantCount: CREATED_CHANNEL_PARTICIPANT_COUNT,
       });
     }
   }
   return { stateByChannelId, creationsInLogOrder: [...creationByChannelId.values()] };
-}
-
-/**
- * How many people are in the session being played, as the log has left it.
- *
- * Counted through `session-membership.ts` rather than off the scenario directly,
- * so one reader answers "who is in this session" for the fixture's whole surface — the
- * acts next door take the same one — and a room whose roster moves cannot have the
- * directory and the create disagreeing about it.
- */
-function sessionMembershipCount(engine: ScenarioEngine): number {
-  return fixtureSessionMembershipCount(engine, engine.scenario.sessionId);
 }
 
 /**
@@ -237,11 +210,9 @@ function createdDirectoryRow(
 /**
  * Whether one channel frame's PAYLOAD may be read as this session's.
  *
- * TWO ARMS, AND THE ASYMMETRY IS THE CONTRACT'S rather than this module's — the split
- * `collaboration/members/membership-projector.ts` already takes over the membership
- * plane's own five kinds, consuming the same two predicates.
+ * TWO ARMS, AND THE ASYMMETRY IS THE CONTRACT'S rather than this module's.
  *
- * The three TRANSITIONS take the required arm. `Spec-006` gives `channel.muted`,
+ * The three TRANSITIONS take the required arm. The wire gives `channel.muted`,
  * `channel.unmuted` and `channel.archived` a `{sessionId, channelId}` payload, and both
  * producers write it — the beats a scenario authors by hand and the frames
  * `channel-lifecycle.ts` publishes from a served act — so a transition that omits

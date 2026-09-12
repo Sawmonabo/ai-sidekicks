@@ -104,10 +104,6 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
   // read, which is a true state of the console and not the state this
   // scenario exists to show. The agent holds no membership, so it takes no role.
   viewingParticipantId: OWNER,
-  membershipRoleByParticipantId: {
-    [OWNER]: "owner",
-    [COLLABORATOR]: "collaborator",
-  },
   startedAtIso: TERMINAL_SCENARIO_STARTED_AT_ISO,
   beats: [
     terminalScenarioBeat({

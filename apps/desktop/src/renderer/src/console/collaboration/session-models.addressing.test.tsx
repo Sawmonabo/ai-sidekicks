@@ -131,7 +131,7 @@ describe("the sidebar's models — the exact bridge and store they answer for", 
     const beforeReplacement = answered.length;
     view.rerender(<StoreProbe sessionStore={rebuilt} />);
 
-    // Same session id, a different projection: the held roster reads the stream the
+    // Same session id, a different projection: the held set reads the stream the
     // previous store owned, which nothing is appending to any more.
     expect(answered[beforeReplacement]).toBeUndefined();
     expect(answered.at(-1)).toBe(rebuilt);

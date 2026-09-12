@@ -1,9 +1,8 @@
 // Which hosts this session's log still says are reachable.
 //
-// A second pure fold beside the lease one, and it exists because the lease's
-// degraded state is a fact about a HOST while the lease events carry none.
-// `Spec-023 §Console Design (Meridian)` 8.8: "when the holding node reads offline,
-// `controlHolder` resolves to null and the surface renders unheld". Nothing on
+// A second pure fold beside the lease one, and it exists because the lease's degraded
+// state is a fact about a HOST while the lease events carry none: when the holding node
+// reads offline the hold collapses and the surface renders unheld. Nothing on
 // `pty.control_changed` names a node, so without this fold the pane could only ever
 // pass `not-checked` and the degraded rendering was unreachable from the wire.
 //
@@ -18,14 +17,14 @@
 //
 // THE REJECTED ALTERNATIVE, WRITTEN DOWN SO THE NEXT READER DOES NOT RE-DERIVE IT.
 // A lifecycle payload carries an `actor`, and matching it against the lease holder
-// looks like a link from a holder to the machine it sits on. It is not one: `actor`
-// is who the log attributes the event to — the person who attached the node, or
-// nobody at all where the daemon acted alone — and reading it as the node's owning
-// participant would be inventing a member's meaning. The wire gives no
-// holder-to-node link at all. So {@link resolveSoleHoldingNode} answers only in the
-// case where there is nothing to link: one attached node, one shared shell, no
-// ambiguity about which host runs it. Zero nodes and two or more are both `undefined`
-// — not-checked, which is the honest answer to a question this console cannot ask.
+// looks like a link from a hold to the machine it sits on. It is not one: `actor` is
+// what the log attributes the event to, which is the device that attached the node or
+// nobody at all where the daemon acted alone, and reading it as the node's own identity
+// would be inventing a member's meaning. The wire gives no hold-to-node link at all. So
+// {@link resolveSoleHoldingNode} answers only in the case where there is nothing to
+// link: one attached node, one shared shell, no ambiguity about which host runs it.
+// Zero nodes and two or more are both `undefined` — not-checked, which is the honest
+// answer to a question this console cannot ask.
 //
 // TOTAL AND PURE, on `lease-model.ts`'s discipline: given the same events, the same
 // answer, so a replayed prefix reads the same as a live stream and a reconnect heals

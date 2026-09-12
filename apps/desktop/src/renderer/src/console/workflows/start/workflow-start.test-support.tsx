@@ -74,7 +74,7 @@ export const START_DEFINITIONS: readonly WorkflowDefinitionRow[] = [
 /** The refusal a scenario scripts as the daemon's, carried verbatim by the seam. */
 const DAEMON_START_REFUSAL: WireErrorEnvelope = {
   code: "workflow.start_denied",
-  message: "This participant may not start a workflow in this session.",
+  message: "This workflow cannot be started in this session.",
 };
 
 /** One `workflowRunStart` a case settles by hand, and what it was asked. */

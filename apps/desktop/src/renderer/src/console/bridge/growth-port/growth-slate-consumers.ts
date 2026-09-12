@@ -2,7 +2,7 @@
 //
 // SPLIT OFF `growth-slate.ts` BY CONSUMER, WHICH IS NOT A SPLIT BY SIZE. The rule that
 // data tables are never split for size is untouched here: what separates these
-// sixty-two sentences from the sixty-two beside them is who reads them. `wire` is read at run time —
+// fifty-seven sentences from the fifty-seven beside them is who reads them. `wire` is read at run time —
 // `growth-refusals.ts` composes the sentence a person sees out of it — and
 // `owningDocument` travels on every growth refusal's ledger. Nothing in a running
 // console has ever read `consumingSurface`: it is written for a reader of
@@ -86,7 +86,6 @@ export const GROWTH_SLATE_CONSUMING_SURFACES: Readonly<Record<GrowthSlateRowId, 
   "mount-health-identity-verdict":
     "repos surface (the mount card's health chip and the re-attach control the permanent verdict carries); settings mounts page (the mount row's verdict)",
   "channel-lifecycle-verbs": "channel list (mute / unmute / archive), create-a-channel form",
-  "channel-roster-read": "channel list (the audience badge and the direct-pair label)",
   "participant-presence-detail": "roster (the per-device detail behind a row)",
   "terminal-control-holder": "roster (the holder mark on the holding participant's row)",
   "presence-activity-fields": "typing and agent-activity indicators (channel rows, roster rows)",

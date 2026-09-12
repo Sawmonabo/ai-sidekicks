@@ -24,7 +24,7 @@ export const RENDER_FAILURE_MESSAGE = "this section could not render";
 /**
  * How many daemon subscriptions ONE live models set opens.
  *
- * One: the activity feed re-reads who is composing where on the Awareness change
+ * One: the activity feed re-reads which run is working where on the Awareness change
  * signal. It owns its own subscription because it owns its own read — that is the
  * console's push-driven discipline, where the read is the truth and the push only
  * says "ask again".

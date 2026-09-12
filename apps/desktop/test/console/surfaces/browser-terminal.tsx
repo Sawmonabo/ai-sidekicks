@@ -111,11 +111,11 @@ function terminalSessionStore(): SessionStore {
     sessionId: TERMINAL_SCENARIO.sessionId,
     projectors: COMPOSED_CONSOLE_PROJECTORS,
   });
-  // The scenario's own roster, which is what the composition root initialises a store
-  // from. An empty base state is not a cheaper version of it: the console registers no
-  // `membership.*` projector, so the roster arrives only here — and a lease surface
-  // that gates its claim control on the caller's role then reads no role at all and
-  // renders the absence for it, over a pane pinned for a different reason entirely.
+  // The scenario's own base state, which is what the composition root initialises a
+  // store from. An empty one is not a cheaper version of it: the beats below carry
+  // only what the scenario plays, so anything a surface reads outside them — the
+  // session's own identity and its node binding included — arrives here or nowhere,
+  // and a pane that read the absence would be pinned for a reason of its own.
   store.initialise(fixtureSessionSnapshot(TERMINAL_SCENARIO, TERMINAL_SCENARIO.sessionId));
   store.applyBatch(TERMINAL_SCENARIO.beats.map((beat) => beat.event as ConsoleSessionEvent));
   return store;

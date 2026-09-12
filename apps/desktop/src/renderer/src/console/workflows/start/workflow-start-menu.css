@@ -112,35 +112,3 @@
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
 }
-
-.meridian-workflow-start-menu__refusal {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-}
-
-/*
- * The public role matrix, beside a denial and nowhere else. Set quietly, because it is
- * a reading of the rule rather than a second refusal.
- */
-.meridian-workflow-start-menu__roles {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-workflow-start-menu__role {
-  display: flex;
-  gap: var(--meridian-space-2);
-}
-
-.meridian-workflow-start-menu__role dt {
-  font-family: var(--meridian-font-mono);
-}
-
-.meridian-workflow-start-menu__role dd {
-  margin: 0;
-}

@@ -1,11 +1,10 @@
 // What session this is: the short id, the display title where one exists, and the
 // state chip.
 //
-// THE THREE ARE ONE ANSWER AND ONE READ. `Spec-023 §The four bars` puts the session
-// identity at the head of the cast bar, and `Spec-023 §Console Design (Meridian)`
-// fixes what a nameless session renders as: "by its identifier and participants,
-// never by an invented title". So the id is unconditional and in mono, the title is
-// rendered when the read carries one, and the state is the wire's own word.
+// THE THREE ARE ONE ANSWER AND ONE READ. The session identity sits at the head of the
+// header, and a nameless session is rendered by its identifier rather than by an
+// invented title. So the id is unconditional and in mono, the title is rendered when
+// the read carries one, and the state is the wire's own word.
 //
 // THE TWO RULES THAT WERE WRITTEN HERE MOVED WITH THEIR COMPONENTS. What a nameless
 // session renders, and why a wire word is a mono chip rather than prose, are each

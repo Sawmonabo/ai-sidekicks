@@ -1,16 +1,7 @@
-// The predicate's membership-role legs, and the one scenario property it cannot carry.
+// The predicate's beat, queue and viewer legs, driven through the aggregate entry.
 //
-// A PER-LEG CONTROL FOR THE ROLES A SCENARIO DECLARES. Each case drives the same
-// imported predicate over a real scenario with one deliberate defect, and never a local
-// copy of the rule.
-//
-// AND ONE PROPERTY THE PREDICATE DELIBERATELY DOES NOT CHECK. A scenario that names a
-// viewer and declares no role for them serves a successful identity read into a roster
-// that resolves nothing — the exact state the fixture was in for every scenario before
-// the base state carried memberships. It is not a wire-truth defect here because the
-// shipped scenarios that declare no roles at all would each fire it; it is asserted
-// below over the shipped seat board instead, and it moves into the predicate the day
-// those scenarios gain a role.
+// A PER-LEG CONTROL. Each case drives the same imported predicate over a real scenario
+// with one deliberate defect, and never a local copy of the rule.
 //
 // THE OTHER AXES ARE BESIDE THIS FILE, ONE PER MODULE THEY COVER, on the
 // `fixture-growth-port.*.test.ts` precedent: `wire-truth.run-beats.test.ts` for the
@@ -28,89 +19,15 @@ import type { ConsoleScenario, ScenarioBeat } from "../runtime/vocabulary.js";
 /** Someone this session never joins, spelled as the branded id type declares. */
 const STRANGER_PARTICIPANT_ID = "019b79ee-0280-79a4-8110-cca0117a9999";
 
-/** The flagship's stated viewer, which the misdeclared-role case declares against. */
-const FLAGSHIP_VIEWER = FLAGSHIP_SCENARIO.viewingParticipantId ?? "";
-
-describe("scenario wire truth — the memberships a scenario declares", () => {
-  it("accepts the shipped seat board, roles and all", () => {
+describe("scenario wire truth — the shipped seat board", () => {
+  it("accepts every scenario a family has landed on the board", () => {
     expect(
       findScenarioWireTruthDefects(CONSOLE_SCENARIOS).map(
         (defect) => `${defect.scenarioId}: ${defect.subject} — ${defect.reason}`,
       ),
     ).toStrictEqual([]);
   });
-
-  it("reports a role declared for someone the scenario never joins", () => {
-    // The roster and the hue wheel would then disagree about who is in the room, and
-    // the entry could only be reached by a lookup no surface performs.
-    const defects = findScenarioWireTruthDefects([
-      {
-        ...FLAGSHIP_SCENARIO,
-        id: "declares-a-stranger",
-        membershipRoleByParticipantId: {
-          ...FLAGSHIP_SCENARIO.membershipRoleByParticipantId,
-          [STRANGER_PARTICIPANT_ID]: "collaborator",
-        },
-      },
-    ]);
-
-    expect(defects).toHaveLength(1);
-    expect(defects[0]?.subject).toContain(STRANGER_PARTICIPANT_ID);
-  });
-
-  it("reports a role the contract does not register, which reads back as no role", () => {
-    // The quiet half. `membershipRoleOf` parses and answers `undefined` for anything
-    // the schema rejects, so an unregistered role renders exactly like a member whose
-    // role went unread — which is why the cast below has to be caught here.
-    // Widened to the wire's own key type before the assertion, because the defect
-    // being planted is a value the field's own type forbids — which is how it reaches
-    // the predicate in life too: a scenario is data, authored from design notes and
-    // cast into shape, and the predicate is what stands between that and a surface.
-    const unregisteredRoles: Readonly<Record<string, string>> = { [FLAGSHIP_VIEWER]: "admin" };
-    const misdeclaredRole = {
-      ...FLAGSHIP_SCENARIO,
-      id: "declares-an-unregistered-role",
-      membershipRoleByParticipantId: unregisteredRoles,
-    } as ConsoleScenario;
-
-    const defects = findScenarioWireTruthDefects([misdeclaredRole]);
-
-    expect(defects).toHaveLength(1);
-    expect(defects[0]?.reason).toContain("MembershipRole");
-  });
 });
-
-describe("every shipped scenario that names its viewer names that viewer's role", () => {
-  it("declares a role for the identity the fixture answers with", () => {
-    expect(scenariosNamingARolelessViewer(CONSOLE_SCENARIOS)).toStrictEqual([]);
-  });
-
-  it("negative control: reports a scenario that names one and no role", () => {
-    const { membershipRoleByParticipantId: _declaredRoles, ...withoutRoles } = FLAGSHIP_SCENARIO;
-    const rolelessViewer: ConsoleScenario = { ...withoutRoles, id: "states-no-role" };
-
-    expect(scenariosNamingARolelessViewer([rolelessViewer])).toStrictEqual(["states-no-role"]);
-  });
-});
-
-/**
- * Scenarios naming a viewer the roster declares no membership role for.
- *
- * A viewer is what the caller-identity read answers with and a role is what every
- * gated control resolves from it, so a scenario carrying the first without the second
- * serves a successful read no surface can act on.
- */
-function scenariosNamingARolelessViewer(scenarios: readonly ConsoleScenario[]): readonly string[] {
-  return scenarios
-    .filter((scenario) => {
-      const { viewingParticipantId } = scenario;
-      if (viewingParticipantId === undefined) {
-        return false;
-      }
-      return (scenario.membershipRoleByParticipantId ?? {})[viewingParticipantId] === undefined;
-    })
-    .map((scenario) => scenario.id);
-}
 
 /** A queue row the queue-state cases below are about, spelled as its branded id declares. */
 const CONTROL_QUEUE_ITEM_ID = "019b79ee-0280-7c11-8110-d1a4c1159902";
@@ -297,18 +214,15 @@ describe("scenario wire truth — the state a queue beat says its row moved to",
 
 describe("scenario wire truth — the viewer a scenario answers its identity read with", () => {
   it("reports a stated viewer who is not in the scenario's own roster", () => {
-    // A viewer outside the join order resolves to no roster entry, so every surface
-    // that reads a role from it silently gets none — a defect that renders as a member
-    // with no elevated permissions rather than as anything wrong.
+    // A viewer outside the join order resolves to no participant entry, so every
+    // surface that attributes a row to this window silently attributes it to nobody —
+    // a defect that renders as a session nobody is looking at rather than as anything
+    // wrong.
     const defects = findScenarioWireTruthDefects([
       {
         ...FLAGSHIP_SCENARIO,
         id: "names-a-viewer-it-never-joins",
         viewingParticipantId: STRANGER_PARTICIPANT_ID,
-        membershipRoleByParticipantId: {
-          ...FLAGSHIP_SCENARIO.membershipRoleByParticipantId,
-          [STRANGER_PARTICIPANT_ID]: "collaborator",
-        },
       },
     ]);
 
@@ -321,7 +235,7 @@ describe("scenario wire truth — the viewer a scenario answers its identity rea
   });
 
   it("accepts a stated viewer the scenario actually joins", () => {
-    // The other arm, so the case above is a membership check rather than a blanket
+    // The other arm, so the case above is a join-order check rather than a blanket
     // refusal of the field — which would make every scenario that states its viewer
     // fail and read exactly the same here.
     expect(

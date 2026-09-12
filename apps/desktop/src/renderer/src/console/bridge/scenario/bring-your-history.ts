@@ -141,7 +141,6 @@ export const BRING_YOUR_HISTORY_SCENARIO: ConsoleScenario = {
   sessionId: SESSION_ID,
   participantIdsInJoinOrder: [PARTICIPANT_YOU],
   viewingParticipantId: PARTICIPANT_YOU,
-  membershipRoleByParticipantId: { [PARTICIPANT_YOU]: "owner" },
   startedAtIso: "2026-01-01T09:00:00.000Z",
   beats: [
     {

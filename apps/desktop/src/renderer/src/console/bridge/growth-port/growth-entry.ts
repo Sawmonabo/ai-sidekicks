@@ -268,26 +268,22 @@ export type GrowthOperationId =
   // the workspace execution context — the normalized checkout root and the
   // fallback-mode marker, neither of which any registered reply carries
   | "workspaceExecutionContextRead"
-  // channel plane — the four lifecycle verbs in the registry's own order, then the
-  // roster read. Each id is its wire method's tail with the root folded in, which
+  // channel plane — the four lifecycle verbs in the registry's own order. Each id is
+  // its wire method's tail with the root folded in, which
   // `growth-operations/index.test.ts` holds every entry to.
   | "channelCreate"
   | "channelMute"
   | "channelUnmute"
   | "channelArchive"
-  | "channelRosterRead"
   // The per-device presence fan-out, which does name a registered wire method.
   | "participantPresenceDetailRead"
   // The session's terminal-control holder, which folds to no wire method either: the
   // holder is a MEMBER of the runtime-node roster reply rather than a read of its
   // own, and the shipped strict schema does not carry it.
   | "terminalControlHolderRead"
-  // presence — the two Awareness activity fields, read for everyone else and
-  // published for this participant. Neither field is a method anywhere in the
-  // corpus, so no id here folds a wire method: see `growth-operations/presence.ts`.
+  // presence — the run-keyed Awareness activity field. It is a method nowhere in the
+  // corpus, so this id folds no wire method: see `growth-operations/presence.ts`.
   | "presenceActivityRead"
-  | "presenceComposingSet"
-  | "presenceComposingClear"
   // the shell's notification-permission reading, which decides whether the
   // notification centre is the only surface these items reach a person on
   | "shellNotificationPermissionRead"

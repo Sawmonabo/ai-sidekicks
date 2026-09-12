@@ -14,17 +14,16 @@
 // each side is testable on its own terms, and the fold imports the reader rather
 // than restating any part of it.
 //
-// `Spec-023 §Console Design (Meridian)` 8.8 gives both halves their one hard rule —
-// **the holder is a wire field and is never derived from the last observed claim** —
-// and this is where that rule is enforced, because this is where a payload becomes a
-// reading at all.
+// Both halves obey one hard rule — **the holder is a wire field and is never derived
+// from the last observed claim** — and this is where it is enforced, because this is
+// where a payload becomes a reading at all.
 //
-// THREE AUTOMATIC REASONS, KEPT DISTINCT. 8.8 requires every transition to render as
-// a ledger line naming its reason, and the three automatic ones — the holder
-// disconnected, the holder lost authorization, the acquiring agent run left its
-// running state — to stay distinguishable. The sentence table below is total over the
-// closed set, so a sixth reason is a compile error rather than a line that silently
-// reads like one of the five.
+// THREE AUTOMATIC REASONS, KEPT DISTINCT. Every transition renders as a ledger line
+// naming its reason, and the three automatic ones — the holder disconnected, the holder
+// lost authorization, the acquiring agent run left its running state — stay
+// distinguishable. The sentence table below is total over the closed set, so a sixth
+// reason is a compile error rather than a line that silently reads like one of the
+// five.
 
 import { readWireString } from "../../core/index.js";
 import type { ConsoleSessionEvent } from "../../store/index.js";
@@ -33,13 +32,13 @@ import type { ConsoleSessionEvent } from "../../store/index.js";
 export const TERMINAL_LEASE_EVENT_KIND = "pty.control_changed";
 
 /**
- * The transition reasons, as `Spec-006` closes the set.
+ * The transition reasons the wire closes the set at.
  *
- * Declared once as a tuple with the union derived from it. No contract package
- * exports this vocabulary yet — `Plan-023 §Console growth slate` row 3 is what
- * registers the terminal's renderer obligations — so this is the console's single
- * declaration of it, and every consumer (the sentence table, the guard, the
- * family's own scenario test) derives from this array rather than restating it.
+ * Declared once as a tuple with the union derived from it. No contract package exports
+ * this vocabulary yet — the terminal's renderer obligations are still on the growth
+ * slate — so this is the console's single declaration of it, and every consumer (the
+ * sentence table, the guard, the family's own scenario test) derives from this array
+ * rather than restating it.
  */
 export const TERMINAL_LEASE_TRANSITION_REASONS = [
   "taken",
@@ -187,33 +186,26 @@ export function readTerminalLeaseUnreadTransition(
  * The sentence one transition renders as.
  *
  * Total over the closed reason set by construction, so the three automatic reasons
- * cannot collapse into one line. Labels are the caller's — the reader knows
- * participant ids, and a display name is the roster's to supply — so a caller with
- * no name passes the id and the sentence still names somebody.
+ * cannot collapse into one line.
+ *
+ * NOBODY IS NAMED IN ANY OF THEM. The shell belongs to the one person using this
+ * machine, so what a transition records is where the keyboard went and not who took it;
+ * the wire's holder members are still read above, because they are what settles the
+ * holding, and a sentence repeating an identifier back would answer a question nobody
+ * asked.
  */
-export function terminalLeaseTransitionSentence(
-  transition: TerminalLeaseTransition,
-  labelFor: (participantId: string) => string,
-): string {
-  const holderLabel =
-    transition.holderParticipantId === null ? null : labelFor(transition.holderParticipantId);
-  const previousLabel =
-    transition.previousHolderParticipantId === null
-      ? null
-      : labelFor(transition.previousHolderParticipantId);
-  const previous = previousLabel ?? "The previous holder";
-
+export function terminalLeaseTransitionSentence(transition: TerminalLeaseTransition): string {
   switch (transition.reason) {
     case "taken":
-      return `${holderLabel ?? "Someone"} took the shell.`;
+      return "The shell was taken.";
     case "released":
-      return `${previous} released the shell.`;
+      return "The shell was released.";
     case "auto_released_disconnect":
-      return `${previous} disconnected, so the shell was released.`;
+      return "The holding window disconnected, so the shell was released.";
     case "auto_released_authorization_lost":
-      return `${previous} lost authorization, so the shell was released.`;
+      return "The hold lost its authorization, so the shell was released.";
     case "auto_released_run_idle":
-      return `${previous}'s run left its running state, so the shell was released.`;
+      return "The holding run left its running state, so the shell was released.";
   }
 }
 

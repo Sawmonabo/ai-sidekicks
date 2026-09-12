@@ -36,7 +36,6 @@ function rowsFor(refusalForRecord: ConsoleRefusal): ApprovalCommandInput {
     resolveRefusalByApprovalId: new Map([[record.approvalRequestId, refusalForRecord]]),
     resolve: () => undefined,
     goal: { status: "none", revision: "1" },
-    canMutateGoal: false,
     isMutatingGoal: false,
     clearGoal: () => undefined,
   };
