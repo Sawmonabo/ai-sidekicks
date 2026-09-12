@@ -45,7 +45,7 @@ This spec defines the **provider account** as a first-class node-local entity: h
 ## Domain Dependencies
 
 - [Glossary](../domain/glossary.md) — provider, driver, runtime node, operator terminology. **Note the false friend:** [Runtime Node Model](../domain/runtime-node-model.md) uses "account identity" for _participant_ identity in the control-plane sense. A provider account as defined here is unrelated to it, shares no identifier space with it, and is never a substitute for it.
-- [Session model](../domain/session-model.md) — a run belongs to a session; the account that pays for a run is node-local state and is not a session membership fact.
+- [Session model](../domain/session-model.md) — a run belongs to a session; the account that pays for a run is node-local state and is not a session-level fact.
 
 ## Architectural Dependencies
 

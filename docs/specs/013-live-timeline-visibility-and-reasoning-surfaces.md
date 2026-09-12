@@ -202,7 +202,7 @@ A rate-limit indicator shows the remaining provider quota **of one named provide
 
 ## Acceptance Criteria
 
-- [ ] A client can see live run, approval, artifact, and child-run activity in one timeline surface.
+- [ ] A client can see live run, approval, artifact, and child-run activity in the session's live view.
 - [ ] Missing live updates can be recovered through replay without rebuilding state from free-form text.
 - [ ] Reasoning surfaces clearly distinguish available, unavailable, and policy-redacted cases.
 - [ ] Handoff and run-state entries render as distinct timeline rows with appropriate visual treatment.

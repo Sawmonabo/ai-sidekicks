@@ -16,7 +16,7 @@ Define how the product turns session and run state into attention surfaces and n
 
 ## Scope
 
-This spec covers in-app attention state, desktop notifications, invite notifications, and notification degradation paths.
+This spec covers in-app attention state, desktop notifications, cross-device notification delivery, and notification degradation paths.
 
 ## Non-Goals
 
@@ -39,11 +39,9 @@ This spec covers in-app attention state, desktop notifications, invite notificat
 
 - The system must surface attention-worthy session and run states even when the user is not actively watching the timeline.
 - Attention triggers must include at least:
-  - pending approval or participant input
+  - pending approval or required input
   - run completion
   - run failure
-  - invite receipt
-  - mention or direct request from another participant
 - Notification emission must be derived from canonical session or run state, not from client heuristics alone.
 - Users must be able to distinguish passive informational notifications from actionable blocking attention.
 - The attention model must support both run-scoped attention and session-scoped aggregate attention derived from canonical state.
@@ -51,10 +49,10 @@ This spec covers in-app attention state, desktop notifications, invite notificat
 ## Default Behavior
 
 - Pending approval or required input is actionable attention by default.
-- Run completion and invite receipt are informational attention by default.
+- Run completion is informational attention by default.
 - When the desktop app is unfocused, actionable attention defaults to OS notification plus in-app badge.
 - When the app is focused, attention defaults to in-app surfaces first.
-- Run-scoped attention defaults to the fine-grained source projection, while session-scoped attention defaults to an aggregate of unresolved run, invite, and participant-request signals.
+- Run-scoped attention defaults to the fine-grained source projection, while session-scoped attention defaults to an aggregate of unresolved run-scoped and session-native signals.
 
 ## Fallback Behavior
 
@@ -97,7 +95,6 @@ This spec covers in-app attention state, desktop notifications, invite notificat
 ## Example Flows
 
 - Example: A run reaches `waiting_for_approval` while the app is unfocused. The user receives a desktop notification and the session shows a blocking attention badge until the approval is resolved.
-- Example: An owner invites another participant into a live session. The recipient receives an invite notification, and the pending invite remains visible in-app until accepted or dismissed.
 - Example: Two runs in one session require action at the same time. Each run exposes its own actionable attention state, and the session aggregate stays actionable until both are resolved.
 
 ## Implementation Notes

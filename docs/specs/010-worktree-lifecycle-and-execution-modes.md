@@ -105,7 +105,7 @@ At each turn boundary of a writable-mode run — turn completion is first-class 
 ## Example Flows
 
 - `Example: A user starts an implementation run. The daemon creates a dedicated worktree, binds the run to it, and only then starts provider execution.`
-- `Example: A reviewer opens the repo in read-only mode, inspects diffs, and cannot accidentally mutate the checkout.`
+- `Example: The user opens the repo in read-only mode, inspects diffs, and cannot accidentally mutate the checkout.`
 - `Example: A repository cannot use worktrees safely, so a participant explicitly selects ephemeral clone mode and the daemon prepares a disposable clone for the writable run.`
 - `Example: A later follow-up run explicitly reuses the same worktree because it targets the same branch and task lineage.`
 
