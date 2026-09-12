@@ -24,7 +24,7 @@ The workflow model is the source of truth for how reusable, multi-phase executio
 - A workflow is not a free-form conversation or ad-hoc sequence of runs. It is an authored definition with explicit phase structure.
 - A workflow definition is not an artifact. Definitions are first-class persisted records. Artifact publication may represent derivative exports or summaries but must not be the canonical source of workflow definition truth.
 - A workflow run is not a single run in the run-state-machine sense. A workflow run orchestrates multiple phase executions, each of which may create runs through `OrchestrationRunCreate`.
-- A workflow is not an external workflow engine (Temporal, Restate). Execution uses the existing local-first persistence and run primitives per ADR-002.
+- A workflow is not an external workflow engine (Temporal, Restate). Execution uses the existing daemon-local persistence and run primitives per ADR-002.
 
 ## Invariants
 
