@@ -1,10 +1,10 @@
 // The notifications page: what earns an interruption.
 //
-// `Spec-023 §Console Design (Meridian)` §Notifications: "Renders the stored
-// preference set, and the shell-local mute for OS toasts. Preferences are global in
-// this release, with no per-session tier … Never offers a per-session preference,
-// and never implies one exists. Never suppresses actionable attention when OS
-// notifications are denied; in-app badges and summaries still render."
+// Renders the stored preference set, and the shell-local mute for OS toasts.
+// Preferences are global in this release, with no per-session tier: the page never
+// offers a per-session preference and never implies one exists. Actionable attention is
+// never suppressed when OS notifications are denied — in-app badges and summaries still
+// render.
 //
 // THE PREFERENCE SET IS READ, AND THE CHAIN STARTS WITH WHO YOU ARE
 //

@@ -1,7 +1,7 @@
 // The deck's browser pane: ask the host for a view, then steer it.
 //
-// `Spec-023 §Console Design (Meridian)` 12.1 names two operations for the pane host and
-// says what they are for — a view is created or adopted for this pane, and it is torn
+// The pane host has two operations, and what they are for is settled — a view is
+// created or adopted for this pane, and it is torn
 // down again when the pane goes. Neither had a caller. A pane opened through the deck's
 // registry started five subscriptions and dispatched every one of its acts against a
 // `paneId` no view had ever been created for, and closing it disposed the renderer's

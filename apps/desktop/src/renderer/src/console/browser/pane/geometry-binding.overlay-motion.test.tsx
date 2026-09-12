@@ -1,7 +1,7 @@
 // Which panes pay for the overlay motion observation, and for how long.
 //
-// `Spec-023 §Console Design (Meridian)` 12.3 puts the overlay set at the primitive
-// layer and arms no frame inside it: the only consumer that needs an overlay sampled
+// The overlay set lives at the primitive layer and arms no frame inside it: the only
+// consumer that needs an overlay sampled
 // while a transition CARRIES it is one drawing a native view, so that consumer
 // installs the observation and the idle-CPU budget's precondition is that nothing
 // else does. The observation was installed when the binding was MINTED, which put it

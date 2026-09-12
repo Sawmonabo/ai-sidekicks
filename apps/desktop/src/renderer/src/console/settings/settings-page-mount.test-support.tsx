@@ -18,8 +18,9 @@
 // through the board it is registered on has to preload the chunk, resolve the descriptor,
 // mount it inside the announcer, and settle the reads the body puts in flight. Two suites
 // had written that sequence themselves — `browser-settings-page.test.tsx` and
-// `sidekicks-settings-page.test.tsx` — which is the second use `apps/desktop/AGENTS.md`
-// §Shared code hoists on, and the drift it names is the one that matters here: three
+// `sidekicks-settings-page.test.tsx` — which is the second use a shared helper is
+// hoisted on, and the drift that rule guards against is the one that matters here:
+// three
 // suites that await the loader and a fourth that settles generously look identical in a
 // diff, and the fourth passes against a body that had not arrived. The pair below is that
 // sequence and its other half — the reservation the same registration draws BEFORE the
@@ -329,8 +330,8 @@ function bodyFor(registry: SettingsPageRegistry, section: SettingsSectionId): Se
  * missing live region as a broken settings section.
  *
  * ITS CLOCK IS THE BRIDGE'S, resolved by the shipped `consoleClockFor` rather than
- * chosen here. The announcer arms a timeout, and `Spec-023 §Console Design (Meridian)`
- * makes the fixture clock the only clock the renderer reads in fixture mode — so a
+ * chosen here. The announcer arms a timeout, and the fixture clock is the only clock
+ * the renderer reads in fixture mode — so a
  * harness that minted a clock of its own would arm the hold on a clock no case can
  * move, and one that passed none would arm it on the wall.
  */

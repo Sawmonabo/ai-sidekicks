@@ -1,8 +1,8 @@
 // The daemon-to-desktop relay of agent browser tool calls, as a reading.
 //
-// `Spec-023 §Console Design (Meridian)` 12.7: every page-tool invocation "renders as
-// an ordinary tool row in the timeline, and every page it opens renders in the pane".
-// The pane's own reading of that relay is what puts the call in front of the person
+// Every page-tool invocation renders as an ordinary tool row in the timeline, and every
+// page it opens renders in the pane. The pane's own reading of that relay is what puts
+// the call in front of the person
 // watching the page it is about to act on — the timeline row is the record, and this
 // is the thing happening now.
 //

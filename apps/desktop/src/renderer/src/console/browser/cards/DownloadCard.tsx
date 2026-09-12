@@ -1,7 +1,6 @@
 // One download, as the object the ingest pipeline made of it.
 //
-// `Spec-023 §Console Design (Meridian)` 12.6 gives downloads two rules a card can
-// actually hold to, and this one holds to both.
+// Downloads have two rules a card can actually hold to, and this one holds to both.
 //
 //   • **They never land where the page asks.** "Downloads never land where the page
 //     asks. They land in the session's artifact store through the ingest pipeline",

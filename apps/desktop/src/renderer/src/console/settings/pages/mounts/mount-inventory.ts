@@ -1,9 +1,8 @@
 // The mount inventory: two registered reads composed into one list of mounts.
 //
-// `Spec-023 §Console Design (Meridian)` §Workspace mounts: "One row per mount with
-// its path and its two health axes, read through `repo.mountRead`, re-read on
-// focus, on reconnect, and on run-terminal events … Never collapses the two mount
-// health axes. Never polls."
+// One row per mount with its path and its two health axes, read through
+// `repo.mountRead` and re-read on focus, on reconnect, and on run-terminal events. The
+// two mount health axes are never collapsed, and the surface never polls.
 //
 // WHY TWO READS AND NOT ONE
 //

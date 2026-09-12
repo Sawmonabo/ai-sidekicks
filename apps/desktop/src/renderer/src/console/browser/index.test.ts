@@ -31,8 +31,8 @@ import { registerBrowserPanes } from "./index.js";
  * The call names this fixture is allowed to answer under, and what each one is.
  *
  * `agent.list` is a registered daemon read `first-run.ts` already scripts. The second
- * is manifestly NOT a method: the browser namespace is on `Plan-023 §Console growth
- * slate` and registers none, so the provenance read is keyed on its growth operation
+ * is manifestly NOT a method: the browser namespace is on the growth slate and
+ * registers none, so the provenance read is keyed on its growth operation
  * id under the `growth:` prefix no daemon method can wear — the discipline
  * `bridge/scenario/workflows/workflows.ts` states for the two workflow reads that register no method
  * either. That is what this list exists to hold the fixture to: a scenario answering

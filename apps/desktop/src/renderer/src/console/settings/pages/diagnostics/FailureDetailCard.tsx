@@ -1,8 +1,7 @@
 // The failure card: what actually failed, by class rather than as one generic error.
 //
-// `Spec-023 §Console Design (Meridian)` §Diagnostics and health: "a failure-detail card
-// from `health.failureDetailRead` that distinguishes the failure classes rather than
-// reporting one generic error."
+// A failure-detail card from `health.failureDetailRead` that distinguishes the failure
+// classes rather than reporting one generic error.
 //
 // SO THE CLASS IS THE HEADLINE AND IS RENDERED VERBATIM. `failureCategory` is a closed
 // four-member wire vocabulary (`RunFailureCategory`), and it is rendered as the node

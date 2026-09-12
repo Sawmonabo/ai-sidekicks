@@ -2,9 +2,9 @@
 //
 // The family owns the embedded browser: the pane's chrome, the page picker, the
 // element-reference capture, and the two node-wide settings that govern them. What
-// it owns TODAY is the pane's seat on the deck — the chrome is built once
-// `Plan-023 §Console growth slate` rows 1, 2, and 4 leave the slate and the
-// embedded-browser Type-2 ADR lands, and the shell it is built into is registered
+// it owns TODAY is the pane's seat on the deck — the chrome is built once the browser
+// pane's own growth-slate rows leave the slate and the embedded-browser decision
+// lands, and the shell it is built into is registered
 // here so that arrival is an edit to a mounted pane rather than a new mount.
 //
 // WHY THE FAMILY REGISTERS, AND WHY THE BODY LIVES HERE TOO. `console/panes/` is a
@@ -65,8 +65,8 @@
 // already takes. Naming it at only one leaves the other painting undressed until an
 // unrelated chunk happens to arrive, and then silently working.
 //
-// BOTH HALVES MATTER, IN BOTH DIRECTIONS. `apps/desktop/AGENTS.md` §Module shape rejects
-// a sheet held at a door whose own static graph can render nothing against it, AND a
+// BOTH HALVES MATTER, IN BOTH DIRECTIONS. The package's module-shape rule rejects a
+// sheet held at a door whose own static graph can render nothing against it, AND a
 // sheet deferred to a chunk root while a module on the initial graph names a class no
 // eagerly-arriving sheet declares. Neither claim is about where a file sits.
 //

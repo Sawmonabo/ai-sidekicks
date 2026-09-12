@@ -1,10 +1,9 @@
 // The two node-wide browser switches, and nothing else about the browser.
 //
-// `Spec-023 §Console Design (Meridian)` 13.16 is emphatic about the scope: this row
-// pair is the WHOLE of the browser's presence in settings, and 12.5 closes the other
-// end — "Policy is invisible until it refuses. The two settings rows live in
-// chapter 13." So a navigation refusal renders in the pane and never here, and a
-// policy row renders here and nowhere else.
+// The scope is emphatic: this row pair is the WHOLE of the browser's presence in
+// settings, and the other end is closed just as tightly — policy is invisible until it
+// refuses, and the two settings rows live here. So a navigation refusal renders in the
+// pane and never here, and a policy row renders here and nowhere else.
 //
 // THREE DECISIONS THIS COMPONENT MAKES.
 //
@@ -21,15 +20,15 @@
 //     one — the boundary enforced, the tools withheld — because a control whose
 //     state nobody established must not draw the permissive position; and the
 //     refusal beside it carries the daemon's own code and sentence, so nobody reads
-//     the safe position as a reading. `Spec-023 §Console Design (Meridian)` rule 8's
-//     whole point is that "nobody asked" and "the answer is no" are different facts.
+//     the safe position as a reading. "Nobody asked" and "the answer is no" are
+//     different facts, and the row keeps them apart.
 //
 //   • **The switch id is the console's, not the wire's.** The shell-config
 //     preference KEYS are unregistered — they are a `settings-key` prerequisite on
-//     `Plan-023 §Console growth slate`'s shell-config row — so this component names
-//     its two switches with console-local identifiers and hands one back on toggle.
-//     Inventing the key strings here would put a wire vocabulary in the renderer
-//     ahead of the document that owns minting it.
+//     the growth slate's shell-config row — so this component names its two switches
+//     with console-local identifiers and hands one back on toggle. Inventing the key
+//     strings here would put a wire vocabulary in the renderer ahead of the wire that
+//     owns minting it.
 //
 // The component reads nothing and writes nothing: readings arrive as props and a
 // toggle leaves as a callback. That is what keeps it a projection of daemon state

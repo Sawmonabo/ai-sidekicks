@@ -1,8 +1,8 @@
 // What the pane shows when it has no page view: the reason, and nothing that acts.
 //
-// `Spec-023 §Console Design (Meridian)` 12.1 gives the pane host a degraded state —
-// "page rendering unavailable on this node, the pane renders one sentence naming that
-// and the tool set is withheld rather than offered-and-refusing". This is that
+// The pane host has a degraded state — page rendering unavailable on this node, where
+// the pane renders one sentence naming that and the tool set is withheld rather than
+// offered-and-refusing. This is that
 // sentence, and the withholding is structural: the body that carries the chrome, the
 // tab strip, and the five subscriptions is a sibling component this arm does not
 // render, so there is nothing here to press and nothing here that asks the host about a

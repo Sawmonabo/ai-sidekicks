@@ -1,11 +1,10 @@
 // What the ONE ingest pipeline has done with a browser-produced object.
 //
-// `Spec-023 §Console Design (Meridian)` 12.6: capture bytes, download bytes, and a
-// bundled asset set all enter through `AttachmentIngestInit` / `AttachmentIngestChunk`
-// / `AttachmentIngestComplete` and run the ordered gate sequence of
-// `Spec-014 §Ingest Validation And Payload Bounds (V1)` before anything persists.
-// "There is no second validation path for browser bytes, which is the point of that
-// section's one-pipeline rule."
+// Capture bytes, download bytes, and a bundled asset set all enter through
+// `AttachmentIngestInit` / `AttachmentIngestChunk` / `AttachmentIngestComplete` and run
+// the ingest pipeline's ordered validation and payload-bound gates before anything
+// persists. There is no second validation path for browser bytes, which is the point
+// of the one-pipeline rule.
 //
 // So there is no second STATE vocabulary either. A capture card and a download card
 // render different nouns — a scope and a media type on one, a source page and a
@@ -67,8 +66,7 @@ export type BrowserIngestState =
     }
   // Nobody has asked yet. Distinct from an empty in-flight reading, which would
   // claim a transfer began, and from `refused`, which would claim one failed —
-  // the `not-checked` fact of `Spec-023 §Console Design (Meridian)` rule 8 as a
-  // state rather than as a rendering.
+  // nobody-asked as a state rather than as a rendering.
   | { readonly status: "not-checked" };
 
 /**

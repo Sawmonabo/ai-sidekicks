@@ -1,7 +1,7 @@
 // The reset-all control, and the defaults it restores — named one by one.
 //
-// `Spec-023 §Console Design (Meridian)` §Keyboard: "A per-row reset and a reset-all,
-// both showing the default they restore to." The per-row half can say it on the
+// A per-row reset and a reset-all, both showing the default they restore to. The
+// per-row half can say it on the
 // control itself, because one row restores to one chord. This half cannot: a single
 // button restores N rows to N different chords, and a label reading "reset all" makes
 // a promise a person has no way to check before pressing it.

@@ -166,7 +166,7 @@ describe("runtime nodes page", () => {
 
   it("negative control: a scenario naming no declaration offers no attach control", async () => {
     // Without this the case above would pass over a page that composed a draft of its
-    // own, which is the one thing `Spec-023 §Trust Stance` forbids this renderer to do.
+    // own, which is the one thing an untrusted renderer may never do.
     const scenario = unscriptedScenario("nodes-page-no-attach-draft");
     const { container } = render(
       <RuntimeNodesPage

@@ -1,7 +1,7 @@
 // The browser pane's controls — the same command over the page that the agent has.
 //
-// `Spec-023 §Console Design (Meridian)` 12.2. Every control dispatches into the SAME
-// page registry the tool set drives, reached through a differently authorized surface,
+// Every control dispatches into the SAME page registry the tool set drives, reached
+// through a differently authorized surface,
 // and the strip derives nothing: back and forward are enabled from the view's own
 // REPORTED history state, never from a count the renderer kept.
 //
@@ -42,9 +42,10 @@
 // and site-data reset are all one click away inside that last one.
 //
 // WHAT IS BUILT AND WHAT RENDERS ITS ABSENCE. Every control here dispatches a growth
-// operation, and `Plan-023 §Console growth slate` row `browser-pane-namespace` still
-// owes the whole namespace — so what a person sees today is each control's own honest
-// refusal rather than a dead button or a blank strip. Rule 8 is the reason the tab
+// operation, and the growth slate's `browser-pane-namespace` row still owes the whole
+// namespace — so what a person sees today is each control's own honest refusal rather
+// than a dead button or a blank strip. Saying only what was checked is the reason the
+// tab
 // strip says "pages not read" instead of "no pages": nobody asked, and a surface that
 // said the second would be making a claim about the session nothing checked.
 //

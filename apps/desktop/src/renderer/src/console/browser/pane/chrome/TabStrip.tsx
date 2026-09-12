@@ -1,8 +1,8 @@
 // The pane's tab strip: one tab per page the session owns, and the context chip that
 // heads them.
 //
-// `Spec-023 §Console Design (Meridian)` 12.2 Renders, first bullet. Four things are
-// on the row and each is the design's own: the leading chip carrying the browsing
+// Four things are on the row, and the set is fixed: the leading chip carrying the
+// browsing
 // context name the agent set, one tab per page carrying its label where the agent set
 // one and its title otherwise, a close control on each, and a create control.
 //

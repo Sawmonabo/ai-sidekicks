@@ -1,11 +1,6 @@
 // The settings surface: a rail of sections, a pane holding one, and a search that
 // reaches both.
 //
-// `Spec-023 §Console Design (Meridian)` §The settings surface: "A left rail of
-// sections and a right pane holding the selected one, the split
-// `Spec-023 §Renderer Responsibilities` assigns to the renderer. … A search field
-// above the rail."
-//
 // THREE RULES THIS FILE IS THE ENFORCEMENT OF
 //
 //   • **No entry is hidden because its wire is unavailable.** The rail is the

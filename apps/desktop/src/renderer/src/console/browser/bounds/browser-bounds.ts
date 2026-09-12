@@ -1,14 +1,13 @@
 // The embedded browser's resource ceiling.
 //
-// `Spec-023 §Console Design (Meridian)` 12.10: "Make the resource ceiling a named,
-// auditable block rather than a set of numbers discovered under load … Every bound
-// is a named constant in one module, and every refusal names the constant it hit."
-// The block is here; `BudgetMeter.tsx` beside it is the surface that renders it, and
+// The resource ceiling is a named, auditable block rather than a set of numbers
+// discovered under load: every bound is a named constant in one module, and every
+// refusal names the constant it hit. The block is here; `BudgetMeter.tsx` beside it is the surface that renders it, and
 // `bound-figures.ts` is how a figure is spelled.
 //
 // WHY IT LIVES IN THE FAMILY AND NOT AT THE DAG FLOOR. The CAPS are at the floor —
-// `core/constants/browser-caps.ts` holds this family's, which is what
-// `apps/desktop/AGENTS.md` §Config single-sourcing requires. This module is not
+// `core/constants/browser-caps.ts` holds this family's, single-sourced with every
+// other configured figure. This module is not
 // that. What sat in `core/` beside the caps was not a set of ceilings: it was a
 // bound TAXONOMY, a unit tuple, a byte-qualifier dispatch table, two constructor
 // functions, and a twenty-row table of prose derivations, none of which anything
@@ -22,8 +21,8 @@
 // Three things the table is careful about:
 //
 //   • **A bound the console does not own has no number here.** Capture and download
-//     bytes are the attachment ingest pipeline's, from
-//     `Spec-014 §Bounds (normative defaults; operator-tunable)`; minting a second
+//     bytes are the attachment ingest pipeline's, whose own bounds are normative
+//     defaults and operator-tunable; minting a second
 //     ceiling would let the two drift, and a row saying so is more useful than a row
 //     that is quietly missing.
 //   • **A bound that must equal something else IMPORTS it.** `SNAPSHOT_TEXT_MAX` is

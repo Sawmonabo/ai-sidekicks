@@ -1,9 +1,8 @@
 // Where the update stands, and who decides when it lands.
 //
-// `Spec-023 §Console Design (Meridian)` §Application updates: "An automatic-update
-// toggle, and the five-arm state read-out: `idle`, `checking`, `downloading` with
-// its percent, `ready`, and `error` with its message. A feed that cannot be reached
-// is not an error arm and does not render as one."
+// An automatic-update toggle, and the five-arm state read-out: `idle`, `checking`,
+// `downloading` with its percent, `ready`, and `error` with its message. A feed that
+// cannot be reached is not an error arm and does not render as one.
 //
 // THE FIVE ARMS ARE THE WIRE'S, AND THE SIXTH STATE IS NOT AN ARM
 //
@@ -22,7 +21,7 @@
 // `downloading` has one, and only `downloading` renders a bar.
 //
 // This is one BLOCK of the application page rather than a page of its own: the
-// section set `Spec-023 §Console Design (Meridian)` fixes has no updates section,
+// fixed settings section set has no updates section,
 // and `ApplicationPage.tsx` is where the two blocks about the application itself
 // are composed. It lives UNDER that page's directory and is named for what it is,
 // because a directory of its own under `pages/` registered nothing and read as a

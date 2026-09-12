@@ -1,9 +1,9 @@
 // The file control: the one way a local file reaches the pane, and the disclosure
 // that says where one may come from.
 //
-// `Spec-023 §Console Design (Meridian)` 12.2 Never: "The address field never accepts a
-// filesystem path. Local files open through the file control, which runs the boundary
-// check of 12.5." The address field already refuses one; this is the control it
+// The address field never accepts a filesystem path. Local files open through the file
+// control, which runs the boundary check. The address field already refuses one; this
+// is the control it
 // refuses toward, so the refusal has somewhere to send a person.
 //
 // THE DISCLOSURE IS A DESCRIPTION, NEVER A CHECK. `file-boundary.ts` states why at

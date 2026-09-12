@@ -16,9 +16,9 @@
 //
 // THE SET IS THE CONSOLE'S OWN, STATED RATHER THAN DERIVED. `packages/contracts`
 // registers the three `artifact.*` event TYPES and no payload variant for any of
-// them, so there is no wire union to derive this from; the values are the ones
-// `Spec-006 §Artifact and Diff Publication (artifact_publication)` puts on the
-// family's `state` member. Declared as a tuple with the union read off it, so the
+// them, so there is no wire union to derive this from; the values are the ones the
+// artifact-publication event family puts on its `state` member. Declared as a tuple
+// with the union read off it, so the
 // presentation tables below and in every consumer are total by construction and a
 // fourth state does not compile until each of them says what it renders.
 

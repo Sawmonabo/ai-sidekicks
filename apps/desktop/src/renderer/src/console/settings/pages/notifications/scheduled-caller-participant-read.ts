@@ -71,9 +71,9 @@ export interface ScheduledCallerParticipantReadOptions {
 /**
  * Who this window is, kept current by the window's own triggers.
  *
- * A class with private fields rather than an effect and a `useState` cell, per
- * `apps/desktop/AGENTS.md` §State and views: it owns a scheduler, a single-flight
- * round, and the rule that decides which reply installs. The React binding is
+ * A class with private fields rather than an effect and a `useState` cell, because it
+ * owns a scheduler, a single-flight round, and the rule that decides which reply
+ * installs. The React binding is
  * `stored-attention-preferences.ts`, which holds nothing of its own.
  */
 export class ScheduledCallerParticipantRead implements ReadTriggerTarget {

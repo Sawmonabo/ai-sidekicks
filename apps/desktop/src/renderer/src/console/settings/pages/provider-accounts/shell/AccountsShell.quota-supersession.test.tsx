@@ -1,8 +1,8 @@
 // Which quota reading this table shows, decided by the node's fold and by nothing here.
 //
-// `Spec-029 §Per-limit provider quota` states supersession as two rules in one order —
-// "newest wins, by observation time — except that a same-window reading never moves
-// backward" — and `bridge/quotas/provider-quota-fold.ts` is the console's one
+// Quota supersession is two rules in one order — newest wins, by observation time,
+// except that a same-window reading never moves backward — and
+// `bridge/quotas/provider-quota-fold.ts` is the console's one
 // implementation of it. This page used to fold the rows AGAIN on the way to the table,
 // with the exception missing: a later reading below the high-water mark replaced the
 // higher one on its timestamp alone, so this table could show 20% for a window the

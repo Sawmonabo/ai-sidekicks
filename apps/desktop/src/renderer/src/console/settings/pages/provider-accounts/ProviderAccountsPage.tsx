@@ -1,9 +1,9 @@
 // The accounts page: which provider accounts this node keeps, and what has to be
 // true before a run is admitted against one.
 //
-// `Spec-023 §Console Design (Meridian)` §Provider accounts puts a registry list and
-// a detail pane here, and §Sign-in, token registration, and the readiness handoff
-// puts the flow that gets an account from unusable to usable beside it. Both of
+// A registry list and a detail pane belong on this page, and beside them the flow that
+// gets an account from unusable to usable — sign-in, token registration, and the
+// readiness handoff. Both of
 // those are the account plane's BODY, and this repository authors none of it — the
 // page frame, the vocabulary, and the discipline are here, and the body arrives
 // through `provider-accounts-slot.ts`.

@@ -10,8 +10,8 @@
 //
 // THE SUM IS COMPUTED AND NEVER SHOWN
 //
-// This is the distinction the page's own rules turn on. `Spec-023 §Console Design
-// (Meridian)`'s cost section forbids the renderer producing a figure — the
+// This is the distinction the page's own rules turn on. The renderer never produces
+// a cost figure — the
 // accountant produces the number a session is charged, and a table that added its
 // own column up would be a second accountant reaching a second answer. What happens
 // here is not that: the total is compared against the one the daemon sent and then

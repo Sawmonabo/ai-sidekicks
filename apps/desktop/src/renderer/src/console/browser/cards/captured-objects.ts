@@ -1,8 +1,8 @@
 // The captures this window took, and the cards they justify.
 //
-// `Spec-023 §Console Design (Meridian)` 12.2 gives the pane a capture control and
-// 12.6 says what becomes of its bytes: they enter the one ingest pipeline and land as
-// an artifact. The shelf beside this module renders one row per produced object, and
+// The pane has a capture control, and what becomes of its bytes is settled: they enter
+// the one ingest pipeline and land as an artifact. The shelf beside this module renders
+// one row per produced object, and
 // a row is only a CARD where every prop on it came from somewhere real.
 //
 // THIS IS THAT SOMEWHERE. A capture taken here answers with the artifact it became,

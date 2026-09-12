@@ -78,10 +78,10 @@ export function toggleableValueFor(
  * both read "normalize a wire rejection", and the second flattens everything onto
  * `Error.name`. A daemon refusing a preference write over JSON-RPC carries the
  * numeric JSON-RPC code at `code` and the registered dotted one at `data.type`, so
- * the flattening arm put the JS CLASS NAME — `JsonRpcRemoteError` — where rule 9
- * requires the refuser's own code, for the pressed switch and every queued flip
- * behind it. It also dropped the retry bounds `error-contracts.md §Rate Limiting`
- * registers, so a rate-limited write could not say when to try again.
+ * the flattening arm put the JS CLASS NAME — `JsonRpcRemoteError` — where the
+ * refuser's own code belongs, for the pressed switch and every queued flip behind it.
+ * It also dropped the registered retry bounds, so a rate-limited write could not say
+ * when to try again.
  *
  * The fallback is reached only where the rejection carries no code of its own, and
  * its code comes from {@link NOTIFICATION_PREFERENCE_REFUSAL_CODES} rather than

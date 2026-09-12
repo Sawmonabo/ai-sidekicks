@@ -6,9 +6,9 @@
 // than by editing a component.
 //
 // `.tsx` because an accessor returns a node, and therefore PascalCase: the console's
-// `.tsx` modules are named for the one markup-rendering declaration they carry, which
-// `apps/desktop/AGENTS.md` §Module shape keys on the basename. The declaration here is a
-// table rather than a component, and the name says which table it is.
+// `.tsx` modules are named — by basename — for the one markup-rendering declaration
+// they carry. The declaration here is a table rather than a component, and the name
+// says which table it is.
 
 import { WireFigure } from "../../../primitives/index.js";
 import type { CostReceiptRunRow } from "./cost-receipt-model.js";

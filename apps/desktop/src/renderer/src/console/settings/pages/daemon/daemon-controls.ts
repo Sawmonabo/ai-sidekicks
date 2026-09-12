@@ -131,8 +131,8 @@ export function useDaemonStatus(
  * THE CONNECTION'S KIND AND NEVER THE WHOLE CONNECTION. `reconnecting` carries an
  * attempt number that advances on every retry of the supervisor's ladder, and a
  * heartbeat timestamp moves on the healthy path — so keying on either would put a read
- * on the wire per attempt and per beat, which is the interval poll
- * `Spec-023 §Console Design (Meridian)` forbids arriving by the back door. What the
+ * on the wire per attempt and per beat, which is the forbidden interval poll arriving
+ * by the back door. What the
  * kind changing means is that the runtime is somewhere else than it was, which is
  * exactly when its own status line is worth asking for again.
  */

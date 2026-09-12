@@ -1,7 +1,7 @@
 // The chrome's density rule, counted rather than claimed.
 //
-// `Spec-023 §Console Design (Meridian)` 12.1 fixes the number: six controls plus the
-// address field are visible and everything else is one click behind the overflow. A
+// The number is fixed: six controls plus the address field are visible and everything
+// else is one click behind the overflow. A
 // rule about how many things are on screen is exactly the kind that erodes one control
 // at a time, so it is asserted as a count over the rendered tree, and the second half
 // — that the controls it names are BEHIND the disclosure rather than absent — is

@@ -1,11 +1,10 @@
 // Dragging one tab to a new place, and the one piece of arithmetic that is easy to
 // get wrong.
 //
-// `Spec-023 §Console Design (Meridian)` 12.2: "Tab drag reorder carries the drag
-// payload on a private MIME type and translates the drop index at the boundary: the
-// registry's move index addresses the list WITHOUT the moved tab, so a tab dragged
-// rightward targets `slot - 1`. The translation is stated once, at the one call site,
-// never rediscovered per handler."
+// Tab drag reorder carries the drag payload on a private MIME type and translates the
+// drop index at the boundary: the registry's move index addresses the list WITHOUT the
+// moved tab, so a tab dragged rightward targets `slot - 1`. The translation is stated
+// once, at the one call site, never rediscovered per handler.
 //
 // So it is stated here, in one function, and `TabStrip.tsx` is the only module that
 // calls it. The two facts that make the subtraction necessary

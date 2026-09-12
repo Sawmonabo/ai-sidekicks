@@ -1,11 +1,10 @@
 // The data page: what this release actually does with a request to erase.
 //
-// `Spec-023 §Console Design (Meridian)` §Data and erasure: "Tell the truth about
-// what this release does with a purge request … Offers nothing. There is no export
-// control and no erase control, because the three `gdpr.*` methods return an
-// unconditional not-implemented stub in this release … Never renders a button that
-// would call a stub. Never implies an automated endpoint exists. Never claims data
-// is provably destroyed on demand."
+// Tell the truth about what this release does with a purge request. The page offers
+// nothing: there is no export control and no erase control, because the three `gdpr.*`
+// methods return an unconditional not-implemented stub in this release. Never render a
+// button that would call a stub, never imply an automated endpoint exists, and never
+// claim data is provably destroyed on demand.
 //
 // SO THIS PAGE HAS NO CONTROL AT ALL, AND THAT IS THE FEATURE
 //

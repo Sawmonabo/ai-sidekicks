@@ -1,7 +1,7 @@
 // What the address field SHOWS, and who last decided it.
 //
-// `Spec-023 §Console Design (Meridian)` 12.2 puts the same rule on this field as on
-// the history controls — the chrome derives nothing, it renders the view's REPORTED
+// This field is under the same rule as the history controls — the chrome derives
+// nothing, it renders the view's REPORTED
 // state. A field whose value is only ever what somebody typed breaks that rule in
 // the direction that is hardest to see: it keeps showing the destination that was
 // submitted, so a redirect, a link, or a page that navigates itself leaves the

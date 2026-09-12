@@ -1,7 +1,7 @@
 // Closing the pane and then clearing the partition, as one act with an order.
 //
-// `Spec-023 §Console Design (Meridian)` 13.16 puts "a clear-site-data control per
-// partition that closes the pane first" on EVERY partition. A partition whose pane is
+// EVERY partition gets a clear-site-data control that closes the pane first. A
+// partition whose pane is
 // open is therefore the case the control exists for, not the case it withdraws from:
 // removing the control there leaves the documented flow with no way to start, and the
 // operator with a status chip that describes a state and offers no exit from it.

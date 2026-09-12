@@ -1,7 +1,7 @@
 // What the page host is holding after the console's chord table moves.
 //
-// `Spec-023 §Console Design (Meridian)` 12.4's mirror is published and never polled,
-// which makes every publish this binding skips a decision about what the host goes on
+// The handback mirror is published and never polled, which makes every publish this
+// binding skips a decision about what the host goes on
 // claiming. Three states separate a correct skip from a silent one, and only the
 // middle one distinguishes the two readings:
 //

@@ -1,7 +1,7 @@
 // The cost page: one figure, and what it is made of.
 //
-// `Spec-023 §Console Design (Meridian)` §The session cost receipt is a decomposition
-// and never a calculator. One accountant produces the figure a session is charged,
+// The session cost receipt is a decomposition and never a calculator. One accountant
+// produces the figure a session is charged,
 // and the receipt shows the same figure split three ways — per run, per party that
 // caused the spend, and per account that pays for it. Each split accounts for the
 // whole figure, which is what makes the receipt answerable rather than merely

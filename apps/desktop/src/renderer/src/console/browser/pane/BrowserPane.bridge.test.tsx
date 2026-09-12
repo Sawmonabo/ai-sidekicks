@@ -312,8 +312,8 @@ describe("browser pane geometry outcomes", () => {
   });
 
   it("arms its publish on the window's own clock, and publishes nothing before it runs", async () => {
-    // `Spec-023 §Console Design (Meridian)` §The fixture bridge: the fixture clock is
-    // the only clock the renderer reads in fixture mode. The publisher used to mint a
+    // The fixture clock is the only clock the renderer reads in fixture mode. The
+    // publisher used to mint a
     // private `RealClock`, invisible to this one — so its frame and its `sampledAtMs`
     // ran on wall time inside a window whose scenario beats, refresh scheduler, and
     // stores were all frozen, and whether a screenshot or an endurance step caught the

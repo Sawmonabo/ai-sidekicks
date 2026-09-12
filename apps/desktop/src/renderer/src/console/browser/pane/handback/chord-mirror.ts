@@ -1,7 +1,7 @@
 // How a chord mirror is spelled for one comparison, and what the host has been told.
 //
-// `Spec-023 §Console Design (Meridian)` 12.4's mirror is published and never polled,
-// so the binding beside this file re-publishes exactly when the projected set changes.
+// The handback mirror is published and never polled, so the binding beside this file
+// re-publishes exactly when the projected set changes.
 // "Changes" is the whole question, and the two halves of answering it live here
 // together because they are one seam: the KEY a projection is compared by, and the
 // register saying which key the host is currently holding.

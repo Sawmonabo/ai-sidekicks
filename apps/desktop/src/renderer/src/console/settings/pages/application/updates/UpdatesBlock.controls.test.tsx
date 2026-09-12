@@ -59,7 +59,7 @@ describe("the updates block — nothing restarts without a press", () => {
     // The code used to be discarded entirely: `wireRejectionToError` puts a
     // registered daemon code on `Error.name` and this page read only `.message`, so
     // every refusal the updater namespace can raise reached a person with the one
-    // part `Spec-023 §Console Design (Meridian)` rule 9 requires verbatim missing.
+    // part a refusal must always carry verbatim — the refuser's own code — missing.
     const { block: container } = await renderSettled(
       bridgeReporting(
         { status: "idle" },

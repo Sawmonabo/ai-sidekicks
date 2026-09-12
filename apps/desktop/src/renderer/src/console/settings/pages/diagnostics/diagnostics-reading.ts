@@ -1,8 +1,8 @@
 // The diagnostics page's reads: four questions, one refresh, four independent answers.
 //
-// `Spec-023 §Console Design (Meridian)` §Diagnostics and health names five operations
-// and forbids the only streaming one: "Never polls. There is no health subscription,
-// so the surface re-reads on focus, on reconnect, and on run-terminal events." Four of
+// The diagnostics surface has five operations and may not stream: it never polls,
+// there is no health subscription, and it re-reads on focus, on reconnect, and on
+// run-terminal events. Four of
 // the five are reads and compose here; the fifth is the recovery request, which is a
 // MUTATION a person presses and belongs beside the control that raises it rather than
 // inside a refresh.
@@ -235,13 +235,12 @@ const REPLAY_COMPONENT_NAME = "replay";
 /**
  * Whether the node reports its replay component blocked.
  *
- * `Spec-023 §Console Design (Meridian)` §Diagnostics and health's degraded state: "a
- * projection-rebuild failure renders the surface read-only and says so." This is the
- * "says so" half, and it is deliberately ALL of what the console derives from it: the
- * notice is drawn and no control is withdrawn, because withdrawing one would be this
- * renderer deciding a request will be refused — which the same page's rules forbid,
- * and which the section's own refusal state contradicts by requiring the recovery
- * prompt to stay available.
+ * The degraded state is that a projection-rebuild failure renders the surface
+ * read-only and says so. This is the "says so" half, and it is deliberately ALL of
+ * what the console derives from it: the notice is drawn and no control is withdrawn,
+ * because withdrawing one would be this renderer deciding a request will be refused —
+ * which this page's rules forbid, and which the refusal state contradicts by requiring
+ * the recovery prompt to stay available.
  *
  * Pure over the arm, so a surface cannot get a different answer from the same reply.
  */

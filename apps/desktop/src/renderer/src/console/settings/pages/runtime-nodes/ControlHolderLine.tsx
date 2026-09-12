@@ -5,8 +5,8 @@
 // read that has not answered is not a session with a free lease, and rendering the
 // second for the first would be a claim about the session nothing checked.
 //
-// THE MARK IS THE HUE AND NOTHING ELSE. `Spec-023 §Console Design (Meridian)` rule 2
-// puts the participant hue on a mark and never behind text, so the identifier beside
+// THE MARK IS THE HUE AND NOTHING ELSE. The participant hue goes on a mark and never
+// behind text, so the identifier beside
 // it is the ordinary mono wire figure and the colour is a 2 px standing mark — the
 // same attribution width rule 1 spends on a row edge, on an element that is not one.
 // A holder the session's hue wheel has never admitted takes the neutral boundary

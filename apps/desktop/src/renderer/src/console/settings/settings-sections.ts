@@ -44,7 +44,7 @@ export const SETTINGS_SECTION_IDS = [
   "data",
   "application",
   "browser",
-  // The local runtime's own page, which is §Tray and daemon lifecycle's "one click
+  // The local runtime's own page, which is the tray and daemon lifecycle's "one click
   // away": the supervisor detail, its attempt count and last heartbeat, and the stop
   // and restart controls. Like `sidekicks` it is not one of the design's section ids
   // — the design puts this detail one click behind the frame's chip and names no

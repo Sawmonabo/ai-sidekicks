@@ -1,10 +1,10 @@
 // The appearance page: light, dark, or whatever this machine is doing.
 //
-// `Spec-023 §Console Design (Meridian)` §Appearance: "Choose light or dark, and
-// nothing else in this release … Mode selection, renderer-local, applied by
-// rewriting one style element and cached for the next boot so there is no unstyled
-// flash … Never ships user-authored themes in this release … Never renders a color
-// the token registry does not define. Three options, no disclosure."
+// Choose light or dark, and nothing else in this release. Mode selection is
+// renderer-local, applied by rewriting one style element and cached for the next boot
+// so there is no unstyled flash. No user-authored theme ships in this release, and no
+// color the token registry does not define is ever rendered. Three options, no
+// disclosure.
 //
 // THE PAGE OWNS NEITHER THE APPLY NOR THE WRITE, AND THAT IS DELIBERATE
 //
@@ -39,9 +39,9 @@
 // AND ONE THING IT REPORTS RATHER THAN OFFERS. The scheme block says the choice is
 // "remembered for the next start", and whether that is true is the STORE's answer
 // rather than this page's: on the in-memory adapter the choice applies to this
-// window and is gone at the next launch. `Plan-023 §Target Areas` puts that report
-// here in terms — the console "runs on an in-memory adapter and reports that state
-// in its own settings page" — and until `store-state/` nothing read it, so a person
+// window and is gone at the next launch. This page is where that report belongs —
+// the console runs on an in-memory adapter and reports that state in its own settings
+// page — and until `store-state/` nothing read it, so a person
 // learned it by restarting and finding the choice gone.
 
 import { useCallback, useState, useSyncExternalStore } from "react";

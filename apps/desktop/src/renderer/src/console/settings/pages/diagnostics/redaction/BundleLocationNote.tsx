@@ -1,13 +1,13 @@
 // Where the engine event record lives, since nothing serves it.
 //
-// The workflow surface's own rule is what puts this sentence on this page: it "never
-// exposes the engine event record. It is non-canonical by `Spec-017 §Engine event
-// record (SA-43)`, no wire method serves it, and no replay, verification, rebuild or
-// audit path may read it; the diagnostics page names its bundle location instead."
+// The workflow surface's own rule is what puts this sentence on this page: it never
+// exposes the engine event record. That record is non-canonical, no wire method serves
+// it, and no replay, verification, rebuild or audit path may read it; the diagnostics
+// page names its bundle location instead.
 //
-// SO THIS NAMES THE TIER AND NOT A PATH. The corpus places the record on the
-// Plan-020-owned bounded-retention diagnostic tier and specifies no filesystem
-// location for it anywhere; a renderer that printed an absolute path would be
+// SO THIS NAMES THE TIER AND NOT A PATH. The record lives on the bounded-retention
+// diagnostic tier and has no specified filesystem location anywhere; a renderer that
+// printed an absolute path would be
 // inventing the one fact a person would act on. The tier IS the location a person
 // needs: it is the thing a diagnostic bundle is collected from, and its retention is
 // the read-out above rather than a second figure written here.

@@ -3,9 +3,9 @@
  *
  * One of the browser family's seven sheets. The family's own discipline holds in
  * every one of them: no literal colour, every value read back out of a Meridian
- * custom property, and the two hues spent only on their one meaning each
- * (`Spec-023 §Console Design (Meridian)` rule 3 — amber where a person is needed,
- * red where something failed). Grep any of these files for `amber` and `red` and
+ * custom property, and the two hues spent only on their one meaning each — amber
+ * where a person is needed, red where something failed. Grep any of these files for
+ * `amber` and `red` and
  * every hit is one of those.
  *
  * This sheet enters at `console/browser/settings/browser-settings-page-body.ts`, the
@@ -20,7 +20,7 @@
  * than off the directory, and
  * `no-restricted-syntax` in `apps/desktop/eslint.config.mjs` admits a relative `.css`
  * import only from a barrel or a `*-body` chunk root; which root each sheet enters at is
- * `apps/desktop/AGENTS.md` §Module shape's rule, read in review.
+ * a module-shape rule read in review.
  *
  * It sits FLAT BESIDE THE MODULES IT DRESSES rather than in a `styles/` directory
  * of its own: one sheet per sub-module directory, named for that directory, so the

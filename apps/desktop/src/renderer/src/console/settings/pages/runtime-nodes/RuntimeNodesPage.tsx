@@ -1,10 +1,10 @@
 // The nodes page: which machines a session's agents can run on, and what each one
 // is allowed to do.
 //
-// `Spec-023 §Console Design (Meridian)` §Runtime nodes: "Show every runtime node
-// attached to a session and let its owner manage its own attachment … Both health
-// axes side by side, never collapsed into one scalar, because they have different
-// owners and a recovery on one must never mask a degradation on the other."
+// Show every runtime node attached to a session and let its owner manage its own
+// attachment. Both health axes go side by side, never collapsed into one scalar,
+// because they have different owners and a recovery on one must never mask a
+// degradation on the other.
 //
 // THE ROSTER IS ABSORBED, NOT REWRITTEN
 //
@@ -52,8 +52,9 @@
 // absence when there is none. The attach control mounts the shipped flow through
 // `seats/surface/absorbed-surfaces.ts`, which resolves the attach draft rather than accepting
 // one: that draft is a machine's claim about its own identity, contract version,
-// health and capability set, and `Spec-023 §Trust Stance` puts its composition in the
-// main process, off the node registry. So the page names the control and the SEAT
+// health and capability set, and an untrusted renderer may not compose one — that
+// happens in the main process, off the node registry. So the page names the control
+// and the SEAT
 // decides whether there is a declaration to review — a scenario's under the fixture,
 // nothing under the live bridge until a registered read delivers one — and the absence
 // it renders is a statement about this window rather than about attaching.

@@ -213,8 +213,8 @@ export class UpdaterReadingHolder {
  * Through the console's one refusal converter rather than `wireRejectionToError`:
  * that helper puts the daemon's registered code on `Error.name` and this seam read
  * only `.message`, so every refusal the updater namespace can raise reached the
- * screen with its code discarded — which is the one part of a refusal
- * `Spec-023 §Console Design (Meridian)` rule 9 requires verbatim. The converter
+ * screen with its code discarded — which is the one part of a refusal that must
+ * always reach a person verbatim. The converter
  * hands a `ConsoleRefusalError`'s refusal back untouched and normalizes everything
  * else under the fallback code this leg names, so a registered code is never
  * relabelled on its way through.

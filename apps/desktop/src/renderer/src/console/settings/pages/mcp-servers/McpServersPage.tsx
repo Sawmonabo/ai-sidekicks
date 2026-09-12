@@ -1,7 +1,7 @@
 // The MCP servers page: what this machine offers to runs, governed from one place.
 //
-// `Spec-023 §Console Design (Meridian)` §MCP servers puts the unified inventory,
-// the per-leg disclosure, the tool overrides, and the live status stream here. All
+// The unified inventory, the per-leg disclosure, the tool overrides, and the live
+// status stream all belong on this page. All
 // of that is the governance plane's BODY, which this repository does not author —
 // what is here is the page frame and the three rules the body inherits from it.
 //

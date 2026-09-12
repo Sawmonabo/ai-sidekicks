@@ -1,10 +1,9 @@
 // The diagnostics page: this machine's execution health, without opening a log.
 //
-// `Spec-023 §Console Design (Meridian)` §Diagnostics and health: "Make this machine's
-// execution health visible without opening raw logs … Never polls. There is no health
-// subscription, so the surface re-reads on focus, on reconnect, and on run-terminal
-// events. Never partially masks diagnostic content … Never offers an outbound send …
-// Never derives a health verdict of its own."
+// Make this machine's execution health visible without opening raw logs. The surface
+// never polls: there is no health subscription, so it re-reads on focus, on reconnect,
+// and on run-terminal events. It never partially masks diagnostic content, never
+// offers an outbound send, and never derives a health verdict of its own.
 //
 // FIVE OPERATIONS, ALL FIVE PUT
 //

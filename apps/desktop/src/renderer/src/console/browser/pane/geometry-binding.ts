@@ -48,9 +48,9 @@ export interface PaneSubject {
  * pane's viewport is describing this pane's host" a fact rather than two lookups that
  * agree today.
  *
- * THE CLOCK COMES OFF THE BRIDGE. `Spec-023 §Console Design (Meridian)` §The fixture
- * bridge: "the fixture clock is the only clock the renderer reads in fixture mode", and
- * the console has one answer to which clock a window reads. A privately minted
+ * THE CLOCK COMES OFF THE BRIDGE. The fixture clock is the only clock the renderer
+ * reads in fixture mode, and the console has one answer to which clock a window reads.
+ * A privately minted
  * `RealClock` here was invisible to `ManualClock` — the instrument the budgets are
  * counted with — so under a frozen scenario this publisher's frame and its
  * `sampledAtMs` ran on wall time while every other timer in the same pane was stopped,

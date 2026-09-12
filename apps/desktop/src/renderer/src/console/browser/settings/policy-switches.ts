@@ -4,10 +4,9 @@
 // three shapes, and a shape exported by one and imported by the other would close a
 // cycle between siblings that only ever read it.
 //
-// CLOSED AT TWO. `Spec-023 §Console Design (Meridian)` 13.16 — "Hold the two node-wide
-// switches the browser pane's policy reads, and nothing else about the browser" — and
-// the union is DERIVED from the tuple, so a third cannot be added to one without the
-// other.
+// CLOSED AT TWO. Settings holds the two node-wide switches the browser pane's policy
+// reads and nothing else about the browser, and the union is DERIVED from the tuple, so
+// a third cannot be added to one without the other.
 
 import type { ReadingState } from "../../primitives/index.js";
 
