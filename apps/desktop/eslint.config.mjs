@@ -905,7 +905,7 @@ export default [
     },
   },
   {
-    // The Vitest configuration modules, which the `lint` script reads since 2026-09-09
+    // The Vitest configuration modules, which the `lint` script reads
     // and which are where the process-wide snapshot mode is set in the first place.
     // They carry no other syntax ban — `export default` is how a Vitest config is
     // written and no block above claims this directory — so the union is the one

@@ -242,8 +242,7 @@ interface SubscriptionState<T> {
    * `completeSubscription` / `completeSubscriptionWithError`, so the
    * terminal-status guard at the top of `#cancelSubscription` intercepts
    * subsequent calls before they reach this field — leaving
-   * `cancelInFlight` set after resolution is a safe no-op (closes Codex F3,
-   * Phase D Round 5).
+   * `cancelInFlight` set after resolution is a safe no-op.
    */
   cancelInFlight: Promise<void> | undefined;
 }
@@ -636,8 +635,7 @@ export class JsonRpcClient {
           // delete the pending entry while the transport's send may
           // actually have succeeded — leaking the daemon's response on
           // arrival. `Promise.resolve` absorbs any thenable into a
-          // native Promise, so `.catch` is guaranteed to exist (closes
-          // Codex F6, Phase D Round 7).
+          // native Promise, so `.catch` is guaranteed to exist.
           Promise.resolve(sendResult as PromiseLike<void>).catch((err: unknown) => {
             this.#pending.delete(id);
             reject(err instanceof Error ? err : new Error(String(err)));
@@ -885,7 +883,7 @@ export class JsonRpcClient {
     // We run `subscribeInitResultSchema.safeParse(env.result)` here
     // (rather than a looser `typeof + length` shape probe) so the
     // synchronous registration gate and the resolve-path Zod parse
-    // CANNOT diverge. Closes Codex F2 (Phase D Round 4): the prior
+    // CANNOT diverge. Before that, the prior
     // shape probe accepted any non-empty string, so a malformed
     // `subscriptionId` (e.g. `"not-a-uuid"`) registered synchronously
     // into `#subscriptions` AHEAD of the schema's tighter UUID check
@@ -1069,8 +1067,8 @@ export class JsonRpcClient {
    *   3. In-flight-cancel guard. If a previous `cancel()` has already
    *      emitted the wire frame and is still awaiting the daemon ack, the
    *      second caller awaits the SAME promise rather than emitting a
-   *      duplicate `$/subscription/cancel` request (closes Codex F3, Phase
-   *      D Round 5). Both callers observe the same outcome — clean
+   *      duplicate `$/subscription/cancel` request. Both callers observe
+   *      the same outcome — clean
    *      teardown via `completeSubscription`, or local error via
    *      `completeSubscriptionWithError` if the daemon nacks. The wire-
    *      emit half is broken out into `#emitCancelRpc` so the public
@@ -1179,8 +1177,8 @@ const passthroughSchema: ZodType<unknown> = z.unknown();
  *
  * The `subscriptionId` field uses the canonical `SubscriptionIdSchema`
  * (RFC 9562 UUID, brand-narrowed to `SubscriptionId`) rather than the
- * looser `z.string().min(1)` it carried at first landing. This closes the
- * Codex F2 finding (Phase D Round 4): a daemon corruption / proxy
+ * looser `z.string().min(1)` it carried at first landing. Before that, a
+ * daemon corruption or proxy
  * injection that returns a non-UUID `subscriptionId` was previously
  * registered into `#subscriptions` synchronously by `#handleResponse` and
  * then surfaced via the consumer-side schema rejection — leaving an

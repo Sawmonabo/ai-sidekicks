@@ -87,9 +87,8 @@ export const EventCursorSchema: z.ZodType<EventCursor, EventCursor> = z
 //      non-whitespace character anywhere in the string. ASCII-whitespace
 //      only — Unicode zero-width characters (U+200B/200C/200D/2060/FEFF)
 //      bypass this regex by design. owns identity canonical form including
-//      zero-width-character handling (see `R2-4 deferral` note in PR #2
-//      review thread); preempting the grammar choices at the wire layer
-//      would be wrong.
+//      zero-width-character handling; preempting the grammar choices at
+//      the wire layer would be wrong.
 //   3. NUL-byte rejection: `\0` corrupts log lines / observability traces
 //      (OpenTelemetry sees NUL as a string terminator) and creates
 //      filesystem / log-injection vectors. The wire layer is exactly where

@@ -22,7 +22,7 @@
 // The kind vocabulary leaves the family beside the reference it keys, because the
 // seat that decides which entity kinds a pane is a view of has to decide it for
 // EVERY kind — a list of the admitted ones grows a hole the day a kind is added,
-// which is how repo and invite went missing from the inspector's scope. The
+// which is how a kind goes missing from the inspector's scope. The
 // enumeration ships beside the union for the same reason the deck needs both: the
 // inspector keys one record body per kind and its table is total over this set by
 // type, so a new kind fails to compile at the table rather than reaching a deck
@@ -41,7 +41,7 @@ export { CONSOLE_ENTITY_KINDS } from "./entities/entities.js";
 // more readers: the inspector's entity-detail registry is keyed by the KIND it
 // renders, and a family that reads a PARTITION of the projection — rather than one
 // entity by reference — has to name the row type to derive anything from it, as the
-// membership ledger and the agent console's session projection both do.
+// inspector's session detail and the agent console's session projection both do.
 export type {
   ConsoleEntity,
   ConsoleEntityKind,
@@ -100,8 +100,8 @@ export {
 
 // The window-scoped modal's half of the shell's `inert` guard. Through this door
 // rather than either overlay's, because its callers are sibling VIEW families —
-// `sign-in/`, `onboarding/`, and the deep-link invite lifecycle in `collaboration/` —
-// which reach each other through nothing, and because the cell it writes lives in this
+// `sign-in/` and `onboarding/` — which reach each other through nothing, and because
+// the cell it writes lives in this
 // family's own store. Written twice before it was hoisted, and the second copy was
 // missing: a walkthrough that trapped focus and left the whole route surface reachable
 // behind it.
@@ -135,10 +135,10 @@ export type {
 //
 // `currentShellBlock` ships beside `useShellBlockFor` because a dispatching surface
 // needs both and they answer different questions: the subscribed block draws the control,
-// and the current one decides whether the call is put. Six surfaces take it — the
-// membership ledger, the sent-invite ledger, the invitation mint, the sessions
-// destination's act block, the onboarding step's re-check, and the ledger's answer to a
-// provider-raised ask — and a family that could not reach it through this door would spell
+// and the current one decides whether the call is put. Three surfaces take it — the
+// sessions destination's act block, the onboarding step's re-check, and the ledger's
+// answer to a provider-raised ask — and a family that could not reach it through this
+// door would spell
 // `getState().shellState` for itself, which is the second reading of which cell carries
 // the shell condition.
 //

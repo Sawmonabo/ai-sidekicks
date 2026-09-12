@@ -21,8 +21,8 @@
 //   • Branded ids reject a non-UUID, and the brands are nominal AND mutually
 //     nominal at compile time.
 //   • `WorktreeLifecyclePayloadSchema` accepts exactly the six-state worktree
-//     vocabulary and rejects every base-vocabulary state (the PR #250
-//     round-4 per-family accept set), keeps `.strict()`, and keeps the
+//     vocabulary and rejects every base-vocabulary state (the per-family
+//     accept set), keeps `.strict()`, and keeps the
 //     family's field contract.
 //   • The five `worktree.*` types parse end-to-end through
 //     `SessionEventSchema` with `worktreeId`-bearing payloads, agree with
@@ -31,7 +31,7 @@
 //     backstop), and survive JSON round-trips; a category/type mismatch and
 //     a base-vocabulary state are rejected.
 //   • The `index.ts` barrel re-exports every symbol this task provides — the
-//     barrel-gap regression GitHub PR-#30 round-1 caught.
+//     barrel-gap regression.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -119,7 +119,7 @@ describe("WorktreeStateSchema (the six-state worktree lifecycle)", () => {
     // but it is fully in the state vocabulary.
     ["failed", true],
     // The base-family vocabularies stay out of this plan's accept set
-    // (PR #250 round 4 — per-family vocabularies, no shared union).
+    // (per-family vocabularies, no shared union).
     ["provisioning", false],
     ["attached", false],
     ["detached", false],
@@ -295,7 +295,7 @@ describe("WorktreeLifecyclePayloadSchema (the family shape over this plan's voca
   );
 
   it.each(["attached", "detached", "provisioning", "busy", "stale", "archived"])(
-    "REJECTS the base-family vocabulary member %s (per-family accept set, PR #250 round 4)",
+    "REJECTS the base-family vocabulary member %s (per-family accept set)",
     (state) => {
       // The exact-vocabulary pin: the factory parameterization exists so a
       // worktree payload can never claim a repo/workspace state (`archived`
@@ -659,7 +659,7 @@ describe("execution-mode taxonomy (import)", () => {
 // --------------------------------------------------------------------------
 
 describe("index.ts re-exports contract core", () => {
-  it("re-exports every runtime symbol by identity (the PR-#30 barrel-gap regression)", () => {
+  it("re-exports every runtime symbol by identity (the barrel-gap regression)", () => {
     expect(contracts.WorktreeIdSchema).toBe(WorktreeIdSchema);
     expect(contracts.EphemeralCloneIdSchema).toBe(EphemeralCloneIdSchema);
     expect(contracts.BranchContextIdSchema).toBe(BranchContextIdSchema);
@@ -1639,7 +1639,7 @@ void worktreeStatusRecordProvenancePin;
 
 describe("index.ts re-exports wire surfaces", () => {
   it("re-exports every runtime symbol by identity", () => {
-    // The barrel-gap regression GitHub PR-#30 round 1 caught. added `export *
+    // The barrel-gap regression. This module added `export *
     // from "./worktree.js"`, so these ride it — the pin is that they actually
     // reach the public surface, star export or not.
     expect(contracts.ExecutionModeSelectRequestSchema).toBe(ExecutionModeSelectRequestSchema);

@@ -1,4 +1,4 @@
-// PR #145 — third Control Plane Postgres migration (inlined SQL).
+// third Control Plane Postgres migration (inlined SQL).
 // Adds the `runtime_node_attachments` and `runtime_node_presence` tables.
 //
 // SQL is inlined as a TypeScript string constant rather than loaded from a

@@ -6,10 +6,9 @@
 // `WorkspaceId`, and the family payload factory
 // `buildRepoWorkspaceLifecyclePayloadSchema` — this module IMPORTS the ones it
 // needs and never redefines ANY of them. `RepoMountState` is the one it does
-// NOT need: no wire shape or payload carries a mount state. enumerated it
-// until the PR #253 post-merge true-up struck it — residue from when the
-// worktree payload reused the two-arm `RepoMountState` ∪ `WorkspaceState`
-// union the round-4 factory amendment removed. The contract core composes the
+// NOT need: no wire shape or payload carries a mount state — residue from
+// when the worktree payload reused the two-arm `RepoMountState` ∪
+// `WorkspaceState` union the factory removed. The contract core composes the
 // mode taxonomy and the factory; the seven wire pairs below add the remaining
 // canon they need (`WorkspaceStateSchema`, the branded `RepoMountId` /
 // `WorkspaceId`, the shared `REPO_PATH_MAX_LEN`, and `ExecutionModeSchema` as
@@ -21,7 +20,7 @@
 // vocabulary (schema only — see its own note below) are declared HERE and
 // nowhere else. repo.ts deliberately leaves its family payload's `worktreeId?`
 // an unbranded canonical-UUID string so this file's brand needs no repo.ts
-// edit (PR #250 round 4).
+// edit.
 //
 // IMPORT DIRECTION IS ONE-WAY — this module imports NOTHING from `./event.js`,
 // and nothing whose import CLOSURE reaches it, however many hops out (the
@@ -106,7 +105,7 @@ export { ExecutionModeSchema } from "./repo.js";
 // field in repo.ts stays an unbranded canonical-UUID string with an IDENTICAL
 // runtime accept set (both parse the same RFC 9562 text form) — the brand applies
 // where consumers parse through this schema, so declaring it here required no
-// repo.ts edit (PR #250 round 4).
+// repo.ts edit.
 export type WorktreeId = string & { readonly __brand: "WorktreeId" };
 export const WorktreeIdSchema: z.ZodType<WorktreeId, WorktreeId> =
   brandedUuidIdSchema<WorktreeId>("WorktreeId");
@@ -206,7 +205,7 @@ export const CleanupPolicySchema: z.ZodType<"on_run_complete" | "manual"> = z.en
 // eager-cycle class and widen every family member's accept set at once).
 // Parameterizing keeps each member's accept set exactly its owning plan's
 // vocabulary — a worktree payload claiming `attached` or `provisioning`, or a
-// workspace payload claiming `merged`, stays a parse error (PR #250 round 4).
+// workspace payload claiming `merged`, stays a parse error.
 //
 // EMITTER'S OBLIGATION: `worktreeId` populated on every `worktree.*`
 // emission. The family schema leaves it optional because subject-id presence

@@ -35,7 +35,7 @@ describe("the write gate reaches assistive technology by name", () => {
   /** A writer, so the lease is the only thing a case about the lease is varying. */
   const sendToWire = (): void => undefined;
 
-  it("names the surface read-only while the lease is not the viewer's", async () => {
+  it("names the surface read-only while the lease is not this device's", async () => {
     const { container } = await mountHost(
       <XtermHost
         terminalId="host-1"
@@ -47,7 +47,7 @@ describe("the write gate reaches assistive technology by name", () => {
     expect(surfaceOf(container).getAttribute("aria-label")).toBe("Terminal output, read-only");
   });
 
-  it("drops the read-only suffix when the viewer holds the shell and can reach the wire", async () => {
+  it("drops the read-only suffix when this device holds the shell and can reach the wire", async () => {
     const { container } = await mountHost(
       <XtermHost
         terminalId="host-1"
@@ -59,7 +59,7 @@ describe("the write gate reaches assistive technology by name", () => {
     expect(surfaceOf(container).getAttribute("aria-label")).toBe("Terminal output");
   });
 
-  it("opens the emulator's own gate for a lease that was already the viewer's", async () => {
+  it("opens the emulator's own gate for a lease that was already this device's", async () => {
     // The emulator is built a commit AFTER the one that first carried the lease, so
     // a gate forwarded only when the lease MOVES would leave a holder watching a
     // shell they hold — the emulator would be built closed and stay closed until

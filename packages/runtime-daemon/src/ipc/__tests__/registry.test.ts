@@ -8,7 +8,7 @@
 //     dispatch with `RegistryDispatchError("invalid_params")`.
 //   * Method names conform to the canonical regex set (every segment
 //     starts lowercase and may carry camelCase, the namespace root
-//     included since the 2026-09-05 root widening): `METHOD_NAME_FORMAT`
+//     included): `METHOD_NAME_FORMAT`
 //     (the single source exported from `@ai-sidekicks/contracts`,
 //     canonical) ∪ `METHOD_NAME_LSP_REGEX` (daemon-local LSP-style
 //     `$/`-prefixed; separate follow-up).

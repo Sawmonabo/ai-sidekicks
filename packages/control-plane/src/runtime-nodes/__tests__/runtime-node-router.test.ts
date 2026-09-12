@@ -258,7 +258,7 @@ describe("runtime-node router — happy-path mounting", () => {
 // Attach self-check — the acting user is resolved from `ctx`, and an
 // attach claimed on behalf of a DIFFERENT user is refused UNAUTHORIZED
 // before the backing service is ever invoked. Structural parity with
-// session.join (don't trust caller-supplied identity as the sole authority).
+// session.create (don't trust caller-supplied identity as the sole authority).
 // ----------------------------------------------------------------------------
 
 describe("runtime-node router — attach resolves the acting user from ctx", () => {

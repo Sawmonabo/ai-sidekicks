@@ -820,7 +820,7 @@ describe("resolveRegisteredCallbackToolName — the provider-facing name map", (
   });
 });
 
-describe("composeCallbackToolContentItems — per-arm required members (codex round 1)", () => {
+describe("composeCallbackToolContentItems — per-arm required members", () => {
   // `DynamicToolCallOutputContentItem` is a closed union whose arms each carry
   // ONE required member beside the discriminator. A predicate that checked only
   // the discriminator shipped `{ type: "inputImage" }` — an image with no image

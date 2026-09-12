@@ -143,7 +143,7 @@ import { useSubjectScopedState } from "../console/store/index.js";
  * `sessionId` is the branded {@link SessionId} of the ALREADY-ACTIVE session
  * to attach into: the id is received, never minted, so attach cannot recreate
  * a session. It arrives as a prop (supplied by a router or deep-link), the
- * same prop-contract posture as `NodeRoster` / `UserRoster`.
+ * same prop-contract posture as `NodeRoster`.
  *
  * `attachDraft` is the node's self-description (see
  * {@link RuntimeNodeAttachDraft}). It arrives as a prop for the same reason
@@ -175,12 +175,12 @@ export interface AttachFlowProps {
  *
  * State primitive — a subject-scoped discriminated union (NOT React 19
  * `useTransition`/`useActionState`), matching the shipped
- * `InviteAcceptView`/`SessionBootstrap`/`NodeRoster` precedent: it keeps the
- * renderer consumers structurally consistent and fits the stub's sync-throw
- * normalization, which needs an explicit `try/catch` around the bridge call. It is
- * the sibling roster's holder rather than that view's older `useState`, for the
- * reason stated at the addressing below: the answer belongs to a (transport, target)
- * address and a register that belongs to the MOUNT cannot say so.
+ * `SessionBootstrap`/`NodeRoster` precedent: it keeps the renderer consumers
+ * structurally consistent and fits the stub's sync-throw normalization, which needs
+ * an explicit `try/catch` around the bridge call. It is the sibling roster's holder
+ * rather than a mount-scoped `useState`, for the reason stated at the addressing
+ * below: the answer belongs to a (transport, target) address and a register that
+ * belongs to the MOUNT cannot say so.
  */
 export function AttachFlow({ sessionId, attachDraft, reads }: AttachFlowProps): React.JSX.Element {
   // The transport resolved ONCE per render, so the default arm has an identity of its
@@ -215,15 +215,13 @@ export function AttachFlow({ sessionId, attachDraft, reads }: AttachFlowProps): 
     );
 
   // Sync click handler (React's `onClick` contract); the async attach work
-  // runs in a void IIFE inside it — the same shape the shipped click-flow
-  // precedent uses (invite-accept-view.tsx `handleAcceptClick`).
+  // runs in a void IIFE inside it.
   //
-  // No post-unmount `setState` guard (no `cancelled` flag) — the documented
-  // posture for click paths (invite-accept-view.tsx:169-183), NOT an
-  // omission: React 18/19 made `setState` on an unmounted component a silent
-  // no-op, and `onClick` handlers are not Strict-Mode double-invoked, so the
-  // mount-effect race that forces `NodeRoster`/`UserRoster` to carry a
-  // `cancelled` flag does not arise here. A future reader must not
+  // No post-unmount `setState` guard (no `cancelled` flag) — the deliberate
+  // posture for click paths, NOT an omission: React 18/19 made `setState` on an
+  // unmounted component a silent no-op, and `onClick` handlers are not
+  // Strict-Mode double-invoked, so the mount-effect race that forces
+  // `NodeRoster` to carry a `cancelled` flag does not arise here. A future reader must not
   // "harmonize" a guard INTO this handler to match the effect-driven siblings
   // — the difference (mount-effect race vs click no-op) is load-bearing in
   // both directions.
@@ -268,8 +266,8 @@ export function AttachFlow({ sessionId, attachDraft, reads }: AttachFlowProps): 
     // here and in the rejected branch (retry) — never in `pending` — so a
     // double-fire is impossible BY CONSTRUCTION: once clicked, the state
     // transitions to `pending` and the button leaves the tree (the same
-    // structural guard as invite-accept-view.tsx:254-258; no `disabled`
-    // attribute, no re-entrancy flag). `data-attach-state` carries the flow
+    // structural guard, and not a `disabled` attribute or a re-entrancy
+    // flag). `data-attach-state` carries the flow
     // state on every branch, so a smoke run can assert it without reading prose.
     return (
       <section aria-label="runtime-node-attach-idle" data-attach-state="idle">
@@ -339,11 +337,10 @@ export function AttachFlow({ sessionId, attachDraft, reads }: AttachFlowProps): 
   // Rejected — role="alert" so assistive tech announces the failure; the
   // envelope renders `name: message` (the stub's `NotImplementedError`
   // is the production-observable case; a typed wire envelope renders its wire
-  // `code` as the name — see `wireRejectionToError`). Unlike the invite flow's
-  // TERMINAL rejected branch (retrying a single-use invite token is not safely
-  // re-armable), attach is retryable: the server treats a re-attach as the
-  // single-active-attachment upsert, so the retry button re-arms the same
-  // handler rather than dead-ending the flow behind a full remount.
+  // `code` as the name — see `wireRejectionToError`). Attach is retryable: the
+  // server treats a re-attach as the single-active-attachment upsert, so the
+  // retry button re-arms the same handler rather than dead-ending the flow
+  // behind a full remount.
   return (
     <section aria-label="runtime-node-attach-error" role="alert" data-attach-state="rejected">
       {nodeDeclaration}

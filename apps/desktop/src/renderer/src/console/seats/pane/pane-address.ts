@@ -32,34 +32,33 @@
 // WHERE EACH ROW COMES FROM
 //
 // Most of them come from one rule: the pane-kind set is closed, `timeline` is session-
-// or channel-scoped, and a repo, workspace, worktree, invite, or member entity is a
-// card in its sidebar section and opens as an `inspector` pane keyed by its entity
-// kind, its changes opening the `diff` pane — no dedicated pane kind exists for those
-// families and the set is not widened for them. All five of the entities that rule
-// names are console entity KINDS, so the inspector's row is that list and nothing
-// narrower. It was the intersection with the partition set until repo and invite were
-// missing from that set — which made a repo card and an invite card unrepresentable at
-// the address layer, and would have had the repos and collaboration branches reopen
-// this shared substrate to open a pane the spec already routes. The row is now derived
-// from a map that decides EVERY entity kind, so a kind added later fails to compile
-// until the question is answered for it.
+// or channel-scoped, and a repo, workspace, worktree, or user entity is a card in its
+// sidebar section and opens as an `inspector` pane keyed by its entity kind, its
+// changes opening the `diff` pane — no dedicated pane kind exists for those families
+// and the set is not widened for them. All four of the entities that rule names are
+// console entity KINDS, so the inspector's row is that list and nothing narrower. A
+// row written as the intersection with some other set grows a hole the moment a kind
+// is missing from that other set — which makes that kind's card unrepresentable at the
+// address layer and has the family that owns it reopen this shared substrate to open a
+// pane the design already routes. The row is derived instead from a map that decides
+// EVERY entity kind, so a kind added later fails to compile until the question is
+// answered for it.
 //
 // AND THE `diff` ROW COMES OFF THE SAME CLAUSE OF THE SAME SENTENCE. "its changes
 // opening the `diff` pane" has one antecedent — the enumerated subject the clause
 // before it also takes — so the two clauses distribute over one list, and reading the
-// subject as five kinds for the inspector and as three for the diff would be two
-// readings of one sentence. Nothing in that section narrows the second clause, and
+// subject as the whole list for the inspector and as a narrower one for the diff would
+// be two readings of one sentence. Nothing in that section narrows the second clause, and
 // the dash clause that closes it says why both are stated at all: those families get
 // no pane kind of their own, so these two are the kinds their cards reuse. The `diff`
 // row was `worktree | workspace`, which refused a repo's changes statically and
 // answered `pane-entity-kind-mismatch` at the runtime parse — the same defect the
 // inspector's row already carried once, one clause later in the same sentence.
 //
-// So the list is declared ONCE, below, and both rows read it. What an invite's or a
-// member's changes RENDER is not settled anywhere — the diff wire is unregistered and
-// sits on the console growth slate as its gitflow row — and it belongs to the repos and
-// collaboration families that own those cards, not to an address layer that renders
-// nothing. This module's claim is narrower and is the one it can make: the address is
+// So the list is declared ONCE, below, and both rows read it. What a card's changes
+// RENDER is not settled anywhere — the diff wire is unregistered and sits on the
+// console growth slate as its gitflow row — and it belongs to the families that own
+// those cards, not to an address layer that renders nothing. This module's claim is narrower and is the one it can make: the address is
 // representable, so those families can answer that question without reopening this
 // substrate. Optionality is never invented: `agent-console` takes a no-entity arm
 // because `src/shared/auxiliary-routes.ts` gives that route a no-context target the
@@ -100,10 +99,9 @@ type ScopedEntityRef<TEntityKind extends ConsoleEntityKind> = ConsoleEntityRef &
 /**
  * The entity kinds that open as a card in a sidebar section.
  *
- * The design track: a repo, workspace, worktree, or member entity is a card in its
+ * The design track: a repo, workspace, worktree, or user entity is a card in its
  * sidebar section and opens as an `inspector` pane keyed by its entity kind, its
- * changes opening the `diff` pane. All four are here — `user` is that
- * sentence's member — now that the console's entity vocabulary names repo.
+ * changes opening the `diff` pane. All four are here.
  *
  * ONE LIST FOR BOTH PANE KINDS, because it is one enumerated subject with two
  * clauses hanging off it. Named for the card rather than for either pane, so neither
@@ -178,9 +176,9 @@ interface PaneEntityScopeByKind {
   readonly approvals: never;
   /**
    * The changes of the entity the pane was opened from — the same card's second
-   * clause, so the same kinds. What an invite's or a member's changes render is the
-   * repos and collaboration families' question; that this address exists at all is
-   * what lets them answer it without reopening this module.
+   * clause, so the same kinds. What one card's changes render is the owning family's
+   * question; that this address exists at all is what lets them answer it without
+   * reopening this module.
    */
   readonly diff: ScopedEntityRef<SidebarCardEntityKind>;
   readonly artifact: ScopedEntityRef<"artifact">;

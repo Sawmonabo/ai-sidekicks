@@ -85,7 +85,7 @@ const CONSOLE_TIERS: readonly TestProjectInlineConfiguration[] = [
     },
   },
   {
-    // Tier: screenshot (component half). A LOCAL CAPTURE AID since 2026-09-09:
+    // Tier: screenshot (component half). A LOCAL CAPTURE AID:
     // it writes every surface's picture into the gitignored `__screenshots__/`
     // and compares against nothing, so it gates no branch and runs in no CI job.
     // The Electron-window half rides Playwright and is not wired yet.

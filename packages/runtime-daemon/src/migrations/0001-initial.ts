@@ -1,4 +1,4 @@
-// PR #3 — initial Local Runtime Daemon schema (inlined SQL).
+// initial Local Runtime Daemon schema (inlined SQL).
 //
 // SQL is inlined as a TypeScript string constant rather than loaded from a
 // sibling `.sql` file. Why:

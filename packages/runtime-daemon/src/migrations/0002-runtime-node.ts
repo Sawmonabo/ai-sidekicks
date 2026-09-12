@@ -1,4 +1,4 @@
-// PR #135 — runtime-node Local Runtime Daemon schema (inlined SQL).
+// runtime-node Local Runtime Daemon schema (inlined SQL).
 //
 // SQL is inlined as a TypeScript string constant rather than loaded from a
 // sibling `.sql` file — the same rationale as `0001-initial.ts`:

@@ -152,7 +152,7 @@ export const VcsTypeSchema: z.ZodType<VcsType> = z.enum(["git", "none"]);
 //     identity anchor (`repo_mounts.metadata.commonDir`) … required because the
 //     mount's binds and runs are already refusing through the persisted-identity
 //     match, and a projection still answering `healthy` for a mount that can
-//     never bind again is a lying read model" (as amended by the 2026-08-17
+//     never bind again is a lying read model" (per the
 //     carried-findings adjudication). `unreachable` TAKES PRECEDENCE — no
 //     further question can be put to a root that cannot be probed — and a mount
 //     persisting no anchor (a plain directory, which has no repository identity

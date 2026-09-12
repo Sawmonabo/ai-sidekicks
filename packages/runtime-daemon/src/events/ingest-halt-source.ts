@@ -46,8 +46,8 @@
 // by construction. A cancellation token here would be a second, weaker mechanism
 // for something the lock already provides.
 //
-// That reentrancy is NOT an unmixed benefit, and reading it as one is what hid a
-// fail-open bug through a review round. A reentrant `halt()` does not queue: it
+// That reentrancy is NOT an unmixed benefit, and reading it as one is what hid
+// a fail-open bug. A reentrant `halt()` does not queue: it
 // runs AHEAD of everything already waiting on the session's lock, including a
 // `clear()` that queued before the observer took its hold. So "the lock's FIFO
 // ordering makes the later administrative decision win" — true for an ordinary

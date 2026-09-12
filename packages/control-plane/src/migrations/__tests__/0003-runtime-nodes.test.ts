@@ -201,7 +201,7 @@ afterEach(async () => {
 // canonical `applyMigrations()` wraps each version
 // (`querier.transaction(...) -> tx.exec(SQL)`); inlined here so this file's
 // tests exercise the v3 SQL semantics in isolation without going through the
-// canonical runner-loop (which post PR #145 would apply v3 in `beforeEach`
+// canonical runner-loop (which would apply v3 in `beforeEach`
 // via the registered-migration iteration, pre-applying it before each test could probe
 // "runtime_node tables not yet present"). Canonical-path runner coverage lives
 // in `sessions/__tests__/migration-runner.test.ts`.

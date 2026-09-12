@@ -778,7 +778,7 @@ export class RuntimeBindingStore {
     // sees (and refuses) exactly the value the caller supplied.
     // The property reads are themselves inside the getter/Proxy threat model:
     // a throwing accessor must surface as the seam's typed leak-safe refusal,
-    // never as the caller object's own exception (Codex PR #372 round 1). The
+    // never as the caller object's own exception. The
     // thrown value is discarded entirely so nothing caller-controlled reaches
     // the message.
     let cliVersion: DriverCliVersionReport | null;

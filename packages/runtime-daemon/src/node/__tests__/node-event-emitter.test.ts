@@ -710,8 +710,8 @@ describe("RuntimeNodeEventEmitter — SessionEventLog seam (structural, no Event
   });
 
   // The seam is ASYNC-transactional BY CONTRACT since re-point — the INVERSE of
-  // the synchronous-transactional contract it shipped with (PR #272 Codex
-  // rounds 1-2). The producers no longer own the transaction; they hand their
+  // the synchronous-transactional contract it shipped with. The producers no
+  // longer own the transaction; they hand their
   // durable write down as `transactionalPrelude` and `EventLogService.append`
   // runs it inside the same transaction as the event row. Both enforcement
   // layers survive the inversion, negated: `append` returns

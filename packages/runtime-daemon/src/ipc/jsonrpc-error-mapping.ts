@@ -701,9 +701,8 @@ function capString(value: string): string {
  * and produce a sanitized `JsonRpcErrorResponse` envelope ready for the
  * wire. Every `error.message` is sanitized via T-1's `sanitizeErrorMessage`
  * (enforcement on the message channel); every `error.data.fields` is
- * sanitized via `sanitizeFields` (enforcement on the structured- detail
- * channel — added 2026-05-01 per Codex review of PR #26 closing the
- * confidentiality + DoS gaps documented); every `error.code` is one of the
+ * sanitized via `sanitizeFields` (enforcement on the structured-detail
+ * channel, closing the confidentiality and DoS gaps); every `error.code` is one of the
  * JSON-RPC 2.0 spec numerics in `JsonRpcErrorCode`; `error.data` is the
  * canonical two-layer envelope shape.
  *

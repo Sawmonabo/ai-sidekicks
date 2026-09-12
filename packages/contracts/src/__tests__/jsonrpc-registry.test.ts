@@ -12,9 +12,8 @@
 // Coverage shape:
 //   • Accepts: names whose every segment starts lowercase, with all-lowercase
 //     OR camelCase segments — the `session.*` surface, the doc's
-//     permitted `settings.effectiveRead` / `driver.listCapabilities` per-plan
-//     camelCase-tail strings (010/012/016), and since the 2026-09-05 root
-//     widening the camelCase-ROOTED `providerAccount.*` verbs plus the
+//     permitted `settings.effectiveRead` / `driver.listCapabilities`
+//     camelCase-tail strings, the camelCase-ROOTED `providerAccount.*` verbs, and the
 //     LSP-shaped `textDocument.didOpen`.
 //   • Rejects: uppercase-STARTING segments in any position (the "didn't
 //     over-loosen" guard — the widening admits an uppercase letter inside a

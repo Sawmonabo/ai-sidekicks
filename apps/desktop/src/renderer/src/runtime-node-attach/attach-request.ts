@@ -163,8 +163,8 @@ export const installedBridgeAttachReads: RuntimeNodeAttachReads = {
 // Discriminated-union view state — the SessionBootstrap three-state register
 // (`pending | resolved | rejected`, SessionBootstrap.tsx:37-40 — the
 // action-flow register, as against the `loading|loaded|error` READ-view
-// register of the two rosters) plus the `idle` initial state every
-// click-triggered view needs (invite-accept-view.tsx:111-115). Each variant
+// register of the node roster) plus the `idle` initial state every
+// click-triggered view needs. Each variant
 // maps 1:1 to a rendered `<section>` branch below, so the render is a total
 // function over the union. The `resolved` variant carries the verbatim
 // shipped `RuntimeNodeAttachResponse` DTO

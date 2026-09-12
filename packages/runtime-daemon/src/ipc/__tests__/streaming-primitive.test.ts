@@ -270,11 +270,10 @@ describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
 });
 
 // ----------------------------------------------------------------------------
-// LocalSubscriptionProducer.onCancel lifecycle hook (PR #19 Round 6 F5 Path B —
-// closes the upstream-watcher leak surfaced in Codex's review of
-// `session-subscribe.ts:273` where the discarded `unsubscribe` handle from
-// `subscribeToSession` left the upstream event-source consuming CPU/DB
-// resources after subscription teardown).
+// LocalSubscriptionProducer.onCancel lifecycle hook — closes the
+// upstream-watcher leak in `session-subscribe.ts`, where the discarded
+// `unsubscribe` handle from `subscribeToSession` left the upstream event-source
+// consuming CPU and DB resources after subscription teardown.
 // ----------------------------------------------------------------------------
 
 describe("LocalSubscriptionProducer.onCancel lifecycle hook", () => {

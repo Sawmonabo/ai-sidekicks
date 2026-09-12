@@ -646,7 +646,7 @@ export class DriverCapabilitiesWriter {
     // The property reads themselves are part of the getter/Proxy threat model:
     // a throwing accessor would otherwise escape as the provider's OWN
     // exception — provider-controlled text, untyped — before the assert below
-    // could produce the leak-safe refusal (Codex PR #372 round 1). Translate
+    // could produce the leak-safe refusal. Translate
     // any accessor throw into the same typed refusal, discarding the thrown
     // value entirely so nothing provider-controlled reaches the message.
     let declaredCliVersion: DriverCliVersionReport;

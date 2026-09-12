@@ -200,7 +200,7 @@ describe("T5 / session.read — end-to-end tRPC roundtrip via pglite", () => {
     // proves the snapshot persisted the create-time payload.
     expect(response.session.config).toEqual({ topic: "round-trip" });
     // Placeholder cursors are deterministic strings authored by the
-    // service; their exact values are PR #4 and aren't re-asserted here.
+    // service; their exact values are the service's and aren't re-asserted here.
     // We just verify the field is present.
     expect(typeof response.timelineCursors.latest).toBe("string");
   });

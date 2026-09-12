@@ -32,9 +32,8 @@
 //       `next(): Promise<T | undefined>`, `cancel(): Promise<void>`,
 //       `[Symbol.asyncIterator](): AsyncIterator<T>` — the SDK caller
 //       CONSUMES values out of this handle.
-//   Both interfaces were originally declared as `LocalSubscription<T>` Phase 3
-//   task contracts verbatim (the advisor flag at PR #19 surfaced the
-//   collision). resolved it with the producer/consumer suffix rename so
+//   Both interfaces were originally declared as `LocalSubscription<T>`, which
+//   collided. The producer/consumer suffix rename resolves it so
 //   call-site imports unambiguously select the correct shape: SDK consumers
 //   import `LocalSubscriptionConsumer` from this file; server-side primitives
 //   import `LocalSubscriptionProducer` from `@ai-sidekicks/contracts`.

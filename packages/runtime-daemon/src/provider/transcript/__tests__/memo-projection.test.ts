@@ -1955,7 +1955,7 @@ describe("memo delivery — an unreadable target", () => {
   });
 
   it("settles withheld only on a later call, once the barrier orders the read behind the send", async () => {
-    // Rewritten for the round-4 finding: a rejected send may still be applying,
+    // A rejected send may still be applying,
     // so a readback that finds nothing is not proof the memo was refused. The
     // refusal arm now takes a SECOND delivery — one whose barrier is ordered
     // behind a send that completed before that call began. The call that made

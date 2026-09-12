@@ -364,7 +364,7 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Workspace, and Worktree Lifecycle
     (worktreeState) => {
       // This block's original comment predicted would widen the shipped
       // schema with a third `WorktreeStateSchema` union arm; the ratified
-      // design (PR #250 round 4) PARAMETERIZED the family instead — the
+      // design PARAMETERIZED the family instead — the
       // registration instantiates the factory in worktree.ts and never
       // touches this schema — so the shipped two-vocabulary accept set never
       // admits a worktree state. These rows stay red for good; the worktree
@@ -1872,7 +1872,7 @@ const buildSiblingRepoEvent = (eventType: SessionEvent["type"]) =>
   buildRepoEvent(eventType === "repo.attached" ? "workspace.ready" : "repo.attached", "archived");
 
 describe("index.ts re-exports contract core", () => {
-  // The barrel-gap regression GitHub PR-#30 round-1 caught: a module can be
+  // The barrel-gap regression: a module can be
   // complete and still invisible to consumers if the `export * from
   // "./repo.js"` line is missing or dropped in a later refactor. Importing
   // through `../index.js` (not `../repo.js`) is what makes this exercise the

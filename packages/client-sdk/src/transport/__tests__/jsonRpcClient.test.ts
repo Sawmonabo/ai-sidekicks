@@ -487,10 +487,10 @@ describe("subscribe-init registers #subscriptions synchronously (Codex P1 regres
 });
 
 // ----------------------------------------------------------------------------
-// Phase D Round 4 F2 — malformed subscriptionId rejected at SDK boundary
+// Malformed subscriptionId rejected at SDK boundary
 // ----------------------------------------------------------------------------
 //
-// Codex F2 (P2): `subscribeInitResultSchema` previously accepted any
+// `subscribeInitResultSchema` previously accepted any
 // non-empty string for `subscriptionId` (`z.string().min(1)`), looser than
 // the canonical `SubscriptionIdSchema` (RFC 9562 UUID, brand-narrowed to
 // `SubscriptionId`). A daemon-corruption / proxy-injection that returned a
@@ -525,7 +525,7 @@ describe("subscribe-init registers #subscriptions synchronously (Codex P1 regres
 //   * `jsonrpc-streaming.ts:166` — `SubscriptionIdSchema` is the canonical
 //     UUID-branded schema.
 
-describe("Phase D Round 4 F2 — malformed subscriptionId rejected at SDK boundary (Codex P2 regression)", () => {
+describe("malformed subscriptionId rejected at SDK boundary", () => {
   it("non-UUID subscriptionId fails the init schema; no #subscriptions entry; iterator surfaces JsonRpcSchemaError", async () => {
     // Arrange — open `subscribe()`, capture the init request id.
     const transport = new InMemoryTransport();
@@ -643,10 +643,10 @@ describe("Phase D Round 4 F2 — malformed subscriptionId rejected at SDK bounda
 });
 
 // ----------------------------------------------------------------------------
-// Phase D Round 5 F3 — cancel() idempotency
+// cancel() idempotency
 // ----------------------------------------------------------------------------
 //
-// Codex F3 (P2 ACTIONABLE): `LocalSubscriptionConsumer.cancel()` is documented as
+// `LocalSubscriptionConsumer.cancel()` is documented as
 // idempotent (`types.ts:245-247` — "a second `cancel()` call resolves
 // immediately without re-emitting the wire frame"), but the prior
 // implementation only short-circuited after the state became
@@ -668,7 +668,7 @@ describe("Phase D Round 4 F2 — malformed subscriptionId rejected at SDK bounda
 //   * SDK-side wrapping primitive must enforce its public surface
 //     contract.
 
-describe("Phase D Round 5 F3 — cancel() idempotency (Codex P2 regression)", () => {
+describe("cancel() idempotency", () => {
   it("concurrent cancel() emits exactly one wire frame; both promises resolve", async () => {
     // Arrange — open a subscription, drive the init response so status
     // reaches `"active"`, then issue concurrent `cancel()` calls.
@@ -891,11 +891,10 @@ describe("Phase D Round 5 F3 — cancel() idempotency (Codex P2 regression)", ()
 });
 
 // ----------------------------------------------------------------------------
-// Phase D Round 7 F6 — thenable transport.send rejection propagates
-// (Codex P2 regression)
+// Thenable transport.send rejection propagates
 // ----------------------------------------------------------------------------
 //
-// F4 (Phase D Round 4) replaced `instanceof Promise` with a duck-typed
+// An earlier fix replaced `instanceof Promise` with a duck-typed
 // `then` check on `transport.send()`'s return value, so cross-realm
 // Promises and non-native thenables that satisfy `PromiseLike<void>` get
 // the rejection-handler attached. The first cut called `.catch` directly
@@ -904,7 +903,7 @@ describe("Phase D Round 5 F3 — cancel() idempotency (Codex P2 regression)", ()
 // `.catch`, in which case the direct call throws synchronously
 // (`TypeError: thenable.catch is not a function`) and the outer try/catch
 // would surface a misleading rejection while the actual transport write
-// may have succeeded. Codex Round 7 P2 flagged this; F6 routes through
+// may have succeeded. The current shape routes through
 // `Promise.resolve(...).catch(...)` so any thenable is absorbed into a
 // native Promise before `.catch` is invoked.
 //
@@ -914,10 +913,10 @@ describe("Phase D Round 5 F3 — cancel() idempotency (Codex P2 regression)", ()
 // synthetic TypeError; post-fix, it rejects with the thenable's
 // authentic error.
 
-describe("Phase D Round 7 F6 — thenable transport.send rejection propagates (Codex P2 regression)", () => {
+describe("thenable transport.send rejection propagates", () => {
   /**
    * Transport double whose `send` returns a literal thenable WITHOUT
-   * `.catch`. Triggers F6's regression case: pre-fix the SDK called
+   * `.catch`. Triggers the regression case: pre-fix the SDK called
    * `.catch` directly on the duck-typed thenable and threw a synthetic
    * TypeError; post-fix `Promise.resolve(...)` absorbs the thenable so
    * the original rejection surfaces.

@@ -11,7 +11,7 @@
 //
 // Nothing here mints a `session_events` envelope, and no record kind is
 // spelled `runtime_node.*` — that prefix is event namespace and these records
-// are operator diagnostics by design (P0-1, Codex round 3). A frame that
+// are operator diagnostics by design. A frame that
 // reaches this surface is never silently dropped and never forced into an
 // envelope: it becomes a structured log line plus a counter increment,
 // queryable through the diagnostics surfaces rather than through the event

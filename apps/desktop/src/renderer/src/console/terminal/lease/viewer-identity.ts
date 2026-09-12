@@ -30,7 +30,7 @@ import { useSubjectScopedState } from "../../store/index.js";
  * Three arms rather than `string | undefined`, because a surface gating a control on
  * this window's identity has three genuinely different situations and only one of them
  * is an answer. Collapsing the other two would offer the claim control on an identity
- * nothing established — which is the same failure as the hard-coded viewer, reached
+ * nothing established — which is the same failure as the hard-coded device, reached
  * from the other side.
  */
 export type TerminalViewerIdentity =

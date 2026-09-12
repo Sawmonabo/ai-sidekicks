@@ -1,4 +1,4 @@
-// PR #253 — worktree-lifecycle + execution-mode schema (inlined SQL).
+// worktree-lifecycle + execution-mode schema (inlined SQL).
 //
 // SQL is inlined as a TypeScript string constant rather than loaded from a
 // sibling `.sql` file — the same rationale as `0001-initial.ts` /

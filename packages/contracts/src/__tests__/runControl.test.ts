@@ -38,7 +38,7 @@
 //     client-side) and a replay cursor (`run.*` is local-IPC JSON-RPC, so no
 //     `Last-Event-ID` is injected pre-validation).
 //   • The `index.ts` barrel re-exports every symbol this task provides — the
-//     barrel-gap regression GitHub PR-#30 round-1 caught.
+//     barrel-gap regression.
 import { describe, expect, it } from "vitest";
 
 import * as contracts from "../index.js";

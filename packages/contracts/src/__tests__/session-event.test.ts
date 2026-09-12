@@ -1,4 +1,4 @@
-// PR #2 — Test C3: `SessionEvent discriminated union round-trips through
+// Test C3: `SessionEvent discriminated union round-trips through
 // JSON`.
 //
 // Coverage shape:
@@ -15,16 +15,16 @@
 //     canonical bytes)
 //   • `SESSION_EVENT_CATEGORY_BY_TYPE` is a `ReadonlyMap`, so prototype-
 //     chain walks (`__proto__`, `constructor`, etc.) resolve to `undefined`
-//     instead of returning truthy non-EventCategory values (Round 3 R2-2)
+//     instead of returning truthy non-EventCategory values
 //   • EventEnvelopeVersion accepts canonical "MAJOR.MINOR" forms and rejects
 //     numeric / three-segment / leading-zero variants
 //   • `occurredAt` accepts numeric RFC 3339 section 5.6 offsets (Z + +HH:MM)
 //   • Empty-string `actor` and oversized fields are rejected (defense-in-depth)
-//   • Round 3 R2-1 staff-bar consistency: `wireFreeFormString` helper
+//   • Staff-bar consistency: `wireFreeFormString` helper
 //     applied to every free-form string in the EventEnvelope (`id`,
 //     `actor`, `correlationId`, `causationId`) — whitespace-only and
 //     NUL-byte rejection now uniform across all wire fields
-//   • Round 3 R2-5: channel.created.name length cap + whitespace + NUL
+//   • `channel.created.name` length cap + whitespace + NUL
 //     guards (defense in depth, mirrors `IDENTITY_HANDLE_MAX_LEN`)
 //
 // Adds the EventEnvelopeSchema canonical-carrier suite after it: the 11-member
@@ -427,9 +427,9 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
   });
 
   // --------------------------------------------------------------------
-  // Round 3: wireFreeFormString helper applied to all free-form fields.
+  // The wireFreeFormString helper, applied to all free-form fields.
   // --------------------------------------------------------------------
-  // R2-1 (medium, staff-bar consistency): the same wire-layer guards
+  // Staff-bar consistency: the same wire-layer guards
   // (whitespace-only rejection + NUL-byte rejection) that protect
   // `identityHandle` are now applied to every free-form string in the
   // EventEnvelope: `id`, `actor`, `correlationId`, `causationId`. Plus
@@ -1470,7 +1470,7 @@ const buildAuditIntegrityFailedVerifierArm = () => ({
     treeSize: 4096,
     expectedRootHash: ROOT_HASH,
     observedRootHash: OTHER_ROOT_HASH,
-    // The verified range — REQUIRED on this arm since 2026-08-03, because the
+    // The verified range — REQUIRED on this arm, because the
     // consumer dedupe key is `(verifierNodeId, fromSeq, toSeq, verifiedAt)`
     // and was unconstructible without them. Same endpoints as the
     // `audit_integrity_verified` fixture.
@@ -1594,7 +1594,7 @@ const REGISTRAR_FAILURE_MODE = "signing_key_slot_conflict";
 
 // The registered modes READ OFF THE ENUM rather than re-spelled — and read
 // through the EXPORTED type surface with NO cast, which is itself the tripwire
-// for the Codex PR #285 round-2 regression: `VerifierFailureModeSchema` is
+// for the annotation regression: `VerifierFailureModeSchema` is
 // annotated `z.ZodEnum<...>` precisely so `.options` and `.exclude()` survive
 // the module boundary (derives its verifier discriminator with the latter), and
 // an annotation sliding back to the erasing `z.ZodType` form turns this line
@@ -1817,7 +1817,7 @@ describe("audit_integrity + event_maintenance payload variants", () => {
   );
 
   it.each([
-    // Codex PR #285 round 1's own example first: a never-signed row claiming
+    // The motivating example first: a never-signed row claiming
     // the CHAIN path would route to the tamper responder instead of the
     // sequencing-bug owner, permanently — these rows are never compacted and
     // never shredded.
@@ -1935,7 +1935,7 @@ describe("audit_integrity + event_maintenance payload variants", () => {
   });
 
   it("the registrar arm REJECTS anchorId — its reduced base, enforced", () => {
-    // The discriminating control for Codex PR #285 round 2: this assertion
+    // The discriminating control: this assertion
     // FAILS on the pre-fix schema, where the arm spread the full base and an
     // offered `anchorId` parsed green. calls the member permanently absent on
     // this row — never compacted, never shredded, never rewritten — so an

@@ -2857,7 +2857,7 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
     // driver never locates credentials, so it cannot build the admitted
     // account's environment; taking the typed member here would move the
     // METADATA only, leaving the routing binding reporting one account while the
-    // child authenticated, and billed, as another. That is the round-1 re-bill
+    // child authenticated, and billed, as another. That is the re-bill
     // wearing a correct-looking binding, so this arm refuses instead.
     const harness = accountHarness({
       resumeSpawnConfig: { ...RESUME_SPAWN_CONFIG, providerAccountId: NODE_DEFAULT_ACCOUNT_ID },

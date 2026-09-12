@@ -396,7 +396,7 @@
 //   * REPOSITORY IDENTITY — `core.bare`, `core.worktree`,
 //     `core.repositoryFormatVersion`. These decide whether there is a usable
 //     execution root at all, not what these legs do inside one. The family lost
-//     a member to the round-4 finding above: `core.useReplaceRefs` was here and
+//     a member to the finding above: `core.useReplaceRefs` was here and
 //     is now PINNED below, because it changes what an object read RETURNS inside
 //     a root that is perfectly usable.
 //   * REF STORAGE FORM — `core.preferSymlinkRefs`, stated apart from the family
@@ -624,7 +624,7 @@
 //     baseline. Being a property of a freshly seeded scratch index rather than of
 //     any one knob, this also covers the stat knobs a future git adds.
 //     `core.useReplaceRefs=false` was in this sweep and has been REMOVED from it,
-//     which is the round-4 finding's second correction: the sweep drives the
+//     which is that finding's second correction: the sweep drives the
 //     CHECK-IN leg with no replace ref present, so its identity result cleared
 //     nothing about object interpretation and citing it here read as a closure it
 //     never performed. Its single disposition is the PINNED row above.
@@ -3961,7 +3961,7 @@ interface ProspectiveCollision {
  * a symlink pointing at a directory scored `true` — indistinguishable from a
  * real directory — and the failure report skipped every `true`. A restore that
  * replaced that symlink with a materialized gitlink directory and then failed
- * later therefore destroyed a symlink and enumerated nothing. That is round-2's
+ * later therefore destroyed a symlink and enumerated nothing. That is the
  * `stat`-follows-symlink defect recurring at a second consumer, which is why the
  * fix is the type rather than the call site: a boolean cannot express the
  * distinction, so any consumer of one is one edit away from re-introducing it.
@@ -5263,7 +5263,7 @@ export class TurnSnapshotService {
    * and {@link OBJECT_ID_PATTERN} then has to be the only thing standing between
    * an echo and a later argv.
    *
-   * `configPins` exists because the callers split on the round-4 predicate and
+   * `configPins` exists because the callers split on that predicate and
    * the split is not visible from in here: reading `HEAD` RESOLVES a ref, while
    * reading `<commit>^` INTERPRETS an object, and only the second can be
    * redirected by a replace ref (measured both ways). Defaulting to none keeps
@@ -6921,7 +6921,7 @@ export class TurnSnapshotService {
    * directory?" boolean, and it changes three answers, each in the direction of
    * reporting a real effect the old form hid:
    *   * a SYMLINK to a directory, which `stat` could not tell from a directory,
-   *     is now reported when the restore replaced it (the round-4 finding);
+   *     is now reported when the restore replaced it;
    *   * a divergent submodule directory the failed restore DELETED is now
    *     reported, where the boolean's `continue` skipped it as "present before";
    *   * a gitlink path holding a file whose bytes changed is now reported.

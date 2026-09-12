@@ -38,7 +38,7 @@ export interface TaskkillResult {
  * termination of processes that ignore graceful signals.
  */
 export async function defaultSpawnTaskkill(pid: number): Promise<TaskkillResult> {
-  // No `process.platform` guard here (R2 review POLISH-1): see the
+  // No `process.platform` guard here: see the
   // matching note in `loadGenerateConsoleCtrlEvent` above. Tests
   // inject `spawnTaskkill` directly; the production Windows path
   // never reaches this loader on non-Windows because the host's
@@ -48,8 +48,8 @@ export async function defaultSpawnTaskkill(pid: number): Promise<TaskkillResult>
   // lazy-import pattern uniform with the other Windows-only loads.
   //
   // Wall-clock bounding for is enforced by the *caller*
-  // (`NodePtyHost.invokeTaskkill`), not here — see R2 review
-  // POLISH-4. Centralizing the timeout in the host means it applies
+  // (`NodePtyHost.invokeTaskkill`), not here. Centralizing the timeout
+  // in the host means it applies
   // regardless of which `spawnTaskkill` implementation (injected
   // mock vs default loader) is in play, so the invariant is locally
   // enforced and the matching regression test in
@@ -68,7 +68,7 @@ export async function defaultSpawnTaskkill(pid: number): Promise<TaskkillResult>
       // non-zero outcome but still resolve so the kill path continues —
       // `onExit` MUST fire.
       //
-      // R3 review POLISH-2: surface the cause to operators. Without
+      // Surface the cause to operators. Without
       // this breadcrumb a persistent misconfig (missing taskkill.exe,
       // PATH stripped, AV-blocked binary) is indistinguishable from a
       // healthy synthetic-exit fire from logs alone. `console.warn` is

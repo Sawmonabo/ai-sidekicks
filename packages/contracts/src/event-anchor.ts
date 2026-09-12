@@ -12,7 +12,7 @@
 //   3. Phase 4's audit reader, which resolves the emitting daemon's Ed25519
 //      public key by `nodeId` and checks `rootSignature` over the RFC 8785
 //      anchor claim — the five coordinate members and the root together
-//      (2026-08-11 amendment; the one preimage builder is
+//      (the one preimage builder is
 //      `buildAnchorClaimBytes` in the daemon's `merkle-anchor-service.ts`).
 //
 // The member set is the seven non-generated columns of the canonical

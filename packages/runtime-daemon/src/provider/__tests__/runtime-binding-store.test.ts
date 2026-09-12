@@ -1139,7 +1139,7 @@ describe("RuntimeBindingStore — spawn_config", () => {
 
 describe("RuntimeBindingStore — cliVersion pair", () => {
   it("rejects a bounded-but-unparseable semver and a non-canonical form at the seam", () => {
-    // Codex PR #372 round 1: a bounded garbage semver stored now poisons floor
+    // A bounded garbage semver stored now poisons floor
     // comparison at a call site far from the row that produced it. The seam
     // applies the module's one semver predicate (`semver.valid(v) === v`, the same
     // one the floor gate uses), so the two layers cannot disagree.

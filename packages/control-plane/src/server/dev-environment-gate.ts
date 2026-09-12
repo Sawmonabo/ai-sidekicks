@@ -6,8 +6,8 @@
 // `'test'` / `''`. Co-located with the feature flag in `.dev.vars` so neither
 // security-load-bearing key reaches a deployable Wrangler surface.
 //
-// The Codex PR #20 round-4 review surfaced a deny-list weakness (any unknown
-// value passed); the allow-list pivot here closes that exposure path.
+// A deny-list here would be weak (any unknown value passes); the allow-list
+// closes that exposure path.
 //
 
 import type { GateResult } from "./feature-flag-gate.js";

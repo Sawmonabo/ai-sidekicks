@@ -99,8 +99,8 @@ export interface DriverSubscribeEventsDeps {
 // its single home in `packages/contracts/src/driver-event.ts` — its own derived
 // view over the seven EXISTING categories that decision #4 ratifies. It was
 // derived module-locally here until that home landed, which is what left the
-// SDK seam with no narrower schema to validate against (Codex review, PR #396);
-// both sides of the wire now read the one derivation.
+// SDK seam with no narrower schema to validate against; both sides of the wire
+// now read the one derivation.
 //
 // The filter below is what makes this a stream of DRIVER events rather than of
 // whatever the injected source happens to emit. Without it a source wired to a

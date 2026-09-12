@@ -250,7 +250,7 @@ export interface ControlPlaneRuntimeNodeClientOptions {
  *
  * WHY the daemon factory has no `roster`: the roster is control-plane-owned
  * cross-node coordination state — a daemon knows only itself — so the read is
- * registered "control-plane tRPC ONLY" (2026-06-09 amendment), and no daemon
+ * registered "control-plane tRPC ONLY", and no daemon
  * JSON-RPC handler exists for it (`packages/runtime-daemon/src/ipc/handlers/`
  * registers `session.*` / `presence.*` handlers only). Widening the SHARED
  * `RuntimeNodeClient` instead would force the daemon factory to carry an

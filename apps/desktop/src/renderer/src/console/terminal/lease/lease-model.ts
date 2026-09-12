@@ -1,8 +1,8 @@
-// What a LOG of lease transitions folds to, from the viewer's seat.
+// What a LOG of lease transitions folds to, from this device's seat.
 //
 // `lease-transition.ts` reads one event; this module reads a session. The two are
 // split because they answer different questions and need different fixtures: a
-// reading is a payload and a sentence, and a projection is an ordering, a viewer, a
+// reading is a payload and a sentence, and a projection is an ordering, a device, a
 // holding node, and a cap. Everything below is a property of the SEQUENCE — which of
 // five holdings the surface settles into, whether the control plane can vouch for the
 // holder, what an offline host did to the lease, and which transitions the ledger
@@ -24,7 +24,7 @@
 // WHY A PURE FOLD AND NOT A CLASS. The store's own projector discipline
 // (`store/entities/entities.ts`) is that a projector reads the event and nothing else, so
 // a replayed prefix is deterministic and a reconnect heals by re-running it. The
-// lease is exactly that shape: given the same events and the same viewer, the same
+// lease is exactly that shape: given the same events and the same device, the same
 // state. A class holding the fold's result beside the store would be a second
 // source of truth for a fact the log already orders.
 
@@ -39,7 +39,7 @@ import {
 } from "./lease-transition.js";
 
 /**
- * Who holds the shell, from the viewer's seat.
+ * Who holds the shell, from this device's seat.
  *
  * `not-checked` is not a synonym for `unheld`: a free lease is an explicit state that
  * reads differently from a suppressed one, and "no transition has ever
@@ -158,7 +158,8 @@ export interface TerminalHoldingNodeReading {
 
 /** What the fold needs beyond the events. */
 export interface TerminalLeaseProjectionInput {
-  /** The viewer, so `held-by-you` can be told from `held-by-another`. */
+  /** This device's identity, so `held-by-you` can be told from a device that does not
+   * hold the lease (`held-by-another`). */
   readonly viewerUserId: string | undefined;
   /**
    * The holding node's reachability, when the caller could read one.
@@ -234,7 +235,7 @@ export function projectTerminalLease(
   const vouching = readVouching(holdingNode);
 
   // Fail-closed, and in this order: an unvouchable holder AND an unread transition
-  // each collapse to the free lease BEFORE the viewer comparison, so a surface can
+  // each collapse to the free lease BEFORE the device comparison, so a surface can
   // never show "you hold it" on the strength of a node the control plane cannot
   // reach or a transition this build could not read.
   const holderUserId =

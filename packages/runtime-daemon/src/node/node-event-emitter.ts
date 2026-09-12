@@ -2,18 +2,17 @@
 //
 // The single emission seam that routes every daemon-reachable `runtime_node.*`
 // event through the injected durable session-event log (the `SessionEventLog`
-// seam below). As shipped (PR #137) the seam was typed against the
-// `SessionService.append`; decoupled 2026-07-28 precondition, so the emitter
-// names no concrete storage class. RE-POINTED by that same leg onto
+// seam below). The seam was originally typed against `SessionService.append`
+// and has since been decoupled, so the emitter names no concrete storage
+// class. It is now re-pointed onto
 // `EventLogService.append`, the sole durable production writer — so the seam is
 // now ASYNC-TRANSACTIONAL rather than synchronous-transactional (see
 // `SessionEventLog` below for the full contract and both of its enforcement
 // layers). the node-registry and the node-capability-service both import this
 // standalone module rather than re-implementing event construction, so the two
 // L2 producers cannot drift in how they shape, validate, or sequence
-// runtime-node events (corrected 2026-06-02, PR #137: a standalone L1 module
-// keeps this task's file disjoint from the L2 consumers that import it and the
-// L3 tasks that extend them).
+// runtime-node events: a standalone L1 module keeps this file disjoint from
+// the L2 consumers that import it and whatever extends them.
 //
 // What this module DOES:
 //   * Builds each `runtime_node.*` event as an `AppendableEvent` and routes

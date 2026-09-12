@@ -1,4 +1,4 @@
-// PR #2 — Test C1: `SessionId.parse rejects malformed UUIDs`.
+// Test C1: `SessionId.parse rejects malformed UUIDs`.
 //
 // If `SessionIdSchema` ever silently accepts a malformed identifier, the
 // daemon and control-plane lose the ability to route reconnects to the right

@@ -553,7 +553,7 @@ describe("I1 / — live attach leaves session identity unchanged", () => {
 // ---------------------------------------------------------------------------
 //
 // WHY the capability-health axis, NOT the originally-planned heartbeat-driven roster read
-// (as amended 2026-06-09, PR #147): the two health axes have DIFFERENT owners and only
+// the two health axes have DIFFERENT owners and only
 // one was client-observable on the shipped Phase-4 surface. The Phase-3
 // heartbeat/staleness path writes ONLY the `runtime_node_presence.health_state` LIVENESS
 // axis, which no Phase-4 SDK response surfaced (heartbeat's wire response is the

@@ -1223,8 +1223,7 @@ export class RustSidecarPtyHost implements PtyHost {
    * child is still alive). Cleared in `attachChildListeners` when a
    * fresh child is wired up.
    *
-   * Drives the Codex P2 fix on PR #83 thread
-   * `PRRT_kwDOSCycWc6DZ8wD`: `drainSidecarHost`'s early-return at the
+   * Drives the drain-result fix: `drainSidecarHost`'s early-return at the
    * `this.child === null` guard previously reported
    * `sidecarExitedCleanly: true` for two distinct host states — (a)
    * a host that never spawned a child (vacuously clean), and (b) a
@@ -1630,8 +1629,7 @@ export class RustSidecarPtyHost implements PtyHost {
       // `ExitCodeNotification`, so a wedged sidecar (process alive, IPC
       // handler unresponsive) cannot stall the drain.
       //
-      // Wedge-scenario bug pin (Codex P1 on commit b3c984e, PR #83
-      // discussion r3271742909): the prior shape awaited `sendRequest`
+      // Wedge-scenario bug pin: the prior shape awaited `sendRequest`
       // BEFORE arming the timer. If `kill_response` never arrived (and
       // `sendRequest` did not reject — e.g., the sidecar process was
       // alive but the IPC dispatcher loop was wedged), the per-session
@@ -1795,8 +1793,7 @@ export class RustSidecarPtyHost implements PtyHost {
     if (child === null) {
       // No active sidecar — either never spawned (vacuously clean) or
       // the child exited during the per-session drain loop (crashed-
-      // before-drain, NOT clean). Codex P2 fix on PR #83 thread
-      // `PRRT_kwDOSCycWc6DZ8wD`: the prior shape unconditionally
+      // before-drain, NOT clean). The prior shape unconditionally
       // reported `sidecarExitedCleanly: true` here, hiding a real
       // crash from the DrainResult — desktop quit telemetry consumes
       // this field so a vacuous false-positive misreports a crashed
@@ -2187,8 +2184,7 @@ export class RustSidecarPtyHost implements PtyHost {
    * spawn failed). Treated identically to a crash.
    */
   private attachChildListeners(child: SidecarChildProcess): void {
-    // P2 #2 (Codex PR #83 thread `PRRT_kwDOSCycWc6DZ8wD`): reset the
-    // child-exited-before-drain flag whenever we wire up a fresh
+    // Reset the child-exited-before-drain flag whenever we wire up a fresh
     // child. The supervisor's crash-respawn flow drives this: when a
     // child crashes and `ensureChild` later spawns a replacement,
     // `attachChildListeners` runs on the new child — the new child
@@ -3212,8 +3208,7 @@ export class RustSidecarPtyHost implements PtyHost {
       // only on the active-child path.
       return;
     }
-    // P2 #2 (Codex PR #83 thread `PRRT_kwDOSCycWc6DZ8wD`): set
-    // AFTER the stale-event guard so a late event for a replaced
+    // Set AFTER the stale-event guard so a late event for a replaced
     // child does NOT false-positive `drainSidecarHost` on the
     // still-alive current child. Set BEFORE `this.child = null` so
     // the flag is locked-in before the active-child reference is
@@ -3255,8 +3250,7 @@ export class RustSidecarPtyHost implements PtyHost {
       // or the new child's outstanding queue.
       return;
     }
-    // P2 #2 (Codex PR #83 thread `PRRT_kwDOSCycWc6DZ8wD`): set AFTER
-    // the stale-event guard, BEFORE `this.child = null`. Symmetric
+    // Set AFTER the stale-event guard, BEFORE `this.child = null`. Symmetric
     // with `handleChildExit` — see that handler's call-site comment
     // and the `childExitedBeforeDrain` rustdoc for the ordering
     // invariant rationale.

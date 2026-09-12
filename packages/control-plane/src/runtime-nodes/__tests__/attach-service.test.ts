@@ -1,7 +1,7 @@
 // P1 / P2 / P3 / P5 / P7 / P8 / P9 / P10 — AttachService behavior gates — plus
 // the readRoster projection suite (the trailing describe blocks).
 //
-// readRoster: 2026-06-09 amendment (visibility / nullability / derived readOnly /
+// readRoster (visibility / nullability / derived readOnly /
 // never-mask / non-collision).
 //
 // P1: a session whose `min_client_version` floor is NULL
@@ -1836,7 +1836,7 @@ describe("AttachService — updateCapabilities version-floor write-refusal (P4 /
 // readRoster — the session roster projection
 // ----------------------------------------------------------------------------
 //
-// 2026-06-09 amendment: the roster read returns EVERY `runtime_node_attachments` row for
+// The roster read returns EVERY `runtime_node_attachments` row for
 // the session — all five `state` values verbatim, no server-side hiding (needs
 // degraded/offline visible) — LEFT-JOINs the heartbeat-owned presence axis (NULL until the
 // first beat), derives `readOnly` per row at read time from the stored `client_version` vs

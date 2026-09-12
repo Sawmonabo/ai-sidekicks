@@ -556,7 +556,7 @@ describe("DriverCapabilitiesWriter — contractVersion-only bump", () => {
 
 describe("DriverCapabilitiesWriter — cli_version pair persistence", () => {
   it("a THROWING accessor on the report surfaces as the typed leak-safe refusal, before any txn", async () => {
-    // Codex PR #372 round 1: the property reads at step (0b) are inside the
+    // The property reads at step (0b) are inside the
     // same getter/Proxy threat model as the swap case below — a throwing
     // accessor must surface as `ProviderOutputValidationError`, never as the
     // provider object's own exception text, and must open no transaction.

@@ -13,8 +13,6 @@
 // keeps its distinctive value (12345 in kill-translation, 67890 in
 // tree-kill) for assertion readability.
 //
-// R3 review POLISH-2 (helper deduplication) + POLISH-3
-// (production-type alignment).
 
 import { vi } from "vitest";
 

@@ -4,7 +4,7 @@
 // The two questions were one module, and they are not one job. This half is a
 // READER: it holds the wire vocabulary the daemon sends, the shape each reason
 // obliges the payload to have, the two ways an event is read off that payload, and
-// the sentence one transition renders as. It knows nothing about a viewer, a holding
+// the sentence one transition renders as. It knows nothing about a device, a holding
 // node, a ledger cap, or which of five holdings the surface settles into — all of
 // which are `lease-model.ts`'s, because all of them are properties of the SEQUENCE
 // rather than of the event.
@@ -59,7 +59,7 @@ export type TerminalLeaseTransitionReason = (typeof TERMINAL_LEASE_TRANSITION_RE
  * tolerantly beside it: any non-empty string became a holder and everything else
  * became the free lease. So a `taken` whose payload named nobody was presented as a
  * FREE lease — a shell the daemon has just handed to someone, offered here as one
- * anybody may claim — and a `released` that carried the viewer's own id was presented
+ * anybody may claim — and a `released` that carried this device's own id was presented
  * as `held-by-you`, which opens stdin until the daemon rejects the writes. Neither
  * payload is a transition this build understands, and the honest reading of a
  * transition it cannot understand is the unread one.
@@ -134,7 +134,7 @@ export function asTerminalLeaseTransitionReason(
  * Both halves have to agree. A recognised reason with a holder shape that
  * contradicts it is not a transition this build can read, and returning it with the
  * holder quietly normalised is how a malformed `taken` became a free lease and a
- * `released` carrying the viewer became `held-by-you`.
+ * `released` carrying this device became `held-by-you`.
  */
 export function readTerminalLeaseTransition(
   event: ConsoleSessionEvent,

@@ -470,8 +470,7 @@ describe("NodePtyHost.shutdown — polymorphic drain", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Codex P2 (PR #83 thread `PRRT_kwDOSCycWc6DZEKP`):
-//   `NodePtyHost.drainSingleSession` Windows-only race where a
+// `NodePtyHost.drainSingleSession` Windows-only race where a
 //   `taskkill`-killed session was miscounted as `sessionsDrained`
 //   instead of `sessionsForcedKilled`.
 //
@@ -502,7 +501,7 @@ describe("NodePtyHost.shutdown — polymorphic drain", () => {
 // tree-kill tests pin).
 // ----------------------------------------------------------------------------
 
-describe("NodePtyHost.shutdown — Windows taskkill-escalation race (Codex P2 PRRT_kwDOSCycWc6DZEKP)", () => {
+describe("NodePtyHost.shutdown — Windows taskkill-escalation race", () => {
   it("counts a session under sessionsForcedKilled when the 2 s SIGTERM-escalation timer fires before perSessionTimeoutMs", async () => {
     // Headline regression: pre-fix this would assert
     // `sessionsDrained === 1`, miscounting the taskkill-killed session.

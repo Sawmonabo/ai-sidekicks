@@ -40,7 +40,7 @@ import { EventCursorSchema } from "@ai-sidekicks/contracts";
 import type { Querier } from "./migration-runner.js";
 
 // --------------------------------------------------------------------------
-// Placeholder cursor returned by `readSession`. PR #5's SDK composition
+// Placeholder cursor returned by `readSession`. The SDK composition
 // layer queries the daemon's local event service for the authoritative
 // cursor and overrides this field. Consumers MUST NOT treat the value as a
 // real cursor.
@@ -83,7 +83,7 @@ interface SessionRow {
  * `sessionId` is daemon-assigned UUID v7 — the daemon mints the id locally
  * and presents it on the create call. The `gen_random_uuid()` DEFAULT on
  * the schema column exists for the rare control-plane-originated row (admin
- * provisioning) PR #4's create path always supplies the id explicitly.
+ * provisioning) the create path always supplies the id explicitly.
  *
  * `ownerUserId` is REQUIRED and lands verbatim in
  * `sessions.owner_user_id`. This service is a faithful Postgres adapter;
@@ -95,7 +95,7 @@ interface SessionRow {
  * Forward-declared columns (not in this input shape):
  *   * `min_client_version` — owns attach-flow enforcement. Column
  *     declared in `0001-initial.ts` so the schema is stable across
- *     plans, but PR #4 does not write it; the column lands as NULL on
+ *     plans, but this path does not write it; the column lands as NULL on
  *     every create. will pick up the input shape on the read+write side
  *     at the same time.
  */
@@ -156,8 +156,8 @@ export class SessionDirectoryService {
    * pg.Pool adapter pins it to one checked-out connection.
    *
    * Why no error-handler around `transaction(...)`: PGlite's
-   * `pg.transaction(fn)` (and the `pg`-side equivalent that PR #5 will
-   * compose for `pg.Pool`) auto-rolls-back on throw and re-raises the
+   * `pg.transaction(fn)` (and the `pg`-side equivalent production wiring
+   * composes for `pg.Pool`) auto-rolls-back on throw and re-raises the
    * underlying error. Adding a manual `ROLLBACK` here would race the
    * driver's auto-rollback path; the directory service relies on the
    * driver-supplied semantics.
@@ -238,7 +238,7 @@ export class SessionDirectoryService {
    *
    * `timelineCursors.latest` is intentionally a placeholder string: the
    * control plane has no event log, so it cannot synthesize a real
-   * cursor. PR #5's SDK composition layer queries the daemon's local
+   * cursor. The SDK composition layer queries the daemon's local
    * event service for the real cursor and overrides this field. Returning
    * a placeholder rather than throwing keeps the wire shape inhabited so
    * consumers don't need to special-case this path.
@@ -268,7 +268,7 @@ export class SessionDirectoryService {
       session,
       timelineCursors: {
         // The value passes EventCursorSchema (min/max length) but is
-        // NOT a wire-stable cursor; PR #5's SDK composition layer
+        // NOT a wire-stable cursor; the SDK composition layer
         // overrides this field with the daemon's authoritative cursor.
         latest: CONTROL_PLANE_PLACEHOLDER_CURSOR,
       },
@@ -308,7 +308,7 @@ function hydrateSessionSnapshot(row: SessionRow): SessionSnapshot {
 }
 
 // --------------------------------------------------------------------------
-// pg.Pool -> Querier adapter (PR #5 /)
+// pg.Pool -> Querier adapter
 // --------------------------------------------------------------------------
 //
 // Production wiring composes a `Querier` from a `pg.Pool` so the same

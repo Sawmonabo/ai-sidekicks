@@ -42,8 +42,7 @@ import type { SpawnRequest } from "@ai-sidekicks/contracts";
 //
 // Default pid for this suite is 12345 (a number small enough to fit in
 // 32 bits but distinctive in test assertions). See `_fakes.ts` for the
-// helper definition shared with `node-pty-host.tree-kill.test.ts`
-// (R3 review POLISH-2 / POLISH-3).
+// helper definition shared with `node-pty-host.tree-kill.test.ts`.
 
 const SAMPLE_SPAWN: SpawnRequest = {
   kind: "spawn_request",

@@ -2,7 +2,7 @@
 //
 // The reader is driveable with a single payload and no session, which is the whole
 // reason it is a module: every case below states what ONE `pty.control_changed`
-// obliges, without a viewer, a holding node, or an ordering standing between the
+// obliges, without a device, a holding node, or an ordering standing between the
 // payload and the answer. The fold's response to a refusal is `lease-model.test.ts`'s
 // — those are two different claims, and asserting the reader only through the fold is
 // what made the second one carry both.

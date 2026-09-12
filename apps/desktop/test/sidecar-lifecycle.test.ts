@@ -447,7 +447,7 @@ describe("registerSidecarLifecycle", () => {
     // Second emit: daemon's PtyHost is now provisioned. The handler
     // MUST re-enter, re-check the getter, find the host, call
     // `event.preventDefault()`, and invoke the drain. This is the
-    // failure that the Codex finding pins: if `drainCompleted` had
+    // failure this pins: if `drainCompleted` had
     // been flipped on the null branch, the top guard would
     // short-circuit here and `shutdown` would never be called.
     const second = emitWillQuit();
@@ -466,7 +466,7 @@ describe("registerSidecarLifecycle", () => {
   });
 
   it("re-enters drain path on subsequent will-quit emits after a peer listener cancels the re-issued quit (drainCompleted is a one-shot, not a permanent latch)", async () => {
-    // Bug pin (Codex P1 on PR #83 commit 10043ea): the closure-local
+    // Bug pin: the closure-local
     // `drainCompleted` flag was a permanent latch — set to `true` in
     // the async-drain `finally` and never cleared. If any peer
     // `will-quit` listener `event.preventDefault()`s the re-issued

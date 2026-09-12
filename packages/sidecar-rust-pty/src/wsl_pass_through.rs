@@ -4,8 +4,8 @@
 //! `SpawnRequest.cwd` and `SpawnRequest.env` paths to `portable-pty`
 //! verbatim and MUST NOT invoke `wslpath` or any Windows ↔ WSL2 path
 //! conversion. WSL path translation is a daemon-layer step
-//! (`spawn-cwd-translator`, already shipped in PR #48) that runs BEFORE
-//! the `SpawnRequest` reaches the sidecar.
+//! (`spawn-cwd-translator`) that runs BEFORE the `SpawnRequest` reaches
+//! the sidecar.
 //!
 //! ## Why a module rather than a comment in `pty_session.rs`?
 //!

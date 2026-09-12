@@ -121,7 +121,7 @@ const MIGRATION_LOCK_ID = 9_000_000_001n;
  *     wrapped in `BEGIN`/`COMMIT` (auto-`ROLLBACK` on throw). Required
  *     for atomicity across multiple statements when the underlying
  *     driver checks out a different connection per `query()`/`exec()`
- *     call (the `pg.Pool` shape that PR #5 will compose). The callback
+ *     call (the `pg.Pool` shape production wiring composes). The callback
  *     receives a `Querier` rather than a narrower transaction type so
  *     that helper code shared between in-transaction and
  *     out-of-transaction paths sees the same surface; nested-transaction
@@ -129,8 +129,8 @@ const MIGRATION_LOCK_ID = 9_000_000_001n;
  *     acceptable runtime check rather than a type-system constraint.
  *
  * Typing against this minimal interface (rather than `pg.Pool` or
- * `pg.Client` directly) is what makes the production wiring (PR #5 will
- * compose a `Querier` from `pg.Pool`) and the test wiring (an in-process
+ * `pg.Client` directly) is what makes the production wiring (a
+ * `Querier` composed from `pg.Pool`) and the test wiring (an in-process
  * `PGlite` instance) interchangeable without a runtime branch inside the
  * migration runner or the directory service.
  *
@@ -210,7 +210,7 @@ export interface Querier {
  * Why `transaction()` and not three separate `exec("BEGIN")` /
  * `exec(SQL)` / `exec("COMMIT")` calls: the three-call shape works on
  * PGlite (single connection per instance) but BREAKS the future `pg.Pool`
- * wiring (PR #5 composes `Querier` from `pg.Pool`, where each
+ * wiring (a `Querier` composed from `pg.Pool`, where each
  * `pool.query()` call checks out a fresh connection — three separate exec
  * calls would land on three different connections, dissolving the
  * transaction AND releasing the advisory lock between statements).

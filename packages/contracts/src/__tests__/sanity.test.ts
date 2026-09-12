@@ -1,11 +1,11 @@
-// PR #1 sanity test — proves Vitest is wired and exercises the runtime.
+// Sanity test — proves Vitest is wired and exercises the runtime.
 //
 // "Trivial sanity check that Vitest is wired" — Workspace Bootstrap (Test And
 // Verification Plan).
 //
 // We deliberately exercise vi.fn (mock factory + invocation tracking) plus an async
-// assertion so the test path touches the parts of Vitest that PR #2's contract tests
-// will rely on, rather than being a constant equality check the test runner can short-
+// assertion so the test path touches the parts of Vitest the contract tests
+// rely on, rather than being a constant equality check the test runner can short-
 // circuit.
 import { describe, expect, it, vi } from "vitest";
 

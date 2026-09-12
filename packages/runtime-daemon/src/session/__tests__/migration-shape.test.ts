@@ -39,7 +39,7 @@ import { applyMigrations, applyPragmas, openDatabase } from "../migration-runner
 // PRESENT IN THE FILE, which a spaced `it(...)` title can never be — so that
 // row previously anchored at the imported `applyPragmas` helper, which kept
 // validating after either test was renamed or deleted and so presented the
-// behaviour as covered when it was not (Codex review, PR #254 round 5).
+// behaviour as covered when it was not.
 // Renaming or removing either test now forces a change to the exported
 // identifier, so the break is loud rather than silent.
 export const WRITE_INERT_ON_PARENTLESS_DB_TEST: string =
@@ -260,7 +260,7 @@ describe("0001-initial migration shape", () => {
   });
 });
 
-// PR #135 — version-2 migration-shape coverage.
+// version-2 migration-shape coverage.
 //
 // Pins the column set, NOT NULL flags, primary-key shape, and the two DEFAULT
 // clauses of Local SQLite tables (`node_capabilities`, `node_trust_state`).
@@ -341,7 +341,7 @@ describe("0002-runtime-node migration shape", () => {
   });
 });
 
-// PR #159 — version-3 migration-shape coverage.
+// version-3 migration-shape coverage.
 //
 // Pins the column set, NOT NULL flags, primary-key shape, DEFAULT clauses,
 // and CHECK-constraint enforcement of the four Local SQLite tables
@@ -744,7 +744,7 @@ describe("0003-runtime-bindings migration shape", () => {
   });
 });
 
-// PR #253 — version-4 migration-shape coverage.
+// version-4 migration-shape coverage.
 //
 // Pins the column set, NOT NULL flags, primary-key shape, DEFAULT clauses,
 // index shape (including the two partial-unique indexes), and the behavioral

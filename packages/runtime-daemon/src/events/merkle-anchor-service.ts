@@ -78,8 +78,7 @@
 // Changing the construction again is a corpus edit first (schema doc + security
 // architecture), then this file, then the verifier, in that order.
 //
-// PREIMAGE AMENDMENT (2026-08-12; Codex PR #323 round 2, landed by that
-// corpus-first order). `root_signature` covers the UTF-8 bytes of the RFC 8785
+// PREIMAGE. `root_signature` covers the UTF-8 bytes of the RFC 8785
 // canonicalization of the five-member ANCHOR CLAIM — {endSequence, merkleRoot
 // (base64, the upload wire spelling), nodeId, sessionId, startSequence} — and
 // never the raw root alone. Under the root-only preimage every coordinate that

@@ -4,7 +4,7 @@ Binding for every change under `apps/desktop/`, in any tool. Repo-wide conventio
 
 ## No governance references in code
 
-Product code under `packages/` and `apps/` carries no governance identifiers and no section cites: no `Spec-NNN`, `Plan-NNN`, `ADR-NNN`, or `BL-NNN` token, no invariant, obligation, decision, acceptance-criterion, or task id, and no section citation into a design document — not in comments, not in strings, not in test titles, not in fields. Comments say what the code does, and why it is shaped the way it is, in plain words; a test title says what the test asserts. Where a rule came from a design document, state the rule itself rather than pointing at the document. Words that never appear in code, comments, copy, or test titles: reference-app branding, `Take Control`, `work band`, `design mode`, `mascot`, `front burner`, `back burner`, `discussion mode`, `local-first`, `one timeline`, `unified timeline`, `shared timeline`.
+Product code under `packages/` and `apps/` carries no governance identifiers and no section cites: no `Spec-NNN`, `Plan-NNN`, `ADR-NNN`, or `BL-NNN` token, no invariant, obligation, decision, acceptance-criterion, or task id, and no section citation into a design document — not in comments, not in strings, not in test titles, not in fields. Comments say what the code does, and why it is shaped the way it is, in plain words; a test title says what the test asserts. Where a rule came from a design document, state the rule itself rather than pointing at the document. Product code also carries no pull-request numbers, no review-round or merge-history narrative, and no plan-tier vocabulary; a comment states the engineering reason and never its provenance. Words that never appear in code, comments, copy, or test titles: reference-app branding, `Take Control`, `work band`, `design mode`, `mascot`, `front burner`, `back burner`, `discussion mode`, `local-first`, `one timeline`, `unified timeline`, `shared timeline`.
 
 ## Mechanical gates
 
@@ -51,7 +51,7 @@ The dead-code gate's one exemption is per SYMBOL: an export tagged `@consumedBy 
 | `src/renderer/src/<family>/` | Another plan's renderer subtree; the console imports these through no path |
 | `build/` and `scripts/` | Executables run during `pnpm build`, and executables invoked by name from a package script |
 | `test/` | Cross-process suites, `test/helpers/`, and the console tiers under `test/console/<tier>/` |
-| `vitest/` | The Vitest project definitions and the pins they carry, imported by `vitest.config.ts`. In the `lint` and `structure:layering` scopes since 2026-09-09, because the snapshot-mode pin here reaches every project in the package |
+| `vitest/` | The Vitest project definitions and the pins they carry, imported by `vitest.config.ts`. In the `lint` and `structure:layering` scopes, because the snapshot-mode pin here reaches every project in the package |
 
 There is one shared layer: `src/renderer/src/shared/` is not created; a renderer-wide helper lives in the lowest console family that needs it.
 

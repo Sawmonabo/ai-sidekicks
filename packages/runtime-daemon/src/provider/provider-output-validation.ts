@@ -187,7 +187,7 @@ const resumeHandleSchema = wireFreeFormString(RESUME_HANDLE_MAX_LEN, "resume_han
 // derives `semver` canonically by construction. What this refinement closes is
 // the seam accepting a bounded-but-unparseable string from ANY caller and
 // persisting it, where it would poison floor comparison at a call site far
-// from the row that produced it (Codex PR #372 round 1). The DDL CHECK on this
+// from the row that produced it. The DDL CHECK on this
 // pair stays bounds-only — the shipped `0011` migration is frozen — so Zod is
 // deliberately the tighter gate, the module-wide pattern.
 const cliVersionRawSchema = wireFreeFormString(CLI_VERSION_RAW_MAX_LEN, "cli_version_raw");

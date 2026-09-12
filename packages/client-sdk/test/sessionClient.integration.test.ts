@@ -752,8 +752,8 @@ describe("C3 / Codex RT-2 Finding 3 — control-plane subscribe pre-aborted sign
     // returned at the pre-abort check before consuming any stream data.
     expect(events).toEqual([]);
     // C3 core assertion #2: the fetcher was never called — proves no HTTP
-    // request reached the wire (the actual harm cited in Codex's finding for
-    // custom fetchers that don't honor `Request.signal`).
+    // request reached the wire (the harm for custom fetchers that do not
+    // honor `Request.signal`).
     expect(fetcher).not.toHaveBeenCalled();
   });
 });
@@ -774,7 +774,7 @@ describe("C4 / Codex RT-2 Finding 4 — control-plane SSE rejects malformed fram
     // `frame.id === undefined` guard (parseSseFrame sets it to "" not
     // undefined when the colon has no value), so without the Zod parse the
     // unsafe `as EventCursor` would yield `eventId: ""` — exactly the
-    // contract-breaking surface Codex flagged. With the fix, EventCursorSchema
+    // contract-breaking surface. With the fix, EventCursorSchema
     // (`z.string().min(1).max(256)`) rejects on `.min(1)`.
     //
     // We make `data:` a fully-valid serialized SessionEvent so the parse
@@ -1145,7 +1145,7 @@ describe("C8 / Codex RT-5 Finding B — control-plane subscribe rejects non-SSE 
     // C8 core assertion #1: iteration THROWS rather than silently ending. The
     // async generator MUST surface the contract violation to the caller; a
     // resolved-empty iteration would be a false-pass against the "failed
-    // subscription misreported as empty stream" surface Codex flagged.
+    // subscription misreported as empty stream" surface.
     await expect(drain(sdk.subscribe({ sessionId: SESSION_ID }))).rejects.toThrow(
       /expected Content-Type 'text\/event-stream'/,
     );

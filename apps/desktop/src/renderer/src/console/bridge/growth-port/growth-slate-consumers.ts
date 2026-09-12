@@ -69,8 +69,7 @@ export const GROWTH_SLATE_CONSUMING_SURFACES: Readonly<Record<GrowthSlateRowId, 
   "workflow-run-control": "workflow-run pane, workflow builder",
   "workflow-run-enumeration":
     "workflows destination (the runs it holds), channel timeline pane (the pinned progress card)",
-  "caller-user-identity":
-    "members surface (invite create), approvals pane (the role-gated control)",
+  "caller-user-identity": "approvals pane (the role-gated control)",
   "callback-tool-registry-read": "approvals pane",
   "sidekick-definition-registry":
     "sidekick-definitions page, agent console peer-invocation control",

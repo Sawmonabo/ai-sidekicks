@@ -12,8 +12,8 @@
 // NodeRoster's. Two halves of one view's suite are one subject, and `apps/desktop`
 // AGENTS.md gives one role one home.
 //
-// WHERE RETURN-TYPE DRIFT IS ACTUALLY CAUGHT — and where it is NOT (PR #355 Codex
-// round 1). The bridge declares `call<P extends CpProcedure>(procedure, input):
+// WHERE RETURN-TYPE DRIFT IS ACTUALLY CAUGHT — and where it is NOT. The bridge
+// declares `call<P extends CpProcedure>(procedure, input):
 // Promise<CpOutput<P>>`, and `CpOutput<P>` is the deferred conditional `P extends
 // CpProcedure ? unknown : never`, i.e. `unknown`. So NO typing of the mock arm can
 // constrain what the call resolves to — measured, not assumed: `vi.fn<Arm["call"]>()`

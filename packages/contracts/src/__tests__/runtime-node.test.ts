@@ -1,4 +1,4 @@
-// PR #135 — Test C1: `RuntimeNodeAttach` request/response contract.
+// Test C1: `RuntimeNodeAttach` request/response contract.
 //
 // Ships only the contract SURFACE; these tests pin the wire shape.
 //
@@ -247,7 +247,7 @@ describe("RuntimeNodeHealthStateSchema (catch #10: 2-value daemon-reported healt
 });
 
 // --------------------------------------------------------------------------
-// PR #135 — Test C2: `RuntimeNodeCapabilityUpdate` request/response.
+// Test C2: `RuntimeNodeCapabilityUpdate` request/response.
 // --------------------------------------------------------------------------
 //
 // The `capabilities` map is a FULL REPLACEMENT set — additions and removals are both
@@ -443,7 +443,7 @@ describe("RuntimeNodeCapabilityUpdateResponseSchema (C2: nodeId + state + update
 });
 
 // --------------------------------------------------------------------------
-// PR #135 — Test C6: `RuntimeNodeHeartbeat` request + null response.
+// Test C6: `RuntimeNodeHeartbeat` request + null response.
 // --------------------------------------------------------------------------
 //
 // Backstops the heartbeat wire shape: a `nodeId` + a 2-value `healthState`, and a
@@ -524,7 +524,7 @@ describe("RuntimeNodeHeartbeatResponseSchema (C6: null no-content payload)", () 
 });
 
 // --------------------------------------------------------------------------
-// PR #135 — Test C3: `RuntimeNodeDetach` request + null response.
+// Test C3: `RuntimeNodeDetach` request + null response.
 // --------------------------------------------------------------------------
 //
 // Backstops the detach wire shape: a `nodeId` + an OPTIONAL free-form `reason`, and a
@@ -601,7 +601,7 @@ describe("RuntimeNodeDetachResponseSchema (C3: null no-content payload)", () => 
 });
 
 // --------------------------------------------------------------------------
-// PR #135 — Test C4: `runtime_node.*` event-name taxonomy constants.
+// Test C4: `runtime_node.*` event-name taxonomy constants.
 // --------------------------------------------------------------------------
 //
 // C4 acceptance criterion: the exported 7-name `runtime_node.*` set is exactly equal
@@ -666,7 +666,7 @@ describe("RUNTIME_NODE_EVENT_NAMES (C4: 7-name runtime_node.* taxonomy)", () => 
 });
 
 // --------------------------------------------------------------------------
-// PR #135 — Test C5: typed `VERSION_FLOOR_EXCEEDED` consumer anchor.
+// Test C5: typed `VERSION_FLOOR_EXCEEDED` consumer anchor.
 // --------------------------------------------------------------------------
 //
 // This block is a CONSUMER-SIDE conformance anchor, NOT a re-test of the error-schema

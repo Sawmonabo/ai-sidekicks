@@ -9,7 +9,7 @@
 //     holder before it — ignorance about a write lease is not the old holder;
 //   • a holder shape that CONTRADICTS its reason is unread rather than normalised, and
 //     both malformed shapes used to be presented as confident states: a take that named
-//     nobody read as a free lease, and a release that named the viewer read as their own
+//     nobody read as a free lease, and a release that named this device read as its own
 //     hold and opened stdin against a shell the daemon had already taken back;
 //   • an UNVOUCHABLE holder collapses to the free lease before anyone is compared to it.
 
@@ -25,7 +25,7 @@ import {
 
 describe("an unread transition — ignorance about a write lease is not the old holder", () => {
   /**
-   * The take that granted the viewer the lease, followed by a move this build
+   * The take that granted this device the lease, followed by a move this build
    * cannot read. This is the shape the surface has to get right: the console saw
    * itself take the shell, and then saw the daemon do something to it.
    */
@@ -34,7 +34,7 @@ describe("an unread transition — ignorance about a write lease is not the old 
     transitionEvent(2, "auto_released_quota_exhausted", null, VIEWER_USER),
   ];
 
-  it("stops reporting the viewer as the holder the moment a transition cannot be read", () => {
+  it("stops reporting this device as the holder the moment a transition cannot be read", () => {
     const state = projectTerminalLease(grantedThenUnread, {
       viewerUserId: VIEWER_USER,
     });
@@ -112,7 +112,7 @@ describe("an unread transition — ignorance about a write lease is not the old 
 //
 // Both malformed shapes below used to be presented as CONFIDENT states rather than as
 // the ignorance they are, and each is the expensive direction: a take that named
-// nobody read as a free lease, and a release that named the viewer read as their own
+// nobody read as a free lease, and a release that named this device read as its own
 // hold and opened stdin against a shell the daemon had already taken back.
 describe("a holder shape that contradicts its reason is unread, not normalised", () => {
   it("refuses a `taken` that names nobody, rather than reading it as the free lease", () => {
@@ -130,7 +130,7 @@ describe("a holder shape that contradicts its reason is unread, not normalised",
     expect(state.unreadTransition?.reason).toBe("taken");
   });
 
-  it("refuses a `released` that names the viewer, rather than reading it as their hold", () => {
+  it("refuses a `released` that names this device, rather than reading it as its hold", () => {
     const state = projectTerminalLease([transitionEvent(1, "released", VIEWER_USER, VIEWER_USER)], {
       viewerUserId: VIEWER_USER,
     });
@@ -260,7 +260,7 @@ describe("vouching — a holder the control plane cannot vouch for is not shown"
     expect(state.offlineNode).toBeUndefined();
   });
 
-  it("negative control: the collapse runs BEFORE the viewer comparison", () => {
+  it("negative control: the collapse runs BEFORE the device comparison", () => {
     // A fold that compared first and collapsed second would answer `held-by-you`
     // here, which is the one answer that lets a person type into a shell held on
     // a node nobody can reach.

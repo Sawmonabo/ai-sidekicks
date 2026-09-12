@@ -1,4 +1,4 @@
-// P1/P2/P3: SessionDirectoryService — PR #4 acceptance gates.
+// SessionDirectoryService acceptance gates.
 //
 // P1: SessionCreate returns stable session id and persists to directory.
 // P2: Second SessionCreate by same client does not silently fork — the
@@ -7,7 +7,7 @@
 // Migration-runner coverage: matches the runtime-daemon test shape for
 // `applyMigrations` idempotency (re-call on a migrated handle is a no-op,
 // schema_migrations rows stay stable at the registered MIGRATIONS set).
-// Post Amendment 2 (PR #102) and the canonical-path applies v1, v2, and
+// The canonical path applies v1, v2, and
 // v3; the dedicated `migration-runner.test.ts` test file pins the R1+R2
 // canonical-path properties directly, while THIS file's idempotency block
 // proves the composition-level integration (running the migration runner
@@ -19,7 +19,7 @@
 // Database lifecycle: each test gets a fresh ephemeral PGlite instance
 // (in-memory mode — no tmpdir cleanup needed). PGlite is single-connection
 // per instance, which matches our service's stateless query pattern; the
-// production wiring (PR #5) composes a `Querier` from `pg.Pool` where the
+// production wiring composes a `Querier` from `pg.Pool` where the
 // per-call connection checkout is automatic.
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
@@ -78,7 +78,7 @@ function adaptPGlite(pg: PGlite): Querier {
 //
 // Nested `tx.transaction(...)` is intentionally not allowed (Postgres does
 // not support nested transactions without SAVEPOINTs and we have no such
-// requirement in PR #4); calling it throws at runtime — see the Querier
+// requirement here); calling it throws at runtime — see the Querier
 // docstring in migration-runner.ts.
 function wrap(handle: PGlite | Transaction): Querier {
   return {
@@ -144,7 +144,7 @@ function isPGlite(handle: PGlite | Transaction): handle is PGlite {
 //
 // `exec` is forwarded through the underlying querier without capture
 // because no test currently asserts on the exec stream and the migration
-// runner is the only `exec()` caller in PR #4. If a future test needs to
+// runner is the only `exec()` caller here. If a future test needs to
 // assert on multi-statement batches, extend the proxy to push `exec`
 // payloads as a sentinel entry.
 interface CapturedQuery {
@@ -204,7 +204,7 @@ beforeEach(async () => {
   // In-memory PGlite (no `dataDir` argument) — fresh schema per test.
   // PGlite is single-connection-per-instance; that matches Postgres
   // semantics for a single checkout from a pool, which is sufficient for
-  // every test here (no concurrent-write coverage in PR #4).
+  // every test here, with no concurrent-write coverage.
   const pg: PGlite = new PGlite();
   // PGlite emits a `ready` event but `await new PGlite()` doesn't directly
   // resolve to a ready state — the first `query` implicitly awaits. We
@@ -304,7 +304,7 @@ describe("SessionDirectoryService — P1 (create persists with stable id)", () =
     expect(read.session.updatedAt).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     // The placeholder cursor is intentionally NOT asserted on its
     // contents — see `SessionDirectoryService.readSession` docstring;
-    // the SDK layer (PR #5) overrides this with a real cursor.
+    // the SDK layer overrides this with a real cursor.
     expect(read.timelineCursors.latest).toBeDefined();
   });
 
@@ -716,8 +716,8 @@ describe("applyMigrations — idempotency", () => {
     //
     //   (a) End-state correctness — `Promise.all([apply, apply])` on a
     //       fresh DB resolves with no throw; each migration lands exactly
-    //       once (`schema_migrations` carries v1 + v2 + v3 anchor rows post
-    //       PR #145; `users` table exists from v1). This IS
+    //       once (`schema_migrations` carries v1 + v2 + v3 anchor rows;
+    //       `users` table exists from v1). This IS
     //       load-bearing on PGlite: empirically, the pre-R8 broken shape (no
     //       advisory lock around the transaction) DOES throw `relation
     //       "users" already exists` on PGlite under `Promise.all`,

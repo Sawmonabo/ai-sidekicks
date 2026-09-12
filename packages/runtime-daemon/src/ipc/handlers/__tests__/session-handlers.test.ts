@@ -665,10 +665,10 @@ describe("session.subscribe happy path + cancel idempotency", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Phase D Round 4 F1 — daemon-crash hazard regression on `session.subscribe`
+// Daemon-crash hazard regression on `session.subscribe`
 // ----------------------------------------------------------------------------
 //
-// Codex F1 (P1): `session-subscribe.ts` had two unguarded `sub.next(event)`
+// `session-subscribe.ts` had two unguarded `sub.next(event)`
 // call sites that throw `StreamingValidationError` (per
 // `streaming-primitive.ts:346-352`) when the producer hands the primitive a
 // malformed event. Both sites run on a LATER event-loop turn than the
@@ -699,7 +699,7 @@ describe("session.subscribe happy path + cancel idempotency", () => {
 // requiring `type`/`category`/`sessionId`/etc.). The cast is the standard
 // "test-only narrow" pattern; production code never sees this shape.
 
-describe("Phase D Round 4 F1 — replay-flush + live-tail crash guards (Codex P1 regression)", () => {
+describe("replay-flush + live-tail crash guards", () => {
   // Restore all `vi.spyOn(...)` instances after EACH test so a console.error
   // spy that survives a mid-test assertion failure doesn't leak into the
   // next test's stdout (which would silently swallow legitimate diagnostics).
@@ -902,15 +902,15 @@ describe("Phase D Round 4 F1 — replay-flush + live-tail crash guards (Codex P1
 });
 
 // ----------------------------------------------------------------------------
-// PR #19 Round 6 F5 — onCancel wire-up: upstream unsubscribe runs when the wire
-// client cancels OR the transport disconnects, so event-source detaches its
-// watcher rather than leaking it for the transport's lifetime. Codex flagged the
-// discarded `unsubscribe` handle in `session-subscribe.ts:273` as ACTIONABLE
-// (Round 6); Path B (extend `LocalSubscriptionProducer<T>` with `onCancel`)
-// closes the gap on the existing lifecycle interface.
+// onCancel wire-up: upstream unsubscribe runs when the wire client cancels OR
+// the transport disconnects, so the event source detaches its watcher rather
+// than leaking it for the transport's lifetime. The discarded `unsubscribe`
+// handle in `session-subscribe.ts` was the leak; extending
+// `LocalSubscriptionProducer<T>` with `onCancel` closes it on the existing
+// lifecycle interface.
 // ----------------------------------------------------------------------------
 
-describe("PR #19 R6 F5 — session.subscribe wires upstream unsubscribe via sub.onCancel", () => {
+describe("session.subscribe wires upstream unsubscribe via sub.onCancel", () => {
   it("wire-cancel (`$/subscription/cancel` from the same transport) fires the upstream unsubscribe", async () => {
     // Arrange — `subscribeToSession`'s test double returns a vi-fn
     // unsubscribe so we can assert exactly when it ran. The handler-binding

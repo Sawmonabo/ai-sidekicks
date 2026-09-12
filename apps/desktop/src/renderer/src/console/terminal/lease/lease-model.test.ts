@@ -53,13 +53,13 @@ describe("the lease fold — what the wire said, and only that", () => {
     expect(state.holderUserId).toBeNull();
   });
 
-  it("tells the viewer's hold apart from somebody else's", () => {
+  it("tells this device's hold apart from another device's", () => {
     const events = [transitionEvent(1, "taken", OTHER_USER)];
     expect(projectTerminalLease(events, { viewerUserId: VIEWER_USER }).holding).toBe(
       "held-by-another",
     );
     expect(projectTerminalLease(events, { viewerUserId: OTHER_USER }).holding).toBe("held-by-you");
-    // No viewer read at all is the console's state today, and it fails closed:
+    // No device read at all is the console's state today, and it fails closed:
     // nobody is ever told they may type on the strength of an unknown identity.
     expect(projectTerminalLease(events, { viewerUserId: undefined }).holding).toBe(
       "held-by-another",

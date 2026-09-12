@@ -1133,7 +1133,7 @@ export const ChannelCreatedEventSchema: z.ZodType<ChannelCreatedEvent> = z
 // emitter-authors-payload — precedent carried forward) rather than six
 // copies of one contract. The five `worktree.*` members are registered in
 // the block below through carrying the SAME FAMILY SHAPE instantiated over
-// its own `WorktreeStateSchema` (the factory path, PR #250 round 4) rather
+// its own `WorktreeStateSchema` (the factory path) rather
 // than this two-vocabulary instantiation. Import direction is one-way:
 // repo.ts imports nothing from this file.
 //
@@ -1274,8 +1274,8 @@ export const WorkspaceArchivedEventSchema: z.ZodType<WorkspaceArchivedEvent> = z
 // instantiated over the `WorktreeStateSchema` —
 // `WorktreeLifecyclePayloadSchema`, authored in worktree.ts per
 // emitter-authors-payload — so a worktree event claiming a repo/workspace
-// state, or a workspace event claiming `merged`, stays a parse error (PR
-// #250 round 4). Import direction is one-way: worktree.ts imports nothing
+// state, or a workspace event claiming `merged`, stays a parse error.
+// Import direction is one-way: worktree.ts imports nothing
 // from this file.
 //
 // THE REGISTRY STAYS CLOSED. Five arms, not six: the worktree ROW vocabulary
@@ -1455,7 +1455,7 @@ export const SCHEMA_MIGRATION_DESCRIPTION_MAX_LEN = 512;
 /**
  * The seventeen `audit_integrity_failed` failure modes of — sixteen
  * read-side verifier verdicts plus the daemon-side registrar's
- * `signing_key_slot_conflict` (2026-08-01 amendment).
+ * `signing_key_slot_conflict`.
  *
  * Named for the verifier because sixteen of seventeen are its verdicts and
  * because the plan names the schema `VerifierFailureModeSchema`; the
@@ -1649,7 +1649,6 @@ type AuditIntegrityFailedRegistrarPayload = {
 };
 /**
  * `audit_integrity_failed` — DISCRIMINATED on `failureMode`, not flat
- * (2026-08-01 amendment).
  *
  * The Merkle triple (`treeSize`, `expectedRootHash`, `observedRootHash`)
  * describes a VERIFIED RANGE. The sixteen read-side verifier modes walked one

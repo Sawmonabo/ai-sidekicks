@@ -46,14 +46,14 @@
 // (a sanctioned wiring call — this module claims no bootstrap-file ownership),
 // holds one timer per runtime node, and on each tick drives every registered
 // driver entry's `refreshDeclaration()` PAIRED with its zero-turn
-// `probeAuth()`. The pairing is load-bearing (Codex round 5): auth state is
+// `probeAuth()`. The pairing is load-bearing: auth state is
 // NOT on `GetCapabilitiesResult` — capabilities/tools/`cliVersion` only — so a
 // capabilities-only poll would leave admission auth state stale after a
 // post-attach logout. With the pair, a post-attach logout surfaces within one
 // cadence period; mid-run credential expiry stays the live-signal path
 // (`RecoveryCondition` `reauth-required` P3-3), not this poll's.
 //
-// Change-detected emission (Codex round 6) is the WRITER's: `refreshDeclaration`
+// Change-detected emission is the WRITER's: `refreshDeclaration`
 // declares through `DriverCapabilitiesWriter`, which compares the reconstructed
 // snapshot against the cached rows and emits `runtime_node.capability_updated`
 // only on an actual difference (no new event type). This scheduler deliberately

@@ -1987,7 +1987,7 @@ function buildStubSummary(
 
 /**
  * Canonicalize a stub projection under the append path's
- * `EVENT_CANONICAL_BYTES_MAX` bound (2026-08-12 amendment), truncating the
+ * `EVENT_CANONICAL_BYTES_MAX` bound, truncating the
  * locally-minted `summary` toward the bound and REFUSING when the projection
  * stays oversized with `summary` gone.
  *

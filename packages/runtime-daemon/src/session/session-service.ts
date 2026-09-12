@@ -89,8 +89,7 @@ interface SessionEventRow {
  * real barrier: TypeScript narrows a `boolean` to `true` inside an
  * `if`, and `condition ? true : undefined` assigns without a cast, so
  * a configuration- or environment-derived flag could thread through
- * (PR #272 Codex round 2). What this token guarantees — and what it
- * does not (scoped in Codex round 3):
+ * unnoticed. What this token guarantees — and what it does not:
  *
  *   - COMPILE TIME: the `#brand` private field makes the type nominal —
  *     no object literal, config value, or structural lookalike is
@@ -106,7 +105,7 @@ interface SessionEventRow {
  *     the package `exports` map declares only `"."`, so Node itself
  *     refuses a deep import of this module from outside the package.
  *
- * Honest limit (Codex round 3): none of the above stops IN-PACKAGE code
+ * Honest limit: none of the above stops IN-PACKAGE code
  * from gating a genuine `forTestsOnly()` call behind an environment
  * check — `process.env.X ? UnsignedPlaceholderAppendToken.forTestsOnly()
  * : undefined` returns the real singleton and passes `isGenuine`. The

@@ -350,52 +350,55 @@ describe("extended-scope-key refusal", () => {
   // permit extended-scope keys at compile time. The runtime walk on
   // `Object.keys` (source line 261-263) is what catches them, which
   // IS the surface we're testing.
-  const TIER_4_KEYS: ReadonlyArray<string> = [
+  const EXTENDED_SCOPE_KEYS: ReadonlyArray<string> = [
     "tlsMode",
     "tlsCertPath",
     "nonLoopbackHost",
     "firstRunKeysPolicy",
   ];
 
-  it.each(TIER_4_KEYS)("refuses key %p with `unknown_setting` envelope", (tier4Key) => {
-    const config = {
-      ...VALID_BASE_CONFIG,
-      [tier4Key]: "any-value",
-    } as unknown as SecureDefaultsConfig;
+  it.each(EXTENDED_SCOPE_KEYS)(
+    "refuses key %p with `unknown_setting` envelope",
+    (extendedScopeKey) => {
+      const config = {
+        ...VALID_BASE_CONFIG,
+        [extendedScopeKey]: "any-value",
+      } as unknown as SecureDefaultsConfig;
 
-    let caught: unknown;
-    try {
-      SecureDefaults.load(config);
-    } catch (err) {
-      caught = err;
-    }
+      let caught: unknown;
+      try {
+        SecureDefaults.load(config);
+      } catch (err) {
+        caught = err;
+      }
 
-    // Source-side: typed error with stable string code. Instance check
-    // first so the narrow holds for the field accesses below.
-    expect(caught).toBeInstanceOf(SecureDefaultsValidationError);
-    if (!(caught instanceof SecureDefaultsValidationError)) return;
-    expect(caught.code).toBe("unknown_setting");
-    // The message names the offending key so an operator gets an
-    // actionable diagnostic at the validation site (vs a generic
-    // "config bad" string).
-    expect(caught.message).toMatch(new RegExp(tier4Key));
+      // Source-side: typed error with stable string code. Instance check
+      // first so the narrow holds for the field accesses below.
+      expect(caught).toBeInstanceOf(SecureDefaultsValidationError);
+      if (!(caught instanceof SecureDefaultsValidationError)) return;
+      expect(caught.code).toBe("unknown_setting");
+      // The message names the offending key so an operator gets an
+      // actionable diagnostic at the validation site (vs a generic
+      // "config bad" string).
+      expect(caught.message).toMatch(new RegExp(extendedScopeKey));
 
-    // Wire-side: `mapJsonRpcError` projects the typed error into the
-    // canonical two-layer envelope. Numeric -32602 InvalidParams
-    // (boot-time config IS request params from the operator's
-    // perspective); `data.type` is the stable code string;
-    // `data.fields` carries the structured detail captured at the
-    // throw site.
-    const envelope = mapJsonRpcError(caught, 1);
-    expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
-    expect(envelope.error.data).toEqual({
-      type: "unknown_setting",
-      fields: { setting: tier4Key, value: "any-value" },
-    });
+      // Wire-side: `mapJsonRpcError` projects the typed error into the
+      // canonical two-layer envelope. Numeric -32602 InvalidParams
+      // (boot-time config IS request params from the operator's
+      // perspective); `data.type` is the stable code string;
+      // `data.fields` carries the structured detail captured at the
+      // throw site.
+      const envelope = mapJsonRpcError(caught, 1);
+      expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
+      expect(envelope.error.data).toEqual({
+        type: "unknown_setting",
+        fields: { setting: extendedScopeKey, value: "any-value" },
+      });
 
-    // Fail-closed side-effect: the singleton stayed unloaded.
-    expect(SecureDefaults.isLoaded()).toBe(false);
-  });
+      // Fail-closed side-effect: the singleton stayed unloaded.
+      expect(SecureDefaults.isLoaded()).toBe(false);
+    },
+  );
 
   it("refuses a config carrying multiple extended-scope keys at once (refuse-unknown-keys catches the first encountered)", () => {
     // Belt-and-braces: pin that a config with several extended-scope keys

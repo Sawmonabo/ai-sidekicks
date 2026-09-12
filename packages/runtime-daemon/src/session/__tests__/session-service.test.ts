@@ -1262,7 +1262,7 @@ describe("SessionService — append guard (unsigned placeholder writes are opt-i
   it(FORGED_TOKEN_REFUSAL_TEST, () => {
     // A boolean opt-in (even the literal `true`) can be threaded from
     // configuration (`condition ? true : undefined` typechecks; an `if`
-    // narrows `boolean` to `true`) — PR #272 Codex round 2. The token
+    // narrows `boolean` to `true`). The token
     // closes that: deserialized or hand-built data can never BE the
     // singleton, so even a cast-through structural lookalike still throws.
     const forgedToken = Object.freeze({

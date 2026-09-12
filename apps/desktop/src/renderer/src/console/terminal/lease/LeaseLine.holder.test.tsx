@@ -7,7 +7,7 @@
 // `LeaseLine.test-support.tsx`, which every suite in this split shares.
 //
 // The claim CALL is `LeaseLine.claim.test.tsx`, the disclosure is
-// `LeaseLine.ledger.test.tsx`, and the one gate on the control — the viewer's identity
+// `LeaseLine.ledger.test.tsx`, and the one gate on the control — this device's identity
 // — is `LeaseLine.viewer-identity.test.tsx`.
 
 import { describe, expect, it } from "vitest";

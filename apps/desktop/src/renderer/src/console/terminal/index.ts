@@ -31,7 +31,7 @@
 //     point (`XtermHost.tsx`).
 //   • `lease/` — where the write lease is held and how this window asks for it: the
 //     fold (`lease-model.ts`) over the one-event reader beneath it
-//     (`lease-transition.ts`), the read of which window this is (`viewer-identity.ts`),
+//     (`lease-transition.ts`), the read of which device this is (`viewer-identity.ts`),
 //     the acquisition terms (`lease-acquisition.ts`), the one wire call
 //     (`lease-claim.ts`), and the line that renders all of it (`LeaseLine.tsx`) with
 //     its ledger, its holding statement, and its withheld-claim control.

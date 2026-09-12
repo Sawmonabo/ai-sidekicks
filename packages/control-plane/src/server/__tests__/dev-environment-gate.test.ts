@@ -13,7 +13,7 @@
 //        Worker published via `wrangler deploy` (no `--env`) has
 //        `env.ENVIRONMENT === undefined`, even after a hypothetical
 //        `wrangler secret put CONTROL_PLANE_BOOTSTRAP_ENABLED 1`. The
-//        allow-list pivot (Codex PR #20 round 4) closed this path.
+//        allow-list closes this path.
 //
 //   T3 — The 'development' row asserts the gate-PASS contract: status
 //        is NOT 503 and the refusal logger is never invoked. The handler

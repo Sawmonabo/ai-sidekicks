@@ -15,7 +15,7 @@
 //   • **Never queues a claim.** A refusal renders beside the control and stays
 //     there until the person acts. No retry, no timer, no wait list.
 //   • **Never offers a claim it cannot attribute.** The control acts on this window's
-//     behalf and the fold names the holder by user id, so until the viewer's
+//     behalf and the fold names the holder by user id, so until this device's
 //     identity has been READ there is no control here at all. Taking the shell is not
 //     gated on anything else: the shell belongs to the one person using this machine.
 //     `lease-acquisition.ts` owns that fold and states why release is not gated either.

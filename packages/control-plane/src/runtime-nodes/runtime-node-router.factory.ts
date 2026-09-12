@@ -76,23 +76,22 @@ import { HeartbeatService } from "./heartbeat-service.js";
 // satisfy the type). `attachService` backs attach / capabilityupdate / detach /
 // roster; `heartbeatService` backs heartbeat.
 //
-// AUTH POSTURE (structural parity with `session.join`):
+// AUTH POSTURE (structural parity with `session.create`):
 //   The `attach` procedure resolves the acting user from `ctx` via
 //   `resolveCurrentUserId` and REFUSES (tRPC `UNAUTHORIZED`) an attach
 //   claimed on behalf of a different user — it does not trust the
 //   caller-supplied `input.userId` as the sole authority. This mirrors
-//   `session.join`'s self-check (session-router.factory.ts), which resolves the
-//   current user from `ctx` and rejects non-self joins.
+//   `session.create` (session-router.factory.ts), which takes the session's
+//   owner from `ctx` and never from the caller's input.
 //
-//   DEFERRED (the same track `session.join` defers its authorization to):
-//     - Full active-session-membership verification — that the acting
-//       user is a member of `input.sessionId` ("a user with
-//       active session membership"). session.join likewise self-checks now and
-//       defers its authorization to a later phase.
+//   DEFERRED:
+//     - Session-ownership verification — that the acting user OWNS
+//       `input.sessionId`. The self-check proves who is calling; it does not
+//       prove the caller owns the session being attached into.
 //     - Node-ownership verification for the `nodeId`-only procedures: heartbeat /
 //       capabilityupdate / detach carry NO user, so authorizing them means
 //       resolving the node's owner and checking the authenticated caller owns it.
-//   A membership/ownership check keyed on an unauthenticated caller is theater
+//   An ownership check keyed on an unauthenticated caller is theater
 //   until PASETO auth exists — the production `resolveCurrentUserId`
 //   currently throws `deferredWiringError` (host.ts), so the gates intercept all
 //   prod traffic before any such check could run. A later phase wires PASETO-derived
@@ -168,12 +167,12 @@ export function createRuntimeNodeRouter(deps: RuntimeNodeRouterDeps): RuntimeNod
         .input(RuntimeNodeAttachRequestSchema)
         .output(RuntimeNodeAttachResponseSchema)
         .mutation(async ({ input, ctx }) => {
-          // Self-check (parity with session.join): resolve the acting
+          // Self-check (parity with session.create): resolve the acting
           // user from `ctx` and refuse an attach claimed on behalf of a
           // different user. We do NOT trust caller-supplied
           // `input.userId` as the sole authority. Plain `TRPCError`
-          // (UNAUTHORIZED) — no `aisError` envelope, same as session.join.
-          // Full membership/node-ownership authorization is deferred
+          // (UNAUTHORIZED) — no `aisError` envelope.
+          // Full session-ownership / node-ownership authorization is deferred
           // (see RuntimeNodeRouterDeps doc above).
           const current = deps.resolveCurrentUserId(ctx);
           if (input.userId !== current) {

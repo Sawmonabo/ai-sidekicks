@@ -142,7 +142,7 @@ export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepId, OnboardingStepD
     id: "relay",
     group: "relay",
     label: "Where this node relays",
-    summary: "Three ways to reach other people. One has to be chosen before an invite goes out.",
+    summary: "Three ways this node's traffic can reach your other devices. One has to be chosen.",
     mayBeLeftUnanswered: false,
     opensAfter: undefined,
   },

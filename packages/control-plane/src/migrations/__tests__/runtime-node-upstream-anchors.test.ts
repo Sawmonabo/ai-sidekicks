@@ -49,13 +49,13 @@
 // "is the upstream contract the runtime-node flow depends on actually
 // shipped?".
 //
-// (d) Lifecycle TRIPWIRE on assertion (3) — RESOLVED in Phase 3 PR #145
+// (d) Lifecycle TRIPWIRE on assertion (3) — RESOLVED in Phase 3
 // ----------------------------------------------------------------------------
 // Assertion (3) was PHASE-1-SCOPED: it asserted `runtime_node_attachments` /
 // `runtime_node_presence` were ABSENT, with the documented expectation that it
 // WOULD — and MUST — fail once shipped the control-plane migration creating those
 // two tables (`0003-runtime-nodes.ts`, registered as v3 in
-// `migration-runner.ts`). That has now happened: Phase 3 PR #145 ships v3,
+// `migration-runner.ts`). That has now happened: Phase 3 ships v3,
 // `applyMigrations` in this file's beforeEach materializes both tables, and
 // assertion (3) was flipped ABSENT→PRESENT (it now asserts `.toBe(true)`). The
 // full-schema carve-out the tripwire alluded to ("fold the two tables into a
@@ -189,9 +189,9 @@ describe("upstream-anchor guard (reads, does not CREATE)", () => {
   });
 
   it("(3) Postgres tables are PRESENT after Phase 3 (v3 migration shipped)", async () => {
-    // Phase 3 PR #145 shipped that migration, so `applyMigrations` in this
+    // Phase 3 shipped that migration, so `applyMigrations` in this
     // file's beforeEach now materializes both tables; this assertion was
-    // flipped from ABSENT→PRESENT in PR #145. Assertions (1) and (2) remain
+    // flipped from ABSENT→PRESENT then. Assertions (1) and (2) remain
     // permanent -anchor guards.
     const tables: Set<string> = await snapshotPublicTables(ctx.querier);
     expect(tables.has("runtime_node_attachments")).toBe(true);

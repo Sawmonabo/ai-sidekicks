@@ -129,7 +129,7 @@ export function bridgeRejectingOutputWith(rejection: unknown): ConsoleBridge {
 /**
  * A bridge that answers the caller-identity read with one of the cast.
  *
- * The scenario names the owner as its viewer, but a case that depends on WHO is
+ * The scenario names the owner as its device identity, but a case that depends on WHO is
  * looking says so itself rather than inheriting it: the three arms the lease fold can
  * reach — the claimant's own hold, somebody else's, and no identity at all — are each
  * chosen by the case, so a scenario edit cannot silently move one onto a different arm
@@ -152,7 +152,7 @@ export function bridgeAnsweringCallerWith(userId: string): ConsoleBridge {
 /**
  * A bridge whose caller-identity read is refused — the port's own "not checked"
  * refusal, taken through the same constructor the fixture port uses when a scenario
- * has named no viewer, so the sentences the cases assert are the wire's and not a copy
+ * has named no device identity, so the sentences the cases assert are the wire's and not a copy
  * that could drift from it.
  */
 export function bridgeRefusingCaller(): ConsoleBridge {

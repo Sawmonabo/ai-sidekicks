@@ -271,8 +271,7 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
     // timing is correct — without it, a `triggerExit` racing ahead of
     // `drainSidecarHost`'s `hostExitWaiter` install would route
     // through the `this.child === null` early-return path and report
-    // `sidecarExitedCleanly: false` (Codex P2 fix on PR #83 thread
-    // `PRRT_kwDOSCycWc6DZ8wD` — the early-return now distinguishes
+    // `sidecarExitedCleanly: false` (the early-return distinguishes
     // vacuous-no-spawn from child-exited-before-drain via the
     // `childExitedBeforeDrain` flag). Mirrors the orchestration
     // pattern of the "closes sidecar stdin" test below.
@@ -485,8 +484,6 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
     // /T /F /PID <sidecar-pid>` rather than `child.kill("SIGKILL")` —
     // Node's SIGKILL maps to a single-PID `TerminateProcess` on Windows,
     // leaving descendants alive as orphaned PTY workers.
-    //
-    //   • Codex Review P1 thread `PRRT_kwDOSCycWc6DY9b4` on PR #83.
     vi.useFakeTimers();
     try {
       const fake = makeFakeSidecarChild();
@@ -842,8 +839,7 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
   });
 
   it("forced-kills a session when sidecar IPC is wedged and kill_response never arrives within perSessionTimeoutMs", async () => {
-    // Wedge-scenario regression pin (Codex P1 on commit b3c984e of PR
-    // #83, discussion r3271742909): the prior shape in
+    // Wedge-scenario regression pin: the prior shape in
     // `drainSingleSession` awaited `sendRequest(SIGTERM kill_request)`
     // BEFORE arming the per-session timer. A wedged sidecar (process
     // alive, IPC dispatcher unresponsive) would never enqueue a
@@ -874,8 +870,6 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
     // production to verify — the test structure (drop `kill_request`,
     // no `triggerExit`, single fake-timer advance past
     // `perSessionTimeoutMs`) is the structural pin.
-    //
-    //   • PR #83 discussion r3271742909 (Codex P1 finding).
     vi.useFakeTimers();
     try {
       const fake = makeFakeSidecarChild();
@@ -1030,8 +1024,7 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
     // Net consumer observation: exactly one `onExit(s-0, -1)` (from
     // step 3a), `sessionsForcedKilled === 1` (the drain returned
     // "forced"), `sessionsDrained === 0`, `sidecarExitedCleanly:
-    // false` (the crash surfaces in telemetry per Codex P2 PR #83
-    // thread `PRRT_kwDOSCycWc6DZ8wD`). The `-1` sentinel is the
+    // false` (the crash surfaces in telemetry). The `-1` sentinel is the
     // CRASH signal, distinct from the `1` forced-kill synthetic
     // emitted by the SIGKILL escalation on a LIVE sidecar (covered
     // by the wedge test above).
@@ -1099,9 +1092,8 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
       const calls = onExit.mock.calls;
       expect(calls[0]).toEqual(["s-0", -1]);
 
-      // Host wind-down regression check for Codex P2 PR #83 thread
-      // `PRRT_kwDOSCycWc6DZ8wD` ("crash-before-drain misreport"):
-      // `handleChildExit` cleared `this.child` AND set
+      // Host wind-down regression check for the "crash-before-drain
+      // misreport": `handleChildExit` cleared `this.child` AND set
       // `this.childExitedBeforeDrain = true` BEFORE calling
       // `fireCrashTimeOnExit`. `drainSidecarHost`'s `child === null`
       // early-return now consults the latched flag and reports
@@ -1309,10 +1301,10 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
     expect(secondResult).toBe(result);
   });
 
-  it("resets childExitedBeforeDrain in attachChildListeners so a respawned child does not inherit the prior crashed child's flag (Codex P2 PRRT_kwDOSCycWc6DZ8wD stale-event safety)", async () => {
+  it("resets childExitedBeforeDrain in attachChildListeners so a respawned child does not inherit the prior crashed child's flag (stale-event safety)", async () => {
     // Per-active-child state regression check. The
-    // `childExitedBeforeDrain` flag was added in the Codex P2 fix to
-    // route `drainSidecarHost`'s `child === null` early-return through
+    // `childExitedBeforeDrain` flag routes `drainSidecarHost`'s
+    // `child === null` early-return through
     // the signal-channel so a crashed-before-drain sidecar reports
     // `sidecarExitedCleanly: false`. But the flag MUST be reset when
     // the supervisor respawns a fresh child via the crash-respawn

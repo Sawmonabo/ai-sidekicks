@@ -104,8 +104,7 @@ import { useNodeRosterRead, type NodeRosterReads } from "./node-roster-reads.js"
  * `{ sessionId }` constructs a valid roster-read request with no cast. The read is
  * scoped to this id, and the roster NEVER mutates it — adding nodes changes the
  * rendered set, not the session identity. The id arrives as a prop (supplied by
- * the console's own mount), not from renderer-side discovery — the same prop-contract
- * posture as `UserRoster`.
+ * the console's own mount), not from renderer-side discovery.
  *
  * `reads` is REQUIRED. This view resolves no transport of its own: a mount hands it
  * the pair it already resolved, which is what keeps the wire names in one production

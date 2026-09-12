@@ -62,13 +62,14 @@ export const SIGNED_IN_AS_LABEL = "Signed in as";
 /**
  * The note the signed-out card carries under its one action.
  *
- * It is a standing product fact rather than a state: a control-plane identity is no
- * precondition for a session on this machine, and onboarding deliberately does not
- * gate first launch — so a person reading this card is being offered something, never
- * stopped.
+ * It is a standing fact about this build rather than a state: a control-plane identity
+ * is no precondition for a session on this machine, and onboarding deliberately does
+ * not gate first launch. What signing in buys is reach — this person's OTHER devices
+ * can then drive a session running here — so a person reading this card is being
+ * offered something, never stopped.
  */
 export const LOCAL_SESSION_NOTE =
-  "A session on this machine needs no account. Signing in is what lets other people join one.";
+  "A session on this machine needs no account. Signing in is what lets your other devices reach it.";
 
 /** What the browser hand-off is, said before the browser opens. */
 export const DEVICE_GRANT_NOTE =

@@ -1,6 +1,6 @@
 // Error contracts — V1 subset of the canonical ErrorResponse envelope.
 //
-// PR #2 ships the single error shape its acceptance criteria need:
+// This module ships the single error shape the acceptance criteria need:
 //   • resource.limit_exceeded — fired on every.
 //
 //   {code: "resource.limit_exceeded",
@@ -139,7 +139,7 @@ export const RUNTIME_NODE_CAPABILITY_UPDATE_CONFLICT_CODE: RuntimeNodeCapability
 //     write.
 //
 //   * No session-state change makes it admissible; the producer moves bulk
-//     content behind a reference (2026-08-11 amendment — the payload catalog
+//     content behind a reference (the payload catalog
 //     is metadata-shaped by construction, so an append near the bound is a
 //     payload-design defect).
 //
@@ -477,8 +477,7 @@ export const DaemonPiiSplitBypassDetailsSchema: z.ZodType<DaemonPiiSplitBypassDe
   .strict();
 
 // --------------------------------------------------------------------------
-// daemon.event_canonical_bytes_exceeded shape (2026-08-11 Codex PR #323
-// round 2)
+// daemon.event_canonical_bytes_exceeded shape
 // --------------------------------------------------------------------------
 //
 // The DETAIL CARRIER for the append path's canonical-size ceiling refusal.

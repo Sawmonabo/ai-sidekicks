@@ -1,4 +1,4 @@
-// PR #2 — Test C4: `Resource limit error matches
+// Test C4: `Resource limit error matches
 // resource.limit_exceeded shape`.
 //
 // Backstops: "Each Resource Limits enforcement returns the standard
@@ -179,7 +179,7 @@ describe("ResourceLimitExceededErrorSchema (C4: resource.limit_exceeded shape)",
   });
 
   // --------------------------------------------------------------------
-  // Round 3: wireFreeFormString helper applied to free-form fields.
+  // The wireFreeFormString helper, applied to free-form fields.
   // --------------------------------------------------------------------
   // R2-1: `message` and `details.resource` are now hardened with the same
   // wire-layer guards (whitespace-only + NUL-byte rejection) used on

@@ -6,8 +6,8 @@
 //
 // Why this file exists: prior to 2026-05-01, only `error.message` was
 // substrate-enforced (via `sanitizeErrorMessage`); `error.data.fields`
-// flowed verbatim from the throw site to the wire. Codex review of PR
-// #26 surfaced three violations:
+// flowed verbatim from the throw site to the wire. That surfaced three
+// violations:
 //
 //   1. Confidentiality — `SecureDefaultsValidationError` carries operator-
 //      supplied raw `value` into `data.fields.value`. Path-shape and

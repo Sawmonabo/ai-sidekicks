@@ -468,8 +468,8 @@ describe("ProviderRegistry — re-register refresh seam + listAvailable", () => 
 //
 // The ORDERING proof — that production dispatch runs this gate before the
 // driver operation — deliberately does NOT live here. A locally-defined caller
-// that gates-then-dispatches pins nothing about production ordering (Codex
-// review, PR #396 round 2): the callers of this gate are the registered
+// that gates-then-dispatches pins nothing about production ordering: the
+// callers of this gate are the registered
 // `driver.*` verbs, and their tests assert the zero-driver-call property
 // through the registered SDK client rather than through a closure a test file
 // invents. What THIS suite owns is the gate itself: fail-closed on `!== true`,

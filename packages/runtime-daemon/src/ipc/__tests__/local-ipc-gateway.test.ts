@@ -910,7 +910,7 @@ describe("RT-codex-1 finding #2 — malformed request id rejected before dispatc
 
 // ----------------------------------------------------------------------------
 //
-// Codex round-4 P2: the `id` is echoed verbatim, so it is the one response
+// The `id` is echoed verbatim, so it is the one response
 // member the CALLER sizes. An id that fits the inbound frame can still make
 // every reply to it un-encodable — and the send path cannot transmit the reply
 // that failed to encode, so it destroys the socket. Left unbounded, a caller

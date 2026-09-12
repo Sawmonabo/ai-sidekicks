@@ -354,8 +354,8 @@ export class CodecOwnedContentKeyError extends Error {
  * WHY IT IS SHARED RATHER THAN CODEC-SCOPED. An earlier draft of this module
  * argued the opposite in prose: that the guard belonged to the codec alone,
  * because "a planted content digest is an integrity claim the read-side binding
- * check is built to catch and report." Codex round 3 on PR #386 refuted that,
- * and the refutation is accepted here. The read-side check DETECTS; it does not
+ * check is built to catch and report." That is wrong, and the refutation is
+ * accepted here. The read-side check DETECTS; it does not
  * PREVENT. Its detection is terminal: `isContentCiphertextDigestBound` compares
  * the signed digest against the stored column, so a row signed with a forged
  * digest and a NULL `content_payload` is classified `digest_unbound` on every
@@ -366,7 +366,7 @@ export class CodecOwnedContentKeyError extends Error {
  * The concrete hole it left: a caller that omits `options.content` but seeds
  * `contentCiphertextDigest` (or `contentLength`, or `contentTruncated`) takes
  * `EventLogService.append`'s PLAIN branch, never reaches this codec, and — since
- * the round-2 strict variants now admit these members by schema — parses,
+ * the strict variants admit these members by schema — parses,
  * canonicalizes, and signs. The append path is therefore the guard's second
  * consumer, ahead of its plain-vs-codec branch choice.
  *
@@ -1039,7 +1039,7 @@ export interface PiiEventWriteResult {
    * at step 5, where the bytes exist, and echoed out because this result
    * carries no other trace of them (nothing persists canonical bytes; a
    * verifier recomputes them from the stored columns). holds this figure to
-   * `EVENT_CANONICAL_BYTES_MAX` (2026-08-11 amendment) rather than
+   * `EVENT_CANONICAL_BYTES_MAX` rather than
    * re-canonicalizing the envelope, which would stand up a second authority
    * over bytes this module already produced once.
    *
