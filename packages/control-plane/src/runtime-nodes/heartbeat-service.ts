@@ -36,7 +36,7 @@
 // (0003-runtime-nodes.ts line 111). A JS `Date` passed from the service would
 // drift against the database clock and split the comparison across two clocks.
 //
-// Dependency injection (mirrors AttachService / MembershipService): the minimal
+// Dependency injection (mirrors AttachService): the minimal
 // `Querier` SQL surface declared in `sessions/migration-runner.ts`. The service
 // body NEVER imports `pg`; the test substrate (in-process PGlite) and the
 // eventual production surface (`pg.Pool`) stay interchangeable without a runtime

@@ -22,7 +22,7 @@
 // write-refusal a below-floor read-only node receives on a write attempt,
 // ADR-018 §Decision #4 / I-003-1), distinct from the two attach-time refusals.
 //
-// Throw discipline (identical to MembershipService / SessionDirectoryService):
+// Throw discipline (identical to SessionDirectoryService):
 // throw from inside the `Querier.transaction(...)` callback OR the service body.
 // The `pg.Pool` and PGlite adapters both auto-run `ROLLBACK` on throw and
 // re-raise, so a thrown refusal leaves `runtime_node_attachments` byte-for-byte

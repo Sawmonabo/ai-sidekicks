@@ -106,7 +106,7 @@
 //
 // Atomicity: the floor read, the upsert, and (on the revoked path) the
 // post-upsert verify-SELECT share ONE `Querier.transaction(...)` commit
-// boundary, mirroring MembershipService / SessionDirectoryService. A thrown
+// boundary, mirroring SessionDirectoryService. A thrown
 // refusal rolls the transaction back (the `pg.Pool` + PGlite adapters both
 // auto-`ROLLBACK` on throw and re-raise), so a refused attach leaves
 // `runtime_node_attachments` byte-for-byte unchanged. Detach is likewise atomic:
@@ -115,7 +115,7 @@
 // two axes never diverge — a torn detach can never leave the slot `offline` while
 // presence stays `online` (or vice versa).
 //
-// Dependency injection (mirrors MembershipService / SessionDirectoryService):
+// Dependency injection (mirrors SessionDirectoryService):
 //   * `Querier` — the minimal SQL surface declared in
 //     `sessions/migration-runner.ts`. The service body NEVER imports `pg`
 //     directly. The production pool-wiring (a `createAttachServiceFromPool`
@@ -193,9 +193,7 @@
 // (RuntimeNodeAttach + RuntimeNodeDetach + RuntimeNodeCapabilityUpdate
 // request/response) + §Runtime-Node Method-Name Registry (the
 // RuntimeNodeRoster wire shapes in `docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`,
-// registry row + procedure-type paragraph in its §Runtime-Node Method-Name Registry (Tier 3) table); `memberships/membership-service.ts`
-// (the `Querier`-injected service idiom + the no-membership-mutation precedent
-// this mirrors).
+// registry row + procedure-type paragraph in its §Runtime-Node Method-Name Registry (Tier 3) table).
 
 import type {
   EventEnvelopeVersion,
@@ -265,8 +263,7 @@ const OFFLINE_STATE: NodeState = "offline";
 
 // Internal row shape returned by `pg.Pool#query` / `PGlite#query`. Postgres
 // folds column identifiers to lowercase and the schema uses snake_case, so both
-// drivers map onto these keys (mirrors the `MembershipRow` idiom in
-// membership-service.ts).
+// drivers map onto these keys.
 interface AttachmentRow {
   readonly id: string;
   readonly state: string;
@@ -315,7 +312,7 @@ interface RosterRow {
 // `TIMESTAMPTZ` is hydrated as a JS `Date` by BOTH drivers' default parsers —
 // `pg` (pg-types OID 1184) and PGlite (`types.ts` date parser). The contract
 // requires ISO 8601 (`attachedAt: string`); the string arm keeps normalization
-// total under custom parsers (mirrors `toIsoString` in membership-service.ts).
+// total under custom parsers.
 function toIsoString(value: Date | string): string {
   if (value instanceof Date) {
     return value.toISOString();
@@ -359,8 +356,7 @@ export class AttachService {
    * @param request the runtime-node attach payload. Validated at the boundary
    *   (`RuntimeNodeAttachRequestSchema.parse`) before any row is read or
    *   written — a service-layer fail-fast that surfaces schema drift (e.g. a
-   *   malformed `clientVersion` or unknown key) before touching the database,
-   *   mirroring MembershipService.updateMembership's boundary parse.
+   *   malformed `clientVersion` or unknown key) before touching the database.
    * @returns the `RuntimeNodeAttachResponse` projection of the upserted row.
    * @throws RuntimeNodeAttachConflictException in TWO cases: (1) the node is
    *   already actively attached to a DIFFERENT session (P9 / I-003-5 — the
@@ -405,8 +401,7 @@ export class AttachService {
    */
   async attach(request: RuntimeNodeAttachRequest): Promise<RuntimeNodeAttachResponse> {
     // Trust-boundary validation — parse rather than trust the caller. Surfaces
-    // schema drift before any row is read or mutated (mirrors
-    // MembershipService.updateMembership / InviteService.createInvite).
+    // schema drift before any row is read or mutated.
     const validated: RuntimeNodeAttachRequest = RuntimeNodeAttachRequestSchema.parse(request);
 
     return this.#querier.transaction(async (transaction) => {
@@ -609,9 +604,8 @@ export class AttachService {
    * I-003-3 (attach-membership separation): detach writes ONLY
    * `runtime_node_attachments` + `runtime_node_presence`. It NEVER references,
    * SELECTs FOR UPDATE, INSERTs, UPDATEs, or DELETEs `session_memberships` — an
-   * offline/detached node retains its membership (`Spec-003 §Required Behavior`). Mirrors the
-   * MembershipService no-mutation precedent (the attach domain is disjoint from
-   * the membership domain; cross-plan-dependencies.md §1). P8 asserts the
+   * offline/detached node retains its membership (`Spec-003 §Required Behavior`). The attach
+   * domain is disjoint from the membership domain. P8 asserts the
    * byte-for-byte no-mutation property across a detach (snapshot + count).
    */
   async detach(request: RuntimeNodeDetachRequest): Promise<null> {
