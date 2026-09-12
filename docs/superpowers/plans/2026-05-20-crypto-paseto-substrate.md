@@ -19,7 +19,7 @@
 | [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md):29 | Plan-018 v4.local dependency declared |
 | Plan-025 §Tier 1 Partial PR Sequence (lines 256–297) | Owning plan; carves Phase 1 substrate out from Tier 7 relay implementation |
 | Spec-025 | Context only; `spec_coverage: []` (Spec-025 governs the relay surface, not package primitives) |
-| [Cross-plan dependencies](../../architecture/cross-plan-dependencies.md) §5 + Plan-025 Substrate-vs-Namespace Carve-Out | Names Plan-018 Tier 5 as the persistence owner for KeyRing |
+| Cross-plan dependencies §5 + Plan-025 Substrate-vs-Namespace Carve-Out | Names Plan-018 Tier 5 as the persistence owner for KeyRing |
 | [Plan-implementation readiness-audit runbook](../../operations/plan-implementation-readiness-audit-runbook.md) §Per-Phase Audit Semantics | Admits `substrate_exempt` for this phase |
 | Plan-002 Phase 2 precondition | Downstream consumer (CP-002-4) — invite-token minting |
 | [CONTRIBUTING.md](../../../CONTRIBUTING.md) | GitFlow-lite; Conventional Branch; Conventional Commits |

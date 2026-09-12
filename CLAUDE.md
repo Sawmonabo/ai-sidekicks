@@ -14,7 +14,7 @@ Three layers:
 
 Stack: TypeScript across daemon/CLI/desktop/contracts; XState v5 state machines; tRPC v11 control-plane API ([ADR-014](docs/decisions/014-trpc-control-plane-api.md)); Zod validation; Cedar policy engine for approvals ([ADR-012](docs/decisions/012-cedar-approval-policy-engine.md)); OpenTelemetry; Rust PTY sidecar on Windows ([ADR-019](docs/decisions/019-windows-v1-tier-and-pty-sidecar.md)). Apache-2.0 ([ADR-020](docs/decisions/020-v1-deployment-model-and-oss-license.md)).
 
-The feature list and tier graph live in [`README.md`](README.md); the build-order and shared-resource ownership map lives in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md).
+The feature list and tier graph live in [`README.md`](README.md); the forward build order for the phases still to ship lives in `docs/architecture/cross-plan-dependencies.md`.
 
 ## Current State
 
@@ -77,7 +77,7 @@ ADRs are classified `Type 1` (two-way door, reversible — skip [T2] sections) o
 ## When Writing Documents
 
 - **Copy the template.** New spec / plan / ADR? Start from `000-{type}-template.md`. Number sequentially within the tree (next free `NNN`).
-- **Check the ownership map first.** Before adding a column, file, or directory that another plan might own, consult [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). The owning plan `CREATE`s; dependent plans `EXTEND`.
+- **Check the owning plan first.** Before adding a column, file, or directory that another plan might own, read that plan's own Target Areas and phase tables under `docs/plans/`. The owning plan `CREATE`s; dependent plans `EXTEND`.
 - **Cross-link aggressively.** Every spec names its plan; every plan names its spec and Required ADRs; every backlog item names the docs that govern it.
 - **Status promotion is load-bearing.** Do not flip `review` → `approved` without addressing review notes — downstream plans/specs treat the prior state as stable. ADR moves to `accepted` only after antithesis is steel-manned and synthesis is recorded.
 - **Backlog discipline.** `BL-NNN` items must include References, Summary, and Exit Criteria. Move completed items to `docs/archive/backlog-archive.md` after the canonical docs are updated. Do not let `backlog.md` accumulate historical entries — rewrite or remove stale items.

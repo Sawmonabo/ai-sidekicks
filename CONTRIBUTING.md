@@ -156,7 +156,7 @@ Classify the change before branching; the lane decides the ceremony. When in dou
 
 **Boundary rule (lane 2 vs lane 4).** If the diff changes what a plan §Invariants entry or a spec Required Behavior / Acceptance Criteria row asserts, it is NOT an enhancement — the governing doc amends first. If behavior stays within the approved spec envelope, it is lane 2 regardless of which plan originally shipped the file.
 
-**Tier order binds lane 1 only.** The §5 tier sequence and §6 dispatch state in [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md) gate plan-task dispatch; lanes 2–3 are exempt.
+**Dispatch order binds lane 1 only.** The dispatch groups in `docs/architecture/cross-plan-dependencies.md` gate plan-task dispatch; lanes 2–3 are exempt.
 
 **Why the lanes preserve doc-first's purpose.** The discipline exists to prevent hallucinated or untracked work, not to defer capability — "anything that is done is documented so it's not gone unknown and tracked properly" (the recorded owner ratification R9 in `docs/superpowers/specs/2026-07-01-capability-enhancements-design.md` §1.3). Lane 1 tracks through the plan's Shipment Manifest; lane 2 tracks through the `Refs:` footer and git history; lane 4 routes contract changes back through the doc. Every lane keeps the work known and attributable — the lanes change the WEIGHT of tracking, never its existence.
 

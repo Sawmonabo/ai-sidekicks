@@ -319,7 +319,7 @@ The Phase 1 KeyRing is **in-memory only**. No file I/O, no database access, no o
 
 ### 8.1 Why in-memory only
 
-[Cross-plan dependencies §5](../../architecture/cross-plan-dependencies.md) names [Plan-018](../../plans/018-identity-and-participant-state.md) Tier 5 as the owner of identity-state persistence (the table that stores `KeyRingEntry` rows). The substrate must not pre-empt that storage decision — different deployment targets (SQLite for self-host, Postgres for hosted) need different schemas, and Plan-018 is the canonical place to make that call.
+Cross-plan dependencies §5 names [Plan-018](../../plans/018-identity-and-participant-state.md) Tier 5 as the owner of identity-state persistence (the table that stores `KeyRingEntry` rows). The substrate must not pre-empt that storage decision — different deployment targets (SQLite for self-host, Postgres for hosted) need different schemas, and Plan-018 is the canonical place to make that call.
 
 ### 8.2 The persistence seam
 
@@ -469,7 +469,7 @@ The following six decisions were settled during planning and are recorded here f
 - [ADR-010: PASETO + WebAuthn + MLS Auth](../../decisions/010-paseto-webauthn-mls-auth.md) — lines 29, 129–136
 - Plan-025: Self-Hostable Node Relay — §Scope, §Target Areas, §Tier 1 Partial PR Sequence
 - Spec-025: Self-Hostable Node Relay — context only (no Phase 1 ACs; `spec_coverage: []`)
-- [Cross-plan dependencies](../../architecture/cross-plan-dependencies.md) — §5 Tier 1 row + Plan-025 Substrate-vs-Namespace Carve-Out
+- Cross-plan dependencies — §5 Tier 1 row + Plan-025 Substrate-vs-Namespace Carve-Out
 - [Plan-implementation readiness-audit runbook](../../operations/plan-implementation-readiness-audit-runbook.md) — §Per-Phase Audit Semantics
 - [CONTRIBUTING.md](../../../CONTRIBUTING.md) — GitFlow-lite, Conventional Branch, Conventional Commits
 - [AGENTS.md](../../../AGENTS.md) — primary-source citation discipline

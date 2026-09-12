@@ -228,7 +228,7 @@ The `approval.request_expired` / `approval.request_canceled` tokens deliberately
 
 ### Participant
 
-Identity-key and WebAuthn-ceremony surface refusals (Plan-018 Phase 5, registered 2026-08-15 at the NS-62 promotion pass; the two `webauthn_*` rows added 2026-09-01 by the WebAuthn-ceremony amendment, Phase 6). The two ceremony codes are served on **control-plane routes** rather than a daemon `participant.*` method — the caller is the Electron main process over its own authenticated channel — so they carry no §JSON-RPC pin and the five-method `participant.*` registry does not move.
+Identity-key and WebAuthn-ceremony surface refusals (Plan-018 Phase 5, registered 2026-08-15 at the promotion pass; the two `webauthn_*` rows added 2026-09-01 by the WebAuthn-ceremony amendment, Phase 6). The two ceremony codes are served on **control-plane routes** rather than a daemon `participant.*` method — the caller is the Electron main process over its own authenticated channel — so they carry no §JSON-RPC pin and the five-method `participant.*` registry does not move.
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |

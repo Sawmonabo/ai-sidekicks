@@ -7,7 +7,7 @@
 | **Domain** | `Provider Integration / Persistence / Session Continuity` |
 | **Date** | `2026-08-26` |
 | **Author(s)** | `Claude (AI-assisted)` |
-| **Reviewers** | `Codex — the transcript-authority and provider-switch amendment vehicle (§6 node NS-84), which audited the enumerated gate/fallback table against the Spec-005 capability matrix and the declared-loss rule against Spec-016's switch surface` |
+| **Reviewers** | `Codex — the transcript-authority and provider-switch amendment vehicle, which audited the enumerated gate/fallback table against the Spec-005 capability matrix and the declared-loss rule against Spec-016's switch surface` |
 
 ## Context
 
@@ -194,7 +194,7 @@ Both declines are properties of the consuming capability, not of this decision, 
 
 - [x] All unvalidated assumptions have a validation plan — Assumption 5 and the Codex half of Assumption 1 are pinned by the in-tree wire references and re-checked by the nightly provider-CLI compatibility check; the **Claude half of Assumption 1 is flagged unvalidated** and its validation plan is the Plan-005 replay assertion, which fails the operation rather than trusting a return value; Assumption 2 is structural (one log, one renderer); Assumptions 3 and 4 are conservative arms whose failure only widens what replay can carry.
 - [x] At least one alternative was seriously considered and steel-manned — Options B, C, and D, each with a [T2] steel man written as its advocate.
-- [x] Antithesis was reviewed by someone other than the author — Codex, on the NS-84 vehicle. The five counter-arguments are answered individually in §Synthesis, and (c) is answered by **narrowing the claim** to visibility sufficiency + declared loss + named non-portability rather than by dismissal.
+- [x] Antithesis was reviewed by someone other than the author — Codex, on the vehicle. The five counter-arguments are answered individually in §Synthesis, and (c) is answered by **narrowing the claim** to visibility sufficiency + declared loss + named non-portability rather than by dismissal.
 - [x] Failure modes have detection mechanisms — every row of §Failure Mode Analysis names a detection that is an assertion about observed behavior, never a return value; the silent-acceptance row exists precisely because the return value is known to be untrustworthy.
 - [x] Point of no return is identified and communicated — §Reversibility Assessment: the first shipped driver whose only continuity path is canonical replay.
 
@@ -240,5 +240,5 @@ Both declines are properties of the consuming capability, not of this decision, 
 | Date | Event | Notes |
 | --- | --- | --- |
 | 2026-08-26 | Research conducted | The in-tree pinned wire references (`claude` 2.1.245, `codex` 0.149.1) read for the continuity surfaces each vendor exposes, establishing Assumption 5 and the confirmed half of Assumption 1; corpus survey establishing Assumption 2. Assumption 1's Claude half is recorded **unvalidated** and gated on the Plan-005 replay assertion rather than asserted. |
-| 2026-08-26 | Proposed | Authored on the NS-84 vehicle, triggered by the same-agent provider switch, which has no provider-native path by construction. |
+| 2026-08-26 | Proposed | Authored on the vehicle, triggered by the same-agent provider switch, which has no provider-native path by construction. |
 | 2026-08-26 | Accepted | Accepted in the same swap. Every antithesis point is answered in §Synthesis — (c) by narrowing the sufficiency claim to visibility + declared loss + named non-portability, and (a) by bounding replay to paths where continuity was already broken — and §Enumerated Gates And Fallbacks makes the synthesis checkable by direct count rather than by assurance. |

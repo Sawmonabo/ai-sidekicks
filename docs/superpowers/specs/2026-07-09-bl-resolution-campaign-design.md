@@ -39,7 +39,7 @@ Resolve the five build-now items from the 2026-07-09 backlog deep investigation 
 - [AGENTS.md §Doc-First Discipline](../../../AGENTS.md) — binds plan-task shipment; lanes 2–3 exempt. §Citation Standard + Durable-Cite Rule: raw `file:line` pins into `packages/` are gate-denied; code cites use `path#symbol` anchors.
 - [Plan-readiness audit runbook](../../operations/plan-implementation-readiness-audit-runbook.md) — §Spec-Status Promotion Gate (4 criteria; promotion PR cites the gate by name); runbook:233 amendment flip rule; §Status Flip Rule table for plans; the cross-plan-dependencies §1/§2/§3-amendment re-audit trigger.
 - [ADR-023](../../decisions/023-v1-ci-cd-and-release-automation.md) — CI surface, gated squash-merge ceremony (merge on CI green ∧ Codex ack ∧ zero unresolved threads; explicit `--subject`/`--body-file`; never `--auto`), §Axis 1 self-hosted remote-cache decision, HMAC ≥32 bytes, `TURBO_REMOTE_CACHE_SIGNATURE_KEY`.
-- [cross-plan-dependencies.md](../../architecture/cross-plan-dependencies.md) — §1/§2 ownership (owning plan CREATEs, dependents EXTEND), §5 tier order, §6 dispatch state.
+- cross-plan-dependencies.md — §1/§2 ownership (owning plan CREATEs, dependents EXTEND), §5 tier order, §6 dispatch state.
 - Worktree discipline (CLAUDE.md §Worktrees): lanes under `.worktrees/` only; occupancy-checked removal.
 
 ## 3. Verified current state (the audit that grounds the campaign)
@@ -295,7 +295,7 @@ A dedicated final task, after all unit PRs merge, verifying the whole documentat
 
 ## 9. References
 
-In-repo: [CONTRIBUTING.md §How Code Lands](../../../CONTRIBUTING.md); [AGENTS.md](../../../AGENTS.md); [audit runbook](../../operations/plan-implementation-readiness-audit-runbook.md); Spec-002; [Spec-003](../../specs/003-runtime-node-attach.md); [Spec-021](../../specs/021-rate-limiting-policy.md); [Spec-023](../../specs/023-desktop-shell-and-renderer.md); Plan-002; [Plan-003](../../plans/003-runtime-node-attach.md); Plan-008; [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md); [ADR-012](../../decisions/012-cedar-approval-policy-engine.md); [ADR-022](../../decisions/022-v1-toolchain-selection.md); [ADR-023](../../decisions/023-v1-ci-cd-and-release-automation.md); [error-contracts.md](../../architecture/contracts/error-contracts.md); [api-payload-contracts.md](../../architecture/contracts/api-payload-contracts.md); [cross-plan-dependencies.md](../../architecture/cross-plan-dependencies.md); [backlog.md](../../backlog.md).
+In-repo: [CONTRIBUTING.md §How Code Lands](../../../CONTRIBUTING.md); [AGENTS.md](../../../AGENTS.md); [audit runbook](../../operations/plan-implementation-readiness-audit-runbook.md); Spec-002; [Spec-003](../../specs/003-runtime-node-attach.md); [Spec-021](../../specs/021-rate-limiting-policy.md); [Spec-023](../../specs/023-desktop-shell-and-renderer.md); Plan-002; [Plan-003](../../plans/003-runtime-node-attach.md); Plan-008; [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md); [ADR-012](../../decisions/012-cedar-approval-policy-engine.md); [ADR-022](../../decisions/022-v1-toolchain-selection.md); [ADR-023](../../decisions/023-v1-ci-cd-and-release-automation.md); [error-contracts.md](../../architecture/contracts/error-contracts.md); [api-payload-contracts.md](../../architecture/contracts/api-payload-contracts.md); cross-plan-dependencies.md; [backlog.md](../../backlog.md).
 
 Web (primary, verified 2026-07-09):
 

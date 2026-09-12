@@ -70,7 +70,7 @@ PII fields in session events are stored in a separate encrypted column (`pii_pay
 
 - [Local SQLite Schema](./schemas/local-sqlite-schema.md) — canonical DDL for daemon-local tables
 - [Shared Postgres Schema](./schemas/shared-postgres-schema.md) — canonical DDL for control plane tables
-- [Cross-Plan Dependency Graph](./cross-plan-dependencies.md) — table ownership map (which plan owns CREATE vs ALTER for each table)
+- Cross-Plan Dependency Graph — table ownership map (which plan owns CREATE vs ALTER for each table)
 
 ## Migration Strategy
 
@@ -124,7 +124,7 @@ See [ADR-018 §Decision](../decisions/018-cross-version-compatibility.md#decisio
 
 ## Related Architecture Docs
 
-- [Cross-Plan Dependency Graph and Ownership Map](./cross-plan-dependencies.md) — table ownership, package path ownership, build order, and inter-plan dependency declarations
+- Cross-Plan Dependency Graph and Ownership Map — table ownership, package path ownership, build order, and inter-plan dependency declarations
 
 ## Related ADRs
 

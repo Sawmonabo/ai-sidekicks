@@ -2581,7 +2581,7 @@ The plan-execution housekeeper subagent and its companion script (`scripts/post-
 
 ## Status format
 
-NS-12 precedent (the `- Status:` line of [cross-plan-dependencies.md §NS-12](../../architecture/cross-plan-dependencies.md#ns-12-plan-001-phase-5-split-amendment--phase-5-dep-alignment)):
+NS-12 precedent (the `- Status:` line of cross-plan-dependencies.md §NS-12):
 
 > `- Status: \`completed\` (resolved YYYY-MM-DD via PR #<N> — <one-line resolution narrative>)`
 
