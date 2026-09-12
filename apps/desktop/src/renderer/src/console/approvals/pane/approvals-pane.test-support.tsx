@@ -55,27 +55,19 @@ export function approvalsPaneContext(
 }
 
 /**
- * A store bound to a session, carrying the scenario's own roster.
+ * A store bound to a session, established at the bottom of the stream.
  *
- * The roster is seeded because the caller's ROLE is a lookup in it: the fixture
- * answers which participant this window is, and the role that identity resolves to
- * lives in the session's participant partition. A store with an empty roster would
- * make every role-gated control render closed for a reason nothing checked, which is
- * exactly the state the goal controls used to be pinned in.
+ * The same base state the fixture's own session read serves: cursor zero and the
+ * scenario's join order, with every partition left to the log's own projectors.
  */
 export function boundStore(
   scenario: ConsoleScenario | undefined = APPROVALS_SCENARIO,
 ): SessionStore {
   const store = new SessionStore({ sessionId: scenario?.sessionId ?? "session-approvals" });
-  const rolesByParticipantId = scenario?.membershipRoleByParticipantId ?? {};
   store.initialise({
     cursor: 0,
-    entities: Object.entries(rolesByParticipantId).map(([participantId, role]) => ({
-      kind: "participant",
-      id: participantId,
-      body: { role },
-    })),
-    participantJoinLog: Object.keys(rolesByParticipantId),
+    entities: [],
+    participantJoinLog: scenario?.participantIdsInJoinOrder ?? [],
   });
   return store;
 }

@@ -1,32 +1,21 @@
-import {
-  GROWTH_CHANNEL_AUDIENCES,
-  GROWTH_CHANNEL_TURN_POLICIES,
-  type GrowthChannelAudience,
-  type GrowthChannelTurnPolicy,
-} from "../../bridge/index.js";
+import { GROWTH_CHANNEL_AUDIENCES, type GrowthChannelAudience } from "../../bridge/index.js";
 import { type CreateChannelDraft } from "./create-channel-draft.js";
 import { CHANNEL_MODERATION_FIELDS, type ChannelModerationField } from "./create-channel-fields.js";
 
 /**
- * The five members of a channel's policy, under one disclosure that opens by default.
+ * The three members of a channel's policy, under one disclosure that opens by default.
  *
- * ONE DISCLOSURE, OPEN. Name and kind are the two decisions everybody makes and the
- * policy is the one most people take the session's defaults for, so the five sit
- * together behind a summary a person can collapse — open, because a create-time
- * decision hidden behind a closed fold is a decision made by not looking.
- *
- * IT DOES NOT EXIST FOR A `direct` CHANNEL. The caller renders this component only on
- * the general arm: a direct channel carries no audience, no turn policy, no
- * round-robin order, no moderation setting and no per-agent cap, so the fields are
- * ABSENT rather than disabled — a disabled field claims the value could be set here
- * and is being withheld, which is a different and untrue statement.
+ * ONE DISCLOSURE, OPEN. The name is the decision everybody makes and the policy is the
+ * one most people take the session's defaults for, so the three sit together behind a
+ * summary a person can collapse — open, because a create-time decision hidden behind a
+ * closed fold is a decision made by not looking.
  *
  * EVERY FIELD IS LABELLED FIXED AT CREATION, and that is the surface's real content:
  * V1 registers no channel-configuration mutation at all, so this is the only moment
  * any of it can be said. A person who does not know it is the only moment finds out
  * by getting it wrong.
  *
- * AN UNTOUCHED FIELD SENDS NOTHING. Each select carries an explicit "session default"
+ * AN UNTOUCHED FIELD SENDS NOTHING. The select carries an explicit "session default"
  * entry rather than a pre-picked value, because an absent member on this wire MEANS
  * the session's default and a console that filled one in would be choosing on the
  * person's behalf and reporting it as their choice.
@@ -58,43 +47,8 @@ export function CreateChannelPolicyFields(props: {
           ))}
         </select>
         <span className="meridian-create-channel__field-note">
-          Fixed at creation. <code>participants</code> means this session&rsquo;s agents read it;{" "}
-          <code>humans-only</code> means no agent ever does.
-        </span>
-      </label>
-
-      <label className="meridian-create-channel__field">
-        <span className="meridian-create-channel__field-label">How agents take turns</span>
-        <select
-          className="meridian-create-channel__select"
-          value={draft.turnPolicy ?? ""}
-          onChange={(event) => {
-            draft.setTurnPolicy(readTurnPolicy(event.target.value));
-          }}
-        >
-          <option value="">Session default</option>
-          {GROWTH_CHANNEL_TURN_POLICIES.map((policy) => (
-            <option key={policy} value={policy}>
-              {policy}
-            </option>
-          ))}
-        </select>
-        <span className="meridian-create-channel__field-note">Fixed at creation.</span>
-      </label>
-
-      <label className="meridian-create-channel__field">
-        <span className="meridian-create-channel__field-label">Round-robin order</span>
-        <input
-          className="meridian-create-channel__text"
-          value={draft.roundRobinOrder}
-          placeholder="Identifiers, separated by commas"
-          onChange={(event) => {
-            draft.setRoundRobinOrder(event.target.value);
-          }}
-        />
-        <span className="meridian-create-channel__field-note">
-          Fixed at creation. Required when agents take turns round-robin, and ignored under every
-          other policy.
+          Fixed at creation. <code>participants</code> means this session&rsquo;s sidekicks read it;{" "}
+          <code>humans-only</code> means none ever does.
         </span>
       </label>
 
@@ -146,15 +100,11 @@ const MODERATION_LABEL: Readonly<Record<ChannelModerationField, string>> = {
  * The picked option, read back against the vocabulary it was drawn from.
  *
  * A `<select>` has no null value, so "session default" is spelled as the empty string
- * — and rather than reading that sentinel and asserting the rest, each reader searches
+ * — and rather than reading that sentinel and asserting the rest, the reader searches
  * the same tuple the options were rendered from. Nothing is cast: a value that is not
  * a member of the vocabulary is `undefined`, which is the session's default, which is
  * exactly what the empty entry means.
  */
 function readAudience(value: string): GrowthChannelAudience | undefined {
   return GROWTH_CHANNEL_AUDIENCES.find((audience) => audience === value);
-}
-
-function readTurnPolicy(value: string): GrowthChannelTurnPolicy | undefined {
-  return GROWTH_CHANNEL_TURN_POLICIES.find((policy) => policy === value);
 }

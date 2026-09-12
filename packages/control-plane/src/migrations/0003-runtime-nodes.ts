@@ -63,26 +63,22 @@
 //
 // The following adjacent surfaces are deliberately untouched:
 //
-//   * `session_memberships` — Plan-001 owns the table per
-//     `docs/architecture/cross-plan-dependencies.md` §1. This migration does
-//     NOT reference, ALTER, or mutate it. Plan-003's attach/detach flows write
-//     ONLY `runtime_node_attachments` / `runtime_node_presence` and acquire no
-//     `session_memberships` lock (Plan-003 §Invariants I-003-3, tasks
-//     T3.2/T3.5) — at the service layer, never via DDL.
-//   * `sessions.min_client_version` — Plan-001 forward-declared this column
-//     (`0001-initial`); Plan-003 READS it at attach time (T3.3). This
-//     migration neither re-declares nor ALTERs it.
-//   * `sessions/migration-runner.ts` — Plan-001 owns the runner. Per the
-//     runner's head-of-file docstring (which already names Plan-003 as the
-//     next v3+ registrant), this SQL is wired into the canonical
+//   * `sessions` — owned by the initial migration. This migration does NOT
+//     reference, ALTER, or mutate it. The attach and detach flows write ONLY
+//     `runtime_node_attachments` / `runtime_node_presence`, at the service
+//     layer, never via DDL.
+//   * `sessions.min_client_version` — forward-declared by the initial
+//     migration; the attach flow READS it. This migration neither re-declares
+//     nor ALTERs it.
+//   * `sessions/migration-runner.ts` — this SQL is wired into the canonical
 //     `applyMigrations()` per-version loop by appending
-//     `{ version: 3, sql: RUNTIME_NODES_MIGRATION_SQL }` to `MIGRATIONS`
-//     (after Plan-002's v2) so deployers pulling `develop` apply v1, v2, AND
-//     v3 automatically. Coverage is split: the co-located
+//     `{ version: 3, sql: RUNTIME_NODES_MIGRATION_SQL }` to `MIGRATIONS` so
+//     deployers pulling `develop` apply every registered version
+//     automatically. Coverage is split: the co-located
 //     `__tests__/0003-runtime-nodes.test.ts` exercises this v3 SQL via direct
 //     `tx.exec()` (`applyRuntimeNodesMigration` helper) as a SQL-layer
 //     regression backstop; `sessions/__tests__/migration-runner.test.ts` pins
-//     the canonical runner-loop path (fresh-DB apply v1+v2+v3 + idempotency).
+//     the canonical runner-loop path (fresh-DB apply + idempotency).
 //
 // ----------------------------------------------------------------------------
 // Why one transactional batch
@@ -90,12 +86,11 @@
 //
 // Postgres DDL is fully transactional. The runner wraps the entire migration
 // plus the schema_migrations INSERT in a single `querier.transaction(...)`
-// boundary (mirroring how `applyMigrations` wraps v1 and v2) so a torn write
-// (process kill mid-migration, disk error) leaves the database fully at v2,
-// never half-migrated to "v3 partial". The migration SQL itself does NOT
-// contain `BEGIN;`/`COMMIT;` — the transaction boundary is owned by the
-// caller, identical to `INITIAL_MIGRATION_SQL` and
-// `SESSION_INVITES_MIGRATION_SQL`.
+// boundary (mirroring how `applyMigrations` wraps v1) so a torn write
+// (process kill mid-migration, disk error) leaves the database fully at the
+// previous version, never half-migrated to "v3 partial". The migration SQL
+// itself does NOT contain `BEGIN;`/`COMMIT;` — the transaction boundary is
+// owned by the caller, identical to `INITIAL_MIGRATION_SQL`.
 
 export const RUNTIME_NODES_MIGRATION_SQL: string = `
 -- Owner: Plan-003

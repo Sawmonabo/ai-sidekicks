@@ -38,11 +38,10 @@
 //
 // Forward-declared columns (per Plan-001 §Cross-Plan Forward-Declared Schema):
 //   * session_events.monotonic_ns / prev_hash / row_hash /
-//     daemon_signature / participant_signature  — Plan-006 owns hash-chain +
-//     signature semantics. Plan-001 writes placeholders so the NOT NULL
+//     daemon_signature. Placeholders are written here so the NOT NULL
 //     constraints are satisfiable: monotonic_ns receives real values
 //     (process.hrtime.bigint()), the three required BLOBs receive
-//     zero-fill bytes (32B / 32B / 64B). participant_signature is NULL.
+//     zero-fill bytes (32B / 32B / 64B).
 //   * session_events.pii_payload — Plan-022 owns PII custody. Plan-001
 //     writes NULL for every event; no V1 SessionEvent variant carries PII.
 //   * participant_keys (entire table) — Plan-022 owns wrapping + DELETE-
@@ -94,7 +93,6 @@ CREATE TABLE session_events (
   prev_hash              BLOB NOT NULL,              -- 32 bytes; row_hash of previous row (zero-filled at sequence=0)
   row_hash               BLOB NOT NULL,              -- 32 bytes; BLAKE3(prev_hash || JCS-canonical envelope bytes)
   daemon_signature       BLOB NOT NULL,              -- 64 bytes; Ed25519 over same canonical bytes
-  participant_signature  BLOB,                       -- 64 bytes; Ed25519 from participant key; NULL for non-sensitive events
   UNIQUE(session_id, sequence),
   -- Plan-001 length CHECKs on the integrity BLOBs: surface wrong-size
   -- placeholder bugs at INSERT time instead of deferring to Plan-006's
@@ -102,8 +100,7 @@ CREATE TABLE session_events (
   -- Security Architecture §Audit Log Integrity and Spec-006 §Integrity Protocol.
   CHECK(length(prev_hash) = 32),
   CHECK(length(row_hash) = 32),
-  CHECK(length(daemon_signature) = 64),
-  CHECK(participant_signature IS NULL OR length(participant_signature) = 64)
+  CHECK(length(daemon_signature) = 64)
 );
 
 CREATE INDEX idx_session_events_session_seq ON session_events(session_id, sequence);

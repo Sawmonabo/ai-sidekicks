@@ -1,17 +1,8 @@
-// The workspace chrome's bounds: the cast bar's chip fold, the sidebar's width
-// ceiling, the deck's restored pane cap, and the load hairline's progress range.
+// The workspace chrome's bounds: the sidebar's width ceiling, the deck's restored
+// pane cap, and the load hairline's progress range.
 //
-// Four surfaces of one frame, and one of them is a RANGE — a floor and a ceiling that
+// Three surfaces of one frame, and one of them is a RANGE — a floor and a ceiling that
 // a clamp reads together, which is why that range keeps one home.
-
-/**
- * Participant chips the cast bar shows before folding to "+N" (rule 7).
- *
- * The number is a decision `Spec-023 §Meridian, the design language` rule 7 already
- * fixed — "the cast bar shows up to eight chips, then `+N`" — and a bound re-derived
- * at the point of use is a bound that can come back different.
- */
-export const CAST_BAR_CHIP_CAP = 8;
 
 /**
  * The widest the sidebar may be kept at, in percent.

@@ -47,11 +47,11 @@ describe("revoked rules are labelled, never filtered", () => {
       rule({
         ruleId: "rule-02",
         revokedAt: "2026-01-02T10:00:00.000Z",
-        invalidationTrigger: "membership_change",
+        invalidationTrigger: "node_trust_change",
       }),
     ]);
     expect(screen.getAllByRole("listitem")).toHaveLength(2);
-    expect(screen.getByText(/grantor.s membership changed/u)).not.toBeNull();
+    expect(screen.getByText(/node.s trust changed/u)).not.toBeNull();
     // The audit history is the default view, so exactly one row is still live and
     // offers the control — the revoked one offers none.
     expect(screen.getAllByRole("button", { name: "Revoke" })).toHaveLength(1);

@@ -6,9 +6,9 @@
 // and no spawn: it reads two exported constants and their replies.
 //
 // WIRE TRUTH IS NOT HERE, AND DELIBERATELY SO. `bridge/scenario/wire-truth/wire-truth.ts` is
-// the one predicate every scenario on the seat board is measured through — the
-// `Spec-006` census, the canonical envelope, the log position and tick each beat
-// takes, one scripted answer per call, the memberships a scenario declares — and
+// the one predicate every scenario on the seat board is measured through — the event
+// census, the canonical envelope, the log position and tick each beat takes, and one
+// scripted answer per call — and
 // both scripts below sit on that board, so every one of those legs already runs
 // against them. This file once carried its own census, its own ordering rule, and
 // its own duplicate-call check. Each was a second implementation of a rule that

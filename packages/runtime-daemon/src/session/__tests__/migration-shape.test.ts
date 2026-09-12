@@ -13,9 +13,8 @@
 //
 // Schema source-of-truth is `docs/architecture/schemas/local-sqlite-schema.md`
 // + `0001-initial.ts` inline SQL. Forward-declared columns
-// (`session_events.pii_payload`, `prev_hash`, `row_hash`, `daemon_signature`,
-// `participant_signature`) ship in Plan-001 per §Cross-Plan Forward-Declared
-// Schema with semantics owned by Plan-006 / Plan-022.
+// (`session_events.pii_payload`, `prev_hash`, `row_hash`, `daemon_signature`)
+// ship with the initial migration; later migrations own their semantics.
 
 import { DRIVER_CAPABILITY_FLAGS } from "@ai-sidekicks/contracts";
 import Database from "better-sqlite3";
@@ -192,11 +191,9 @@ describe("0001-initial migration shape", () => {
     // Plan-006 forward-decl: hash-chain + signature columns. NOT NULL
     // for prev_hash / row_hash / daemon_signature (placeholder bytes
     // satisfy the constraint per Plan-001 §Forward-declared columns).
-    // participant_signature is nullable per the same block.
     expect(byName.get("prev_hash")?.notnull).toBe(1);
     expect(byName.get("row_hash")?.notnull).toBe(1);
     expect(byName.get("daemon_signature")?.notnull).toBe(1);
-    expect(byName.get("participant_signature")?.notnull).toBe(0);
 
     // Plan-022 forward-decl: PII payload column ships at Tier 1 with
     // crypto-shred semantics owned by Plan-022. Nullable per same block
@@ -3966,7 +3963,6 @@ describe("0015-queue-and-interventions migration shape", () => {
       expected_run_version: 3,
       client_idempotency_key: "9f1a6f4e-0000-4000-8000-000000000001",
       origin: "system",
-      admitting_principal_id: null,
       created_at: "2026-08-31T00:00:00.000Z",
       ...overrides,
     };
@@ -4014,12 +4010,10 @@ describe("0015-queue-and-interventions migration shape", () => {
       // NOT NULL and UNDEFAULTED together — that pairing is the fail-closed
       // property, not the NOT NULL alone (I-004-22).
       { name: "origin", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
-      { name: "admitting_principal_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
       { name: "result", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
       // The wire contract forbids `result` on `rejected`, so the machine-
       // readable cause needs its own column to survive an idempotent replay.
       { name: "rejection_reason", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
-      { name: "initiator_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
       { name: "created_at", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
       { name: "resolved_at", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
     ]);
@@ -4226,46 +4220,6 @@ describe("0015-queue-and-interventions migration shape", () => {
     }).toThrow(/CHECK constraint failed/);
   });
 
-  it("binds the admitting principal to the participant arm in both directions", () => {
-    // I-004-23, the biconditional. Both legal shapes first, so each refusal
-    // below is the CHECK rather than a malformed statement.
-    expect(() => {
-      insertIntervention({
-        id: "principal-participant",
-        origin: "participant",
-        admitting_principal_id: "participant-a",
-        client_idempotency_key: "principal-key-a",
-      });
-    }).not.toThrow();
-    expect(() => {
-      insertIntervention({
-        id: "principal-system",
-        origin: "system",
-        admitting_principal_id: null,
-        client_idempotency_key: "principal-key-b",
-      });
-    }).not.toThrow();
-
-    // A participant row can never persist without its verified identity...
-    expect(() => {
-      insertIntervention({
-        id: "principal-missing",
-        origin: "participant",
-        admitting_principal_id: null,
-        client_idempotency_key: "principal-key-c",
-      });
-    }).toThrow(/CHECK constraint failed/);
-    // ...and the system arm can never smuggle one in.
-    expect(() => {
-      insertIntervention({
-        id: "principal-smuggled",
-        origin: "system",
-        admitting_principal_id: "participant-a",
-        client_idempotency_key: "principal-key-d",
-      });
-    }).toThrow(/CHECK constraint failed/);
-  });
-
   it("keys intervention dedupe on the run and the idempotency key together", () => {
     insertIntervention({ id: "dedupe-a", target_run_id: "run-a", client_idempotency_key: "key-1" });
     // The SAME key under a DIFFERENT run is a distinct intervention — the grain
@@ -4327,7 +4281,7 @@ describe("0015-queue-and-interventions migration shape", () => {
       db.prepare("SELECT COUNT(*) AS total FROM schema_version WHERE version = 15").get(),
     ).toEqual({ total: 1 });
     expect(columnsOf("queue_items")).toHaveLength(12);
-    expect(columnsOf("interventions")).toHaveLength(16);
+    expect(columnsOf("interventions")).toHaveLength(14);
     // Six: version 15's five-column shell plus version 17's appended
     // `mcp_task_id`. Counted after the second pass because `ADD COLUMN` has no
     // `IF NOT EXISTS` — a re-run that reached the statement would throw

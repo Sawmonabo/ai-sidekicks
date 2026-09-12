@@ -37,7 +37,7 @@ import {
 /** A three-entry script whose `atMs` values are distinct and increasing. */
 const ORDERED_SCRIPT: readonly LedgerScriptEntry[] = [
   { atMs: 0, kind: "session.created", payload: { sessionId: SESSION_ID } },
-  { atMs: 40, kind: "membership.created", payload: { participantId: SESSION_ID } },
+  { atMs: 40, kind: "presence.online", payload: { sessionId: SESSION_ID } },
   { atMs: 120, kind: "agent.attached", payload: { sessionId: SESSION_ID } },
 ];
 

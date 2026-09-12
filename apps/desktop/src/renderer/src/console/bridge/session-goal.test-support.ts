@@ -7,7 +7,7 @@
 import { type ConsoleSessionEvent } from "../store/index.js";
 
 /**
- * One timeline entry.
+ * A single entry on the timeline.
  *
  * `occurredAt` defaults to a single instant so the cases that are only about kind
  * and payload say nothing about time; the cross-node cases pass their own, which is

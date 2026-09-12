@@ -22,8 +22,8 @@
 // answer has not said anything happened, so both arms return the outcome untouched.
 //
 // AND THE CREATE IS THE FOURTH, WHICH IT ONCE WAS NOT. The three moves share one
-// receipt shape and one registered payload — `{sessionId, channelId}`, the shape
-// `bridge/scenario/collaboration/beats.ts`'s own `channel.archived` beat carries — so one derivation
+// receipt shape and one registered payload — `{sessionId, channelId}`, the shape a
+// `channel.archived` beat carries — so one derivation
 // serves all three, and a create was left out because its own payload is a different
 // shape. What that cost was the whole act: a served create returned its receipt, the
 // form reported success and reset, and the channel appeared in no directory anywhere,
@@ -41,20 +41,16 @@
 //
 // AND THE READ SIDE OF THE SAME LIFECYCLE IS `channel-directory.ts`, which folds
 // the scripted `channel.list` reply over what this session's log has actually said. What
-// stays here is the half that ACTS; what this hands that fold is the one fact the log
-// cannot carry — how many people are in a channel this fixture was asked to create.
+// stays here is the half that ACTS.
 //
-// WHICH IS WHY THE CREATE IS REMEMBERED. `channel.created` is registered as exactly
-// `{channelId, name?}`, so a walk over the log knows a channel exists and knows nothing
-// about who is in it. The REQUEST knows: a `direct` channel names its two humans and a
-// `general` one names none, because a general channel takes the session's own
-// membership. So the create records the membership it can defend at the moment it has
-// the request, and the fold reads that rather than counting the creation's author —
-// which reported one member for every channel anybody creates and zero for a scenario
-// that declares no viewer, neither of which is a fact about a channel.
+// THE ONE FACT THE LOG CANNOT CARRY IS A CONSTANT. `channel.created` is registered as
+// exactly `{channelId, name?}` while `ChannelListResponseChannel.participantCount` is
+// required, so a walk over the log establishes that a channel exists and can fill in no
+// count for it. One person drives this runtime, so the count is
+// {@link CREATED_CHANNEL_PARTICIPANT_COUNT} — a number both sides read from one home,
+// never a per-channel register whose every entry would be that same number.
 
 import { answerScriptOnly } from "../growth/scripted-answer.js";
-import { fixtureSessionMembershipCount } from "./session-membership.js";
 import type {
   GrowthChannelCreateReceipt,
   GrowthChannelLifecycleReceipt,
@@ -87,6 +83,16 @@ export const CHANNEL_CREATE_CALL = "channel.create";
 export const CHANNEL_CREATED_EVENT_KIND = "channel.created";
 
 /**
+ * How many people a channel this fixture answers for holds.
+ *
+ * `ChannelListResponseChannel.participantCount` is a required member, so a created row
+ * has to carry a number; one person drives this runtime, and no surface renders the
+ * figure. Named rather than written twice, because the directory fold that fills it in
+ * is a module away from the act that produces the channel.
+ */
+export const CREATED_CHANNEL_PARTICIPANT_COUNT = 1;
+
+/**
  * The identifier prefix an appended channel frame wears.
  *
  * UUID-shaped like every scripted event id, and from a range no scenario in the tree
@@ -104,7 +110,6 @@ const APPENDED_CHANNEL_EVENT_ID_PREFIX = "019bf1c7-0000-7000-8000-";
  */
 export class FixtureChannelLifecycle {
   readonly #engine: ScenarioEngine;
-  readonly #membershipByCreatedChannelId = new Map<string, number>();
   #appendedFrameCount = 0;
 
   public constructor(engine: ScenarioEngine) {
@@ -118,19 +123,6 @@ export class FixtureChannelLifecycle {
       channelUnmute: async (request) => await this.#move("channelUnmute", request),
       channelArchive: async (request) => await this.#move("channelArchive", request),
     };
-  }
-
-  /**
-   * How many people are in each channel this fixture was asked to create.
-   *
-   * The one fact the directory fold cannot read off the log, handed over as a map rather
-   * than as a row so the fold keeps composing the row and this keeps deciding the
-   * membership. A channel absent from it is one no create of this fixture's produced —
-   * an authored `channel.created` beat, say — and the fold answers that from the
-   * session's own membership, which is all such a frame supports.
-   */
-  public get membershipByCreatedChannelId(): ReadonlyMap<string, number> {
-    return this.#membershipByCreatedChannelId;
   }
 
   /**
@@ -151,52 +143,18 @@ export class FixtureChannelLifecycle {
       request,
     );
     if (outcome.status === "served") {
-      // The membership is recorded BEFORE the frame, and off the request rather than off
-      // the frame, because the frame cannot carry it: the registered payload is
-      // `{channelId, name?}` and nothing else. See the header for why remembering it is
-      // the only honest source.
-      this.#membershipByCreatedChannelId.set(
-        outcome.value.channelId,
-        this.#membershipOfCreated(request),
-      );
       // The registered `{channelId, name?}` and nothing beside it — the state and the
       // participant count reach a reader from `channel.list`, never from the creation
       // event, and an unnamed channel OMITS the member rather than carrying it
       // undefined, because `name?` is an absent member on this wire and never a
-      // present empty one. Both are `bridge/scenario/collaboration/beats.ts`'s own statement about the
-      // beat it writes by hand.
+      // present empty one. Both are the statement a hand-written beat makes about
+      // itself.
       this.#appendFrame(CHANNEL_CREATED_EVENT_KIND, {
         channelId: outcome.value.channelId,
         ...(request.name === undefined ? {} : { name: request.name }),
       });
     }
     return outcome;
-  }
-
-  /**
-   * How many people one create request puts in the channel it asks for.
-   *
-   * TWO ARMS, AND THEY ARE THE WIRE'S OWN COUPLING. A `direct` channel IS its member
-   * pair — the request carries exactly the two humans it is between and the daemon
-   * refuses any other number — so the pair is the membership, counted rather than
-   * assumed at two, which is what keeps this reading the request instead of restating a
-   * rule. Every other channel takes the session's own membership, counted through
-   * `session-membership.ts` so the act and the directory fold answer "who is in
-   * this session" the same way, agents excluded.
-   *
-   * AND IT IS COUNTED AT THE CREATE INSTANT, off the frames this playback has actually
-   * delivered rather than off the roster the session opened with. The two differ the
-   * moment a membership ENDS: a room that has been told somebody was revoked and then
-   * creates a general channel was reporting that person as one of its members, because
-   * the base state's participant entities fold no lifecycle event and never will —
-   * they are the state at cursor zero by construction. The fold beside them is what
-   * the log has said since.
-   */
-  #membershipOfCreated(request: GrowthOperationSignatures["channelCreate"]["request"]): number {
-    if (request.kind === "direct" && request.memberPair !== undefined) {
-      return request.memberPair.length;
-    }
-    return fixtureSessionMembershipCount(this.#engine, request.sessionId);
   }
 
   /** Answer one move from the script, and publish what it says the daemon did. */
@@ -209,8 +167,7 @@ export class FixtureChannelLifecycle {
     if (outcome.status === "served") {
       // The payload carries the session and the channel the envelope is about and
       // invents nothing else, because the census registers no payload variant for
-      // these three kinds — the same restraint `bridge/scenario/collaboration/beats.ts` states for the
-      // archival beat it writes by hand.
+      // these three kinds — the same restraint a hand-written archival beat keeps.
       this.#appendFrame(move.eventKind, {
         sessionId: this.#engine.scenario.sessionId,
         channelId: outcome.value.channelId,

@@ -34,25 +34,15 @@
 // to photograph a tree still carrying one.
 
 import { LoadedLazyBody, reservedBodyRegion } from "../../seats/index.js";
-import type { JoinSessionFormProps } from "./JoinSessionForm.js";
 import type { ProviderImportPanelProps } from "./ProviderImportPanel.js";
 
 /**
- * What a pending join form stamps, so a refused capture says WHICH body was loading.
+ * What a pending import panel stamps, so a refused capture says WHICH body was loading.
  *
- * Not a pane kind — neither of these bodies is a pane, and both are drawn inside a bar
- * the deck knows nothing about — so the value is the body's own name.
+ * Not a pane kind — the body is not a pane, and it is drawn inside a bar the deck knows
+ * nothing about — so the value is the body's own name.
  */
-const JOIN_SESSION_FORM_PENDING_BODY = "join-session-form";
-
-/** The same, for the import panel: two names, so a refusal names one of them. */
 const PROVIDER_IMPORT_PANEL_PENDING_BODY = "provider-import-panel";
-
-/** The join form, mounted from its own chunk. The Join disclosure's one reader. */
-export const joinSessionFormMount: LoadedLazyBody<JoinSessionFormProps> = new LoadedLazyBody(
-  () => import("./join-session-form-body.js"),
-  () => reservedBodyRegion(JOIN_SESSION_FORM_PENDING_BODY),
-);
 
 /** The import panel, mounted from its own chunk. The create menu's one reader. */
 export const providerImportPanelMount: LoadedLazyBody<ProviderImportPanelProps> =

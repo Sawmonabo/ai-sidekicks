@@ -164,7 +164,7 @@ function count(value: number): ShellSentencePart {
 const MUTATION_CLASSES = [
   "run controls",
   "repo and workspace changes",
-  "session roster changes",
+  "new sessions",
   "account probes",
   "ask answers",
 ] as const;
@@ -197,11 +197,7 @@ const MUTATING_METHOD_CLASSES: Record<MutatingDaemonMethod, MutationClass> = {
   "repo.ephemeralClonePrepare": "repo and workspace changes",
   "repo.ephemeralCloneDispose": "repo and workspace changes",
   "repo.worktreeRetire": "repo and workspace changes",
-  "session.create": "session roster changes",
-  "session.join": "session roster changes",
-  "membership.update": "session roster changes",
-  "invite.create": "session roster changes",
-  "invite.revoke": "session roster changes",
+  "session.create": "new sessions",
   "providerAccount.probe": "account probes",
 };
 

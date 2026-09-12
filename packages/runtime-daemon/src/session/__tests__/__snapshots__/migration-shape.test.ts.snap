@@ -207,21 +207,13 @@ exports[`0001-initial migration shape > pins the column shape of \`session_event
   {
     "cid": 16,
     "dflt_value": null,
-    "name": "participant_signature",
-    "notnull": 0,
-    "pk": 0,
-    "type": "BLOB",
-  },
-  {
-    "cid": 17,
-    "dflt_value": null,
     "name": "pii_participant_id",
     "notnull": 0,
     "pk": 0,
     "type": "TEXT",
   },
   {
-    "cid": 18,
+    "cid": 17,
     "dflt_value": null,
     "name": "retention_class",
     "notnull": 0,
@@ -229,7 +221,7 @@ exports[`0001-initial migration shape > pins the column shape of \`session_event
     "type": "TEXT",
   },
   {
-    "cid": 19,
+    "cid": 18,
     "dflt_value": null,
     "name": "stub_signature",
     "notnull": 0,
@@ -237,7 +229,7 @@ exports[`0001-initial migration shape > pins the column shape of \`session_event
     "type": "BLOB",
   },
   {
-    "cid": 20,
+    "cid": 19,
     "dflt_value": null,
     "name": "content_payload",
     "notnull": 0,

@@ -7,7 +7,7 @@
 | **Slug** | `identity-and-participant-state` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Depends On** | [Invite Membership And Presence](../specs/002-invite-membership-and-presence.md), [Participant And Membership Model](../domain/participant-and-membership-model.md), [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md) |
+| **Depends On** | [User And Device Model](../domain/user-and-device-model.md), [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md) |
 | **Implementation Plan** | [Plan-018: Identity And Participant State](../plans/018-identity-and-participant-state.md) |
 
 > **Amendment (2026-08-15, participant identity-key registration + daemon credential seam — amends the previously-`approved` spec; the header flips to `review` under the audit runbook's spec-amendment rule and is restored `approved` in this same swap by the Plan-018 NS-62 promotion-pass targeted readiness-audit delta (PR #334), whose targeted coverage audits exactly this growth — the flip-and-restore-in-one-swap shape PR #321/NS-56 and PR #323/NS-58 used, taken here additionally because a `review` window on this spec would invalidate Plan-018's own "Paired spec is approved" precondition inside its promotion PR.)** Two coordinated additions, each affected section carrying the normative text in place. (1) **Participant identity-key registration and roster** — a participant holds one registered long-term Ed25519 identity key per workstation (multi-key by construction, [trust-and-identity.md §Edge Cases](../domain/trust-and-identity.md#edge-cases)); registration is register-once with the control-plane half of [ADR-021](../decisions/021-cli-identity-key-storage-custody.md)'s Refuse-On-Rotation Invariant; the roster read is membership-gated and non-oracular; no key bytes ride `ParticipantProjection`. This closes the coherence gap [trust-and-identity.md §Related Specs](../domain/trust-and-identity.md#related-specs) already asserts — "control-plane data model for participant identities **and key registration**" — a claim this spec did not honor before this amendment. (2) **Daemon credential seam** — the daemon-resident control-plane caller credential (PASETO v4.public access token under the `DPoP` scheme + per-attempt RFC 9449 proof), its issuance-into-the-daemon and refresh path, and the proof-for-a-presented-token affordance (Plan-014 CP-014-5), implementing the Plan-006 CP-006-13 interface declaration. Plan rows: Plan-018 Phase 5 (T5.1–T5.8), invariants I-018-10..I-018-14.
@@ -30,7 +30,7 @@ This spec covers participant identity mapping, participant profile state, device
 
 ## Domain Dependencies
 
-- [Participant And Membership Model](../domain/participant-and-membership-model.md)
+- [User And Device Model](../domain/user-and-device-model.md)
 - [Session Model](../domain/session-model.md)
 
 ## Architectural Dependencies
@@ -142,5 +142,4 @@ This spec covers participant identity mapping, participant profile state, device
 
 ## References
 
-- [Invite Membership And Presence](../specs/002-invite-membership-and-presence.md)
-- [Participant And Membership Model](../domain/participant-and-membership-model.md)
+- [User And Device Model](../domain/user-and-device-model.md)

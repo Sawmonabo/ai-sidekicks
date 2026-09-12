@@ -206,7 +206,6 @@ export function createRefusingGrowthPort(): GrowthPort {
     onboardingTelemetryPrompt: async () => growthUnavailable("onboardingTelemetryPrompt"),
     shellConfigRead: async () => growthUnavailable("shellConfigRead"),
     shellConfigWrite: async () => growthUnavailable("shellConfigWrite"),
-    invitesList: async () => growthUnavailable("invitesList"),
     healthSubscribe: async () => growthUnavailable("healthSubscribe"),
     // The five diagnostics reads. `healthSubscribe` above is a different wire on a
     // different slate row; these are the page's own, and all five refuse under a live
@@ -279,21 +278,10 @@ export function createRefusingGrowthPort(): GrowthPort {
     channelMute: async () => growthUnavailable("channelMute"),
     channelUnmute: async () => growthUnavailable("channelUnmute"),
     channelArchive: async () => growthUnavailable("channelArchive"),
-    channelRosterRead: async () => growthUnavailable("channelRosterRead"),
-    membershipRosterRead: async () => growthUnavailable("membershipRosterRead"),
     participantPresenceDetailRead: async () => growthUnavailable("participantPresenceDetailRead"),
     terminalControlHolderRead: async () => growthUnavailable("terminalControlHolderRead"),
-    // presence — the two Awareness activity fields
+    // presence — the run-keyed Awareness activity field
     presenceActivityRead: async () => growthUnavailable("presenceActivityRead"),
-    presenceComposingSet: async () => growthUnavailable("presenceComposingSet"),
-    presenceComposingClear: async () => growthUnavailable("presenceComposingClear"),
-    // invite — the pending namespace, and the host a link is written on
-    invitePendingSubscribe: async () => growthUnavailable("invitePendingSubscribe"),
-    inviteOutcomeSubscribe: async () => growthUnavailable("inviteOutcomeSubscribe"),
-    inviteConfirmPending: async () => growthUnavailable("inviteConfirmPending"),
-    inviteRetryPending: async () => growthUnavailable("inviteRetryPending"),
-    inviteDismissPending: async () => growthUnavailable("inviteDismissPending"),
-    controlPlaneHostRead: async () => growthUnavailable("controlPlaneHostRead"),
     // the shell
     shellNotificationPermissionRead: async () =>
       growthUnavailable("shellNotificationPermissionRead"),

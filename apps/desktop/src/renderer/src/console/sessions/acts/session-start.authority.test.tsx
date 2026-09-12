@@ -40,7 +40,6 @@ function creatingBridge(): void {
     vi.fn().mockResolvedValue({
       sessionId: CREATED_SESSION_ID,
       state: "active",
-      memberships: [],
       channels: [],
     }),
   );

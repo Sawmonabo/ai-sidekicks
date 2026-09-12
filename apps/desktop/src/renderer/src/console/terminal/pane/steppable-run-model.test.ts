@@ -1,7 +1,7 @@
 // Whether the store's run partition says a run is running.
 //
 // THE CASES THAT MATTER ARE THE DISAGREEMENTS. A fold that answered from the raw
-// timeline passed every positive case here and still put 8.9's aside on a run the rest
+// timeline passed every positive case here and still put the step-in aside on a run the rest
 // of the console did not consider running: a tolerant `run.running` beat whose payload
 // contradicts its own kind — or names no state at all — is refused by the run-lifecycle
 // projector and reaches the `run` partition never, while a fold keyed on `event.kind`

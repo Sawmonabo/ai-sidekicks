@@ -5,11 +5,8 @@
 // close and an unmount both give up that claimant's claim and nobody else's, and that
 // the cell the frame reads follows the register rather than the last caller.
 //
-// THROUGH THE STORE-BOUND HOOK, WHICH IS THE ACT-TAKING ONE WITH A BINDING ON IT.
-// `useModalSurfaceLifetime` composes `modalSurfaceClaimFor` and defers to
-// `useModalSurfaceClaim`, so every case here drives all three; the third caller — the
-// deep-link invite card, which is handed an act and never a store — asserts the same
-// cell from its own suite, over the props the window overlay seat declares.
+// THROUGH THE ONE HOOK EVERY WINDOW-SCOPED OVERLAY CALLS, so a case here is a claim
+// about the wiring a real surface gets rather than about a register in isolation.
 //
 // THE OVERLAP IS THE POINT. Both cases below mount two surfaces in ONE tree, because
 // that is the window the defect lived in — the sign-in card open while the palette

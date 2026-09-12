@@ -179,12 +179,11 @@ The 256 MB local daemon budget above is an operating target derived from small-t
 
 - [Session Model](../domain/session-model.md)
 - [Runtime Node Model](../domain/runtime-node-model.md)
-- [Participant And Membership Model](../domain/participant-and-membership-model.md)
+- [User And Device Model](../domain/user-and-device-model.md)
 
 ## Related Specs
 
 - [Runtime Node Attach](../specs/003-runtime-node-attach.md)
-- [Control Plane Relay And Session Join](../specs/008-control-plane-relay-and-session-join.md)
 
 ## Related ADRs
 

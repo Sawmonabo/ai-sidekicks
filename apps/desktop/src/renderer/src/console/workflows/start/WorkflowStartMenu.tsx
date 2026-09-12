@@ -25,11 +25,6 @@
 // thing that separates "there are none" from "none have been read", which is a claim
 // this menu may not make on its behalf.
 //
-// NO ELIGIBILITY IS DERIVED HERE. Whether this participant may start a run is the
-// daemon's adjudication; the control is offered and its refusal is rendered. A menu that
-// hid the entry for a viewer would be a renderer deciding a question it does not own —
-// and would hide the one surface that explains the refusal.
-//
 // A CONTROL IS NAMED BY ITS DEFINITION AND ITS SCOPE, BECAUSE THE NAME ALONE DOES NOT
 // IDENTIFY IT. Two definitions may deliberately share a name across scopes — that is what
 // the scope chip beside each row is FOR — and a chip is not part of the button's
@@ -63,7 +58,6 @@ import {
   useWorkflowDefinitionDirectory,
   type WorkflowDefinitionContinuation,
 } from "../definitions/definition-directory.js";
-import { WorkflowStartDenial } from "./WorkflowStartDenial.js";
 import { useWorkflowStartAct } from "./start-act.js";
 import type { WorkflowStartAct } from "./start-flight.js";
 
@@ -275,7 +269,11 @@ function renderAct(act: WorkflowStartAct): React.ReactNode {
     );
   }
   if (act.status === "refused") {
-    return <WorkflowStartDenial code={act.code} detail={act.detail} />;
+    // The daemon's own sentence, verbatim and alone: nothing here paraphrases it,
+    // appends to it, or explains a rule of its own beside it. The control that
+    // produced it is still there and still offered, which is what the console's
+    // inline refusal shape means.
+    return <InlineRefusal code={act.code} detail={act.detail} />;
   }
   return (
     <p className="meridian-workflow-start-menu__started" role="status">

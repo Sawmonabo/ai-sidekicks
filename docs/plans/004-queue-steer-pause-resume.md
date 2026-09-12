@@ -530,7 +530,7 @@ preconditions:
   - **Files:** `packages/client-sdk/src/runControlClient.ts` (CREATE)
   - **Spec coverage:** Spec-023 §Signature Feature Composition Sketches (Runs View — daemon run-state / queue subscriptions); Spec-004 §Interfaces And Contracts (run-control client surface)
   - **Verifies invariant:** I-004-9
-  - **Transport (authored):** a single daemon-transport factory `createDaemonRunControlClient(transport)` riding `window.sidekicks.daemon.call` / `daemon.subscribe`. **Rationale:** run-control authority is daemon-only — `ADR-003 §Decision` ("the daemon will be the authority that applies and records their outcomes"), Assumption #3 (`ADR-003 §Assumptions Audit`), and no control-plane run-control surface exists in the corpus (verified). This **excludes** the `sessionClient.ts` dual-transport pattern; it structurally resembles `membershipClient.ts`'s daemon half (`docs/architecture/cross-plan-dependencies.md §NS-28: Plan-002 Phase 5 — Client SDK Membership Surface`), but the rationale is the source fact, not the precedent.
+  - **Transport (authored):** a single daemon-transport factory `createDaemonRunControlClient(transport)` riding `window.sidekicks.daemon.call` / `daemon.subscribe`. **Rationale:** run-control authority is daemon-only — `ADR-003 §Decision` ("the daemon will be the authority that applies and records their outcomes"), Assumption #3 (`ADR-003 §Assumptions Audit`), and no control-plane run-control surface exists in the corpus (verified). This **excludes** the `sessionClient.ts` dual-transport pattern; it structurally resembles `membershipClient.ts`'s daemon half, but the rationale is the source fact, not the precedent.
   - **Consumes:** `window.sidekicks.daemon` bridge (Spec-023); the `run.*` method strings (CP-004-4 — ratified, D-004-3)
 - **T4.2 — Capability-gated steer + rollback; pause/resume/interrupt/cancel NEVER gated**
   - **Files:** `apps/desktop/src/renderer/src/run-controls/` (CREATE)
@@ -541,7 +541,7 @@ preconditions:
   - **Files:** `apps/desktop/src/renderer/src/run-controls/` (EXTEND)
   - **Spec coverage:** Spec-023 §Signature Feature Composition Sketches (Runs View — daemon run-state subscription)
   - **Verifies invariant:** I-004-9
-  - **Consumes:** daemon run-state subscription — subscribe request shape follows the shipped `subscribePresence → { sessionId }` precedent (`docs/architecture/cross-plan-dependencies.md §NS-29: Plan-002 Phase 6 — Desktop session-members Renderer`)
+  - **Consumes:** daemon run-state subscription — subscribe request shape follows the shipped `subscribePresence → { sessionId }` precedent
 - **T4.4 — Surface 9 run-states + 6 intervention-states**
   - **Files:** `apps/desktop/src/renderer/src/run-controls/` (EXTEND)
   - **Spec coverage:** Spec-004 §Interfaces And Contracts (surface 9 run-states + 6 intervention-states; canonical terminal is failed, not errored)

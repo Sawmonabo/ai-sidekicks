@@ -1,8 +1,7 @@
 // A scenario: the script the fixture bridge plays, held as DATA.
 //
-// `Spec-023 §Console Design (Meridian)` §The fixture bridge: "the fixture bridge
-// serves scripted scenarios over async generators with a frozen clock … the fixture
-// clock is the only clock the renderer reads in fixture mode."
+// The fixture bridge serves scripted scenarios over async generators with a frozen
+// clock, and that clock is the only one the renderer reads in fixture mode.
 //
 // A scenario is therefore DATA, not code: an ordered script of events with the
 // millisecond each is due, plus canned replies for request/response calls. That
@@ -27,13 +26,12 @@
 // AND THE FRAME FAMILIES ARE NOT HERE EITHER, for the same rule one level down. What
 // a reader opens this file for is the scenario's SHAPE — who is in it, what it
 // answers, what it plays — and each family of tick-scheduled readings carries a page
-// of its own reasoning in front of that. `scenario-frames.ts` holds the roster, the
-// activity, the shell condition and the transport outage; `scenario-pending-invites.ts`
-// holds the three deep-link tables, which are the one family that is not about the
-// session on screen at all. Both are read by the fixture namespace that resolves them
-// and re-exported from this directory's door beside the shape below.
+// of its own reasoning in front of that. `frames.ts` holds the roster, the activity,
+// the shell condition and the transport outage; it is read by the fixture namespace
+// that resolves it and re-exported from this directory's door beside the shape
+// below.
 
-import type { MembershipRole, UpdateState } from "@ai-sidekicks/contracts";
+import type { UpdateState } from "@ai-sidekicks/contracts";
 
 // Type-only, and into a subtree the console ABSORBS rather than one that mounts into
 // it — `.dependency-cruiser.mjs`'s `console-not-plan-subtree` names the three absorbed
@@ -48,11 +46,6 @@ import type {
   ScenarioShellStatusFrame,
   ScenarioTransportOutage,
 } from "./frames.js";
-import type {
-  ScenarioPendingInviteAttemptFrame,
-  ScenarioPendingInviteFrame,
-  ScenarioPendingInviteRefusedFrame,
-} from "./pending-invites.js";
 import type { ScenarioReply } from "./reply.js";
 import type { ScriptedSignInCeremony } from "../../web-authn/ceremony-outcome.js";
 
@@ -75,46 +68,17 @@ export interface ConsoleScenario {
    * Which of those participants this window IS, where the scenario states one.
    *
    * OPTIONAL, and the optionality is the point: join order is who opened the session
-   * and who followed, on any machine, so reading its head as "me" is a fabrication —
-   * and a surface handed a fabricated identity renders a role gate as though it had
-   * been checked. A scenario that does not say leaves this absent and the fixture
-   * refuses the caller-identity read, which is the honest "not checked" answer.
+   * and who followed, so reading its head as "me" is a fabrication — and a surface
+   * handed a fabricated identity attributes rows to somebody who is not looking. A
+   * scenario that does not say leaves this absent and the fixture refuses the
+   * caller-identity read, which is the honest "not checked" answer.
    *
-   * When present it must be a member of `participantIdsInJoinOrder`: an identity
-   * outside the roster is a viewer of some other session, and every surface that
-   * resolves a role would look it up and find nothing. `scenario/wire-truth/wire-truth.ts`
-   * holds every scenario to that, the substrate's own two included.
+   * When present it must be one of `participantIdsInJoinOrder`: an identity outside
+   * that list is a viewer of some other session, and every surface that resolves it
+   * would look it up and find nothing. `scenario/wire-truth/wire-truth.ts` holds every
+   * scenario to that, the substrate's own two included.
    */
   readonly viewingParticipantId?: string;
-  /**
-   * The membership role each MEMBER of the roster holds, keyed by participant id.
-   *
-   * The fact `viewingParticipantId` is useless without. An identity read answers
-   * WHICH entry of the roster this window is; every role-gated control then resolves
-   * the role by looking that id up in the session's participant projection
-   * (`store/session/selectors.ts`'s `membershipRoleOf`) — so a scenario that states a viewer
-   * and no roles serves a successful identity read into a roster that holds nothing,
-   * and every owner- and collaborator-gated control renders closed for a reason
-   * nothing checked. That is indistinguishable, on screen, from a member who simply
-   * has no elevated role.
-   *
-   * NOT A SECOND COPY OF THE ROSTER. `participantIdsInJoinOrder` stays the sole home
-   * of the ORDER, which is what the hue allocator consumes; this is a different fact
-   * about the same people, and `scenario/wire-truth/wire-truth.ts` holds every key in it to
-   * that list. Keyed rather than ordered for exactly that reason — an ordered second
-   * list would be the order declared twice.
-   *
-   * PARTIAL ON PURPOSE, and the partiality carries meaning. A scenario's join order
-   * holds everything that gets a hue, agents included, and an agent is attached
-   * rather than admitted: it holds no membership and no role. So the members of the
-   * session are exactly the keys here, and an id in the join order with no entry is
-   * something the fixture does not claim to know the membership of.
-   *
-   * `MembershipRole` is the contract's, imported: it is the union
-   * `MembershipRoleSchema` parses on the way back out, so a role stated here and a
-   * role read there cannot be two vocabularies.
-   */
-  readonly membershipRoleByParticipantId?: Readonly<Record<string, MembershipRole>>;
   readonly beats: readonly ScenarioBeat[];
   readonly replies: readonly ScenarioReply[];
   /**
@@ -127,11 +91,10 @@ export interface ConsoleScenario {
    * scenario declares the DISPOSITION and the fixture applies it to whatever position
    * arrives.
    *
-   * It is a scenario member rather than a `replies` row for the reason the roster
-   * above is: the reply table answers a call with one fixed value, and this refuses
-   * one ARM of a call — a read carrying a position — while the same call with no
-   * position is served in the same scenario, which is what makes the console's
-   * recovery observable at all.
+   * It is a scenario member rather than a `replies` row because the reply table
+   * answers a call with one fixed value, and this refuses one ARM of a call — a read
+   * carrying a position — while the same call with no position is served in the same
+   * scenario, which is what makes the console's recovery observable at all.
    *
    * OPTIONAL, and its absence means the ordinary thing: this daemon resolves what it
    * acknowledged. A scenario that scripts no acknowledged position submits nothing and
@@ -161,9 +124,9 @@ export interface ConsoleScenario {
    *
    * OPTIONAL, and the absence is the honest answer rather than a gap: the attach
    * declaration is a machine's claim about its own identity, contract version, health
-   * and capabilities, and `Spec-023 §Trust Stance` puts its composition in the main
-   * process, off the node registry — never in a renderer, which may not vouch for a
-   * machine on its own word. A scenario that names none leaves the attach control
+   * and capabilities, and its composition belongs in the main process, off the node
+   * registry — never in a renderer, which may not vouch for a machine on its own
+   * word. A scenario that names none leaves the attach control
    * unmountable and the surface says so, which is exactly what a window with no such
    * registry behind it should say.
    *
@@ -208,46 +171,6 @@ export interface ConsoleScenario {
    * which is their ordinary state.
    */
   readonly activity?: readonly ScenarioActivityFrame[];
-  /**
-   * Invitations arriving on this window's deep link, and what accepting each does.
-   *
-   * OPTIONAL on the same rule, and load-bearing in the other direction too: the
-   * confirmation is a whole-surface takeover, so a scenario that scripted one by
-   * default would put a dialog in front of every screenshot of every other surface.
-   */
-  readonly pendingInvites?: readonly ScenarioPendingInviteFrame[];
-  /**
-   * Deep links whose preview could not be put, each with what a retry on it yields.
-   *
-   * A SECOND TABLE RATHER THAN A UNION MEMBER OF THE FIRST, because the two are keyed
-   * on different handles and a fixture that merged them would have to guess which
-   * kind a string names. Optional on the same rule as the invitations beside them.
-   */
-  readonly pendingInviteAttempts?: readonly ScenarioPendingInviteAttemptFrame[];
-  /**
-   * Deep links the control plane REFUSED, each with the code and sentence it sent.
-   *
-   * A THIRD TABLE, and the one with no handle at all: a refused preview mints neither
-   * a reference nor an attempt, so it belongs in neither table beside it and a fixture
-   * building deliveries out of those two could reach the feed's terminal arm from no
-   * scenario at all. Optional on the same rule as its two neighbours.
-   */
-  readonly pendingInviteRefusals?: readonly ScenarioPendingInviteRefusedFrame[];
-  /**
-   * The host this scenario's node answers its control plane on.
-   *
-   * OPTIONAL on the roster member's rule, and the two states are different facts a
-   * surface draws differently: a scenario that names a host lets the invite create
-   * path reveal the link a person would actually send, and one that names none
-   * leaves the host read refusing, which is what a console that has not been told
-   * its own control plane renders.
-   *
-   * A BARE HOST, never a URL and never a scheme. `Spec-002 §Invite Delivery` fixes
-   * the link's form, so the scenario states the one fact the wire would supply and
-   * the composition stays in the one module that owns it — a scenario carrying a
-   * whole link could spell the path differently from the console that renders it.
-   */
-  readonly controlPlaneHost?: string;
   /**
    * The shell's own condition as it reads over scenario time.
    *

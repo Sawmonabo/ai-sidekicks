@@ -59,16 +59,11 @@ const ADMITTED_METHODS = [
   "repo.ephemeralCloneDispose",
   "repo.worktreeRetire",
   "session.create",
-  "session.join",
-  "membership.update",
-  "invite.create",
-  "invite.revoke",
   "providerAccount.probe",
 ] as const satisfies readonly CollaborationMutationMethod[];
 
-/** A session id and an invite id the wire's branded scalars accept. */
-const SESSION_ID = "019b7920-0000-7000-8000-000000000001";
-const INVITE_ID = "019b7920-0001-7000-8000-000000000001";
+/** A queue-item id the wire's branded scalars accept. */
+const QUEUE_ITEM_ID = "019b7920-0001-7000-8000-000000000001";
 
 describe("the collaboration mutation constraint", () => {
   it("admits exactly the mutating methods the call door binds", () => {
@@ -88,43 +83,39 @@ describe("the collaboration mutation constraint", () => {
     expect([...MUTATING_DAEMON_METHODS] as readonly string[]).not.toContain("session.read");
   });
 
-  it("names the three verbs this family dispatches", () => {
-    // The floor under both cases above: a constraint that admitted none of the
-    // family's own methods would still satisfy a partition over the empty set.
-    expect([...ADMITTED_METHODS] as readonly string[]).toContain("invite.create");
-    expect([...ADMITTED_METHODS] as readonly string[]).toContain("invite.revoke");
-    expect([...ADMITTED_METHODS] as readonly string[]).toContain("membership.update");
+  it("names at least one bound write", () => {
+    // The floor under both cases above: a constraint that admitted nothing at all
+    // would still satisfy a partition over the empty set.
+    expect(ADMITTED_METHODS.length).toBeGreaterThan(0);
+    expect([...ADMITTED_METHODS] as readonly string[]).toContain("run.queueCancel");
   });
 
   it("reads the request and the response off the door's registry", async () => {
     // The positive half of the intersection's registry side, proved by USE rather than
     // asserted: `request` is typed by the door's binding for this method, so reading
-    // `inviteId` off it and answering the bound response shape compiles only while the
-    // registry binds one. A method the registry did not bind would be an error at the
-    // type argument, which is the case below.
-    const revokeInvite: CollaborationMutation<"invite.revoke"> = async (request) =>
+    // `queueItemId` off it and answering the bound response shape compiles only while
+    // the registry binds one. A method the registry did not bind would be an error at
+    // the type argument, which is the case below.
+    const cancelQueued: CollaborationMutation<"run.queueCancel"> = async (request) =>
       await Promise.resolve({
         status: "served",
-        value: { inviteId: request.inviteId, state: "revoked" },
+        value: { queueItemId: request.queueItemId, state: "canceled" },
       });
 
-    const reply = await revokeInvite({
-      sessionId: heldIdAsWireId(SESSION_ID),
-      inviteId: heldIdAsWireId(INVITE_ID),
-    });
+    const reply = await cancelQueued({ queueItemId: heldIdAsWireId(QUEUE_ITEM_ID) });
 
     expect(reply).toStrictEqual({
       status: "served",
-      value: { inviteId: INVITE_ID, state: "revoked" },
+      value: { queueItemId: QUEUE_ITEM_ID, state: "canceled" },
     });
   });
 
   it("answers the door's own refused arm, never a throw", () => {
     // The other arm of the same derivation: a refusal is a value on the way back, so
     // the performer's return type has to admit it without a `catch` anywhere.
-    const refusal: DaemonReply<{ readonly inviteId: string; readonly state: string }> = {
+    const refusal: DaemonReply<{ readonly queueItemId: string; readonly state: string }> = {
       status: "refused",
-      refusal: refuse(DAEMON_REPLY_REFUSAL_ORIGIN, "invite.not_found", "No such invitation."),
+      refusal: refuse(DAEMON_REPLY_REFUSAL_ORIGIN, "queue.not_found", "No such queued item."),
     };
 
     expect(refusal.status).toBe("refused");
@@ -153,12 +144,12 @@ describe("the constraint's type-level refusals", () => {
     expect(unbound).toBe("driver.applyIntervention");
   });
 
-  it("negative control: the two verbs this family dispatches are admitted", () => {
+  it("negative control: two bound writes are admitted", () => {
     // Without this, a constraint that had collapsed to `never` would satisfy both
-    // refusals above and refuse the family's own methods just as quietly.
-    const revoke = "invite.revoke" satisfies CollaborationMutationMethod;
-    const membership = "membership.update" satisfies CollaborationMutationMethod;
+    // refusals above and refuse every write just as quietly.
+    const cancel = "run.queueCancel" satisfies CollaborationMutationMethod;
+    const retire = "repo.worktreeRetire" satisfies CollaborationMutationMethod;
 
-    expect([revoke, membership]).toStrictEqual(["invite.revoke", "membership.update"]);
+    expect([cancel, retire]).toStrictEqual(["run.queueCancel", "repo.worktreeRetire"]);
   });
 });

@@ -71,12 +71,6 @@ import {
   ExecutionRootPrepareResponseSchema,
   InterventionRequestPayloadSchema,
   InterventionRequestResponseSchema,
-  InviteCreateResponseSchema,
-  InviteCreateSchema,
-  InviteRevokeResponseSchema,
-  InviteRevokeSchema,
-  MembershipUpdateResponseSchema,
-  MembershipUpdateSchema,
   PresenceReadRequestSchema,
   PresenceReadResponseSchema,
   ProviderAccountListRequestSchema,
@@ -101,8 +95,6 @@ import {
   RunResumeRequestSchema,
   SessionCreateRequestSchema,
   SessionCreateResponseSchema,
-  SessionJoinRequestSchema,
-  SessionJoinResponseSchema,
   TimelineReadRequestSchema,
   TimelineReadResponseSchema,
   WorkspaceExecutionModeCapabilitiesReadRequestSchema,
@@ -313,19 +305,8 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
     SessionCreateResponseSchema,
     "record",
   ),
-  "session.join": bindDaemonMethod(SessionJoinRequestSchema, SessionJoinResponseSchema, "record"),
   "channel.list": bindDaemonMethod(ChannelListRequestSchema, ChannelListResponseSchema, "read"),
-  // Reaches the control plane THROUGH the daemon rather than terminating in it, and a
-  // durable act is no less durable for having been forwarded — the roster it changes is
-  // the session's.
-  "membership.update": bindDaemonMethod(
-    MembershipUpdateSchema,
-    MembershipUpdateResponseSchema,
-    "record",
-  ),
   "presence.read": bindDaemonMethod(PresenceReadRequestSchema, PresenceReadResponseSchema, "read"),
-  "invite.create": bindDaemonMethod(InviteCreateSchema, InviteCreateResponseSchema, "record"),
-  "invite.revoke": bindDaemonMethod(InviteRevokeSchema, InviteRevokeResponseSchema, "record"),
   "timeline.childRunExpand": bindDaemonMethod(
     ChildRunExpandRequestSchema,
     ChildRunExpandResponseSchema,

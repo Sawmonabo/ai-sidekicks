@@ -37,7 +37,7 @@ function layoutWith(shut: readonly string[], widthPercent = 30, isCollapsed = tr
 
 describe("the sidebar's saved arrangement", () => {
   it("round-trips a width, a column collapse, and the set of shut sections", () => {
-    const state = layoutWith(["repos", "members"]);
+    const state = layoutWith(["repos", "artifacts"]);
     const decoded = decodeSidebarLayout(encodeSidebarLayout(state));
     expect(decoded.state.widthPercent).toBe(state.widthPercent);
     expect(decoded.state.isCollapsed).toBe(state.isCollapsed);
@@ -50,8 +50,8 @@ describe("the sidebar's saved arrangement", () => {
   it("writes the same record for the same set whatever order it was built in", () => {
     // Byte-stable, because the store compares before it writes: a record that reordered
     // itself would file a change nobody made on every restore.
-    const forwards = encodeSidebarLayout(layoutWith(["channels", "repos", "members"]));
-    const backwards = encodeSidebarLayout(layoutWith(["members", "repos", "channels"]));
+    const forwards = encodeSidebarLayout(layoutWith(["channels", "repos", "artifacts"]));
+    const backwards = encodeSidebarLayout(layoutWith(["artifacts", "repos", "channels"]));
     expect(Object.keys(forwards)).toStrictEqual(Object.keys(backwards));
     expect(forwards).toStrictEqual(backwards);
   });

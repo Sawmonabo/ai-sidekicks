@@ -1,7 +1,7 @@
 // The settings family's door.
 //
 // It carries ONE symbol, the surface registrar, because that is all that crosses this
-// family's boundary: `collaboration-family.ts` claims the slot and nothing else outside
+// family's boundary: `session-surfaces-family.ts` claims the slot and nothing else outside
 // this directory names a settings page, a section, or the page registry.
 //
 // WHAT USED TO BE HERE AND IS NOT. The page registrars, the page-registry

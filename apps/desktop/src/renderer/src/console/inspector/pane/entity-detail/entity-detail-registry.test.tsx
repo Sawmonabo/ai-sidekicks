@@ -43,8 +43,6 @@ function readStore(kind: ConsoleEntityKind): SessionStore {
         touchedAt: "2026-01-01T16:30:05.000Z",
         attributedTo: "participant-1",
         body: {
-          role: "owner",
-          identityHandle: "ada",
           name: "main",
           runVersion: 3,
           previousState: "running",

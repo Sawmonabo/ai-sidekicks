@@ -29,12 +29,6 @@ import type {
   ExecutionModeSelectResponse,
   InterventionRequestPayload,
   InterventionRequestResponse,
-  InviteCreate,
-  InviteCreateResponse,
-  InviteRevoke,
-  InviteRevokeResponse,
-  MembershipUpdate,
-  MembershipUpdateResponse,
   PresenceReadRequest,
   PresenceReadResponse,
   ProviderAccountListRequest,
@@ -62,8 +56,6 @@ import type {
   RunResumeRequest,
   SessionCreateRequest,
   SessionCreateResponse,
-  SessionJoinRequest,
-  SessionJoinResponse,
   TimelineReadRequest,
   TimelineReadResponse,
   WorkspaceExecutionModeCapabilitiesReadRequest,
@@ -256,41 +248,18 @@ export interface ConsoleDaemonMethodContract {
     readonly request: WorktreeStatusReadRequest;
     readonly response: WorktreeStatusReadResponse;
   };
-  // session, channels, membership, presence, invites — the collaboration plane.
+  // session, channels, presence — the session plane.
   readonly "session.create": {
     readonly request: SessionCreateRequest;
     readonly response: SessionCreateResponse;
-  };
-  readonly "session.join": {
-    readonly request: SessionJoinRequest;
-    readonly response: SessionJoinResponse;
   };
   readonly "channel.list": {
     readonly request: ChannelListRequest;
     readonly response: ChannelListResponse;
   };
-  readonly "membership.update": {
-    readonly request: MembershipUpdate;
-    readonly response: MembershipUpdateResponse;
-  };
   readonly "presence.read": {
     readonly request: PresenceReadRequest;
     readonly response: PresenceReadResponse;
-  };
-  /**
-   * Mint one invitation, and hand back its plaintext token exactly once.
-   *
-   * The reply is the only moment the token exists outside the control plane — only
-   * its hash is persisted — so the surface that calls this is the surface that has
-   * to reveal the link, and no later read can recover it.
-   */
-  readonly "invite.create": {
-    readonly request: InviteCreate;
-    readonly response: InviteCreateResponse;
-  };
-  readonly "invite.revoke": {
-    readonly request: InviteRevoke;
-    readonly response: InviteRevokeResponse;
   };
 
   // timeline — the child-run expansion, and the backward read window.

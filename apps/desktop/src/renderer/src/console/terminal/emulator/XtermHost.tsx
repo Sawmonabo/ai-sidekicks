@@ -9,8 +9,8 @@
 //
 // WHY THE EMULATOR ARRIVES ON A LATER COMMIT THAN THE MOUNT. `@xterm/xterm`, its
 // five addons, and its stylesheet are the console's largest single dependency, and
-// `Spec-023 §Console Design (Meridian)` §Budgets excludes the terminal from the
-// initial bundle by name. So this component reaches the adapter through
+// the initial-bundle budget excludes the terminal by name. So this component reaches
+// the adapter through
 // `emulator-loader.ts`'s `import()` rather than a static import, and renders the
 // box's absence — `not-loaded`, the read-in-flight kind — until the chunk lands.
 // The skeleton is the primitive every other surface uses for a read in flight; a
@@ -232,7 +232,7 @@ type XtermTerminalAdapterInstance = InstanceType<TerminalEmulatorModule["XtermTe
  *
  * The refused arm renders the refusal's own two halves, which is the shape
  * `browser/settings/PartitionTable.tsx` already gives a surface that could not be
- * read: rule 9 puts the code on screen because a code is what a person acts on, and
+ * read: the code goes on screen because a code is what a person acts on, and
  * the sentence beneath it is whatever the producing side wrote — never a
  * serialization of the rejected value, which `core/wire-rejection.ts` is the one
  * place allowed to decide.
@@ -269,9 +269,9 @@ function renderEmulatorAbsence(
  * two cannot be allowed to drift, and a fourth gate is a compile error here rather
  * than a name that silently reads like one of these three.
  *
- * `Spec-023 §Console Design (Meridian)` 8.8 requires a non-holder to get "the live
- * output in a read-only watch mode with the input area absent rather than
- * disabled". A disabled input announces itself as a control that exists and cannot
+ * A window that does not hold the shell gets the live output in a read-only watch
+ * mode, with the input area absent rather than disabled. A disabled input announces
+ * itself as a control that exists and cannot
  * be used, which is a different and worse claim than "you are watching" — so the
  * state reaches assistive technology through the region's own name instead.
  *
@@ -289,9 +289,8 @@ type TerminalWriteGate = keyof typeof SURFACE_NAME_SUFFIXES;
 
 function terminalWriteGate(isWriteEnabled: boolean, canWriteToWire: boolean): TerminalWriteGate {
   if (!isWriteEnabled) {
-    // First, because it is the state 8.8 names and the one a person is in most of
-    // the time: somebody else holds the shell, and no input channel would change
-    // that.
+    // First, because it is the state a person is in most of the time: the shell is
+    // held from somewhere else, and no input channel would change that.
     return "lease-not-held";
   }
   return canWriteToWire ? "writable" : "no-input-channel";

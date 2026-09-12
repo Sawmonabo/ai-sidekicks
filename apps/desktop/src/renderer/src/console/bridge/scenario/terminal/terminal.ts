@@ -70,9 +70,7 @@ import {
 import { TERMINAL_REPLIES } from "./replies.js";
 import {
   TERMINAL_AGENT_RUN_ID,
-  TERMINAL_COLLABORATOR_MEMBERSHIP_ID,
   TERMINAL_HOST_NODE_ID,
-  TERMINAL_OWNER_MEMBERSHIP_ID,
   TERMINAL_SCENARIO_CAST,
   TERMINAL_SCENARIO_SESSION_ID,
 } from "./cast.js";
@@ -102,12 +100,8 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
   // the holder, and this scenario ends with the owner holding the degraded
   // lease; without a viewer the pane can only show that the identity is being
   // read, which is a true state of the console and not the state this
-  // scenario exists to show. The agent holds no membership, so it takes no role.
+  // scenario exists to show.
   viewingParticipantId: OWNER,
-  membershipRoleByParticipantId: {
-    [OWNER]: "owner",
-    [COLLABORATOR]: "collaborator",
-  },
   startedAtIso: TERMINAL_SCENARIO_STARTED_AT_ISO,
   beats: [
     terminalScenarioBeat({
@@ -135,40 +129,8 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       },
     }),
     terminalScenarioBeat({
-      atMs: 60,
-      sequence: 3,
-      // The canonical first-joined event. `participant.joined` is not a registered
-      // type, so a fixture scripting it would be scripting a string no consumer
-      // will ever receive. The registered membership shape: the membership row's
-      // own id, the participant, the role from the closed role vocabulary, and the
-      // handle.
-      kind: "membership.created",
-      actorId: OWNER,
-      payload: {
-        membershipId: TERMINAL_OWNER_MEMBERSHIP_ID,
-        participantId: OWNER,
-        role: "owner",
-        identityHandle: "sawyer",
-      },
-    }),
-    terminalScenarioBeat({
-      atMs: 100,
-      sequence: 4,
-      kind: "membership.created",
-      actorId: COLLABORATOR,
-      // A collaborator, not a viewer, and the choice is load-bearing: taking the
-      // lease is owner/collaborator-only, so a viewer second participant could
-      // never hold it and the hand-off below would be unreachable.
-      payload: {
-        membershipId: TERMINAL_COLLABORATOR_MEMBERSHIP_ID,
-        participantId: COLLABORATOR,
-        role: "collaborator",
-        identityHandle: "priya",
-      },
-    }),
-    terminalScenarioBeat({
       atMs: TERMINAL_HOST_NODE_ATTACHED_AT_MS,
-      sequence: 5,
+      sequence: 3,
       kind: "runtime_node.online",
       actorId: OWNER,
       // The terminal's host, present before any lease exists. Without it the
@@ -184,7 +146,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     }),
     terminalScenarioBeat({
       atMs: 220,
-      sequence: 6,
+      sequence: 4,
       kind: "agent.attached",
       // The person who attached the agent, not the agent: an agent does not attach
       // itself, and the envelope actor is who acted.
@@ -202,7 +164,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     }),
     terminalLeaseTransitionBeat({
       atMs: 400,
-      sequence: 7,
+      sequence: 5,
       holderParticipantId: OWNER,
       previousHolderParticipantId: null,
       reason: "taken",
@@ -210,7 +172,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     }),
     terminalLeaseTransitionBeat({
       atMs: 900,
-      sequence: 8,
+      sequence: 6,
       holderParticipantId: null,
       previousHolderParticipantId: OWNER,
       reason: "released",
@@ -218,7 +180,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     }),
     terminalLeaseTransitionBeat({
       atMs: 1200,
-      sequence: 9,
+      sequence: 7,
       holderParticipantId: COLLABORATOR,
       previousHolderParticipantId: null,
       reason: "taken",
@@ -226,7 +188,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     }),
     terminalLeaseTransitionBeat({
       atMs: 1800,
-      sequence: 10,
+      sequence: 8,
       holderParticipantId: null,
       previousHolderParticipantId: COLLABORATOR,
       reason: "auto_released_disconnect",
@@ -234,7 +196,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     }),
     terminalLeaseTransitionBeat({
       atMs: 2300,
-      sequence: 11,
+      sequence: 9,
       holderParticipantId: OWNER,
       previousHolderParticipantId: null,
       reason: "taken",
@@ -242,7 +204,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     }),
     terminalLeaseTransitionBeat({
       atMs: 2700,
-      sequence: 12,
+      sequence: 10,
       holderParticipantId: null,
       previousHolderParticipantId: OWNER,
       reason: "auto_released_authorization_lost",
@@ -250,7 +212,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     }),
     terminalScenarioBeat({
       atMs: 3000,
-      sequence: 13,
+      sequence: 11,
       kind: "run.queued",
       // The person who started the run, not the agent. `previousState` is absent
       // here and only here: a queued run is being born, and no document names the
@@ -266,7 +228,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     }),
     terminalScenarioBeat({
       atMs: 3100,
-      sequence: 14,
+      sequence: 12,
       kind: "run.starting",
       // No actor: the daemon moves a run through its own states, and a participant
       // id here would attribute a system transition to a person.
@@ -280,7 +242,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     }),
     terminalScenarioBeat({
       atMs: 3200,
-      sequence: 15,
+      sequence: 13,
       kind: "run.running",
       payload: {
         sessionId: TERMINAL_SCENARIO_SESSION_ID,
@@ -300,14 +262,14 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     // roster reply names the same owner.
     terminalLeaseTransitionBeat({
       atMs: 3300,
-      sequence: 16,
+      sequence: 14,
       holderParticipantId: OWNER,
       previousHolderParticipantId: null,
       reason: "taken",
     }),
     terminalScenarioBeat({
       atMs: 3600,
-      sequence: 17,
+      sequence: 15,
       kind: "run.completed",
       // The acquiring run's first lifecycle transition out of `running` — what the
       // auto-release below is a consequence of, rather than an asserted state.
@@ -321,7 +283,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     }),
     terminalLeaseTransitionBeat({
       atMs: 3700,
-      sequence: 18,
+      sequence: 16,
       holderParticipantId: null,
       previousHolderParticipantId: OWNER,
       reason: "auto_released_run_idle",
@@ -331,7 +293,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     // roster's `controlHolder` agrees with.
     terminalLeaseTransitionBeat({
       atMs: 4100,
-      sequence: 19,
+      sequence: 17,
       holderParticipantId: OWNER,
       previousHolderParticipantId: null,
       reason: "taken",
@@ -339,7 +301,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     }),
     terminalScenarioBeat({
       atMs: 4900,
-      sequence: 20,
+      sequence: 18,
       kind: "runtime_node.offline",
       actorId: OWNER,
       // THE DEGRADED BEAT. `heartbeat_lost` and not `explicit_shutdown`, because

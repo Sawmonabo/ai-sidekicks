@@ -419,7 +419,10 @@ describe("HeartbeatService — sweep idempotency + write boundary (`Spec-003 §D
     // `Spec-003 §Default Behavior`). Proven behaviorally (the boundary holds at runtime), not by
     // inspecting the SQL string.
     await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [PARTICIPANT_ID]);
-    await ctx.querier.query("INSERT INTO sessions (id, state) VALUES ($1, 'active')", [SESSION_ID]);
+    await ctx.querier.query(
+      "INSERT INTO sessions (id, owner_user_id, state) VALUES ($1, $2, 'active')",
+      [SESSION_ID, PARTICIPANT_ID],
+    );
     const attachmentBefore = await seedAttachment(ctx.querier, {
       sessionId: SESSION_ID,
       participantId: PARTICIPANT_ID,

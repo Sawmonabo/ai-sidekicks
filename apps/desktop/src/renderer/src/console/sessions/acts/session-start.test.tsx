@@ -31,7 +31,6 @@ function creatingBridge(): ReturnType<typeof vi.fn> {
   const call = vi.fn().mockResolvedValue({
     sessionId: CREATED_SESSION_ID,
     state: "active",
-    memberships: [],
     channels: [],
   });
   installProbeBridge(call);

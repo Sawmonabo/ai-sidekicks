@@ -130,16 +130,16 @@ describe("SidebarModel — the durable read fills in, it does not override", () 
     // Everything is drawn shut until the read lands, so the act available to a person
     // in this window is opening one.
     model.setSectionCollapsed("runs", false);
-    model.restore(decodedWithShut(["runs", "members"]));
-    // `runs` keeps the person's decision, `members` keeps the disk's, and every section
-    // nobody touched comes back the way it was left.
-    expect(openSections(model)).toStrictEqual(everySectionExcept("members"));
+    model.restore(decodedWithShut(["runs", "artifacts"]));
+    // `runs` keeps the person's decision, `artifacts` keeps the disk's, and every
+    // section nobody touched comes back the way it was left.
+    expect(openSections(model)).toStrictEqual(everySectionExcept("artifacts"));
   });
 
   it("negative control: with no toggle in that window the stored set wins", () => {
     const model = new SidebarModel();
-    model.restore(decodedWithShut(["runs", "members"]));
-    expect(openSections(model)).toStrictEqual(everySectionExcept("runs", "members"));
+    model.restore(decodedWithShut(["runs", "artifacts"]));
+    expect(openSections(model)).toStrictEqual(everySectionExcept("runs", "artifacts"));
   });
 
   it("keeps a section attention opened in that window", () => {
@@ -223,7 +223,7 @@ describe("SidebarModel — attention decides until a person does", () => {
     const model = new SidebarModel();
     model.syncAttention({});
     expect(openSections(model)).toStrictEqual([]);
-    expect(model.attentionFor("members")).toBeUndefined();
+    expect(model.attentionFor("artifacts")).toBeUndefined();
   });
 
   it("stops re-opening a section the person shut", () => {

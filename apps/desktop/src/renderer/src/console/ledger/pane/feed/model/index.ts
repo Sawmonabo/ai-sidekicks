@@ -30,7 +30,6 @@
 // what keeps the ledger family's own door re-exporting from declaring modules rather
 // than through this one.
 
-export { useActorFollowSeat } from "./ledger-actor-follow-seat.js";
 export { useLedgerStructureActs } from "./ledger-feed-acts.js";
 export { useLedgerFeedWindows } from "./ledger-feed-windows.js";
 export { useLedgerFindAndJump, type LedgerFindAndJump } from "./ledger-feed-find-jump.js";

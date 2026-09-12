@@ -24,7 +24,7 @@ function rowAt(sequence: number, overrides: Partial<TimelineRow> = {}): Timeline
     id: `event-${String(sequence)}`,
     sessionId: SESSION_ID,
     sequence,
-    category: "membership_change",
+    category: "presence",
     type: "participant.joined",
     summary: `row ${String(sequence)}`,
     timestamp: "2026-01-01T11:00:00.000Z",

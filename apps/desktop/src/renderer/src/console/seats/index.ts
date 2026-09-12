@@ -246,15 +246,6 @@ export {
 export { PENDING_PANE_BODY_ATTRIBUTE, reservedBodyRegion } from "./pane/pending-pane-body.js";
 export { LoadedLazyBody, type LazyBodyLoader } from "./lazy-body/lazy-body.js";
 
-export {
-  actorFollowHandler,
-  registerActorFollowHandler,
-  unregisterActorFollowHandler,
-  type ActorFollowHandler,
-  type ActorFollowOutcome,
-  type ActorFollowRequest,
-} from "./slots/actor-follow-seat.js";
-
 // The floor seat — the deck's half of "Step in", filled by the family that owns the
 // deck and called by the family that owns the run controls. The release call is on the
 // door and the composer seat's is not, because this handler closes over one live deck
@@ -315,17 +306,6 @@ export {
   type SidebarRowDragBinder,
   type SidebarRowDragTarget,
 } from "./slots/sidebar-sections.js";
-
-// The window's one overlay body, filled by the family that owns it and read by the
-// frame. `unregisterWindowOverlaySeat` is deliberately absent: its only reader is
-// this directory's own suite, and a door line no production module reads is what
-// `apps/desktop/AGENTS.md` §Module shape rejects.
-export {
-  registerWindowOverlaySeat,
-  sessionOpenerFor,
-  windowOverlayRenderer,
-  type WindowOverlaySeatProps,
-} from "./slots/window-overlay-seat.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */
@@ -507,18 +487,12 @@ export {
 // hazard, four surfaces in two sibling families each holding one answer.
 export { useGrowthReadOnMount } from "./read/growth-read.js";
 
-// Which participant this window is, composed once for the four sibling view families
-// that ask it. The read lives on the growth port and the roster chaining lives in the
-// store, and neither family may reach the other — so the adapter between them was
-// written out at three composition roots and the narrowing at six. Here it is one
-// module: the identity alone for a surface that only needs to know who is looking,
-// the identity chained to the session roster for one that gates a control on the
-// caller's role, and the served-or-refused narrowing for a reader holding its own
-// outcome.
+// Which participant this window is, composed once for the sibling view families that
+// ask it. The read lives on the growth port and the narrowing over its outcome was
+// written out at six sites that then disagreed about the refusing arm. Here it is one
+// module: the served-or-refused narrowing for a reader holding its own outcome.
 // IN `identity/` AND NOT BESIDE THE OTHER SEATS. The seam is the subject rather than
-// a count of what the root will hold: `terminal/lease/viewer-identity.ts` still
-// holds its own effect for the same question and folds in here, which is what makes
-// this a directory rather than one module parked in a new folder.
+// a count of what the root will hold.
 // NO SUB-MODULE DOOR — `bridge/readings/index.ts` states the rule and this door obeys
 // it: a family door re-exports from the DECLARING module, and a sub-door publishing
 // symbols no sibling inside the family takes would be a dead export the barrel census
@@ -526,13 +500,9 @@ export { useGrowthReadOnMount } from "./read/growth-read.js";
 // The port's own reply shape rides along, because the question has ONE composition and
 // a family that holds its own reading of it must name that reading's inner type rather
 // than re-deriving the reply beside it — which is how two names for one shape appear.
-// `CallerParticipantIdentity` stays off: every reader of the hook narrows on `status`
-// and annotates nothing, so a specifier for it would be a dead export.
 export {
   CALLER_PARTICIPANT_ORIGIN,
   callerParticipantIdentityFrom,
-  useCallerMembershipRoleFor,
-  useCallerParticipantIdentity,
   type CallerParticipantOutcome,
 } from "./identity/caller-participant.js";
 

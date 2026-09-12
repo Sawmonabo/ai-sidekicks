@@ -41,7 +41,6 @@ export const ONBOARDING_SCENARIO: ConsoleScenario = {
   sessionId: SESSION_ID,
   participantIdsInJoinOrder: [PARTICIPANT_YOU],
   viewingParticipantId: PARTICIPANT_YOU,
-  membershipRoleByParticipantId: { [PARTICIPANT_YOU]: "owner" },
   signInCeremony: {
     assertions: [
       {

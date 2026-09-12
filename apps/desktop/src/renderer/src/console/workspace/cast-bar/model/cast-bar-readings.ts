@@ -1,13 +1,13 @@
-// The three readings the bar renders, each named for the question it answers.
+// The three readings the session header renders, each named for the question it answers.
 //
 // Beside `cast-bar-read-projection.ts` rather than inside it, because that module owns HOW a
 // read settles and this one owns WHICH reads the bar puts and what it takes from
 // each. The split is what keeps the shared projection free of any one wire's shape.
 //
 // EACH TAKES EXACTLY WHAT IT RENDERS AND NOTHING ELSE. The identity read answers a
-// summary and the bar renders all of it; the health read answers a whole projection
-// and the bar takes one count and the names behind it; the receipt answers a
-// decomposition along three axes and the bar renders the single committed figure.
+// summary and the header renders all of it; the health read answers a whole projection
+// and the header takes one count and the names behind it; the receipt answers a
+// decomposition along three axes and the header renders the single committed figure.
 // Narrowing here rather than in the components keeps the components rendering and
 // keeps every wire shape inside one module.
 
@@ -20,9 +20,9 @@ import {
 import { useCastBarRead, type CastBarReadState } from "./cast-bar-read-projection.js";
 
 /**
- * The bar's ONE reading of the node's health — the verdict both halves are decided from.
+ * The header's ONE reading of the node's health — the verdict both halves decide from.
  *
- * A verdict rather than the raw read state, because the bar answers two questions off
+ * A verdict rather than the raw read state, because the header answers two questions off
  * this one reading and it used to answer them separately: `CastBarStatus` drew its
  * amber mark from the served count while `CastBarBody` derived an all-clear from the
  * event log alone, so a node with an unwell component and no outstanding ask rendered
@@ -35,7 +35,7 @@ export type CastBarHealthVerdict =
   | { readonly kind: "clear" }
   | ({ readonly kind: "unwell" } & CastBarHealthReading);
 
-/** The one figure `Spec-023 §Rules every console surface obeys` lets a surface show. */
+/** The one cost figure a surface may show: the accountant's own committed value. */
 export interface CastBarSpendReading {
   readonly committedSpendCents: number;
   /** Whether the wire itself calls the figure fully priced. Observability only. */
@@ -60,7 +60,7 @@ export function useCastBarIdentity(
 /**
  * The node's health, folded to what one line can hold and to one verdict.
  *
- * KEYED ON THE SESSION EVEN THOUGH HEALTH IS NODE-WIDE, because the bar is a session
+ * KEYED ON THE SESSION EVEN THOUGH HEALTH IS NODE-WIDE, because the header is a session
  * surface: a window that moves between sessions re-reads, which is when a person
  * actually looks. The alternative — a key of `undefined` — would hold one answer for
  * the life of the port and never refresh at all.
@@ -70,13 +70,11 @@ export function useCastBarIdentity(
  * component rows look like.
  *
  * WHY ONLY `unwell` SUPPRESSES THE ALL-CLEAR, and neither of the two arms that have
- * no answer. `Spec-023 §The surface set` puts the line on the bar "when nothing is
- * amber or red", so what it is a claim about is what this strip shows — and an
- * unanswered read shows the "not checked" kind of nothing beside it, which is the
- * bar reporting the absence rather than dressing it as health. Suppressing on
- * `in-flight` as well would additionally make the line arrive a few hundred
- * milliseconds after the bar drew, which is the same late-badge move `CastBarStatus`
- * refuses one component over.
+ * no answer. The line is a claim about what this strip shows — and an unanswered read
+ * shows the "not checked" kind of nothing beside it, which is the header reporting the
+ * absence rather than dressing it as health. Suppressing on `in-flight` as well would
+ * additionally make the line arrive a few hundred milliseconds after the header drew,
+ * which is the same late-badge move `CastBarStatus` refuses one component over.
  */
 export function useCastBarHealth(
   growth: GrowthPort,
@@ -107,7 +105,7 @@ export function useCastBarHealth(
  *
  * `orchestrationBudgetRead` and not the receipt beside it. The two are served from
  * the same accountant accessor and cannot disagree, and the receipt's extra value is
- * a decomposition along three axes this bar renders none of — so calling it here
+ * a decomposition along three axes this header renders none of — so calling it here
  * would pull a per-run, per-caused-by and per-paying-account breakdown across the
  * bridge on every session open to render one number off the top of it.
  *
@@ -142,7 +140,7 @@ interface CastBarHealthReading {
   readonly unwellComponentNames: readonly string[];
 }
 
-/** The read state as the four things the bar does about it, and nothing else. */
+/** The read state as the four things the header does about it, and nothing else. */
 function castBarHealthVerdict(
   health: CastBarReadState<CastBarHealthReading>,
 ): CastBarHealthVerdict {

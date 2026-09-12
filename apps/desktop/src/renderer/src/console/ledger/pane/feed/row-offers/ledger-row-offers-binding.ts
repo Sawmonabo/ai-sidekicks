@@ -11,9 +11,9 @@
 // compares it: a binding rebuilt when the window moved would move on every admitted
 // event and take every mounted row's card down with it. So the identity is minted
 // once and the live surface is read through a ref — and the ref is written from the
-// LAYOUT phase, never the render body, for `ledger-actor-follow-seat.ts`' reason: a
-// render pass React discards still runs the body, and a press against a window that
-// never reached the screen would scroll to a row nobody can see.
+// LAYOUT phase, never the render body: a render pass React discards still runs the
+// body, and a press against a window that never reached the screen would scroll to a
+// row nobody can see.
 //
 // AND BOTH HOST CALLS ARE WRAPPED AT THE CALL RATHER THAN AT THE PROMISE.
 // `palette/commands/bridge-commands.ts` records why: the shipped bridge implements every

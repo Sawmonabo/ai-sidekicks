@@ -126,7 +126,7 @@ The single-user case remains a valid session with one participant and one runtim
 ### Related Domain Docs
 
 - [Session Model](../domain/session-model.md)
-- [Participant And Membership Model](../domain/participant-and-membership-model.md)
+- [User And Device Model](../domain/user-and-device-model.md)
 - [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md)
 
 ### Related Architecture Docs
@@ -137,7 +137,6 @@ The single-user case remains a valid session with one participant and one runtim
 ### Related Specs
 
 - [Shared Session Core](../specs/001-shared-session-core.md)
-- [Invite Membership And Presence](../specs/002-invite-membership-and-presence.md)
 - [Runtime Node Attach](../specs/003-runtime-node-attach.md)
 
 ### Related ADRs

@@ -33,7 +33,7 @@
 // FIRST. Unlike the run-addressed verbs — whose run id is globally unique — a
 // binding and an agent are only identified within a session, so both requests
 // carry the session id, and it is the AUTHORIZATION SCOPE before it is an
-// address. A caller who is not an active member of the named session is refused
+// address. A caller naming a session this node does not host is refused
 // `session.not_found` BYTE-IDENTICALLY to a caller naming a session that does
 // not exist (one throw site, constant message, no fields), so the refusal is no
 // session-existence oracle. Only then does the canonical fixed refusal order
@@ -290,16 +290,17 @@ export interface DriverCompactContextDeps {
    * `applyIntervention`, whose ADR-011 exclusion is recorded on its binder). */
   readonly providerRegistry: Pick<ProviderRegistry, "lookup" | "checkCapability">;
   /**
-   * The membership mask both console-parity verbs run FIRST. Answers whether
-   * the transport-bound caller — the node-owner participant under the V1
-   * local-transport rule (api-payload-contracts.md §Authenticated Principal
-   * And Authorization Model) — is an active member of an EXISTING session.
-   * `false` collapses "no such session" and "not a member" into one answer on
-   * purpose: the handler's single masked throw site is what makes the two
-   * refusals byte-identical, and a resolver that distinguished them would be
-   * rebuilding the session-existence oracle the mask exists to remove.
-   * Implementor: the bootstrap orchestrator's session engine, off its
-   * membership projection (`DaemonSessionSnapshot.memberships`).
+   * The session-access mask both console-parity verbs run FIRST. Answers
+   * `true` only when the named session EXISTS in this daemon's session engine
+   * AND is bound to this runtime node — the node executing the verb — and
+   * `false` otherwise.
+   *
+   * `false` still collapses "no such session" and "not bound here" into one
+   * answer on purpose: the handler's single masked throw site is what makes
+   * the two refusals byte-identical, and a resolver that distinguished them
+   * would be rebuilding the session-existence oracle the mask exists to
+   * remove. Implementor: the bootstrap orchestrator's session engine, off the
+   * session record it already holds and that record's runtime-node binding.
    */
   readonly resolveSessionAccess: (sessionId: SessionId) => boolean;
   /**
@@ -323,8 +324,13 @@ export interface DriverCompactContextDeps {
 /** Dependencies for `driver.listProviderCommands`. */
 export interface DriverListProviderCommandsDeps {
   readonly providerRegistry: Pick<ProviderRegistry, "lookup" | "checkCapability">;
-  /** Same contract as `DriverCompactContextDeps.resolveSessionAccess`; the
-   * production wiring binds ONE implementation to both. */
+  /**
+   * Same contract as `DriverCompactContextDeps.resolveSessionAccess` — `true`
+   * only for a session that exists in this daemon's session engine AND is
+   * bound to this runtime node, with `false` collapsing "no such session" and
+   * "not bound here" so the masked refusal stays byte-identical. The
+   * production wiring binds ONE implementation to both.
+   */
   readonly resolveSessionAccess: (sessionId: SessionId) => boolean;
   /**
    * The agent-to-live-bindings fan-out seam. `agentId` is `string` because the
@@ -437,12 +443,13 @@ function refuseRunNotFound(runId: RunId): never {
 
 /**
  * Refuse a session the caller may not see — ONE throw site, and the singularity
- * is the security property. Both console-parity verbs route their membership
- * mask through this function with a constant message and NO fields, so
- * `buildSessionNotFoundData` emits `{ type }` alone and a non-member's refusal
- * is byte-for-byte the unknown-session refusal: the verb cannot be used to
- * probe which sessions exist. The message is the registered description for
- * `session.not_found` verbatim.
+ * is the security property. Both console-parity verbs route their
+ * session-access mask through this function with a constant message and NO
+ * fields, so `buildSessionNotFoundData` emits `{ type }` alone and the refusal
+ * for a session that is not bound to this node is byte-for-byte the
+ * unknown-session refusal: the verb cannot be used to probe which sessions
+ * exist. The message is the registered description for `session.not_found`
+ * verbatim.
  */
 function refuseSessionNotFound(): never {
   throw new SessionNotFoundError("Session does not exist or is not accessible");
@@ -774,15 +781,16 @@ export function registerDriverRespondToRequest(
  * Bind `driver.compactContext`.
  *
  * THE REFUSAL ORDER IS THE CANONICAL FIXED ONE, and every step earns its
- * position. The membership mask runs first (one throw site — see
- * `refuseSessionNotFound` — so a non-member and an unknown session are
- * byte-identical). The address check runs second: a member is told the run id
- * does not resolve (`run.not_found`) before anything about drivers, per the
- * resolver doctrine on `resolveDriverForRunOrThrow`. The run-control
- * adjudication runs third, deliberately BEFORE liveness, so a denied caller
- * gets the same answer whether or not a binding happens to be live at that
- * instant — role-determined refusals stay stable across mutable state (the PTY
- * session-attach precedent in api-payload-contracts.md) — and a deny settles on
+ * position. The session-access mask runs first (one throw site — see
+ * `refuseSessionNotFound` — so a session this node does not host and an
+ * unknown session are byte-identical). The address check runs second: an
+ * admitted caller is told the run id does not resolve (`run.not_found`) before
+ * anything about drivers, per the resolver doctrine on
+ * `resolveDriverForRunOrThrow`. The run-control adjudication runs third,
+ * deliberately BEFORE liveness, so a denied caller gets the same answer
+ * whether or not a binding happens to be live at that instant — adjudicated
+ * refusals stay stable across mutable state, the same rule the PTY
+ * session-attach path follows — and a deny settles on
  * the operation's OWN `refused` arm as `not_permitted`, never as a JSON-RPC
  * error, because the result union is the contract's encoding of exactly this
  * outcome. Liveness runs fourth (`driver.unavailable`), the capability gate
@@ -896,10 +904,10 @@ function verifyDriverStampedRoutingPair(
 /**
  * Bind `driver.listProviderCommands`.
  *
- * Any active member reads: the enumeration carries offerability data, not an
- * intervention, so no adjudication step sits between the membership mask and
- * the address check — the mask and the fixed order are otherwise identical to
- * `compactContext`'s.
+ * Any admitted caller reads: the enumeration carries offerability data, not an
+ * intervention, so no adjudication step sits between the session-access mask
+ * and the address check — the mask and the fixed order are otherwise identical
+ * to `compactContext`'s.
  *
  * EVERY BINDING IS GATED BEFORE ANY IS DISPATCHED. One declaring-false (or
  * unloaded, or operation-less) driver refuses the WHOLE read with zero

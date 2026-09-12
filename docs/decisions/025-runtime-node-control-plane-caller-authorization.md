@@ -372,7 +372,7 @@ Convert the level-2 reservation note ("whose level-2 slot the BL-141 campaign de
 
 ### Plan-008
 
-Amend `Plan-008 §I-008-4 — PASETO v4 validation on every Tier-5 endpoint` (verified present; the Tier-5 decomposition of I-008-2) to name the five `runtimenode.*` procedures in its gated-endpoint list, so the verified identity D2 depends on is contractually required rather than incidentally supplied. The same amendment (widened at Codex PR #327 round 2) grows `T-008r-1-5` with the **host-wiring leg** that makes D2's zero-code-change promise come true: replace the host's throwing `resolveCurrentParticipantId` injection with the middleware-derived verified principal and exercise each `runtimenode.*` route under a verified token — without an owned wiring task, the middleware would exist while every runtime-node route kept throwing the Tier-5 deferral error.
+Amend `Plan-008` (verified present; the Tier-5 decomposition of I-008-2) to name the five `runtimenode.*` procedures in its gated-endpoint list, so the verified identity D2 depends on is contractually required rather than incidentally supplied. The same amendment (widened at Codex PR #327 round 2) grows `T-008r-1-5` with the **host-wiring leg** that makes D2's zero-code-change promise come true: replace the host's throwing `resolveCurrentParticipantId` injection with the middleware-derived verified principal and exercise each `runtimenode.*` route under a verified token — without an owned wiring task, the middleware would exist while every runtime-node route kept throwing the Tier-5 deferral error.
 
 ### Suite migration (build-breaking)
 
@@ -396,7 +396,6 @@ Amend `Plan-008 §I-008-4 — PASETO v4 validation on every Tier-5 endpoint` (ve
 | `docs/superpowers/specs/2026-07-09-bl-resolution-campaign-design.md` §3.1, §4.A | Repo (approved design) | The ratified content contract for this ADR: decisions 1–9, the three Plan-003 tasks, the invariant changes, and the suite-migration list. This ADR adopts 1–3 and 5–9 unchanged and **supersedes decision 4's negative shape**, ratified 2026-08-10 (§Adjudication Record); the campaign plan's Task 2 is corrected in the same PR | [2026-07-09-bl-resolution-campaign-design.md §4.A Unit A — BL-141 caller-ownership authorization (P1)](../superpowers/specs/2026-07-09-bl-resolution-campaign-design.md#4a-unit-a--bl-141-caller-ownership-authorization-p1) |
 | `error-contracts.md §Runtime Node` | Repo (canonical contract) | Ships `runtimenode.permission_denied` (403) with a no-oracle rationale and reserves tRPC `NOT_FOUND` namespace-wide as the pre-upgrade procedure-absence signal; records the single-statement membership-predicate pattern D7 generalizes | [error-contracts.md §Runtime Node](../architecture/contracts/error-contracts.md#runtime-node) |
 | `cross-plan-dependencies.md §Lock Ordering Across Shared Tables` | Repo (canonical map) | Registers the canonical `sessions` → `session_memberships` → `runtime_node_attachments` → `daemon_signing_public_keys` order — the union across registrants, each of which may skip a level it does not need — with weakest-sufficient modes, and reserves the level-2 slot for this work | [cross-plan-dependencies.md §Lock Ordering Across Shared Tables](../architecture/cross-plan-dependencies.md#lock-ordering-across-shared-tables) |
-| `membership-service.ts#MembershipService` | Repo (shipped code) | The precedent lock discipline: resolve target's `session_id` pre-lock, lock `sessions`, **re-read the full row under the lock**, resolve the actor's membership post-lock, gate, then mutate — the shape D8's two-phase resolve mirrors | `packages/control-plane/src/memberships/membership-service.ts#MembershipService` |
 
 ### Related ADRs
 
@@ -412,7 +411,6 @@ Amend `Plan-008 §I-008-4 — PASETO v4 validation on every Tier-5 endpoint` (ve
 - [Spec-003: Runtime Node Attach](../specs/003-runtime-node-attach.md)
 - [Plan-003: Runtime Node Attach](../plans/003-runtime-node-attach.md)
 - [Plan-006: Session Event Taxonomy And Audit Log](../plans/006-session-event-taxonomy-and-audit-log.md) — T4.10, the declared creator of `RUNTIME_NODE_PERMISSION_DENIED_CODE`
-- [Plan-008: Control Plane Relay And Session Join](../plans/008-control-plane-relay-and-session-join.md) — I-008-4 amendment
 
 ## Decision Log
 

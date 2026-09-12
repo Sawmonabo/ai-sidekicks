@@ -106,11 +106,7 @@
   overflow-y: auto;
 }
 
-/* ------------------------------------------------- what a row is FOR, and its acts */
-
-.meridian-channel-row__audience {
-  display: inline-flex;
-}
+/* ------------------------------------------------------------------- a row's acts */
 
 .meridian-channel-row__acts {
   display: flex;
@@ -164,13 +160,6 @@
   padding-block: var(--meridian-space-2);
   padding-inline: var(--meridian-space-1);
   border-block-end: 1px solid var(--meridian-edge);
-}
-
-/* The roster is an ENRICHMENT of the list, so its refusal is one quiet line under the
- * rows rather than a card standing where they were. */
-.meridian-channels__roster-refusal {
-  margin: 0;
-  padding-block-start: var(--meridian-space-1);
 }
 
 /* ------------------------------------------------------- the archive confirmation */

@@ -86,13 +86,11 @@ describe("AttachFlow — the request it sends and how it settles", () => {
       await screen.findByLabelText("runtime-node-attach-resolved");
     });
 
-    // Plan-003 I-003-3: attach couples no membership mutation to itself.
-    it("issues the attach call ALONE, coupling no membership mutation to it", async () => {
-      // Attach and membership acceptance are distinct actions. The renderer
-      // leg of that invariant is that attaching reaches the control plane
-      // EXACTLY once, on the attach procedure — a surface that also mutated
-      // `session_memberships` would have to make a second call from here, and
-      // the call-count assertion is what forbids it.
+    it("issues the attach call ALONE, coupling no other mutation to it", async () => {
+      // Attaching a node is an act of its own. The renderer leg of that is
+      // that attaching reaches the control plane EXACTLY once, on the attach
+      // procedure — a surface that also mutated session state would have to
+      // make a second call from here, and the call-count assertion forbids it.
       const controlPlaneCall = vi.fn().mockResolvedValue(READ_WRITE_ATTACH_RESPONSE);
       installMockBridge(controlPlaneCall);
 

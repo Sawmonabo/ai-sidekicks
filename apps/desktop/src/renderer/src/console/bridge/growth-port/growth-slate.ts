@@ -24,7 +24,7 @@
 // person sees when an operation refuses, `owningDocument` travels on that refusal's
 // ledger, and `wireRegistered` is the gate two ledger cards read. Which surface waits
 // on a row is read by no shipped module at all, and this table is on the initial
-// import graph — so those sixty-two sentences are next door, where the bundler leaves them
+// import graph — so those fifty-seven sentences are next door, where the bundler leaves them
 // off the document every session downloads.
 
 import type { GrowthSlateRow, GrowthSlateRowId } from "./growth-slate-row.js";
@@ -99,12 +99,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     id: "shell-config-preferences",
     wire: "shell-config preference carrier on the bridge (crash-report opt-out, the two browser switches, the auto-update toggle)",
     owningDocument: "Spec-023 §Preload Bridge Contract + §State And Data Implications",
-    wireRegistered: false,
-  },
-  "invites-list": {
-    id: "invites-list",
-    wire: "the invites list read",
-    owningDocument: "Spec-002",
     wireRegistered: false,
   },
   "health-subscribe": {
@@ -351,21 +345,7 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     id: "channel-lifecycle-verbs",
     wire: "channel.create / channel.mute / channel.unmute / channel.archive — the four channel lifecycle verbs, with their request and reply shapes and the channel.* refusal codes they raise",
     owningDocument:
-      "Spec-016 §Interfaces And Contracts (the create-time-immutable ChannelConfig and the two-value kind domain); api-payload-contracts.md §Plan-016 (the four method strings and their payload shapes, registered there and in no code package)",
-    wireRegistered: false,
-  },
-  "channel-roster-read": {
-    id: "channel-roster-read",
-    wire: "channel.rosterRead — the daemon-native channel roster carrying each channel's kind, a direct channel's memberPair, and the ChannelConfig whose audience says whether this session's agents read it",
-    owningDocument:
-      "Spec-016 §Interfaces And Contracts (D-016-21: the kind discriminator, the immutable member pair, and the audience the daemon forces on a direct channel); api-payload-contracts.md §Plan-016 (ChannelRosterReadRequest / ChannelRosterReadResponse, registered there and in no code package)",
-    wireRegistered: false,
-  },
-  "membership-roster-read": {
-    id: "membership-roster-read",
-    wire: "a read returning a membershipId beside each of a session's participants — the identifier membership.update is keyed by, which every registered carrier answers only from a join or a write",
-    owningDocument:
-      "Spec-002 §Interfaces And Contracts (MembershipUpdate is keyed by membershipId and no read returns one); api-payload-contracts.md §Tier 2: Plan-002 (the five shapes that carry one, all of them a join or a write)",
+      "Spec-016 §Interfaces And Contracts (the create-time-immutable ChannelConfig); api-payload-contracts.md §Plan-016 (the four method strings and their payload shapes, registered there and in no code package)",
     wireRegistered: false,
   },
   "participant-presence-detail": {
@@ -382,30 +362,14 @@ const GROWTH_SLATE_ROWS_BY_ID: {
       "Spec-003 §Required Behavior (one shared terminal per session, one holder at a time); api-payload-contracts.md §Session Terminal-Control Method Registry (controlHolder, and the null it resolves to when the holding node reads offline)",
     wireRegistered: false,
   },
-  // The two Awareness activity fields, on ONE row rather than two. They are a single
-  // publication surface with two mechanisms — the composer scalar is timed and the
-  // run-keyed map is edge-triggered — and every operation this row serves reads or
-  // writes both halves through the same daemon presence handler. Two rows would put
-  // one wire's registration under two owners with nothing to say which lands first.
+  // The Awareness activity field. Edge-triggered by the owning daemon rather than
+  // timed by a receiver, and read through the same daemon presence handler that
+  // serves the heartbeat beside it.
   "presence-activity-fields": {
     id: "presence-activity-fields",
-    wire: "the two Awareness activity fields `activity.typing` and `activity.runs` — a read of the session's live activity state, and the composer's own set and clear emit for the human field",
+    wire: "the Awareness activity field `activity.runs` — a read of the session's live activity state, which run is working in which channel and since when",
     owningDocument:
-      "Spec-002 §Default Behavior (both fields and the membership-restricted-channel suppression); Plan-002 T3.5 (the daemon presence handler surface the composer emits through); Spec-023 §Preload Bridge Contract (no presence namespace is on the shipped bridge)",
-    wireRegistered: false,
-  },
-  "control-plane-host": {
-    id: "control-plane-host",
-    wire: "the node's control-plane host, which an invitation's shareable link is composed from",
-    owningDocument:
-      "Spec-002 §Invite Delivery (the link's form); Spec-023 §Preload Bridge Contract (no shell read carries the host)",
-    wireRegistered: false,
-  },
-  "pending-invite-namespace": {
-    id: "pending-invite-namespace",
-    wire: "the five-method pending-invite bridge namespace, through which the main-confined result of the registered `invite.preview` mutation reaches the renderer as an opaque, single-use, TTL-bounded reference",
-    owningDocument:
-      "Spec-023 §Preload Bridge Contract (the namespace is named there and is on no shipped bridge); Spec-002 §Interfaces And Contracts (the anonymous non-consuming invite preview main issues behind it)",
+      "the presence design (the activity field beside the heartbeat); the daemon presence handler surface the field is published through; the preload bridge contract (no presence namespace is on the shipped bridge)",
     wireRegistered: false,
   },
   "notification-permission-read": {
@@ -473,7 +437,7 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   },
   "intervention-history-read": {
     id: "intervention-history-read",
-    wire: "a run-scoped read of the durable intervention rows — the `origin` discriminator, the `admitting_principal_id` required exactly on the participant arm, the admitted queue item's row-anchored linkage, and the decrypted directive body, with a body-unavailable answer where the authoring participant's key has been shredded",
+    wire: "a run-scoped read of the durable intervention rows — the `origin` admission-path discriminator, the admitted queue item's row-anchored linkage, and the decrypted directive body, with a body-unavailable answer where the authoring key has been shredded",
     owningDocument:
       "Spec-004 §Required Behavior + §State And Data Implications (the durable columns and the resolution rule); Plan-004 (the read seam, which no method string, event payload, or code package carries)",
     wireRegistered: false,

@@ -22,7 +22,6 @@ import {
   AGENT_REVIEWER,
   CHANNEL_IMPLEMENTATION,
   LEDGER_AGENTS,
-  MEMBERSHIP_PRIYA,
   PARTICIPANT_PRIYA,
   PARTICIPANT_YOU,
   RUNTIME_NODE,
@@ -69,11 +68,8 @@ export const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
   ...ledgerOpeningEntries({
     sessionId: SESSION_ID,
     openedBy: PARTICIPANT_YOU,
-    joinedBy: PARTICIPANT_PRIYA,
-    membershipId: MEMBERSHIP_PRIYA,
-    joinedAtMs: 40,
     cast: LEDGER_AGENTS,
-    channel: { channelId: CHANNEL_IMPLEMENTATION, name: "implementation" },
+    channel: { channelId: CHANNEL_IMPLEMENTATION, name: "implementation", openedAtMs: 40 },
   }),
   {
     atMs: 280,

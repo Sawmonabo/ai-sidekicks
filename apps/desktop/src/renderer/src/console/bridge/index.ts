@@ -377,47 +377,26 @@ export { openObservedSubscription } from "./transport/observed-subscription.js";
 // carries no port with it, so nothing gains a way to CALL an operation through it.
 export type { GrowthOperationSignatures } from "./growth-signatures/signature-table.js";
 
-// The `invitesList` outcome, its served row, and the armable expiries of a set of
-// them. Published because TWO sibling view families read that one operation — the sent
-// ledger and the received shelf — and a view family may not import its sibling, so
-// each had declared the pair itself under a name of its own, and each then wrote the
-// expiry walk a second time. Derived off the growth signature here, once.
-export type {
-  InvitesListOutcome,
-  InvitesListRefusal,
-  ServedInvite,
-} from "./growth-port/invites-outcome.js";
-export { expiryDeadlinesOf } from "./growth-port/invites-outcome.js";
-
 // The channel plane's shapes, published because the collaboration family RENDERS
-// them: an audience badge, a pair-labelled row, a create form whose every field is one
-// member of `GrowthChannelConfig`, and the receipts the four lifecycle writes answer
-// with. They leave through the module that DECLARES them rather than through
-// `growth-values/index.js`, on the `console-no-barrel-chain` rule — and the three
-// vocabularies are here rather than on that inner door because their only readers are
-// outside this family, which is exactly what a sub-module door does not publish.
+// them: a create form whose every field is one member of `GrowthChannelConfig`, and
+// the receipts the four lifecycle writes answer with. They leave through the module
+// that DECLARES them rather than through `growth-values/index.js`, on the
+// `console-no-barrel-chain` rule — and the audience vocabulary is here rather than on
+// that inner door because its only reader is outside this family, which is exactly
+// what a sub-module door does not publish.
 export {
   GROWTH_CHANNEL_AUDIENCES,
-  GROWTH_CHANNEL_KINDS,
-  GROWTH_CHANNEL_TURN_POLICIES,
   type GrowthChannelAudience,
   type GrowthChannelConfig,
   type GrowthChannelCreateReceipt,
-  type GrowthChannelKind,
   type GrowthChannelLifecycleReceipt,
-  type GrowthChannelRosterEntry,
-  type GrowthChannelTurnPolicy,
 } from "./growth-values/channels.js";
 
-// The membership plane's two, on the same rule: the ledger renders the identifier its
-// controls are keyed by, and the roster's detail card renders the devices behind one
-// person's aggregate. The device ROW inside that fan-out is deliberately not a third
-// line — the card maps over `GrowthPresenceDetail["devices"]` and names the row type
+// The presence plane's detail card, which renders the devices behind one person's
+// aggregate. The device ROW inside that fan-out is deliberately not a second line —
+// the card maps over `GrowthPresenceDetail["devices"]` and names the row type
 // nowhere, and a door is never widened for symmetry.
-export type {
-  GrowthMembershipRosterEntry,
-  GrowthPresenceDetail,
-} from "./growth-values/memberships.js";
+export type { GrowthPresenceDetail } from "./growth-values/presence.js";
 
 // The saved definition the registry serves. Published because the definition picker
 // in the agent console projects one onto its own row shape, and a projection cannot
@@ -703,20 +682,14 @@ export { readRollbackBoundaryPayload } from "./daemon/rollback-boundary-payload.
 // `TimelineRow`.
 export { readEarlierTimelinePage } from "./daemon/timeline-page.js";
 
-// The three body reads that narrow a wire shape, all through the door because each
-// has a production reader above this family. `membershipRoleOf` is the injected
-// lookup `useCallerMembershipRole` takes: the store's roster holds the role and
-// deliberately names no wire member, so the read that narrows one lives here and
-// travels to the surfaces that gate a control on the caller's role — the approvals
-// goal editor and `terminal/pane/BoundTerminalPane.tsx`, which takes it through
-// `useCallerMembershipRole` to decide whether this viewer may hold the write lease.
-// `stampedExecutionPostureOf` is the composer's posture chip's: it parses the
-// candidate against the registered `RunStateChangeEvent` shape, which is the whole
-// point — a surface checking two members loosely and asserting the type admitted a
-// body with no `networkAccess`, and the chip then rendered an empty label beside two
-// full ones. This door line waited on a production consumer and now has one, in
-// `shell/composer/chips/chip-models.ts`.
-export { membershipRoleOf, stampedExecutionPostureOf } from "./daemon/entity-body-reads.js";
+// The body read that narrows a wire shape, through the door because it has a
+// production reader above this family. `stampedExecutionPostureOf` is the composer's
+// posture chip's: it parses the candidate against the registered
+// `RunStateChangeEvent` shape, which is the whole point — a surface checking two
+// members loosely and asserting the type admitted a body with no `networkAccess`, and
+// the chip then rendered an empty label beside two full ones. This door line waited on
+// a production consumer and now has one, in `shell/composer/chips/chip-models.ts`.
+export { stampedExecutionPostureOf } from "./daemon/entity-body-reads.js";
 
 // The reported node state a payload member carries. Through the door for the reason
 // the line above is: the narrowing runs against the contract's own schema, which this
@@ -725,7 +698,7 @@ export { membershipRoleOf, stampedExecutionPostureOf } from "./daemon/entity-bod
 // line a door line rather than a claim.
 export { readNodeState } from "./daemon/node-state-read.js";
 
-// The two Awareness activity fields' readings, through the door because the
+// The Awareness activity field's readings, through the door because the
 // collaboration family folds a snapshot of them into its indicator registry and a
 // view family may not reach past a barrel into this one. They leave through
 // `growth-values/presence.js`, the module that DECLARES them, on the rule the
@@ -733,26 +706,7 @@ export { readNodeState } from "./daemon/node-state-read.js";
 export type {
   GrowthActivitySnapshot,
   GrowthAgentActivityReading,
-  GrowthComposingReading,
 } from "./growth-values/presence.js";
-
-// The pending confirmation and the six arms one attempt on it can end in. Through
-// the door and from their declaring module for the same reason: the confirmation
-// surface is the collaboration family's, and every arm it renders is one of these.
-export type {
-  GrowthInviteAttempt,
-  GrowthInviteOutcome,
-  GrowthPendingInvite,
-  GrowthPendingInvitePreviewFailure,
-  GrowthPendingInviteRefused,
-  GrowthPendingInviteState,
-} from "./growth-values/invites.js";
-
-// The composer's own composing publisher. It lives in this family because it is a
-// write adapter over the growth port — the `quotas/` reads' mirror image — and it
-// leaves through this door because its one production reader is the composer, which
-// sits outside the console entirely and reaches every console family through a door.
-export { ComposingPublisher } from "./presence/composing-publisher.js";
 
 // The WebAuthn ceremony seam. Through the door because the sign-in family is the
 // reader and this family is where the seam has to live: the fixture WRITES an

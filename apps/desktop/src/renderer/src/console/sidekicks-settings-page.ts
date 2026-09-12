@@ -31,7 +31,7 @@
 //
 // This file named `./agents/index.js` and held the page component, which is what a
 // cross-family import is supposed to look like — and it is exactly what put the page on
-// every launch. That door is imported EAGERLY by `collaboration-family.ts` for the agent
+// every launch. That door is imported EAGERLY by `session-surfaces-family.ts` for the agent
 // console's surface registration, so everything it statically reaches is in the entry
 // chunk; the page and its stylesheet rode there whether or not settings was ever opened.
 // Naming the door from a LOADER would have changed nothing either: a module already

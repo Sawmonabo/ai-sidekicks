@@ -2,10 +2,9 @@
 //
 // ONE FIGURE, FROM ONE PLACE, WITH NO ARITHMETIC ANYWHERE NEAR IT. This renders the
 // accountant's own `committedSpendCents` through the console's one cents formatter
-// and nothing else. `Spec-023 §Rules every console surface obeys` puts it plainly
-// under One accountant — "the renderer never sums visible rows" — and the shape of
-// this module is what makes that checkable: there is no addition in it, and the value
-// it is handed comes from a read rather than from the bar's own model.
+// and nothing else. The one accountant rule — the renderer never sums visible rows —
+// is what this module's shape makes checkable: there is no addition in it, and the
+// value it is handed comes from a read rather than from the header's own model.
 //
 // THE UNPRICED READING IS CARRIED, NOT HIDDEN AND NOT ROUNDED AWAY. The accountant
 // says whether the figure is fully priced, and a session holding debits it could not

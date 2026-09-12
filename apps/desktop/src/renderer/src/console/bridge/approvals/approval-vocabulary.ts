@@ -66,13 +66,8 @@ export const REMEMBERED_SCOPE_KINDS = ["run", "session"] as const;
 
 export type RememberedScopeKind = (typeof REMEMBERED_SCOPE_KINDS)[number];
 
-/** The four invalidation triggers, verbatim from that block's `InvalidationTrigger`. */
-export const INVALIDATION_TRIGGERS = [
-  "explicit",
-  "membership_change",
-  "node_trust_change",
-  "session_end",
-] as const;
+/** The three invalidation triggers, verbatim from that block's `InvalidationTrigger`. */
+export const INVALIDATION_TRIGGERS = ["explicit", "node_trust_change", "session_end"] as const;
 
 export type InvalidationTrigger = (typeof INVALIDATION_TRIGGERS)[number];
 
@@ -124,7 +119,6 @@ export const STATE_TONE: Readonly<Record<ApprovalState, ChipTone>> = {
 /** What an invalidation trigger is called on screen, so revocation is never mysterious. */
 export const TRIGGER_PHRASE: Readonly<Record<InvalidationTrigger, string>> = {
   explicit: "revoked by a participant",
-  membership_change: "revoked because the grantor's membership changed",
   node_trust_change: "revoked because the node's trust changed",
   session_end: "revoked because the session ended",
 };

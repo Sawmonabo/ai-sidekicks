@@ -1,23 +1,20 @@
 // Public surface of the @ai-sidekicks/control-plane package.
 //
-// Plan-001 PR #4 shipped the SessionDirectoryService + the migration runner.
-// Plan-008 Phase 1 (PR #?) adds the HTTP/SSE substrate built on tRPC v11 +
-// `@trpc/server/adapters/fetch` and deployable as a Cloudflare Worker — the
-// `buildControlPlaneFetchHandler` factory + its dep + env types are the
-// public boundary used by the integration test in client-sdk
-// (per F-008b-1-09 / §T-008b-1-T12) and by future production wiring.
+// The SessionDirectoryService + the migration runner, plus the HTTP/SSE
+// substrate built on tRPC v11 + `@trpc/server/adapters/fetch` and deployable as
+// a Cloudflare Worker — the `buildControlPlaneFetchHandler` factory + its dep +
+// env types are the public boundary used by the client-sdk integration test and
+// by production wiring.
 //
-// pg 8.20+ remains a workspace dep (per ADR-022 upper-tier Node 24 target)
-// and is consumed at the production wiring boundary; under I-008-3 #1 the
-// router CRUD + SSE factories take their dependencies via constructor
-// injection so neither the public types nor the live source touch `pg`
-// directly — see eslint.config.mjs `no-restricted-imports` for the dual-layer
-// enforcement of I-008-3 #2.
+// pg 8.20+ remains a workspace dep and is consumed at the production wiring
+// boundary; the router CRUD + SSE factories take their dependencies via
+// constructor injection so neither the public types nor the live source touch
+// `pg` directly — see eslint.config.mjs `no-restricted-imports` for the
+// dual-layer enforcement.
 
 export {
   SessionDirectoryService,
   type CreateSessionInput,
-  type JoinSessionInput,
 } from "./sessions/session-directory-service.js";
 // Runtime-node host-construction surface (Plan-003 Phase 3) — the two backing
 // service classes the runtime-node router closes over, parallel to
@@ -35,7 +32,6 @@ export { HeartbeatService } from "./runtime-nodes/heartbeat-service.js";
 export { EventLogAnchorStore } from "./event-anchors/anchor-store.js";
 export { applyMigrations, type Querier } from "./sessions/migration-runner.js";
 export { INITIAL_MIGRATION_SQL } from "./migrations/0001-initial.js";
-export { SESSION_INVITES_MIGRATION_SQL } from "./migrations/0002-session-invites.js";
 
 // Plan-008 Phase 1 — HTTP/SSE substrate. The handler factory is the
 // integration boundary the F-008b-1-09 unblock test (T-008b-1-T12) drives

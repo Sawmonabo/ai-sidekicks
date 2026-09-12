@@ -6,9 +6,8 @@
 // seam is clean because nothing here is part of the report: a block is derived from a
 // state and from a method name, and the state module knows about neither.
 //
-// `Spec-023 §Daemon Supervision Lifecycle` step 3 is the rule underneath both halves:
-// mutating operations are blocked while the supervisor is not serving, and read-only
-// subscriptions continue.
+// The rule underneath both halves: mutating operations are blocked while the
+// supervisor is not serving, and read-only subscriptions continue.
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import type { FrameStore } from "./frame-store.js";
@@ -17,8 +16,8 @@ import type { ShellState } from "./shell-state.js";
 /**
  * The daemon methods this console treats as mutating, and no others.
  *
- * `Spec-023 §Daemon Supervision Lifecycle` step 3 blocks mutating operations and
- * permits read-only subscriptions, and the classification is a registration's own
+ * Mutating operations are blocked while the supervisor is not serving and read-only
+ * subscriptions are permitted, and the classification is a registration's own
  * `mutating` flag rather than a judgement made here.
  *
  * WHICH REGISTRATION, THOUGH — AND THE FIRST ANSWER WAS THE WRONG INSTRUMENT. This
@@ -33,32 +32,12 @@ import type { ShellState } from "./shell-state.js";
  * the probe is one of them, and a re-check dispatched through a stopped supervisor is
  * a write this window had no business putting.
  *
- * `membership.update` is the second entry admitted on that reading and not on a
- * census: `api-payload-contracts.md` registers `MembershipUpdateRequest` /
- * `MembershipUpdateResponse` as a role change, a suspension, a revocation, or a
- * reactivation of somebody's membership, the console's own call door binds it, and the
- * daemon ships no handler for it yet. Leaving it off left the membership ledger with no
- * transport signal at all, which is how its four controls came to be gated on the
- * session store's degraded flag — a fact about the PROJECTION, which says nothing about
- * whether a call can be sent.
- *
- * So the authority is the CORPUS registration — `api-payload-contracts.md`, per
- * namespace — of which the shipped handlers are the subset that has landed.
+ * So the authority is the registered method contract, per namespace, of which the
+ * shipped handlers are the subset that has landed.
  * Review holds the tuple to that subset in the one direction a check can support: every
  * shipped `mutating: true` registration is named here, and nothing named here is shipped
  * `mutating: false`. What that cannot answer — a corpus-registered verb whose
  * handler has not landed — is what the paragraph above is for.
- *
- * AND A VERB THE DAEMON PROXIES IS STILL THIS CONSOLE'S WRITE. `membership.update` and
- * `invite.revoke` reach the control plane THROUGH the daemon rather than terminating in
- * it, and a durable act is no less durable for having been forwarded — the roster it
- * changes is the session's. `bridge/daemon/daemon-reply-registry.ts` says exactly that
- * while classifying them for a different question: both are `false` on its
- * `CHANGES_A_RUN` table, and its own prose names them "mutations all the same" that
- * "change the session's own roster". That table answers whether a call moves a RUN and
- * says in so many words that it is not the door's read-versus-mutation rule, so its
- * `false` is no evidence against this tuple — it is the corroboration that the
- * classification belongs here.
  *
  * The table stays a closed tuple so "exactly these and no others" is countable, and so
  * an added mutating verb is a deliberate edit here rather than a control that silently
@@ -81,10 +60,6 @@ export const MUTATING_DAEMON_METHODS = [
   "repo.ephemeralCloneDispose",
   "repo.worktreeRetire",
   "session.create",
-  "session.join",
-  "membership.update",
-  "invite.create",
-  "invite.revoke",
   "providerAccount.probe",
 ] as const;
 
@@ -254,18 +229,4 @@ const SHELL_BLOCK_ORIGIN = "shell";
  */
 export function shellBlockRefusal(block: ShellMutationBlock): ConsoleRefusal {
   return refuse(SHELL_BLOCK_ORIGIN, block.code, block.detail);
-}
-
-/**
- * Whether a refusal is a shell block — the one reason the window already says.
- *
- * The predicate travels with the producer above for the reason the invitation mint
- * first wrote it down: a consumer that decides whether to RETAIN such a refusal is
- * answering a question about the store's own condition, and the store clears that
- * condition when the runtime comes back while a retained copy would not follow. Two
- * spellings of the origin — one at the producer, one at the consumer — is that seam
- * split across two modules.
- */
-export function isShellBlockRefusal(refusal: ConsoleRefusal): boolean {
-  return refusal.origin === SHELL_BLOCK_ORIGIN;
 }

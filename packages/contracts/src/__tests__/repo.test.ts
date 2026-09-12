@@ -717,7 +717,7 @@ describe("SessionEventSchema registration of the six Plan-009 variants (CP-009-4
       // replay.
       const broken = {
         ...buildRepoEvent(eventType, state),
-        category: "membership_change" as const,
+        category: "presence" as const,
       };
       expect(SessionEventSchema.safeParse(broken).success).toBe(false);
     },
@@ -2017,7 +2017,7 @@ describe("index.ts re-exports the Plan-009 contract core", () => {
       // so a variant that accepted a mismatched one would hash under the wrong
       // category at replay. Pinned on the union above; pinned here on the
       // standalone surface, which is what Phase 2 emitters validate against.
-      expect(schema.safeParse({ ...event, category: "membership_change" }).success).toBe(false);
+      expect(schema.safeParse({ ...event, category: "presence" }).success).toBe(false);
       // `.strict()` reaches the shared payload schema through this surface too.
       expect(
         schema.safeParse({ ...event, payload: { ...event.payload, smuggled: "nope" } }).success,

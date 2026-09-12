@@ -1,10 +1,5 @@
-// What both halves of the derivation's suite build: a wheel, an event, an event
-// carrying the run identity an ask correlates on, and the model over a real store.
-//
-// One module rather than a copy in each, because the two suites derive the SAME model
-// from two directions — what one chip says, and what the bar as a whole is — and two
-// spellings of "a session with these participants and this log" would let one file pass
-// against a derivation the other never builds.
+// What the derivation's suite builds: an event, an event carrying the run identity an
+// ask correlates on, and the model over a real store.
 //
 // THE MODEL IS BUILT OVER A REAL `SessionStore` rather than over a ledger a case types
 // out. What is outstanding is the store's to answer — it holds the register across the
@@ -15,8 +10,7 @@
 import type { ConsoleSessionEvent, OutstandingAskLedger } from "../../../store/index.js";
 import { SessionStore } from "../../../store/index.js";
 import { eventOfKind } from "../../../store/session-event.test-support.js";
-import { ParticipantHueAllocator } from "../../../tokens/index.js";
-import { deriveCastBar, type CastBarInput, type CastBarModel } from "./cast-bar-model.js";
+import { deriveCastBar, type CastBarModel } from "./cast-bar-model.js";
 
 /** The session every event in this family is built under. */
 const MODEL_SESSION_ID = "session-1";
@@ -33,16 +27,7 @@ export interface LedgerOverOptions {
   readonly readFromCursor?: string;
 }
 
-/** The join-log order every chip roster is derived in, as the allocator's own output. */
-export function wheelFor(participantIds: readonly string[]): ParticipantHueAllocator {
-  const allocator = new ParticipantHueAllocator();
-  for (const participantId of participantIds) {
-    allocator.admit(participantId);
-  }
-  return allocator;
-}
-
-/** One admitted event with the actor a chip is derived from, over the shared builder. */
+/** One admitted event with the actor the log attributes it to, over the shared builder. */
 export function castEvent(sequence: number, actorId: string, kind: string): ConsoleSessionEvent {
   return { ...eventOfKind(MODEL_SESSION_ID, kind, sequence), actorId };
 }
@@ -75,12 +60,18 @@ export function ledgerOver(
 }
 
 /**
- * The model, over a ledger a real store built from the same log.
+ * The model, over a ledger a real store built from the log a case hands in.
  *
- * The one member every case would otherwise spell identically, composed once. It calls
- * the real derivation and adds no rule of its own — what it removes is the chance of a
- * case passing a ledger that disagrees with the timeline beside it.
+ * The one call every case would otherwise spell identically, composed once. It calls the
+ * real derivation and adds no rule of its own.
  */
-export function castBarOver(input: Omit<CastBarInput, "outstandingAsks">): CastBarModel {
-  return deriveCastBar({ ...input, outstandingAsks: ledgerOver(input.timeline) });
+export function castBarOver(
+  timeline: readonly ConsoleSessionEvent[],
+  conditions: { readonly isDegraded?: boolean; readonly isNodeUnwell?: boolean } = {},
+): CastBarModel {
+  return deriveCastBar({
+    outstandingAsks: ledgerOver(timeline),
+    isDegraded: conditions.isDegraded ?? false,
+    isNodeUnwell: conditions.isNodeUnwell ?? false,
+  });
 }

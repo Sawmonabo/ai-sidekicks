@@ -58,11 +58,9 @@
 // NOTHING: every value it takes is a reading already held here, so it cannot become a
 // second answer to a question the derivations next door already answer.
 //
-// AND TWO SEATS THIS MOUNT CLAIMS, both for callers composed before it existed: the
-// palette's, so a ledger chord acts on the feed that is up when it fires, and the
-// workspace's follow seat, so a cast chip scrolls this ledger through this ledger's
-// own chokepoint. The palette's nine acts are built in `ledger-feed-acts.ts` and the
-// follow seat in `ledger-actor-follow-seat.ts`.
+// AND ONE SEAT THIS MOUNT CLAIMS, for a caller composed before it existed: the
+// palette's, so a ledger chord acts on the feed that is up when it fires. Its nine
+// acts are built in `ledger-feed-acts.ts`.
 //
 // THE STRUCTURAL CONTROL OFFERS NO LOAD-EARLIER ACT, and the reason is that it is
 // about a different absence. `ledger-visible-window.ts` sets `hasEarlierRows`
@@ -98,7 +96,6 @@ import { useLedgerRowRenderer } from "./LedgerFeedRow.js";
 import { type SessionStore } from "../../../../store/index.js";
 import { type TimelineRowRenderer } from "../../../../seats/index.js";
 import {
-  useActorFollowSeat,
   useLedgerFeedWindows,
   useLedgerFindAndJump,
   useLedgerStructureActs,
@@ -219,7 +216,6 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     collapseAllTerminalChapters,
     ledgerFilter,
   });
-  useActorFollowSeat({ paneId: props.paneId, visibleRows: visible.rows, jumpToRow });
 
   return (
     <div className="meridian-ledger">

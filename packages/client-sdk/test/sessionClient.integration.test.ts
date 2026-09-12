@@ -1,18 +1,16 @@
 // Plan-001 Phase 5 Lane A T5.1: integration tests for `sessionClient`
 // across BOTH transports (daemon JSON-RPC + control-plane HTTP/SSE).
 //
-// Spec coverage — the four named acceptance criteria from Spec-001:
+// Coverage:
 //   * I1 — `SessionCreate` then `SessionRead` returns identical session id
-//          (round-trip — Spec-001 AC1, AC3).
-//   * I2 — Second client `SessionJoin` against an existing session sees the
-//          existing event history (no fork on join — Spec-001 AC4).
+//          (round-trip).
 //   * I3 — `SessionSubscribe` yields events in sequence ASC across reconnect
-//          (reconnect ordering — Spec-001 AC3, AC7-partial).
+//          (reconnect ordering).
 //   * I4 — Reconnect after lost stream restores from snapshot, NOT the
-//          client cache (snapshot authority — Spec-001 AC6).
+//          client cache (snapshot authority).
 //
 // Transport split rationale:
-//   * I1 + I2 use the DAEMON transport. The harness is `JsonRpcClient` +
+//   * I1 uses the DAEMON transport. The harness is `JsonRpcClient` +
 //     in-memory `ClientTransport` + a scripted "fake daemon" reply table.
 //     This is fully synchronous, requires zero external state (no pglite,
 //     which is NOT a client-sdk dep — see node-linker=isolated in .npmrc),
@@ -21,34 +19,30 @@
 //   * I3 + I4 use the CONTROL-PLANE transport. The harness is
 //     `buildControlPlaneFetchHandler` + a scripted `eventStreamProvider`
 //     with a recording cursor capture. This mirrors the established
-//     pattern in `client-sdk/test/transport/sse-roundtrip.test.ts:401-448`
-//     (the F-008b-1-09 unblock-contract test that pre-pinned the consumer
-//     surface this file's production code now satisfies).
+//     pattern in `client-sdk/test/transport/sse-roundtrip.test.ts`.
 //
-// Coverage gap acknowledged (does NOT block DONE): I1+I2 against the
-// control-plane transport go unverified at the SDK level. The
-// control-plane router itself has equivalent CRUD coverage in
-// `control-plane/src/sessions/__tests__/session-router.test.ts` (T4..T6),
-// and the SDK→fetch→router boundary is exercised by I3+I4's subscribe
-// path. The pivot keeps the test surface within the package's declared
-// dependency footprint without expanding scope.
+// Coverage gap acknowledged: I1 against the control-plane transport goes
+// unverified at the SDK level. The control-plane router itself has
+// equivalent CRUD coverage in
+// `control-plane/src/sessions/__tests__/session-router.test.ts`, and the
+// SDK→fetch→router boundary is exercised by I3+I4's subscribe path.
 
 import {
+  type ChannelListResponse,
+  deriveMainChannelId,
   type EventCursor,
   type EventEnvelopeVersion,
   JSONRPC_VERSION,
   type JsonRpcNotification,
   type JsonRpcRequest,
   type JsonRpcResponseEnvelope,
-  type MembershipId,
+  MAIN_CHANNEL_NAME,
   type ParticipantId,
   type SessionCreateResponse,
   type SessionEvent,
   type SessionId,
-  type SessionJoinResponse,
   type SessionReadResponse,
   SUBSCRIPTION_NOTIFY_METHOD,
-  type SubscriptionId,
 } from "@ai-sidekicks/contracts";
 import {
   AttachService,
@@ -58,7 +52,6 @@ import {
   type CreateSessionInput,
   EventLogAnchorStore,
   HeartbeatService,
-  type JoinSessionInput,
   type Querier,
   SessionDirectoryService,
   type SessionEventStreamProvider,
@@ -70,7 +63,6 @@ import { ZodError } from "zod";
 import {
   createControlPlaneSessionClient,
   createDaemonSessionClient,
-  type SessionEventEnvelope,
 } from "../src/sessionClient.js";
 import { JsonRpcClient } from "../src/transport/jsonRpcClient.js";
 import type { ClientTransport } from "../src/transport/types.js";
@@ -81,11 +73,6 @@ import type { ClientTransport } from "../src/transport/types.js";
 
 const SESSION_ID: SessionId = "01970000-0000-7000-8000-00000000a001" as SessionId;
 const OWNER_PARTICIPANT_ID: ParticipantId = "01970000-0000-7000-8000-00000000b001" as ParticipantId;
-const SECOND_PARTICIPANT_ID: ParticipantId =
-  "01970000-0000-7000-8000-00000000b002" as ParticipantId;
-const OWNER_MEMBERSHIP_ID: MembershipId = "01970000-0000-7000-8000-00000000c001" as MembershipId;
-const SECOND_MEMBERSHIP_ID: MembershipId = "01970000-0000-7000-8000-00000000c002" as MembershipId;
-const SUBSCRIPTION_ID: SubscriptionId = "01970000-0000-7000-8000-00000000e001" as SubscriptionId;
 
 // Event ids whose UUID format also satisfies `EventCursor.min(1).max(256)`.
 // On the daemon transport, the SDK synthesizes `eventId = event.id`; on the
@@ -239,9 +226,6 @@ function buildSubscribeOnlyDeps(provider: SessionEventStreamProvider): ControlPl
     generateSessionId: (): SessionId => {
       throw NEVER_REACHED("generateSessionId");
     },
-    resolveIdentityHandle: (): ParticipantId => {
-      throw NEVER_REACHED("resolveIdentityHandle");
-    },
     eventStreamProvider: provider,
   };
 }
@@ -256,20 +240,13 @@ function buildSubscribeOnlyDeps(provider: SessionEventStreamProvider): ControlPl
 class FixtureDirectoryService extends SessionDirectoryService {
   readonly #createResponse: SessionCreateResponse;
   readonly #readResponse: SessionReadResponse;
-  readonly #joinResponse: SessionJoinResponse;
   public lastCreateInput: CreateSessionInput | undefined = undefined;
   public lastReadSessionId: SessionId | undefined = undefined;
-  public lastJoinInput: JoinSessionInput | undefined = undefined;
 
-  constructor(responses: {
-    create: SessionCreateResponse;
-    read: SessionReadResponse;
-    join: SessionJoinResponse;
-  }) {
+  constructor(responses: { create: SessionCreateResponse; read: SessionReadResponse }) {
     super(throwingQuerier);
     this.#createResponse = responses.create;
     this.#readResponse = responses.read;
-    this.#joinResponse = responses.join;
   }
 
   override async createSession(input: CreateSessionInput): Promise<SessionCreateResponse> {
@@ -280,11 +257,6 @@ class FixtureDirectoryService extends SessionDirectoryService {
   override async readSession(sessionId: SessionId): Promise<SessionReadResponse | null> {
     this.lastReadSessionId = sessionId;
     return this.#readResponse;
-  }
-
-  override async joinSession(input: JoinSessionInput): Promise<SessionJoinResponse | null> {
-    this.lastJoinInput = input;
-    return this.#joinResponse;
   }
 }
 
@@ -298,12 +270,8 @@ function buildCrudOnlyDeps(directoryService: FixtureDirectoryService): ControlPl
     // Plan-006 CP-006-2 — same never-reached posture as the runtime-node
     // services above: holds the throwing querier, throws only on use.
     anchorStore: new EventLogAnchorStore(throwingQuerier),
-    // Both stubs return the same ParticipantId so the join procedure's
-    // `resolved !== current` UNAUTHORIZED guard at session-router.factory.ts:128
-    // is satisfied for the happy-path smoke tests.
     resolveCurrentParticipantId: (): ParticipantId => OWNER_PARTICIPANT_ID,
     generateSessionId: (): SessionId => SESSION_ID,
-    resolveIdentityHandle: (): ParticipantId => OWNER_PARTICIPANT_ID,
     eventStreamProvider: () => {
       throw new Error("CRUD smoke tests must not exercise the eventStreamProvider");
     },
@@ -367,35 +335,6 @@ function makeSessionCreatedEvent(id: string, sequence: number): SessionEvent {
   };
 }
 
-function makeMembershipCreatedEvent(
-  id: string,
-  sequence: number,
-  participantId: ParticipantId,
-  membershipId: MembershipId,
-  role: "owner" | "collaborator",
-): SessionEvent {
-  // Note: `membership.created`'s payload does NOT carry `sessionId` (per
-  // `buildCommonShape()` in event.ts — it's only on the envelope's common
-  // fields). The `.strict()` modifier on the payload schema rejects unknown
-  // keys, so adding a `sessionId` to payload is a contract break.
-  return {
-    type: "membership.created",
-    category: "membership_change",
-    id,
-    sessionId: SESSION_ID,
-    sequence,
-    occurredAt: "2026-04-30T12:00:01.000Z",
-    actor: null,
-    version: "1.0" as EventEnvelopeVersion,
-    payload: {
-      membershipId,
-      participantId,
-      identityHandle: participantId,
-      role,
-    },
-  };
-}
-
 async function drain<T>(iter: AsyncIterable<T>): Promise<T[]> {
   const out: T[] = [];
   for await (const item of iter) out.push(item);
@@ -419,14 +358,6 @@ describe("I1 / Spec-001 AC1+AC3 — SessionCreate then SessionRead returns ident
         buildResult: (): unknown => ({
           sessionId: SESSION_ID,
           state: "provisioning",
-          memberships: [
-            {
-              id: OWNER_MEMBERSHIP_ID,
-              participantId: OWNER_PARTICIPANT_ID,
-              role: "owner",
-              state: "active",
-            },
-          ],
           channels: [],
         }),
       },
@@ -461,7 +392,6 @@ describe("I1 / Spec-001 AC1+AC3 — SessionCreate then SessionRead returns ident
     const createResponse = await sdk.create({});
     expect(createResponse.sessionId).toBe(SESSION_ID);
     expect(createResponse.state).toBe("provisioning");
-    expect(createResponse.memberships).toHaveLength(1);
 
     const readResponse = await sdk.read({ sessionId: createResponse.sessionId });
     // I1 core assertion: round-trip identity. The id surfaced from create
@@ -469,149 +399,6 @@ describe("I1 / Spec-001 AC1+AC3 — SessionCreate then SessionRead returns ident
     expect(readResponse.session.id).toBe(createResponse.sessionId);
     expect(readResponse.session.state).toBe("provisioning");
     expect(readResponse.session.config).toEqual({ topic: "round-trip" });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// I2 — Second client SessionJoin against an existing session sees existing
-// event history (no fork on join — Spec-001 AC4) — daemon transport
-// ---------------------------------------------------------------------------
-
-describe("I2 / Spec-001 AC4 — Second client join sees existing event history (no fork on join)", () => {
-  it("daemon transport: client A creates, client B joins — both clients' subscribe yields the SAME event sequence", async () => {
-    // Both client A and client B subscribe via fresh daemon connections.
-    // The "no-fork" claim is that B's subscribe (initiated AFTER A's join)
-    // sees the same event history A sees — there's a single canonical
-    // session timeline, not divergent per-client streams. We model this
-    // with two harnesses sharing a scripted history; both replay the same
-    // three events on subscribe.
-    const sharedHistory: SessionEvent[] = [
-      makeSessionCreatedEvent(EVENT_ID_1, 0),
-      makeMembershipCreatedEvent(EVENT_ID_2, 1, OWNER_PARTICIPANT_ID, OWNER_MEMBERSHIP_ID, "owner"),
-      makeMembershipCreatedEvent(
-        EVENT_ID_3,
-        2,
-        SECOND_PARTICIPANT_ID,
-        SECOND_MEMBERSHIP_ID,
-        "collaborator",
-      ),
-    ];
-
-    const buildHarness = (): DaemonHarness =>
-      buildDaemonHarness([
-        {
-          method: "session.create",
-          buildResult: (): unknown => ({
-            sessionId: SESSION_ID,
-            state: "provisioning",
-            memberships: [
-              {
-                id: OWNER_MEMBERSHIP_ID,
-                participantId: OWNER_PARTICIPANT_ID,
-                role: "owner",
-                state: "active",
-              },
-            ],
-            channels: [],
-          }),
-        },
-        {
-          method: "session.join",
-          buildResult: (): unknown => ({
-            // I2 wire-level invariant: join returns the EXISTING sessionId,
-            // not a freshly-minted one (per BL-069 invariant — no silent
-            // forks on join).
-            sessionId: SESSION_ID,
-            participantId: SECOND_PARTICIPANT_ID,
-            membershipId: SECOND_MEMBERSHIP_ID,
-            sharedMetadata: {},
-          }),
-        },
-        {
-          method: "session.subscribe",
-          buildResult: (): unknown => ({ subscriptionId: SUBSCRIPTION_ID }),
-        },
-      ]);
-
-    const harnessA = buildHarness();
-    const harnessB = buildHarness();
-    const sdkA = createDaemonSessionClient(harnessA.client);
-    const sdkB = createDaemonSessionClient(harnessB.client);
-
-    // Client A creates the session. Client B joins it — second join MUST
-    // return the SAME sessionId (no fork).
-    const created = await sdkA.create({});
-    const joined = await sdkB.join({
-      sessionId: created.sessionId,
-      identityHandle: SECOND_PARTICIPANT_ID,
-    });
-    expect(joined.sessionId).toBe(created.sessionId);
-
-    // Both A and B subscribe; both see the same history. We drive the
-    // notify frames from outside the SDK — modeling the daemon's
-    // streaming primitive emitting the same event log for both
-    // subscriptions.
-    //
-    // Order discipline: `daemonSubscribe` is `async function*`, so its
-    // body (which calls `client.subscribe(...)` to issue the wire
-    // request) does NOT execute on construction. It executes only when
-    // something pulls from the iterator. We therefore obtain the
-    // iterators FIRST and call `next()` once per iterator to kick the
-    // generator into running its prelude (init request out, init
-    // response in, subscription registered) BEFORE we deliver any
-    // notify frames or close the transport. Without this priming, the
-    // notifies would arrive while `#subscriptions` is empty and the
-    // transport-close would fire `JsonRpcTransportClosedError` against
-    // an already-closed client when the generator finally tried to
-    // call `client.subscribe()`.
-    const iterA = sdkA.subscribe({ sessionId: created.sessionId })[Symbol.asyncIterator]();
-    const iterB = sdkB.subscribe({ sessionId: created.sessionId })[Symbol.asyncIterator]();
-    const firstA = iterA.next();
-    const firstB = iterB.next();
-
-    // Fire the scripted history on each transport. Sync dispatch — by the
-    // time `notify(...)` returns, the SDK's queue has the value parked.
-    for (const event of sharedHistory) {
-      harnessA.notify({ subscriptionId: SUBSCRIPTION_ID, value: event });
-      harnessB.notify({ subscriptionId: SUBSCRIPTION_ID, value: event });
-    }
-    // Close both transports so the for-await loops below terminate. The
-    // SDK's transport-close path completes any in-flight subscriptions
-    // with `undefined` (clean close, since `reason === undefined`), so
-    // the generator's `for await` exits naturally and the cursor-
-    // synthesizing wrapper drains.
-    await harnessA.transport.close();
-    await harnessB.transport.close();
-
-    // Drain. The first `next()` already issued; we collect it and
-    // continue with the iterator until done.
-    const eventsA: SessionEventEnvelope[] = [];
-    const eventsB: SessionEventEnvelope[] = [];
-    let nextA = await firstA;
-    while (!nextA.done) {
-      eventsA.push(nextA.value);
-      nextA = await iterA.next();
-    }
-    let nextB = await firstB;
-    while (!nextB.done) {
-      eventsB.push(nextB.value);
-      nextB = await iterB.next();
-    }
-
-    expect(eventsA).toHaveLength(sharedHistory.length);
-    expect(eventsB).toHaveLength(sharedHistory.length);
-    // I2 core assertion: identical event sequence across both clients.
-    expect(eventsB.map((e) => e.event.id)).toEqual(eventsA.map((e) => e.event.id));
-    // Both event histories carry the SAME fork-detection signal: the
-    // membership.created for the SECOND participant references the
-    // ORIGINAL session, not a newly-minted one.
-    const secondMembership = eventsB.find(
-      (e) => e.event.type === "membership.created" && e.event.id === EVENT_ID_3,
-    );
-    expect(secondMembership).toBeDefined();
-    if (secondMembership !== undefined && secondMembership.event.type === "membership.created") {
-      expect(secondMembership.event.sessionId).toBe(created.sessionId);
-    }
   });
 });
 
@@ -799,13 +586,7 @@ describe("I4 / Spec-001 AC6 — Reconnect after lost stream restores from snapsh
       },
       {
         cursor: CURSOR_3,
-        event: makeMembershipCreatedEvent(
-          EVENT_ID_3,
-          2,
-          SECOND_PARTICIPANT_ID,
-          SECOND_MEMBERSHIP_ID,
-          "collaborator",
-        ),
+        event: makeSessionCreatedEvent(EVENT_ID_3, 2),
       },
     ];
     scripted = reconnectScripted;
@@ -837,7 +618,7 @@ describe("I4 / Spec-001 AC6 — Reconnect after lost stream restores from snapsh
     // BETWEEN cold and reconnect — additional proof that the SDK reads
     // server state, not client state.
     expect(reconnected[1]?.eventId).toBe(CURSOR_3);
-    expect(reconnected[1]?.event.type).toBe("membership.created");
+    expect(reconnected[1]?.event.type).toBe("session.created");
   });
 });
 
@@ -1421,26 +1202,17 @@ describe("C8 / Codex RT-5 Finding B — control-plane subscribe rejects non-SSE 
 // Control-plane CRUD smoke tests — pin the JSON envelope decode path
 // ---------------------------------------------------------------------------
 //
-// I3+I4 above exercise the SSE wire path; these three smoke tests exercise the
+// I3+I4 above exercise the SSE wire path; these smoke tests exercise the
 // non-SSE JSON envelope path (parseTrpcResult + extractTrpcResponseData). A
 // regression in the envelope-shape walk (e.g. typo `result.dataa`, missing
 // `result` guard, accidental SuperJSON-wrap assumption) would silently break
-// all three CRUD methods at runtime; without these tests the only signal would
-// come from a downstream consumer's first call. Coverage is per-method (one
-// describe each) so a failure isolates the broken procedure.
+// both CRUD methods at runtime; without these tests the only signal would
+// come from a downstream consumer's first call.
 
 describe("Control-plane CRUD smoke — JSON envelope decode round-trips through parseTrpcResult", () => {
   const canonicalCreateResponse: SessionCreateResponse = {
     sessionId: SESSION_ID,
     state: "provisioning",
-    memberships: [
-      {
-        id: OWNER_MEMBERSHIP_ID,
-        participantId: OWNER_PARTICIPANT_ID,
-        role: "owner",
-        state: "active",
-      },
-    ],
     channels: [],
   };
   const canonicalReadResponse: SessionReadResponse = {
@@ -1456,13 +1228,6 @@ describe("Control-plane CRUD smoke — JSON envelope decode round-trips through 
       latest: CURSOR_1,
     },
   };
-  const canonicalJoinResponse: SessionJoinResponse = {
-    sessionId: SESSION_ID,
-    participantId: OWNER_PARTICIPANT_ID,
-    membershipId: OWNER_MEMBERSHIP_ID,
-    sharedMetadata: {},
-  };
-
   function buildSdk(): {
     sdk: ReturnType<typeof createControlPlaneSessionClient>;
     directoryService: FixtureDirectoryService;
@@ -1470,7 +1235,6 @@ describe("Control-plane CRUD smoke — JSON envelope decode round-trips through 
     const directoryService = new FixtureDirectoryService({
       create: canonicalCreateResponse,
       read: canonicalReadResponse,
-      join: canonicalJoinResponse,
     });
     const handler = buildControlPlaneFetchHandler(buildCrudOnlyDeps(directoryService));
     const fetcher = (req: Request): Promise<Response> => handler(req, PASSING_ENV);
@@ -1490,8 +1254,6 @@ describe("Control-plane CRUD smoke — JSON envelope decode round-trips through 
     // confirms the full happy-path shape.
     expect(response.sessionId).toBe(SESSION_ID);
     expect(response.state).toBe("provisioning");
-    expect(response.memberships).toHaveLength(1);
-    expect(response.memberships[0]?.id).toBe(OWNER_MEMBERSHIP_ID);
     expect(response.channels).toEqual([]);
     // The fixture captures the input the directory service received — proves
     // the request body round-tripped through the tRPC mutation parser.
@@ -1509,18 +1271,64 @@ describe("Control-plane CRUD smoke — JSON envelope decode round-trips through 
     // the directory service unchanged.
     expect(directoryService.lastReadSessionId).toBe(SESSION_ID);
   });
+});
 
-  it("join: POST round-trips through fetch handler; envelope decode yields canonical response", async () => {
-    const { sdk, directoryService } = buildSdk();
-    const response = await sdk.join({
-      sessionId: SESSION_ID,
-      identityHandle: OWNER_PARTICIPANT_ID,
-    });
-    expect(response.sessionId).toBe(SESSION_ID);
-    expect(response.participantId).toBe(OWNER_PARTICIPANT_ID);
-    expect(response.membershipId).toBe(OWNER_MEMBERSHIP_ID);
-    expect(response.sharedMetadata).toEqual({});
-    expect(directoryService.lastJoinInput?.sessionId).toBe(SESSION_ID);
-    expect(directoryService.lastJoinInput?.participantId).toBe(OWNER_PARTICIPANT_ID);
+// ---------------------------------------------------------------------------
+// Daemon channel listing — the bootstrap main channel for an existing session
+// ---------------------------------------------------------------------------
+//
+// The bootstrap `main` channel's id is a PURE FUNCTION of the session id:
+// `deriveMainChannelId` is THE shared derivation consumed by both the daemon
+// projector AND the control-plane channel projection. The expected id below is
+// derived with the SAME helper used in the assertion, so the test pins the
+// cross-surface invariant (byte-identical id for a given session) rather than a
+// daemon-side fabrication.
+
+describe("daemon factory — listChannels returns the bootstrap main channel", () => {
+  it("listChannels sends channel.list and parses a projection containing the deterministically-derived main channel", async () => {
+    const mainChannelId = deriveMainChannelId(SESSION_ID);
+
+    const channelListResponse: ChannelListResponse = {
+      channels: [
+        {
+          id: mainChannelId,
+          name: MAIN_CHANNEL_NAME,
+          state: "active",
+          participantCount: 1,
+        },
+      ],
+    };
+
+    const harness = buildDaemonHarness([
+      {
+        method: "channel.list",
+        buildResult: (request): unknown => {
+          // Echo back the requested sessionId scoping defensively (the
+          // projection is per-session). The response shape is the canonical
+          // ChannelListResponse; the bootstrap main channel is the single
+          // visible channel for a freshly-bootstrapped session.
+          const requested = (request.params as { sessionId: SessionId } | undefined) ?? {
+            sessionId: SESSION_ID,
+          };
+          expect(requested.sessionId).toBe(SESSION_ID);
+          return channelListResponse;
+        },
+      },
+    ]);
+    const sdk = createDaemonSessionClient(harness.client);
+
+    const response = await sdk.listChannels({ sessionId: SESSION_ID });
+
+    // Core assertion #1: the parsed projection contains the bootstrap main
+    // channel, keyed by the deterministically-derived id.
+    const main = response.channels.find((channel) => channel.id === mainChannelId);
+    expect(main).toBeDefined();
+    // Core assertion #2: the bootstrap channel carries the canonical `main`
+    // name and the `active` lifecycle state.
+    expect(main?.name).toBe(MAIN_CHANNEL_NAME);
+    expect(main?.state).toBe("active");
+    // The wire method was `channel.list`.
+    const sentMethods = harness.transport.sentEnvelopes.map((envelope) => envelope.method);
+    expect(sentMethods).toEqual(["channel.list"]);
   });
 });

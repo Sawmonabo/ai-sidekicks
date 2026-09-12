@@ -166,12 +166,16 @@ describe("failure matrix — a growth-slate row lands and the port still claims 
 
   it("refuses every operation under the live bridge, as the not-checked absence", async () => {
     const port = createRefusingGrowthPort();
-    const outcome = await port.invitesList({ sessionId: "session-1" });
+    const outcome = await port.presenceActivityRead({ sessionId: "session-1" });
 
     expect(outcome.status).toBe("unavailable");
     if (outcome.status === "unavailable") {
       expect(outcome.detail).toContain("Not checked");
-      expect(outcome.owningDocument).toContain("Spec-002");
+      // The row's own owning-document sentence, verbatim rather than paraphrased: what
+      // this case pins is that the refusal CARRIES the slate's answer to "who owes this
+      // wire", and a substring of a sentence written elsewhere is the only way to say so
+      // without a second copy of it here.
+      expect(outcome.owningDocument).toContain("the daemon presence handler surface");
     }
     // Not an empty list. "We have not asked" and "there are none" are different
     // facts, and a surface handed `[]` cannot tell them apart.

@@ -350,7 +350,7 @@ describe("newestCompactionBoundarySequence", () => {
     ).toBe(11);
   });
 
-  it("gives each run its own boundary out of one timeline", () => {
+  it("gives each run its own boundary out of a single reading stream", () => {
     // The defect this replaces, spelled as its own case: the unfiltered fold answered
     // 11 for BOTH runs, so a composer addressed at the first run reported the second
     // run's compaction as its own.

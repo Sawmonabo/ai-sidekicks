@@ -1,8 +1,8 @@
 // The two ways a link reaches a person from a terminal, and the one gate both pass.
 //
 // Its own module rather than a section inside `xterm-adapter.ts`, on
-// `link-guard.ts`'s reason: this is `Spec-023 §Console Libraries` constraint 4 in
-// its own right — **every activatable link passes the scheme guard** — and both
+// `link-guard.ts`'s reason: this is the wrapper's fourth constraint in its own
+// right — **every activatable link passes the scheme guard** — and both
 // halves of it are built here, so the guard cannot be on one path and missing from
 // the other.
 //

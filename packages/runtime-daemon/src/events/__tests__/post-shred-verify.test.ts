@@ -591,12 +591,12 @@ function insertSignedPiiRow(database: DatabaseType, result: PiiEventWriteResult)
          id, session_id, sequence, occurred_at, monotonic_ns,
          category, type, actor, payload, pii_payload,
          correlation_id, causation_id, version,
-         prev_hash, row_hash, daemon_signature, participant_signature
+         prev_hash, row_hash, daemon_signature
        ) VALUES (
          @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
          @category, @type, @actor, @payload, @pii_payload,
          @correlation_id, @causation_id, @version,
-         @prev_hash, @row_hash, @daemon_signature, NULL
+         @prev_hash, @row_hash, @daemon_signature
        )`,
     )
     .run({
@@ -1498,7 +1498,7 @@ const CANONICAL_MEMBER_TAMPERS: ReadonlyArray<{
   {
     member: "category",
     canonicalMember: "category",
-    sql: "UPDATE session_events SET category = 'membership_change'",
+    sql: "UPDATE session_events SET category = 'presence'",
   },
   {
     member: "type",

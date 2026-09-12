@@ -165,8 +165,8 @@ const LIVE_RUN_DIRECTORY_ORIGIN = "workflow-run-directory";
  * has a teardown, and `apps/desktop/AGENTS.md` puts stateful logic in a class with
  * private fields. It IS the trigger target rather than holding one beside it, so the
  * substrate's four moments and this read's own refresh are one object with one
- * identity — `collaboration/invites/use-pending-invites.ts`' shape, and the property
- * that keeps a re-render from re-firing the mount read.
+ * identity, which is the property that keeps a re-render from re-firing the mount
+ * read.
  *
  * IT OPENS NO SUBSCRIPTION, and the empty `subscribe` is the same claim
  * `triggeringEventKinds` makes from the other side: there is no registered signal for

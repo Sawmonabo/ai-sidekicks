@@ -157,9 +157,8 @@ export interface RuntimeNodeAttachRequest {
 // compose `EventEnvelopeVersionSchema` into a tRPC request schema — its only
 // prior use (`buildCommonShape()`'s `version` field in event.ts) was inside the
 // single-T `SessionEventSchema`, where the asymmetry never surfaced. Same
-// bridge pattern as `MembershipUpdateSchema`
-// (memberships.ts:230) and `brandedUuidIdSchema` (./internal/branded.ts); see
-// ADR-014. We bridge at the consumption site rather than re-annotating the
+// bridge pattern as `brandedUuidIdSchema` (./internal/branded.ts).
+// We bridge at the consumption site rather than re-annotating the
 // shared event-core.ts symbol (out of this task's scope, and its envelope
 // consumer is correct as single-T).
 export const RuntimeNodeAttachRequestSchema: z.ZodType<
@@ -215,9 +214,8 @@ export const RuntimeNodeAttachResponseSchema: z.ZodType<RuntimeNodeAttachRespons
 // --------------------------------------------------------------------------
 //
 // Operation-scoped cap for the free-form `healthChanges.reason` audit string.
-// Mirrors `INVITE_REVOKE_REASON_MAX_LEN` (invites.ts:98) — same per-operation
-// convention (we deliberately do NOT pre-create a shared reason constant for
-// the not-yet-written T1.3 detach `reason`; each operation owns its own cap).
+// Each operation owns its own cap rather than sharing a package-wide reason
+// constant.
 export const RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN = 512;
 //
 // Canonical wire: `docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`. Method
@@ -252,8 +250,7 @@ export const RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN = 512;
 // Optional fields are typed `key?: T | undefined` (not bare `key?:`): Zod's
 // `.optional()` infers `T | undefined`, and the interface must match the
 // schema's inferred output for the double-T annotation (see the
-// `exactOptionalPropertyTypes` note at session.ts:252-257 and the identical
-// `reason?: string | undefined` stance at invites.ts:184). The wire signal is
+// `exactOptionalPropertyTypes` note at session.ts:252-257). The wire signal is
 // still "key absent" — `.optional()` keeps the key omittable; consumers that
 // need absent-vs-undefined can test `"healthChanges" in obj`.
 
@@ -312,11 +309,9 @@ export const RuntimeNodeCapabilityUpdateRequestSchema: z.ZodType<
     // package") — it centralizes the trust-boundary guards (length cap + NUL-
     // byte rejection + empty/whitespace-only rejection) that every free-form
     // wire field shares. A wire `reason?: string` is NOT accept-any-string at
-    // the boundary: the identical `InviteRevoke.reason` (invites.ts:191, same
-    // `reason?: string` wire spec) composes the same helper. This is the
-    // default REALIZATION of a wire string here, not a contract tightening — no
-    // sibling that uses it (ChannelSummary.name, InviteRevoke.reason, identity
-    // handles) needed a spec edit. The helper's `.min(1)` makes empty/
+    // the boundary. This is the default REALIZATION of a wire string here, not
+    // a contract tightening — no sibling that uses it (ChannelSummary.name,
+    // identity handles) needed a spec edit. The helper's `.min(1)` makes empty/
     // whitespace-only rejection come free (no separate `.min(1)` needed).
     healthChanges: z
       .object({
@@ -445,11 +440,10 @@ export const RuntimeNodeHeartbeatResponseSchema: z.ZodType<null> = z.null();
 // --------------------------------------------------------------------------
 //
 // Operation-scoped cap for the free-form detach `reason` audit string. Mirrors
-// `RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN` (above) and
-// `INVITE_REVOKE_REASON_MAX_LEN` (invites.ts:98) — same per-operation
+// `RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN` (above) — same per-operation
 // convention: each operation owns its OWN reason cap rather than sharing a
 // single package-wide constant. The capability-update cap's comment above
-// explicitly anticipated this T1.3 constant ("the not-yet-written T1.3 detach
+// explicitly anticipated this detach constant ("the not-yet-written detach
 // `reason`"). The framework body-size cap (owned by Plan-004/Plan-005) is the
 // authoritative limit; this is defense-in-depth at the wire trust boundary.
 export const RUNTIME_NODE_DETACH_REASON_MAX_LEN = 512;
@@ -463,9 +457,9 @@ export const RUNTIME_NODE_DETACH_REASON_MAX_LEN = 512;
 // string in this package") — it centralizes the trust-boundary guards (length
 // cap + `.min(1)` empty rejection + whitespace-only rejection + NUL-byte
 // rejection) that every free-form wire field shares. A wire `reason?: string` is
-// NOT accept-any-string at the boundary: the identical `InviteRevoke.reason`
-// (invites.ts:191, same `reason?: string` wire spec) composes the same helper,
-// as does `RuntimeNodeCapabilityUpdate.healthChanges.reason` above. This is the
+// NOT accept-any-string at the boundary:
+// `RuntimeNodeCapabilityUpdate.healthChanges.reason` above composes the same
+// helper. This is the
 // default REALIZATION of a wire string here, not a contract tightening — no
 // sibling that uses it needed a spec edit.
 //
@@ -473,7 +467,7 @@ export const RUNTIME_NODE_DETACH_REASON_MAX_LEN = 512;
 // `.optional()` infers `string | undefined`, and the interface must match the
 // schema's inferred output for the double-T annotation (see the
 // `exactOptionalPropertyTypes` note at session.ts:252-257 and the identical
-// `reason?: string | undefined` stance at invites.ts:184 and on
+// `reason?: string | undefined` stance on
 // `RuntimeNodeCapabilityUpdateRequest.healthChanges` above).
 
 export interface RuntimeNodeDetachRequest {
@@ -493,9 +487,7 @@ export interface RuntimeNodeDetachRequest {
 // `unknown`). With no single-T member there is no `unknown`-input slot to poison
 // the composed object's input inference, EVEN THOUGH `reason` is `.optional()` —
 // direct proof the cast tracks single-T MEMBERS, not optionality and not
-// "request-ness". The structural twin `InviteRevokeSchema` (invites.ts:187-193 —
-// branded IDs + `wireFreeFormString(...).optional()` + `.strict()`, declared
-// double-T) likewise carries no cast. Ablation confirms: compiling with the
+// "request-ness". Ablation confirms: compiling with the
 // double-T annotation and no cast succeeds; no diagnostic is emitted.
 export const RuntimeNodeDetachRequestSchema: z.ZodType<
   RuntimeNodeDetachRequest,
@@ -663,8 +655,7 @@ export interface RuntimeNodeRosterResponse {
 }
 // Single-T `z.ZodType<T>` — non-input projection (see the entry schema above);
 // `z.array(...)` over a single-T element matches
-// `SessionCreateResponseSchema`'s `z.array(MembershipSummarySchema)`
-// (session.ts:312).
+// `SessionCreateResponseSchema`'s `z.array(ChannelSummarySchema)`.
 export const RuntimeNodeRosterResponseSchema: z.ZodType<RuntimeNodeRosterResponse> = z
   .object({
     // One entry per `runtime_node_attachments` row for the session — bounded
@@ -800,9 +791,9 @@ export const RUNTIME_NODE_EVENT_NAMES: readonly RuntimeNodeEventName[] = [
 // input surfaces") and `event.ts`'s single-T event schemas — NOT the double-T
 // `RuntimeNodeAttachRequestSchema` input idiom. NO `as unknown as` cast is
 // needed even though each composes the branded `NodeIdSchema` / `SessionIdSchema`
-// double-T scalars: the direct precedent is `MembershipSummarySchema`
-// (session.ts:239) — single-T `z.ZodType<T>` over a `.strict()` object composing
-// branded `MembershipIdSchema` / `ParticipantIdSchema`, exported interface, and
+// double-T scalars: the direct precedent is `ChannelSummarySchema` in
+// session.ts — single-T `z.ZodType<T>` over a `.strict()` object composing the
+// branded `ChannelIdSchema`, exported interface, and
 // compiles clean with no cast (so do `SessionSnapshotSchema` / `ChannelSummary-
 // Schema` / `SessionCreateResponseSchema`). The cast on this file's REQUEST
 // schemas is driven by the double-T input-inference slot (it "only poisons input

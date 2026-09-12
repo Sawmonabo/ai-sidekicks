@@ -1,28 +1,19 @@
 // What the create form holds, and the one request it composes from it.
 //
 // Driven directly rather than through the rendered form, because what this decides is
-// what goes ON THE WIRE: which members an untouched field contributes, which arm
-// carries a policy at all, and what order a pair is sent in. A component test can see
-// a control; only this can see the request.
+// what goes ON THE WIRE: which members an untouched field contributes, and which it
+// leaves out. A component test can see a control; only this can see the request.
 
 import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { CreateChannelDraft } from "./create-channel-draft.js";
-import { canonicalMemberPair } from "./create-channel-pair.js";
-import { PARTICIPANT_OTHER, PARTICIPANT_YOU } from "./channels.test-support.js";
-import {
-  contextWith,
-  missingFrom,
-  namedDraft,
-  requestOf,
-} from "./create-channel-draft.test-support.js";
+import { SESSION_ID } from "./channels.test-support.js";
+import { missingFrom, namedDraft, requestOf } from "./create-channel-draft.test-support.js";
 
 describe("create channel draft — where the form opens", () => {
-  it("opens on a general channel whose audience is participants", () => {
-    const draft = new CreateChannelDraft();
-    expect(draft.kind).toBe("general");
-    expect(draft.audience).toBe("participants");
+  it("opens with the audience on participants", () => {
+    expect(new CreateChannelDraft().audience).toBe("participants");
   });
 
   it("opens holding nothing else at all", () => {
@@ -30,22 +21,23 @@ describe("create channel draft — where the form opens", () => {
     // this wire means — a console that pre-picked one would be choosing on a person's
     // behalf and reporting it as their choice.
     const draft = new CreateChannelDraft();
-    expect(draft.turnPolicy).toBeUndefined();
-    expect(draft.roundRobinOrder).toBe("");
     expect(draft.turnsPerAgent).toBe("");
     expect(draft.moderationValue("preTurnGate")).toBeUndefined();
     expect(draft.moderationValue("postTurnReview")).toBeUndefined();
-    expect(draft.otherParticipantId).toBeUndefined();
   });
 
   it("composes nothing until it has a name", () => {
-    expect(missingFrom(new CreateChannelDraft(), PARTICIPANT_YOU)).toContain("a name");
+    expect(missingFrom(new CreateChannelDraft())).toContain("a name");
+  });
+
+  it("composes nothing while it is addressed at no session", () => {
+    expect(namedDraft().readiness(undefined).status).toBe("incomplete");
   });
 });
 
 describe("create channel draft — the reserved bootstrap name", () => {
   it("refuses the session's own channel name against the name field", () => {
-    const readiness = namedDraft(MAIN_CHANNEL_NAME).readiness(contextWith(PARTICIPANT_YOU));
+    const readiness = namedDraft(MAIN_CHANNEL_NAME).readiness(SESSION_ID);
     expect(readiness.status).toBe("incomplete");
     expect(readiness.status === "incomplete" ? readiness.nameRefusal : "").toContain(
       MAIN_CHANNEL_NAME,
@@ -53,9 +45,7 @@ describe("create channel draft — the reserved bootstrap name", () => {
   });
 
   it("refuses it around the whitespace a person types with it", () => {
-    expect(
-      namedDraft(`  ${MAIN_CHANNEL_NAME}  `).readiness(contextWith(PARTICIPANT_YOU)).status,
-    ).toBe("incomplete");
+    expect(namedDraft(`  ${MAIN_CHANNEL_NAME}  `).readiness(SESSION_ID).status).toBe("incomplete");
   });
 
   it("negative control: any other name composes a request", () => {
@@ -67,12 +57,9 @@ describe("create channel draft — the reserved bootstrap name", () => {
   });
 });
 
-describe("create channel draft — what a general channel sends", () => {
+describe("create channel draft — what a channel sends", () => {
   it("sends the audience the form holds and no member nobody touched", () => {
-    const request = requestOf(namedDraft());
-    expect(request.kind).toBe("general");
-    expect(request.config).toStrictEqual({ audience: "participants" });
-    expect(request.memberPair).toBeUndefined();
+    expect(requestOf(namedDraft()).config).toStrictEqual({ audience: "participants" });
   });
 
   it("sends a moderation member a person unchecked, rather than dropping it", () => {
@@ -96,7 +83,7 @@ describe("create channel draft — what a general channel sends", () => {
     // sending the session's default for it would discard what they asked for.
     const draft = namedDraft();
     draft.setTurnsPerAgent("two");
-    expect(missingFrom(draft, PARTICIPANT_YOU).join(" ")).toContain("whole number");
+    expect(missingFrom(draft).join(" ")).toContain("whole number");
   });
 
   it("sends the cap a person did type", () => {
@@ -128,7 +115,7 @@ describe("create channel draft — the per-agent cap a number can actually hold"
     // this would send a cap the person did not type and report it as their choice.
     const draft = namedDraft();
     draft.setTurnsPerAgent(FIRST_INEXACT_CAP);
-    expect(missingFrom(draft, PARTICIPANT_YOU).join(" ")).toContain("whole number");
+    expect(missingFrom(draft).join(" ")).toContain("whole number");
   });
 
   it("composes nothing for a digit string no number holds at all", () => {
@@ -136,7 +123,7 @@ describe("create channel draft — the per-agent cap a number can actually hold"
     // `Number` answers `Infinity`, which JSON has no form for.
     const draft = namedDraft();
     draft.setTurnsPerAgent(CAP_NO_NUMBER_HOLDS);
-    expect(missingFrom(draft, PARTICIPANT_YOU).join(" ")).toContain("whole number");
+    expect(missingFrom(draft).join(" ")).toContain("whole number");
   });
 
   it("negative control: the largest exactly-held cap still composes", () => {
@@ -149,125 +136,19 @@ describe("create channel draft — the per-agent cap a number can actually hold"
   });
 });
 
-describe("create channel draft — what a direct channel sends", () => {
-  function directDraft(otherParticipantId: string): CreateChannelDraft {
-    const draft = namedDraft("with Dana");
-    draft.setKind("direct");
-    draft.setOtherParticipantId(otherParticipantId);
-    return draft;
-  }
-
-  it("sends the pair and no policy whatsoever", () => {
-    const request = requestOf(directDraft(PARTICIPANT_OTHER));
-    expect(request.kind).toBe("direct");
-    expect(request.memberPair).toStrictEqual([PARTICIPANT_OTHER, PARTICIPANT_YOU]);
-    expect(request.config).toBeUndefined();
-  });
-
-  it("sends no policy even where the general arm's fields were filled in first", () => {
-    // The rule that makes the absent fields honest: the wire couples the kind to the
-    // pair, so a direct request carrying an audience is one the daemon has to reject.
-    // The entries are LEFT STANDING in the draft — a person who tries `direct` and
-    // comes back finds their turn policy — and simply never composed.
-    const draft = directDraft(PARTICIPANT_OTHER);
-    draft.setTurnPolicy("round-robin");
-    draft.setRoundRobinOrder("reviewer");
-    draft.setModeration("postTurnReview", true);
-    draft.setTurnsPerAgent("2");
-
-    expect(requestOf(draft).config).toBeUndefined();
-    expect(draft.turnPolicy).toBe("round-robin");
-  });
-
-  it("sends one pair however it was picked", () => {
-    // The same two people, with the roles of picker and picked swapped. Unsorted, the
-    // second of these would send `[you, other]` and read as a second channel.
-    const picked = requestOf(directDraft(PARTICIPANT_OTHER), PARTICIPANT_YOU);
-    const pickedTheOtherWay = requestOf(directDraft(PARTICIPANT_YOU), PARTICIPANT_OTHER);
-    expect(picked.memberPair).toStrictEqual(pickedTheOtherWay.memberPair);
-  });
-
-  it("orders any two ids the same way whichever position they arrive in", () => {
-    expect(canonicalMemberPair(PARTICIPANT_YOU, PARTICIPANT_OTHER)).toStrictEqual([
-      PARTICIPANT_OTHER,
-      PARTICIPANT_YOU,
-    ]);
-    expect(canonicalMemberPair(PARTICIPANT_OTHER, PARTICIPANT_YOU)).toStrictEqual([
-      PARTICIPANT_OTHER,
-      PARTICIPANT_YOU,
-    ]);
-  });
-
-  it("composes nothing until somebody is picked", () => {
-    const draft = namedDraft("with nobody");
-    draft.setKind("direct");
-    expect(missingFrom(draft, PARTICIPANT_YOU)).toContain("the other person in the pair");
-  });
-
-  it("composes nothing while this window's own participant is unread", () => {
-    // Fail-closed: a pair composed from a caller identity nobody established would put
-    // two people in a room neither of them chose.
-    expect(missingFrom(directDraft(PARTICIPANT_OTHER), undefined)).toContain(
-      "which participant this window is",
-    );
-  });
-
-  it("composes nothing once the person picked is no longer in this session", () => {
-    // The defect: a membership ends without asking the form. The candidate list stopped
-    // offering them, the draft went on holding their id, and readiness only checked that
-    // it held SOME id — so Create stayed open on a pair the daemon would have to refuse,
-    // and the person met that refusal after the press.
-    const departed = missingFrom(directDraft(PARTICIPANT_OTHER), PARTICIPANT_YOU, [
-      PARTICIPANT_YOU,
-    ]);
-
-    expect(departed.join(" ")).toContain("no longer");
-    // A DIFFERENT sentence from the unpicked one, because they are different facts: one
-    // is about nobody and this one is about somebody the person did choose.
-    expect(departed).not.toContain("the other person in the pair");
-  });
-
-  it("composes nothing where the pick is the viewer's own participant", () => {
-    // The wire requires two DISTINCT humans, and the picker subtracts the viewer — so a
-    // draft holding the reader's own id is one the candidate rule already refuses, with
-    // no second predicate to keep in step with it.
-    expect(missingFrom(directDraft(PARTICIPANT_YOU), PARTICIPANT_YOU).join(" ")).toContain(
-      "no longer",
-    );
-  });
-
-  it("negative control: the same pick composes while that person is still here", () => {
-    // Without this the two cases above would pass over a draft that refused every pick
-    // whatever the session held, which would be a rule about direct channels rather
-    // than one about membership.
-    expect(requestOf(directDraft(PARTICIPANT_OTHER)).memberPair).toStrictEqual([
-      PARTICIPANT_OTHER,
-      PARTICIPANT_YOU,
-    ]);
-  });
-});
-
 describe("create channel draft — what Cancel does", () => {
   it("puts every field back where the form opened", () => {
     const draft = namedDraft();
-    draft.setKind("direct");
-    draft.setOtherParticipantId(PARTICIPANT_OTHER);
     draft.setAudience("humans-only");
-    draft.setTurnPolicy("request-based");
-    draft.setRoundRobinOrder("reviewer");
     draft.setTurnsPerAgent("4");
     draft.setModeration("preTurnGate", true);
 
     draft.reset();
 
     expect(draft.name).toBe("");
-    expect(draft.kind).toBe("general");
     expect(draft.audience).toBe("participants");
-    expect(draft.turnPolicy).toBeUndefined();
-    expect(draft.roundRobinOrder).toBe("");
     expect(draft.turnsPerAgent).toBe("");
     expect(draft.moderationValue("preTurnGate")).toBeUndefined();
-    expect(draft.otherParticipantId).toBeUndefined();
   });
 
   it("tells its readers that something changed", () => {

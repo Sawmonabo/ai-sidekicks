@@ -1,40 +1,22 @@
-// The presence plane's values: what the two Awareness activity fields carry.
+// The presence plane's values: what the Awareness activity field carries.
 //
 // One of the domain modules behind `growth-values/index.ts`. The barrel states the
 // rules every value here obeys; this file is the domain's own text.
 //
-// TWO FIELDS AND NOT ONE, ALL THE WAY DOWN. `Spec-002 §Default Behavior` carries a
-// human's composing signal on the scalar `activity.typing` and an agent's on the
-// run-keyed map `activity.runs`, and the two are produced by opposite machinery — a
-// receiver-timed one and an edge-triggered one. The snapshot below keeps them apart
-// for that reason: a single flat list of "who is busy" would make the console pick
-// one expiry rule for both, which is the conflation `collaboration/activity-model.ts`
-// exists to prevent.
+// ONE FIELD, AND IT IS RUN-KEYED. An agent's activity travels on the `activity.runs`
+// map, edge-triggered by the owning daemon rather than timed by a receiver, and the
+// snapshot below carries that one list. `collaboration/activity-model.ts` holds the
+// clear rule the edge implies.
 //
-// NOTHING HERE CARRIES CONTENT. `Spec-002 §Required Behavior` forbids it on the wire,
-// so there is no member for it to arrive in — not a preview, not a length, not a
-// keystroke count. What travels is who, where, and since when.
+// NOTHING HERE CARRIES CONTENT. The wire forbids it, so there is no member for it to
+// arrive in — not a preview, not a length. What travels is which run, where, and
+// since when.
 //
-// `since` IS WIRE-SUPPLIED AND DISPLAY-ONLY on both shapes. Awareness is skew-free
+// `since` IS WIRE-SUPPLIED AND DISPLAY-ONLY. Awareness is skew-free
 // because each receiver stamps observation time from its own clock, so a consumer
 // that subtracted this from its own `now` would expire an indicator by the skew
 // between two machines. The registry's own header states the same rule from the
 // consuming side.
-
-/** One human composing, as the `activity.typing` field carries it. */
-export interface GrowthComposingReading {
-  readonly participantId: string;
-  /**
-   * The channel they are composing in.
-   *
-   * Never a membership-restricted channel: `Spec-002 §Default Behavior` suppresses
-   * the WHOLE indicator publisher-side rather than blanking this member, because a
-   * blanked channel id would still disclose that some private exchange is live.
-   */
-  readonly channelId: string;
-  /** Wire-supplied, display-only. Never an input to an expiry decision. */
-  readonly since: string;
-}
 
 /** One live run's activity, as one entry of the `activity.runs` map carries it. */
 export interface GrowthAgentActivityReading {
@@ -47,19 +29,45 @@ export interface GrowthAgentActivityReading {
 /**
  * The session's live activity, as one reading.
  *
- * A SNAPSHOT AND NOT A DELTA FEED, which is the same discipline the roster read
- * keeps: Awareness state is a map each publisher owns outright, so the honest thing
+ * A SNAPSHOT AND NOT A DELTA FEED, which is the same discipline the runtime-node
+ * roster read keeps: Awareness state is a map each publisher owns outright, so the honest thing
  * to hand a consumer is what that map says now. The console diffs it into its own
- * registry (`collaboration/activity-feed.ts`), which is where the two mechanisms'
- * clear rules live — and a wire that emitted edges instead would make every consumer
- * responsible for reconstructing the map from a stream it might have joined late.
+ * registry (`collaboration/activity-feed.ts`), which is where the clear rule lives —
+ * and a wire that emitted edges instead would make every consumer responsible for
+ * reconstructing the map from a stream it might have joined late.
  *
- * Both lists are REQUIRED and empty rather than optional. "Nobody is composing" is a
- * real state of a session and an absent member is not: an optional list would let a
+ * The list is REQUIRED and empty rather than optional. "No run is working" is a real
+ * state of a session and an absent member is not: an optional list would let a
  * publisher that had never populated the field and one that had just seen the last
- * composer stop read identically.
+ * run finish read identically.
  */
 export interface GrowthActivitySnapshot {
-  readonly composing: readonly GrowthComposingReading[];
   readonly agentRuns: readonly GrowthAgentActivityReading[];
+}
+
+/**
+ * One device behind a participant's aggregated presence.
+ *
+ * `deviceId` is wire-verbatim and is rendered as such: it is an opaque identifier the
+ * console has no vocabulary for, and a friendly name here would be invented.
+ */
+export interface GrowthPresenceDeviceReading {
+  readonly deviceId: string;
+  readonly state: string;
+  readonly lastSeen: string;
+}
+
+/**
+ * The per-device fan-out, with the summary it aggregates to.
+ *
+ * `aggregateState` is carried even though the summary already holds a state, because
+ * the two are answers from different reads and a detail card
+ * that showed only the devices would leave a reader to do the aggregation the wire
+ * has already done. Where they disagree the summary is the one the reader keeps —
+ * this reading is the detail behind it, never a second source of truth for it.
+ */
+export interface GrowthPresenceDetail {
+  readonly participantId: string;
+  readonly devices: readonly GrowthPresenceDeviceReading[];
+  readonly aggregateState: string;
 }

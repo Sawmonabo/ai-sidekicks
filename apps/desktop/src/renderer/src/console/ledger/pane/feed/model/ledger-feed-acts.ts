@@ -3,8 +3,7 @@
 // The chords are contributed when the console composes, long before any feed exists,
 // so an act cannot be a closure over one — it is resolved at PRESS time against
 // whichever ledger is mounted then, and built here so the component that mounts them
-// holds calls rather than closures. The workspace's follow seat is the same shape of
-// thing about a different subject and lives in `ledger-actor-follow-seat.ts`.
+// holds calls rather than closures.
 //
 // EVERY ACT IS A VALUE OVER STATE THE FEED ALREADY HOLDS. Nothing below reaches a
 // store, a bridge, or the DOM: find's walk is `ledger-find.ts`', and the scroll is

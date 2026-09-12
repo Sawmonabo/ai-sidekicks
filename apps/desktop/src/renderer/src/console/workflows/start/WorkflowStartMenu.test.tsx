@@ -5,11 +5,10 @@
 // a scoped name: two definitions may deliberately share a name across scopes, so a query
 // on the name alone would be ambiguous exactly where the surface is.
 //
-// THE DENIAL CASE IS THE ONE THIS SURFACE EXISTS FOR. `workflow.start_denied` had no
-// producer anywhere in the composer, so a participant who could not start a run met
-// nothing at all. Here the daemon's sentence is carried verbatim and the public role
-// matrix renders beside it — and, the half that is easy to lose, the matrix renders for
-// THAT code and not for every refusal a start can meet.
+// THE REFUSED CASE IS THE ONE THIS SURFACE EXISTS FOR. A start the daemon turns down
+// had no producer anywhere in the composer, so somebody whose start failed met nothing
+// at all. Here the daemon's sentence is carried verbatim, whatever the code — nothing is
+// paraphrased and nothing is explained on the daemon's behalf.
 //
 // THE PAGES PAST THE FIRST ARE NEXT DOOR, in `WorkflowStartMenu.continuation.test.tsx`:
 // a second page is another wire with its own four states, and the one case here about
@@ -111,7 +110,7 @@ describe("the composer's workflow picker", () => {
     expect(started?.textContent).toContain("019b7a12-run");
   });
 
-  it("renders a denied start's own sentence and the public role matrix beside it", async () => {
+  it("renders a refused start's own sentence, verbatim", async () => {
     const growth: GrowthPort = {
       ...portAnswering({ status: "served", value: { definitions: START_DEFINITIONS } }),
       // Built through the port's OWN rejection builder rather than as a literal, which
@@ -122,7 +121,7 @@ describe("the composer's workflow picker", () => {
       workflowRunStart: async () =>
         growthUnavailableFromRejection("workflowRunStart", {
           code: "workflow.start_denied",
-          message: "This participant may not start a workflow in this session.",
+          message: "This workflow cannot be started in this session.",
         }),
     };
     const container = await mountMenu(growth);
@@ -131,20 +130,11 @@ describe("the composer's workflow picker", () => {
     await settle();
 
     // Verbatim: nothing here paraphrases the daemon or adds a sentence of its own.
-    expect(container.textContent).toContain(
-      "This participant may not start a workflow in this session.",
-    );
+    expect(container.textContent).toContain("This workflow cannot be started in this session.");
     expect(container.textContent).toContain("workflow.start_denied");
-    const roles = container.querySelectorAll(".meridian-workflow-start-menu__role");
-    expect([...roles].map((role) => role.querySelector("dt")?.textContent)).toEqual([
-      "owner",
-      "collaborator",
-      "runtime contributor",
-      "viewer",
-    ]);
   });
 
-  it("shows no role matrix for a refusal that is not the denial", async () => {
+  it("carries a second refusal's sentence the same way, whatever the code", async () => {
     const growth: GrowthPort = {
       ...portAnswering({ status: "served", value: { definitions: START_DEFINITIONS } }),
       workflowRunStart: async () =>
@@ -159,7 +149,7 @@ describe("the composer's workflow picker", () => {
     await settle();
 
     expect(container.textContent).toContain("That version is gone; refresh the list.");
-    expect(container.querySelector(".meridian-workflow-start-menu__roles")).toBeNull();
+    expect(container.textContent).toContain("workflow.not_found");
   });
 
   it("leaves the control offered after a refusal, so the press can be made again", async () => {

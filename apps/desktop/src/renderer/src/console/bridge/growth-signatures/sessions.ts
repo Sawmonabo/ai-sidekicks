@@ -15,7 +15,6 @@ import type { GrowthStream } from "../growth-port/growth-outcome.js";
 import type {
   GrowthHealthReading,
   GrowthImportProgress,
-  GrowthInviteSummary,
   GrowthNotificationPermission,
   GrowthSessionSummary,
 } from "../growth-values/index.js";
@@ -150,7 +149,6 @@ export interface SessionGrowthSignatures {
   };
   shellConfigRead: { request: Record<string, never>; value: Readonly<Record<string, boolean>> };
   shellConfigWrite: { request: { readonly key: string; readonly enabled: boolean }; value: void };
-  invitesList: { request: { readonly sessionId: string }; value: readonly GrowthInviteSummary[] };
   healthSubscribe: { request: Record<string, never>; value: GrowthStream<GrowthHealthReading> };
   sessionSearch: { request: { readonly query: string }; value: readonly GrowthSessionSummary[] };
   // session goals — two operations and never one. `session.goalUpdate` sets and

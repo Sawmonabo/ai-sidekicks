@@ -1,17 +1,12 @@
 /* What the collaboration family SHARES, and the live line it draws itself.
  *
- * The three sub-families carry their own sheets — `channels/channels.css`,
- * `members/members.css`, `invites/invites.css`. What is left here is the shape no one
- * of them owns: the shell the channel list and the roster both take, the card chrome
- * and the one control shape the memberships and the invite ledger both take, and the
- * live line, which is the family's own. A selector list spanning two sub-families
- * lives at the door rather than being copied into both, because two copies agree only
- * until one of them is restyled.
+ * The channels sub-family carries its own sheets — `channels/channels.css` and
+ * `channels/create-channel.css`. What is left here is the shape neither owns: the
+ * shell the channel list takes, and the live line, which is the family's own.
  *
  * Hand-authored composition over generated values, like every other console sheet —
- * no literal colour below, and the only literal lengths are the two-pixel identity
- * mark (rule 1's attribution width, carried on the roster the same way the ledger row
- * carries it) and the hairlines that separate rows.
+ * no literal colour below, and the only literal lengths are the hairlines that
+ * separate rows.
  *
  * Three decisions the design forces:
  *
@@ -20,21 +15,16 @@
  *     column rather than pushed to a second block. What makes it a row rather than a
  *     card is that nothing is boxed: the separation is a hairline, so twelve rows
  *     read as a log.
- *   • **Identity is an edge, never a fill.** The roster's participant hue is a 2 px
- *     mark down the row's leading edge, dashed / ticked / dotted by wrap lap the way
- *     the ledger row does it. A hue behind text would put an identity colour under a
- *     glyph, which rule 3 forbids in terms.
  *   • **The live line takes no space when there is nothing live.** It is a sibling
  *     that renders or does not; no reserved height, no min-height, so an idle channel
  *     list has no gaps in it.
  */
 
-/* The collaboration family's own styles: channels, the roster, and the live line.
+/* The collaboration family's own styles: channels and the live line.
  *
  * Hand-authored composition over generated values, like every other console sheet —
- * no literal colour below, and the only literal lengths are the two-pixel identity
- * mark (rule 1's attribution width, carried on the roster the same way the ledger
- * row carries it) and the hairlines that separate rows.
+ * no literal colour below, and the only literal lengths are the hairlines that
+ * separate rows.
  *
  * Three decisions the design forces:
  *
@@ -43,32 +33,25 @@
  *     column rather than pushed to a second block. What makes it a row rather than a
  *     card is that nothing is boxed: the separation is a hairline, so twelve rows
  *     read as a log.
- *   • **Identity is an edge, never a fill.** The roster's participant hue is a 2 px
- *     mark down the row's leading edge, dashed / ticked / dotted by wrap lap the way
- *     the ledger row does it. A hue behind text would put an identity colour under a
- *     glyph, which rule 3 forbids in terms.
  *   • **The live line takes no space when there is nothing live.** It is a sibling
  *     that renders or does not; no reserved height, no min-height, so an idle
  *     channel list has no gaps in it.
  */
 
-.meridian-channels,
-.meridian-roster {
+.meridian-channels {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-3);
   min-width: 0;
 }
 
-.meridian-channels__degraded,
-.meridian-roster__degraded {
+.meridian-channels__degraded {
   margin: 0;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
 }
 
-.meridian-channels__list,
-.meridian-roster__list {
+.meridian-channels__list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -94,123 +77,4 @@
   display: inline-flex;
   align-items: center;
   gap: var(--meridian-space-1);
-}
-
-.meridian-members__lede,
-.meridian-invites__lede {
-  margin: 0;
-  font-size: var(--meridian-text-sm);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-members__rows,
-.meridian-invites__rows {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.meridian-members__row-facts,
-.meridian-invites__row-facts {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--meridian-space-2);
-  min-width: 0;
-}
-
-.meridian-members__manage,
-.meridian-members__revoke,
-.meridian-invites__row-action,
-.meridian-invite-confirmation__dismiss,
-.meridian-members__refusal-dismiss,
-.meridian-invites__refusal-dismiss,
-.meridian-invite-create__send,
-.meridian-invite-create__refusal-dismiss,
-.meridian-invite-reveal__copy,
-.meridian-invite-reveal__done,
-.meridian-invite-confirmation__confirm,
-.meridian-invite-outcome__retry,
-.meridian-invite-outcome__acknowledge,
-.meridian-invite-notice__open {
-  font: inherit;
-  font-size: var(--meridian-text-xs);
-  padding: var(--meridian-space-1) var(--meridian-space-3);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-surface-raised);
-  color: var(--meridian-text);
-  cursor: pointer;
-}
-
-.meridian-members__manage:hover:enabled,
-.meridian-members__revoke:hover:enabled,
-.meridian-invites__row-action:hover:enabled,
-.meridian-invite-create__send:hover:enabled,
-.meridian-invite-reveal__copy:hover:enabled,
-.meridian-invite-confirmation__confirm:hover:enabled,
-.meridian-invite-outcome__retry:hover:enabled,
-.meridian-invite-notice__open:hover:enabled {
-  border-color: var(--meridian-edge-strong);
-}
-
-/* The revoke control's own red, beside the chrome it wears rather than in
-   `members/members.css`: the chrome is eight declarations and would have to be copied
-   to move the other way, and one class has one owning sheet either way. */
-.meridian-members__revoke {
-  color: var(--meridian-red-text);
-  border-color: var(--meridian-red-mark);
-}
-
-.meridian-members__manage:disabled,
-.meridian-members__revoke:disabled,
-.meridian-invites__row-action:disabled,
-.meridian-invite-create__send:disabled,
-.meridian-invite-confirmation__confirm:disabled,
-.meridian-invite-confirmation__dismiss:disabled,
-.meridian-invite-outcome__retry:disabled,
-.meridian-invite-outcome__acknowledge:disabled {
-  background: var(--meridian-surface-sunken);
-  color: var(--meridian-text-faint);
-  cursor: default;
-}
-
-/* Focus is visible on every control this family ships, stated once per REGION in the
- * sheet that declares that region — `members/members.css` and `invites/invites.css`.
- * A region's ring written here would be a second sheet declaring a class those files
- * own, and which of the two a session sees last would decide it. */
-
-/* An invitation waiting on this window. A notice rather than a dialog that opens
- * itself: the arrival is on somebody else's schedule, and taking the screen from
- * whatever was being done is the one thing a console surface may not do.
- *
- * FIXED, because the notice is the WINDOW's and no longer a block inside the members
- * section — it has to be readable with no session open at all. `position: fixed` also
- * keeps it out of the frame's own two-track grid, which an in-flow child of the frame
- * root would take a column from. It needs no stacking order: the confirmation and the
- * palette are portalled to the document body, which is later in the tree than the
- * frame, so both already paint over it. */
-.meridian-invite-notice {
-  position: fixed;
-  inset-block-end: var(--meridian-space-4);
-  inset-inline-end: var(--meridian-space-4);
-  max-width: min(24rem, calc(100vw - var(--meridian-space-8)));
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--meridian-space-3);
-  padding: var(--meridian-space-2) var(--meridian-space-3);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-surface-raised);
-}
-
-.meridian-invite-notice__lede {
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text);
 }

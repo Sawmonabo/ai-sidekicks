@@ -48,12 +48,6 @@ export const RUNS_SCENARIO: ConsoleScenario = {
   // refuses the caller-identity read and every control resolving a role from it renders
   // as though the role had been checked and found absent.
   viewingParticipantId: PARTICIPANT_YOU,
-  // The membership each PERSON in the roster holds. The two agents in the join order
-  // take no entry: an agent is attached rather than admitted, so it holds no
-  // membership and the fixture does not claim to know one. Without this, the viewer's
-  // identity read succeeds into a roster carrying no role and every owner- and
-  // collaborator-gated control renders closed for a reason nothing checked.
-  membershipRoleByParticipantId: { [PARTICIPANT_YOU]: "owner" },
   startedAtIso: "2026-01-01T16:00:00.000Z",
   beats: [
     {

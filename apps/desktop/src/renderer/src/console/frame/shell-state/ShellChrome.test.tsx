@@ -146,7 +146,7 @@ describe("ShellChrome — the outage banners", () => {
     for (const closedClass of [
       "run controls",
       "repo and workspace changes",
-      "session roster changes",
+      "new sessions",
       "account probes",
       "ask answers",
     ]) {

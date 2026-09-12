@@ -15,13 +15,6 @@
 // caught by anything: the row was simply always in the state its author had in mind at
 // the end.
 //
-// AND A MUTATION'S RECEIPT IS A FACT A LATER READ OWES. The other half of the same
-// seam, and it was missing entirely: `invite.create` answered with a mint receipt and
-// nothing recorded it, so the ledger read a moment later still returned the two rows
-// the scenario opened with — a fixture reporting a success and then showing a ledger
-// the invitation was not in. A settled mutation therefore folds too, into the plane
-// holder that answers the read, and hands its receipt back untouched.
-//
 // SO THE CLASS IS NAMED HERE AND THE FOLDS LIVE WITH THEIR SUBJECT. This module holds
 // which calls fold and nothing about any one of them; the fold for a call belongs to
 // the fixture module that owns that plane, which is where the rest of that plane's
@@ -36,51 +29,27 @@
 // one module that is supposed to be generic over all of them.
 
 import { foldChannelDirectoryOverLog } from "../collaboration/channel-directory.js";
-import type { FixtureChannelLifecycle } from "../collaboration/channel-lifecycle.js";
-import type { FixtureInviteLedger } from "../invites/invite-ledger.js";
 import type { ScenarioEngine } from "../../scenario/runtime/index.js";
 
 /** The registered method whose answer is the session's channel directory. */
 const CHANNEL_LIST_METHOD = "channel.list";
 
-/** The two registered invite mutations whose receipts the ledger read owes. */
-const INVITE_CREATE_METHOD = "invite.create";
-const INVITE_REVOKE_METHOD = "invite.revoke";
-
 /** Which calls this bridge folds, and the fold each one takes. */
 export type SettledCallFolds = Readonly<Record<string, SettledCallFold>>;
 
 /**
- * The table for one bridge, closed over the plane state its folds read and write.
+ * Which calls fold, and the fold each one takes.
  *
- * BUILT PER BRIDGE RATHER THAN DECLARED AT MODULE LEVEL, because a fold is not a pure
- * function of the log. The channel directory needs one fact the log cannot carry — how
- * many people are in a channel this playback created — and the invite folds RECORD into
- * the ledger the growth port answers `invitesList` from. The only holders of either are
- * the instances this bridge composed; a module constant could reach neither, and a
- * second instance built here would be a second fixture answering for one session.
+ * A MODULE CONSTANT RATHER THAN A PER-BRIDGE BUILD, because every fold here is a pure
+ * function of the engine and the settled value: the engine carries the log and the
+ * clock, and a fold holds nothing between calls. A builder closing over fixture state
+ * would be a second place a plane's facts live, and the honest home for a fact the log
+ * cannot carry is a named constant in the plane's own module.
  */
-export function createSettledCallFolds(
-  channelLifecycle: FixtureChannelLifecycle,
-  inviteLedger: FixtureInviteLedger,
-): SettledCallFolds {
-  return Object.freeze({
-    [CHANNEL_LIST_METHOD]: (engine: ScenarioEngine, _request: unknown, settled: unknown) =>
-      foldChannelDirectoryOverLog(engine, channelLifecycle.membershipByCreatedChannelId, settled),
-    // The two mutations hand their receipt back EXACTLY as the scenario settled it. A
-    // fixture is a stand-in for the wire and a wire delivers what it delivers, so what
-    // these folds change is the ledger the next read answers from and never the answer
-    // to the act that produced it.
-    [INVITE_CREATE_METHOD]: (_engine: ScenarioEngine, request: unknown, settled: unknown) => {
-      inviteLedger.recordMint(request, settled);
-      return settled;
-    },
-    [INVITE_REVOKE_METHOD]: (_engine: ScenarioEngine, _request: unknown, settled: unknown) => {
-      inviteLedger.recordRevoke(settled);
-      return settled;
-    },
-  });
-}
+export const SETTLED_CALL_FOLDS: SettledCallFolds = Object.freeze({
+  [CHANNEL_LIST_METHOD]: (engine: ScenarioEngine, _request: unknown, settled: unknown) =>
+    foldChannelDirectoryOverLog(engine, settled),
+});
 
 /**
  * Fold one resolved reply, or hand it back untouched.
@@ -103,9 +72,8 @@ export function foldSettledCall(
 /**
  * One call's fold: what the caller receives, given what the scenario settled.
  *
- * THE REQUEST TRAVELS WITH IT, because half the calls in the table are mutations and a
- * receipt does not carry everything the act asked for — an invite receipt names no
- * role, and a ledger built from receipts alone could not say what the invitation
- * grants. A fold that does not need it ignores it, which is cheaper than two tables.
+ * THE REQUEST TRAVELS WITH IT, because a receipt does not carry everything the act
+ * asked for and a fold built from receipts alone could not say what a mutation
+ * granted. A fold that does not need it ignores it, which is cheaper than two tables.
  */
 type SettledCallFold = (engine: ScenarioEngine, request: unknown, settled: unknown) => unknown;

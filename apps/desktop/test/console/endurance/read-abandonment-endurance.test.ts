@@ -142,11 +142,11 @@ function openChurnSubject(
         throw new Error(reply.refusal.code);
       }
       tally.doorAnswers.push("served");
-      // THE PROJECTION. Trivial arithmetic standing for the real thing — a roster
-      // built, a diff flattened, a timeline folded — because what is under test is
-      // whether it runs at all, not what it costs when it does.
+      // THE PROJECTION. Trivial arithmetic standing for the real thing — a device
+      // list built, a diff flattened, a timeline folded — because what is under test
+      // is whether it runs at all, not what it costs when it does.
       tally.projections += 1;
-      return reply.value.participants.length;
+      return reply.value.devices.length;
     },
   });
 

@@ -40,7 +40,7 @@ Lands at Plan-007's original Tier 4 slot, co-tier with Plan-005 (runtime binding
 
 **Rationale.** Spec-007 conflates two concerns — the cross-cutting _transport substrate_ (correctly single-owned by Plan-007: only one set of framing, version-negotiation, and error semantics may exist in the system) and the domain-specific _method namespaces_ (which cohere with their owning plans: `session.*` belongs with session core, `run.*` with run orchestration, etc.). Without a carve-out, Plan-001 Phase 5 either (a) inherits an undeclared forward dependency on Plan-007 at Tier 4, breaking build-order discipline, or (b) duplicates the wire substrate in Plan-001, breaking single-ownership of the transport layer. The carve-out preserves both invariants by isolating the substrate at the consumer's tier while leaving namespace implementations at their natural plan boundaries.
 
-**Applicability.** Apply this pattern when the §3 Inter-Plan Dependency Graph would otherwise need an undeclared forward dependency from an earlier-tier plan to a later-tier infrastructure plan. The pattern is _not_ a license to fragment well-scoped plans for parallelism reasons — both criteria (a) and (b) must hold. **Precedent:** the [Plan-025 Substrate-vs-Namespace Carve-Out](../architecture/cross-plan-dependencies.md#plan-025-substrate-vs-namespace-carve-out-tier-1--tier-7) is a sibling pattern (single substrate package extracted from a later-tier plan to satisfy an earlier-tier consumer); Plan-025 and Plan-007 share the same substrate-vs-namespace decomposition shape after [BL-119](../archive/backlog-archive.md#bl-119-plan-025-crypto-paseto-tier-1-partial-carve-out-decision) Option A.
+**Applicability.** Apply this pattern when the §3 Inter-Plan Dependency Graph would otherwise need an undeclared forward dependency from an earlier-tier plan to a later-tier infrastructure plan. The pattern is _not_ a license to fragment well-scoped plans for parallelism reasons — both criteria (a) and (b) must hold. **Precedent:** the [cross-plan-dependencies.md §5](../architecture/cross-plan-dependencies.md) is a sibling pattern (single substrate package extracted from a later-tier plan to satisfy an earlier-tier consumer); Plan-025 and Plan-007 share the same substrate-vs-namespace decomposition shape after [BL-119](../archive/backlog-archive.md#bl-119-plan-025-crypto-paseto-tier-1-partial-carve-out-decision) Option A.
 
 **Trade-off accepted.** Plan-007 readers must navigate two windows instead of a single linear sequence; the cross-link from cross-plan-dependencies.md §5 keeps the canonical build order discoverable. This cost is paid once at plan-authoring time; the alternative (silent forward dependency) imposes a recurring cost on every PR-execution agent.
 
@@ -224,9 +224,9 @@ Plan-007-partial Phase 3 owns the typed handlers + SDK Zod wrapper for `SessionC
 
 **Why bidirectional.** `Plan-001 §Phase 5 — Client SDK And Desktop Bootstrap` names `packages/client-sdk/src/sessionClient.ts` as Phase-5-owned and cites Plan-007-partial as the substrate Phase 5 imports. Without CP-007-1 on the Plan-007 side, the obligation is one-directional — Plan-001 reviewers see the dep but Plan-007 reviewers must reverse-search to find it.
 
-### CP-007-2 — `presence.*` namespace contract owed to [Plan-002](./002-invite-membership-and-presence.md)
+### CP-007-2 — `presence.*` namespace contract owed to Plan-002
 
-Plan-007-remainder (Tier 4) owns the substrate's namespace registry; `Plan-002 §API And Transport Changes` registers `presence.*` against that surface. The Tier 1 PR sequence ships the registry's typed surface at `packages/contracts/src/jsonrpc-registry.ts` — closed 2026-04-30 via [BL-102](../backlog.md) no-mirror disposition (canonical source: code; api-payload-contracts.md does not maintain a doc-side mirror per its §Source-of-Truth Policy).
+Plan-007-remainder (Tier 4) owns the substrate's namespace registry; `Plan-002` registers `presence.*` against that surface. The Tier 1 PR sequence ships the registry's typed surface at `packages/contracts/src/jsonrpc-registry.ts` — closed 2026-04-30 via [BL-102](../backlog.md) no-mirror disposition (canonical source: code; api-payload-contracts.md does not maintain a doc-side mirror per its §Source-of-Truth Policy).
 
 **Why bidirectional.** Plan-002 reviewers see the dependency on Plan-007's registry; Plan-007 reviewers (especially Tier 4 PR authors) must know that the registry's typed surface is contractually required to support Plan-002's registration before Plan-007-remainder lands.
 
@@ -234,7 +234,7 @@ Plan-007-remainder (Tier 4) owns the substrate's namespace registry; `Plan-002 �
 
 Plan-026 (§API And Transport Changes) imports the substrate's registry surface (`MethodRegistry.register(method, paramsSchema, resultSchema, handler, opts?)` — Zod-validated dispatch; `opts.mutating` gates writes under version mismatch) for first-run-onboarding handlers. The Tier-4-era namespace plans (`settings.*` / `daemon.*` from Plan-007-remainder; `run.*` / `repo.*` / `artifact.*` from their downstream owning plans Plan-004 / Plan-009 / Plan-014) similarly register against the same surface. The typed shape ships at `packages/contracts/src/jsonrpc-registry.ts` (closed 2026-04-30 via [BL-102](../backlog.md) no-mirror disposition; canonical source: code). [Plan-028](./028-mcp-server-configuration-and-governance.md) registers the eleven `mcp.*` operations at Tier 7 per Plan-028 CP-028-4 — the late-namespace registration pattern this clause sanctions (the Plan-002 `presence.*` precedent; campaign B18, registered at Plan-028's 2026-08-12 targeted readiness audit).
 
-**Why bidirectional.** Multiple downstream plans cite the surface informally (`Plan-026 §API And Transport Changes`,`Plan-002 §API And Transport Changes`, the namespace-owning plans Plan-004 / 009 / 014 + Plan-007-remainder); the surface itself must be authoritatively typed once and re-cited.
+**Why bidirectional.** Multiple downstream plans cite the surface informally (`Plan-026 §API And Transport Changes`,`Plan-002`, the namespace-owning plans Plan-004 / 009 / 014 + Plan-007-remainder); the surface itself must be authoritatively typed once and re-cited.
 
 ### CP-007-4 — Typed JSON-RPC client transport (`packages/client-sdk/src/transport/`) owed to all client-SDK consumers
 
@@ -300,9 +300,9 @@ Phase R3 ships the JSON-RPC **transport-level** supervision consumer at `apps/de
 
 **Why bidirectional.** Plan-023 reviewers see the dependency on Phase R3 adding one bridge file; Phase R3 reviewers see that the broader registry mount-point is Plan-023's. Without CP-007-12, the boundary is implicit and the two phases risk landing the same files.
 
-### CP-007-13 — Phase R3 renderer view → [Plan-002](./002-invite-membership-and-presence.md) Phase 6 ambient bridge type
+### CP-007-13 — Phase R3 renderer view → Plan-002 Phase 6 ambient bridge type
 
-[Plan-002](./002-invite-membership-and-presence.md) Phase 6 (NS-29 hoist per [cross-plan-dependencies.md](../architecture/cross-plan-dependencies.md)) hoisted `apps/desktop/src/renderer/src/sidekicks-bridge.d.ts` out of `SessionBootstrap.tsx` into a dedicated file. Phase R3's `DaemonStatusView.tsx` consumes the ambient `window.sidekicks` type from this file. Phase R3 EXTENDS the `SidekicksBridge` interface (in `packages/contracts/src/desktop-bridge.ts`, Plan-023 owned) by adding the `daemon.status` topic to the typed subscription map; Phase R3 does NOT modify the `.d.ts` itself.
+Plan-002 Phase 6 (NS-29 hoist per [cross-plan-dependencies.md](../architecture/cross-plan-dependencies.md)) hoisted `apps/desktop/src/renderer/src/sidekicks-bridge.d.ts` out of `SessionBootstrap.tsx` into a dedicated file. Phase R3's `DaemonStatusView.tsx` consumes the ambient `window.sidekicks` type from this file. Phase R3 EXTENDS the `SidekicksBridge` interface (in `packages/contracts/src/desktop-bridge.ts`, Plan-023 owned) by adding the `daemon.status` topic to the typed subscription map; Phase R3 does NOT modify the `.d.ts` itself.
 
 **Why bidirectional.** Plan-002 reviewers (retroactive — Phase 6 already shipped) see the contract their hoisted ambient type satisfies; Phase R3 reviewers see that the renderer view typechecks against an already-shipped ambient type and that the `SidekicksBridge` interface extension is the only forward edit Phase R3 owns.
 

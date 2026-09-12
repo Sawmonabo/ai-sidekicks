@@ -1,7 +1,7 @@
-// The two sections this family claims, and the holder both of them share.
+// The section this family claims, and the holder it reads through.
 //
 // Registration is checked against a real `SidebarSectionRegistry` rather than a
-// stand-in: the property that matters — two ids, one owner, replace rather than
+// stand-in: the property that matters — the id, its owner, replace rather than
 // conflict on a second call — is the registry's behaviour, and a local double would
 // prove nothing about it. It is a board this test OWNS rather than the process-wide
 // singleton, so what a case asserts is what that case registered.
@@ -13,22 +13,17 @@ import { sectionsRegisteredForTest } from "./sections.test-support.js";
 import { CollaborationSessionModelHolder } from "./session-models.js";
 
 describe("collaboration sidebar sections", () => {
-  it("fills exactly the channels and members sections", () => {
-    expect(sectionsRegisteredForTest().registeredSectionIds()).toStrictEqual([
-      "channels",
-      "members",
-    ]);
+  it("fills exactly the channels section", () => {
+    expect(sectionsRegisteredForTest().registeredSectionIds()).toStrictEqual(["channels"]);
   });
 
-  it("claims both under one owner, so both move together", () => {
-    // Two owners on one family's sections would let a partial reload leave the
-    // sidebar showing one section from before the change and one from after.
+  it("claims it under an owner of this family's own", () => {
+    // The owner string is what makes a second registration a replacement rather than
+    // a conflict, so a section registered under an empty owner would swap with
+    // whatever else reached the board without one.
     const sections = sectionsRegisteredForTest();
-    const owners = new Set(
-      (["channels", "members"] as const).map((id) => sections.descriptorFor(id)?.owner ?? ""),
-    );
-    expect(owners.size).toBe(1);
-    expect([...owners][0]).not.toBe("");
+    expect(sections.descriptorFor("channels")?.owner).not.toBe("");
+    expect(sections.descriptorFor("channels")?.owner).toBeDefined();
   });
 
   it("survives being registered twice, as a hot reload does it", () => {

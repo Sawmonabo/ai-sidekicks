@@ -1,7 +1,7 @@
 {
   "prNumber": 46,
-  "plan": "008",
+  "plan": "024",
   "phase": "2",
   "candidateNs": "NS-15",
-  "diffTouchedFiles": ["docs/plans/008-rust-pty-sidecar.md"]
+  "diffTouchedFiles": ["docs/plans/024-rust-pty-sidecar.md"]
 }

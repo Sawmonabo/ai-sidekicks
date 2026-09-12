@@ -57,7 +57,6 @@ function inputFor(overrides: Partial<ApprovalCommandInput> = {}): ApprovalComman
     resolveRefusalByApprovalId: new Map<string, ConsoleRefusal>(),
     resolve: () => undefined,
     goal: NO_GOAL,
-    canMutateGoal: false,
     isMutatingGoal: false,
     clearGoal: () => undefined,
     ...overrides,
@@ -115,16 +114,12 @@ describe("the rows the approvals pane contributes", () => {
     expect(rows.map((row) => row.kind)).toEqual(["approve", "reject"]);
   });
 
-  it("offers the goal clear only where a goal is set and the role may mutate it", () => {
-    const offered = approvalCommandRows(inputFor({ goal: GOAL_SET, canMutateGoal: true }));
-    const readOnly = approvalCommandRows(inputFor({ goal: GOAL_SET, canMutateGoal: false }));
-    const empty = approvalCommandRows(inputFor({ goal: NO_GOAL, canMutateGoal: true }));
-    const settling = approvalCommandRows(
-      inputFor({ goal: GOAL_SET, canMutateGoal: true, isMutatingGoal: true }),
-    );
+  it("offers the goal clear only where a goal is set and nothing is settling", () => {
+    const offered = approvalCommandRows(inputFor({ goal: GOAL_SET }));
+    const empty = approvalCommandRows(inputFor({ goal: NO_GOAL }));
+    const settling = approvalCommandRows(inputFor({ goal: GOAL_SET, isMutatingGoal: true }));
 
     expect(offered.some((row) => row.kind === "clear-goal")).toBe(true);
-    expect(readOnly.some((row) => row.kind === "clear-goal")).toBe(false);
     expect(empty.some((row) => row.kind === "clear-goal")).toBe(false);
     expect(settling.some((row) => row.kind === "clear-goal")).toBe(false);
   });
@@ -183,14 +178,17 @@ describe("what answering from the palette sends", () => {
     expect(resolve).not.toHaveBeenCalled();
   });
 
-  it("clears the goal only while the role may mutate it", () => {
+  it("clears the goal only while there is a goal and nothing is settling", () => {
     const clearGoal = vi.fn();
     const row = { kind: "clear-goal", record: undefined, title: "Clear the session goal" } as const;
 
-    performApprovalCommand(row, inputFor({ goal: GOAL_SET, canMutateGoal: false, clearGoal }));
+    performApprovalCommand(row, inputFor({ goal: NO_GOAL, clearGoal }));
     expect(clearGoal).not.toHaveBeenCalled();
 
-    performApprovalCommand(row, inputFor({ goal: GOAL_SET, canMutateGoal: true, clearGoal }));
+    performApprovalCommand(row, inputFor({ goal: GOAL_SET, isMutatingGoal: true, clearGoal }));
+    expect(clearGoal).not.toHaveBeenCalled();
+
+    performApprovalCommand(row, inputFor({ goal: GOAL_SET, clearGoal }));
     expect(clearGoal).toHaveBeenCalledTimes(1);
   });
 });

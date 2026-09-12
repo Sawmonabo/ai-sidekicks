@@ -1,14 +1,14 @@
 // The terminal pane's question about its output stream, and what the answer was.
 //
 // WHAT IS LIVE HERE AND WHAT IS NOT. The byte stream, the scrollback, and the resize
-// report are `Plan-023 §Console growth slate` row 3, which the growth port refuses by
-// name. So this read ASKS, and renders the refusal it gets, rather than assuming the
+// report are a growth-slate row the growth port refuses by name. So this read ASKS,
+// and renders the refusal it gets, rather than assuming the
 // answer: the port is what says whether a wire is registered, and a surface that
 // skipped the call and hard-coded the absence would keep rendering it for a day after
 // the wire landed. While the call is out the honest reading is that nothing has been
 // established, which is the "computing" absence rather than an empty stream.
 //
-// DELETION OBLIGATION. When slate row 3 leaves the table, the served arm drains into
+// DELETION OBLIGATION. When that slate row leaves the table, the served arm drains into
 // the emulator (an addition to `XtermHost`, which owns the adapter) and the refusal
 // reading below goes with the row.
 //
@@ -45,17 +45,18 @@ export interface TerminalOutputAbsence {
  * wire authored.
  *
  * Two arms rather than a third `kind` on the absence, because they are two
- * different renderings under rule 9 — an absence says what is not here, a refusal
+ * different renderings in the console's refusal grammar — an absence says what is not
+ * here, a refusal
  * carries a machine-readable code the operator acts on — and folding a refusal
  * into an absence is what threw that code away.
  *
  * AND NOT `ReadingState`, which its neighbours in this family now are. That
  * vocabulary closes over how completely a reading that ARRIVED answered — `served`
  * is its only completeness claim and every other arm renders a notice ABOVE rows
- * that are on screen. This union is the case where nothing arrived at all, which is
- * rule 8's, and its `not-checked` arm has no member there to borrow. Expressing it
- * as a reading state would put a rule-8 absence inside the one union whose whole
- * discipline is that six kinds each have a sentence, and `readingNoticeFor` would
+ * that are on screen. This union is the case where nothing arrived at all, and its
+ * `not-checked` arm has no member there to borrow. Expressing it as a reading state
+ * would put an absence inside the one union whose whole discipline is that six kinds
+ * each have a sentence, and `readingNoticeFor` would
  * owe a seventh for a state that renders through `Nothing` instead. What this union
  * does share is the WORD: a refusal here is spelled `refused`, as it is everywhere
  * else in the console, rather than a fourth local spelling of it.

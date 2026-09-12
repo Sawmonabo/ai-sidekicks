@@ -1,17 +1,10 @@
-// What the create form collects, and which fields exist for which kind of channel.
+// What the create form collects, and what it never collects.
 
 import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
-import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { GROWTH_CHANNEL_AUDIENCES } from "../../bridge/index.js";
 import {
-  GROWTH_CHANNEL_AUDIENCES,
-  GROWTH_CHANNEL_KINDS,
-  GROWTH_CHANNEL_TURN_POLICIES,
-} from "../../bridge/index.js";
-import { PARTICIPANT_OTHER, PARTICIPANT_YOU } from "./channels.test-support.js";
-import {
-  chooseKind,
   createChannelElement,
   fieldNotes,
   policyFields,
@@ -53,39 +46,13 @@ describe("creating a channel — the standing statement", () => {
   });
 });
 
-describe("creating a channel — where the form opens", () => {
-  it("opens on a general channel", () => {
-    const { container } = renderCreateChannel();
-    const pressed = [...container.querySelectorAll(".meridian-create-channel__kind")]
-      .filter((kind) => kind.getAttribute("aria-pressed") === "true")
-      .map((kind) => kind.textContent ?? "");
-    expect(pressed).toStrictEqual(["A named channel"]);
-  });
-
+describe("creating a channel — the policy it carries", () => {
   it("opens with the audience already on participants", () => {
     const { container } = renderCreateChannel();
     expect(policyFields(container).audience.value).toBe("participants");
   });
 
-  it("offers one control per registered kind and no third", () => {
-    const { container } = renderCreateChannel();
-    expect(container.querySelectorAll(".meridian-create-channel__kind")).toHaveLength(
-      GROWTH_CHANNEL_KINDS.length,
-    );
-  });
-
-  it("keeps the name and the kind visible whichever kind is chosen", () => {
-    // One screen, one job: the two decisions everybody makes stay on it, and the
-    // policy is what folds.
-    const { container } = renderCreateChannel();
-    chooseKind(container, "direct");
-    expect(container.querySelector(".meridian-create-channel__name")).not.toBeNull();
-    expect(container.querySelectorAll(".meridian-create-channel__kind")).toHaveLength(2);
-  });
-});
-
-describe("creating a channel — the policy a general channel carries", () => {
-  it("puts the five members under one disclosure that opens by default", () => {
+  it("puts the three members under one disclosure that opens by default", () => {
     // Open, because a create-time decision hidden behind a closed fold is a decision
     // made by not looking — and this is the only moment any of it can be made.
     const { container } = renderCreateChannel();
@@ -98,12 +65,11 @@ describe("creating a channel — the policy a general channel carries", () => {
   it("collects every member of the configuration, each from its own vocabulary", () => {
     const { container } = renderCreateChannel();
     const fields = policyFields(container);
-    const optionValues = (select: HTMLSelectElement): readonly string[] =>
-      [...select.options].map((option) => option.value).filter((value) => value !== "");
+    const optionValues = [...fields.audience.options]
+      .map((option) => option.value)
+      .filter((value) => value !== "");
 
-    expect(optionValues(fields.audience)).toStrictEqual([...GROWTH_CHANNEL_AUDIENCES]);
-    expect(optionValues(fields.turnPolicy)).toStrictEqual([...GROWTH_CHANNEL_TURN_POLICIES]);
-    expect(fields.roundRobinOrder.placeholder).toContain("separated by commas");
+    expect(optionValues).toStrictEqual([...GROWTH_CHANNEL_AUDIENCES]);
     expect(fields.turnsPerAgent.inputMode).toBe("numeric");
     expect(fields.moderationBoxes).toHaveLength(2);
   });
@@ -111,95 +77,20 @@ describe("creating a channel — the policy a general channel carries", () => {
   it("labels every one of them fixed at creation", () => {
     const { container } = renderCreateChannel();
     const notes = fieldNotes(container).filter((note) => note.includes("Fixed at creation"));
-    expect(notes).toHaveLength(5);
-  });
-
-  it("says the round-robin order is required rather than offering to fall back", () => {
-    // The note used to promise that an empty order took the session's own. It does
-    // not: `Spec-016 §Turn Policies` refuses a round-robin create with no order at
-    // all, so the copy that offered the fallback was describing a request that fails.
-    const { container } = renderCreateChannel();
-    const notes = fieldNotes(container);
-
-    expect(notes.join(" ")).toContain("Required when agents take turns round-robin");
-    expect(notes.join(" ")).not.toContain("own order");
+    expect(notes).toHaveLength(3);
   });
 
   it("offers the session's own default as an explicit choice rather than pre-picking one", () => {
     // An absent member on this wire MEANS the session's default, so a console that
     // filled one in would be choosing on a person's behalf and reporting it as theirs.
     const { container } = renderCreateChannel();
-    expect(policyFields(container).turnPolicy.value).toBe("");
     expect(
-      [...policyFields(container).turnPolicy.options].map((option) => option.textContent),
+      [...policyFields(container).audience.options].map((option) => option.textContent),
     ).toContain("Session default");
   });
 });
 
-describe("creating a channel — the direct arm", () => {
-  it("drops the four agent-turn fields rather than disabling them", () => {
-    // A disabled field says a value could be set here and is being withheld, which on
-    // this arm is untrue: the wire's own validation refuses every one of them.
-    const { container } = renderCreateChannel();
-    chooseKind(container, "direct");
-
-    expect(container.querySelector(".meridian-create-channel__policy")).toBeNull();
-    expect(container.querySelectorAll(".meridian-create-channel__select")).toHaveLength(0);
-    expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
-    expect(container.querySelectorAll("select:disabled")).toHaveLength(0);
-  });
-
-  it("says it is humans-only and that its pair cannot change", () => {
-    const { container } = renderCreateChannel();
-    chooseKind(container, "direct");
-    const note = container.querySelector(".meridian-create-channel__direct")?.textContent ?? "";
-    expect(note).toContain("humans-only");
-    expect(note).toContain("cannot change afterwards");
-  });
-
-  it("offers one picker holding everybody but this window's own participant", () => {
-    const { container } = renderCreateChannel();
-    chooseKind(container, "direct");
-    const candidates = [...container.querySelectorAll(".meridian-create-channel__candidate")].map(
-      (candidate) => candidate.textContent ?? "",
-    );
-    expect(candidates).toHaveLength(1);
-    expect(candidates[0] ?? "").toContain(PARTICIPANT_OTHER);
-  });
-
-  it("marks the person a picker chose", () => {
-    const { container } = renderCreateChannel();
-    chooseKind(container, "direct");
-    act(() => {
-      container.querySelector<HTMLButtonElement>(".meridian-create-channel__candidate")?.click();
-    });
-    expect(
-      container.querySelector(".meridian-create-channel__candidate")?.getAttribute("aria-pressed"),
-    ).toBe("true");
-  });
-
-  it("says which read it is waiting on where this window's participant is unknown", () => {
-    // `not-checked` and not `empty`: the pair cannot be composed until that read
-    // answers, and saying "there is nobody" instead would be a claim about the session.
-    const { container } = renderCreateChannel({ viewerParticipantId: undefined });
-    chooseKind(container, "direct");
-    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
-  });
-
-  it("says nobody else is here yet where this session holds one person", () => {
-    const { container } = renderCreateChannel({ participantIds: [] });
-    chooseKind(container, "direct");
-    expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
-  });
-
-  it("negative control: the general arm draws neither absence and keeps the five", () => {
-    const { container } = renderCreateChannel({ viewerParticipantId: undefined });
-    expect(container.querySelector(".meridian-nothing--not-checked")).toBeNull();
-    expect(container.querySelector(".meridian-create-channel__policy")).not.toBeNull();
-  });
-});
-
-describe("creating a channel — a pick the session stops holding", () => {
+describe("creating a channel — a form re-addressed to another session", () => {
   /**
    * A second session, so a case can re-address the SAME mount at one.
    *
@@ -208,70 +99,31 @@ describe("creating a channel — a pick the session stops holding", () => {
    */
   const SECOND_SESSION_ID = "019b7d10-0000-7000-8000-000000000002";
 
-  /** The submit control, which is what a stale pick used to leave open. */
-  function submitControl(container: HTMLElement): HTMLButtonElement | null {
-    return container.querySelector<HTMLButtonElement>(".meridian-create-channel__submit");
-  }
-
-  /** Whether each candidate reads as chosen, in the order the picker draws them. */
-  function pickedMarks(container: HTMLElement): readonly (string | null)[] {
-    return [...container.querySelectorAll(".meridian-create-channel__candidate")].map((candidate) =>
-      candidate.getAttribute("aria-pressed"),
-    );
-  }
-
-  /** Name it, choose the direct arm, and pick the one other person offered. */
-  function pickTheOtherPerson(container: HTMLElement): void {
-    typeName(container, "with Dana");
-    chooseKind(container, "direct");
-    act(() => {
-      container.querySelector<HTMLButtonElement>(".meridian-create-channel__candidate")?.click();
-    });
-  }
-
-  it("closes the control once the person picked is no longer in this session", () => {
-    // The defect: the picker stopped offering them, the draft went on holding their id,
-    // and readiness only asked whether it held SOME id — so Create stayed open on a pair
-    // containing a non-member, and the refusal arrived after the press.
-    const mounted = renderCreateChannel();
-    pickTheOtherPerson(mounted.container);
-    expect(submitControl(mounted.container)?.disabled).toBe(false);
-
-    mounted.rerender(createChannelElement({ participantIds: [PARTICIPANT_YOU] }, mounted.bridge));
-
-    expect(submitControl(mounted.container)?.disabled).toBe(true);
-    expect(
-      mounted.container.querySelector(".meridian-create-channel__incomplete")?.textContent ?? "",
-    ).toContain("no longer");
-  });
-
   it("drops the whole draft when the form is re-addressed to another session", () => {
-    // Everything in this form is about the session it was typed in, and the pick above
-    // all: a participant id names somebody IN a session, so carrying one across a
-    // re-address would offer Create for a pair nobody in the session arrived at chose.
+    // Everything in this form is about the session it was typed in, so carrying it
+    // across a re-address would offer Create for a channel in a session nobody typed it
+    // for.
     const mounted = renderCreateChannel();
-    pickTheOtherPerson(mounted.container);
-    expect(pickedMarks(mounted.container)).toStrictEqual(["true"]);
+    typeName(mounted.container, "review");
 
     mounted.rerender(createChannelElement({ sessionId: SECOND_SESSION_ID }, mounted.bridge));
 
-    // Back on the arm the form opens with, with nothing typed into it.
-    expect(mounted.container.querySelector(".meridian-create-channel__direct")).toBeNull();
-    expect(policyFields(mounted.container).audience.value).toBe("participants");
-    chooseKind(mounted.container, "direct");
-    expect(pickedMarks(mounted.container)).toStrictEqual(["false"]);
+    expect(
+      mounted.container.querySelector<HTMLInputElement>(".meridian-create-channel__name")?.value,
+    ).toBe("");
   });
 
-  it("negative control: a re-render that changes neither keeps the pick", () => {
-    // Without this the two cases above would pass over a form that threw its draft away
-    // on every pass, which would drop a person's work for no reason at all.
+  it("negative control: a re-render that changes neither keeps what was typed", () => {
+    // Without this the case above would pass over a form that threw its draft away on
+    // every pass, which would drop a person's work for no reason at all.
     const mounted = renderCreateChannel();
-    pickTheOtherPerson(mounted.container);
+    typeName(mounted.container, "review");
 
     mounted.rerender(createChannelElement({}, mounted.bridge));
 
-    expect(pickedMarks(mounted.container)).toStrictEqual(["true"]);
-    expect(submitControl(mounted.container)?.disabled).toBe(false);
+    expect(
+      mounted.container.querySelector<HTMLInputElement>(".meridian-create-channel__name")?.value,
+    ).toBe("review");
   });
 });
 
@@ -302,26 +154,17 @@ describe("creating a channel — the reserved bootstrap name", () => {
 
   it("says what it is still waiting for rather than leaving the control merely shut", () => {
     const { container } = renderCreateChannel();
-    typeName(container, "review");
-    chooseKind(container, "direct");
     expect(
       container.querySelector(".meridian-create-channel__incomplete")?.textContent ?? "",
-    ).toContain("the other person in the pair");
+    ).toContain("a name");
   });
 });
 
 describe("creating a channel — what it never collects", () => {
   it("takes exactly one value per member of the create request, and no other", () => {
-    // Seven controls: the name, and the six the configuration is made of. A field
-    // whose value can go nowhere reads as a broken feature, and there is none here.
+    // Five controls: the name, and the four the configuration is made of. A field whose
+    // value can go nowhere reads as a broken feature, and there is none here.
     const { container } = renderCreateChannel();
-    expect(container.querySelectorAll("input, select, textarea")).toHaveLength(7);
-  });
-
-  it("takes one value and no other on the direct arm too", () => {
-    // The pair, picked. Every configuration member is absent rather than disabled.
-    const { container } = renderCreateChannel();
-    chooseKind(container, "direct");
-    expect(container.querySelectorAll("input, select, textarea")).toHaveLength(1);
+    expect(container.querySelectorAll("input, select, textarea")).toHaveLength(5);
   });
 });

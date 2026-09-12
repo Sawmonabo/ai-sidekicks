@@ -1,9 +1,5 @@
 // Session contracts — request/response payloads and shared projection types
-// for the Plan-001 vertical slice (SessionCreate / SessionRead / SessionJoin /
-// SessionSubscribe). Exact field set mirrors the canonical TypeScript shapes in
-// docs/architecture/contracts/api-payload-contracts.md § Tier 1 — Plan-001
-// (verbatim — adding/removing/renaming a field here is a contract break and
-// requires the spec edit first).
+// for the session core (SessionCreate / SessionRead / SessionSubscribe).
 //
 // ID format: the `brandedUuidIdSchema` factory's `RFC_9562_TEXT_FORM`
 // predicate accepts any RFC 9562 UUID, case-insensitively on every
@@ -12,13 +8,9 @@
 // through PostgreSQL's `gen_random_uuid()` which emits v4. Contracts must
 // accept both, so we deliberately do NOT pin to `z.uuidv7()`.
 //
-// Branded types (`SessionId`, `MembershipId`, …) provide compile-time
-// nominal typing per api-payload-contracts.md §Branded ID Types — they
-// prevent accidentally passing a `ParticipantId` where a `SessionId` was
-// expected, even though both are strings at runtime.
-//
-// Refs: Spec-001 §Interfaces And Contracts, ADR-018 (versioning), ADR-022
-// (toolchain — Zod 4.x).
+// Branded types (`SessionId`, `ChannelId`, …) provide compile-time nominal
+// typing — they prevent accidentally passing a `ParticipantId` where a
+// `SessionId` was expected, even though both are strings at runtime.
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
@@ -115,9 +107,8 @@ export const EventCursorSchema: z.ZodType<EventCursor, EventCursor> = z
 //      this trust boundary lives — we accept input from external (cross-
 //      node, future RPC) callers and cannot rely on producer trust alone.
 //
-// Used by every wire-layer free-form string in this package. Not branded
-// because the caller composes branding (e.g. `IdentityHandleSchema`) on
-// top of it where applicable.
+// Used by every wire-layer free-form string in this package. Not branded —
+// the caller composes branding on top of it where applicable.
 export const wireFreeFormString = (maxLen: number, fieldLabel: string): z.ZodString =>
   z
     .string()
@@ -160,26 +151,6 @@ export const MembershipRoleSchema: z.ZodType<MembershipRole> = z.enum([
   "collaborator",
   "runtime contributor",
 ]);
-
-// `NonOwnerMembershipRole` is `MembershipRole` with `"owner"` excluded. Used
-// at internal service boundaries (e.g. `JoinSessionInput.role` in
-// `@ai-sidekicks/control-plane`) where a caller-supplied `owner` would
-// represent a privilege-escalation path: BL-069 §4 binds owner identity at
-// `createSession` time via TOFU, so any subsequent `joinSession` that admits
-// `owner` would let any caller mint a second owner-membership row without
-// going through Plan-002's promotion / elevation flow (UNIQUE(session_id,
-// participant_id) keys on the (session, participant) PAIR, not on the role,
-// so two distinct participants can both hold `owner` rows).
-//
-// No accompanying Zod schema: the wire surface (`SessionJoinRequest`) carries
-// only `identityHandle: string` — there is no `role` field on the wire today,
-// so there is no consumer for a `NonOwnerMembershipRoleSchema`. The type
-// alias narrows the internal TypeScript surface (compile-time first defense);
-// the service body's runtime guard (second defense) catches dynamic callers
-// that bypass the type system. If a future wire contract gains a role field
-// (e.g. invite-driven join in Plan-002), add the schema then alongside the
-// new wire shape.
-export type NonOwnerMembershipRole = Exclude<MembershipRole, "owner">;
 
 export type MembershipState = "pending" | "active" | "suspended" | "revoked";
 export const MembershipStateSchema: z.ZodType<MembershipState> = z.enum([
@@ -233,21 +204,6 @@ export const SessionSnapshotSchema: z.ZodType<SessionSnapshot> = z
   })
   .strict();
 
-export interface MembershipSummary {
-  id: MembershipId;
-  participantId: ParticipantId;
-  role: MembershipRole;
-  state: MembershipState;
-}
-export const MembershipSummarySchema: z.ZodType<MembershipSummary> = z
-  .object({
-    id: MembershipIdSchema,
-    participantId: ParticipantIdSchema,
-    role: MembershipRoleSchema,
-    state: MembershipStateSchema,
-  })
-  .strict();
-
 // `name` is optional in the canonical interface (`name?: string`). Per
 // `docs/architecture/contracts/api-payload-contracts.md §Tier 1: Plan-001 — Shared Session Core (Task 4.2)`, omission is the wire signal for a
 // channel without a friendly label (e.g. the implicit `main` channel).
@@ -259,11 +215,10 @@ export const MembershipSummarySchema: z.ZodType<MembershipSummary> = z
 // our exported interface; consumers who care about the absent-vs-undefined
 // distinction can still test `"name" in obj`.
 //
-// `name` length cap (`CHANNEL_NAME_MAX_LEN`, 128 chars) is defense in depth
-// (mirrors `IDENTITY_HANDLE_MAX_LEN` co-location with its schema). The
-// `wireFreeFormString` helper also rejects whitespace-only and NUL-byte
-// values, matching the trust-boundary stance applied to `identityHandle`
-// (channel names are user-visible UI labels — same reasoning).
+// `name` length cap (`CHANNEL_NAME_MAX_LEN`, 128 chars) is defense in depth.
+// The `wireFreeFormString` helper also rejects whitespace-only and NUL-byte
+// values — channel names are user-visible UI labels, so the wire-layer
+// trust boundary applies.
 export const CHANNEL_NAME_MAX_LEN = 128;
 export interface ChannelSummary {
   id: ChannelId;
@@ -305,14 +260,12 @@ export const SessionCreateRequestSchema: z.ZodType<SessionCreateRequest, Session
 export interface SessionCreateResponse {
   sessionId: SessionId;
   state: SessionState;
-  memberships: MembershipSummary[];
   channels: ChannelSummary[];
 }
 export const SessionCreateResponseSchema: z.ZodType<SessionCreateResponse> = z
   .object({
     sessionId: SessionIdSchema,
     state: SessionStateSchema,
-    memberships: z.array(MembershipSummarySchema),
     channels: z.array(ChannelSummarySchema),
   })
   .strict();
@@ -350,57 +303,6 @@ export const SessionReadResponseSchema: z.ZodType<SessionReadResponse> = z
         acknowledged: EventCursorSchema.optional(),
       })
       .strict(),
-  })
-  .strict();
-
-// --------------------------------------------------------------------------
-// SessionJoin
-// --------------------------------------------------------------------------
-
-export interface SessionJoinRequest {
-  sessionId: SessionId;
-  identityHandle: string;
-}
-// `identityHandle` wire-layer guards (length bounds + whitespace-only +
-// NUL-byte rejection) are centralized in the `wireFreeFormString` helper
-// above; `IdentityHandleSchema` wraps the helper at `IDENTITY_HANDLE_MAX_LEN`.
-// The canonical handle grammar is owned by Plan-018 (identity-and-participant-
-// state); these wire-layer guards exist to catch obvious garbage before it
-// reaches Plan-018's validator.
-//
-// Plan-018 also owns Unicode normalization including zero-width-character
-// handling (U+200B/200C/200D/2060/FEFF). Wire-layer rejection is intentionally
-// limited to ASCII whitespace + NUL byte — preempting Plan-018's grammar
-// choices at the wire layer would be wrong (see `wireFreeFormString` rationale).
-//
-// Re-used by `event.ts`'s `membership.created` payload schema, so future
-// tightening at this single site applies consistently to both surfaces.
-export const IDENTITY_HANDLE_MAX_LEN = 64;
-export const IdentityHandleSchema: z.ZodString = wireFreeFormString(
-  IDENTITY_HANDLE_MAX_LEN,
-  "identityHandle",
-);
-// `z.ZodType<T, T>` — see SessionCreateRequestSchema for rationale (preserves
-// Standard-Schema-V1 input inference for tRPC v11 consumers).
-export const SessionJoinRequestSchema: z.ZodType<SessionJoinRequest, SessionJoinRequest> = z
-  .object({
-    sessionId: SessionIdSchema,
-    identityHandle: IdentityHandleSchema,
-  })
-  .strict();
-
-export interface SessionJoinResponse {
-  sessionId: SessionId;
-  participantId: ParticipantId;
-  membershipId: MembershipId;
-  sharedMetadata: Record<string, unknown>;
-}
-export const SessionJoinResponseSchema: z.ZodType<SessionJoinResponse> = z
-  .object({
-    sessionId: SessionIdSchema,
-    participantId: ParticipantIdSchema,
-    membershipId: MembershipIdSchema,
-    sharedMetadata: RecordOfUnknownSchema,
   })
   .strict();
 

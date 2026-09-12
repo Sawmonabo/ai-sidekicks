@@ -1,12 +1,12 @@
-// The claim control is gated on knowing who the viewer is.
+// The claim control is gated on knowing which window this is.
 //
-// The last of the line's four prohibitions, and its own file because it is the one
-// that withholds the control entirely: the surface acts on the caller's behalf and
-// the fold names the holder by participant id, so until the viewer's identity has
-// been READ there is no control here at all. A control offered without it is one the
-// daemon will honour and this line will then report as somebody else's hold.
+// The last of the line's prohibitions, and its own file because it is the one that
+// withholds the control entirely: the surface acts on this window's behalf and the fold
+// names the holder by participant id, so until that identity has been READ there is no
+// control here at all. A control offered without it is one the daemon will honour and
+// this line will then report as a hold from somewhere else.
 //
-// What the caller may DO with that identity is the role gate, `LeaseLine.role.test.tsx`.
+// Nothing else gates it. The shell belongs to the one person using this machine.
 
 import { describe, expect, it } from "vitest";
 
@@ -14,7 +14,7 @@ import { refuse } from "../../core/index.js";
 import { leaseState, refusingBridge, renderLease } from "./LeaseLine.test-support.js";
 import { OTHER_PARTICIPANT, VIEWER_PARTICIPANT } from "./lease-model.test-support.js";
 
-describe("the claim control is gated on knowing who the viewer is", () => {
+describe("the claim control is gated on knowing which window this is", () => {
   /** The claim control, or `null` — the shape the withheld cases need. */
   function offeredClaimControl(container: HTMLElement): Element | null {
     return container.querySelector(".meridian-lease-line__claim");
@@ -33,10 +33,11 @@ describe("the claim control is gated on knowing who the viewer is", () => {
     });
     expect(offeredClaimControl(container)).toBeNull();
     // An absence rather than a disabled button: a greyed control reads as "not right
-    // now", and the truth is that the console does not know who would be claiming.
+    // now", and the truth is that the console does not yet know which window would be
+    // claiming.
     const absence = container.querySelector(".meridian-nothing");
     expect(absence?.className).toContain("meridian-nothing--not-loaded");
-    expect(container.textContent).toContain("Reading who you are");
+    expect(container.textContent).toContain("Reading which window this is");
     // The disclosure is untouched — the history is readable without an identity.
     expect(container.querySelector(".meridian-lease-line__disclosure")).not.toBeNull();
   });
@@ -58,9 +59,9 @@ describe("the claim control is gated on knowing who the viewer is", () => {
     expect(container.textContent).toContain("offered again once the console can say");
   });
 
-  it("offers Release to the participant the log names as the holder", () => {
-    // The whole point of feeding the identity in: the claimant's own take reads as
-    // theirs, so the control they are offered is the one that gives the shell back.
+  it("offers Release to the window the log names as the holder", () => {
+    // The whole point of feeding the identity in: this window's own take reads as its
+    // own, so the control offered is the one that gives the shell back.
     const { container } = renderLease(
       leaseState({
         holding: "held-by-you",

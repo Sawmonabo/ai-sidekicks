@@ -1,9 +1,9 @@
-// The two seats this mount claims for callers composed before it existed.
+// The seat this mount claims for a caller composed before it existed.
 //
-// The palette's chords and the workspace's follow seat both resolve their target at
-// press time, and both are reached through a seat rather than an import. The
-// property here is that a command contributed at COMPOSITION time reaches a feed
-// mounted later, and that an unmounted feed says so instead of doing nothing.
+// The palette's chords resolve their target at press time and are reached through a
+// seat rather than an import. The property here is that a command contributed at
+// COMPOSITION time reaches a feed mounted later, and that an unmounted feed says so
+// instead of doing nothing.
 
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -12,7 +12,6 @@ import { SidekicksBridgeProvider, createFixtureBridge } from "../../../../bridge
 import { LEDGER_QUIET_SCENARIO } from "../../../../bridge/scenario/ledger/ledger-quiet.js";
 import { type ConsoleRefusal } from "../../../../core/index.js";
 import { publishConsoleActRefusalSink } from "../../../../palette/index.js";
-import { actorFollowHandler, unregisterActorFollowHandler } from "../../../../seats/index.js";
 import { LedgerFeed } from "./LedgerFeed.js";
 import {
   LEDGER_FIXTURE_PANE_ID,
@@ -105,38 +104,5 @@ describe("the ledger feed — the palette acts on the mounted feed", () => {
       "ledger.no_mounted_ledger",
     ]);
     withdrawSink();
-  });
-});
-
-describe("the ledger feed — the cast bar's follow seat", () => {
-  afterEach(() => {
-    unregisterActorFollowHandler(LEDGER_FIXTURE_PANE_ID);
-  });
-
-  it("reveals the row a chip's sequence names while the feed is mounted", () => {
-    withLaidOutViewport();
-    renderFeed(openSessionStoreWithFeedLog(SHORT_LOG_EVENT_COUNT));
-    const follow = actorFollowHandler(LEDGER_FIXTURE_PANE_ID);
-    expect(follow).toBeDefined();
-    expect(
-      follow?.({ participantId: "participant-alba", newestSequence: SHORT_LOG_EVENT_COUNT - 1 }),
-    ).toBe("revealed");
-  });
-
-  it("answers row-not-in-view for a sequence this window does not hold", () => {
-    withLaidOutViewport();
-    renderFeed(openSessionStoreWithFeedLog(SHORT_LOG_EVENT_COUNT));
-    expect(
-      actorFollowHandler(LEDGER_FIXTURE_PANE_ID)?.({
-        participantId: "participant-alba",
-        newestSequence: SHORT_LOG_EVENT_COUNT + 100,
-      }),
-    ).toBe("row-not-in-view");
-  });
-
-  it("negative control: the seat is empty until a ledger fills it", () => {
-    // Which is the state the workspace announces "the session log is not open in
-    // this window" from — and the state the ledger was permanently in before.
-    expect(actorFollowHandler(LEDGER_FIXTURE_PANE_ID)).toBeUndefined();
   });
 });

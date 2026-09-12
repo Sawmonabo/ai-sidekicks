@@ -42,9 +42,9 @@ describe("the required arm — a payload whose contract carries a session", () =
 
 describe("the contradiction arm — a payload whose contract carries none", () => {
   it("admits a payload naming no session at all", () => {
-    // The arm's whole point, and the case that separates it from the other one:
-    // `membership.created` registers a strict payload with no `sessionId` in it, so a
-    // fold on the required arm would refuse every admission a daemon sends.
+    // The arm's whole point, and the case that separates it from the other one: a
+    // kind whose registered payload is strict and carries no `sessionId` at all would
+    // be refused on every real frame by a fold on the required arm.
     expect(payloadContradictsSession({ participantId: "participant-priya" }, SESSION_ID)).toBe(
       false,
     );

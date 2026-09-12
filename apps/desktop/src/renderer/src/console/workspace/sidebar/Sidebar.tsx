@@ -343,11 +343,7 @@ export function Sidebar(props: SidebarProps): React.JSX.Element {
       {/* Below the sections rather than above them: the bar is the consequence of what
           is selected in the tree, and a bar at the top would move the whole column
           down the first time somebody ticked a row. */}
-      <BulkActionBar
-        model={bulkSelection}
-        bridge={props.bridge}
-        sessionId={props.sessionStore.sessionId}
-      />
+      <BulkActionBar model={bulkSelection} bridge={props.bridge} />
     </nav>
   );
 }

@@ -12,7 +12,7 @@
 
 ### 1.1 Purpose
 
-This document defines the design contract for the `@ai-sidekicks/crypto-paseto` workspace package: its public interfaces, cryptographic invariants, threat model, and the seams it preserves for downstream consumers ([Plan-018](../../plans/018-identity-and-participant-state.md) Tier 5 refresh-token persistence; [Plan-025](../../plans/025-self-hostable-node-relay.md) Tier 7 relay-server token verification).
+This document defines the design contract for the `@ai-sidekicks/crypto-paseto` workspace package: its public interfaces, cryptographic invariants, threat model, and the seams it preserves for downstream consumers ([Plan-018](../../plans/018-identity-and-participant-state.md) Tier 5 refresh-token persistence; Plan-025 Tier 7 relay-server token verification).
 
 The package ships PASETO v4.public and v4.local primitives plus a PAE helper and an in-memory KeyRing — together they form the cryptographic substrate that V1 authentication tracks depend on.
 
@@ -20,14 +20,14 @@ The package ships PASETO v4.public and v4.local primitives plus a PAE helper and
 
 This design spec deliberately does **not** cover:
 
-- **Relay-server wire protocol** — owned by [Spec-008](../../specs/008-control-plane-relay-and-session-join.md) (v2 wire protocol) + [Spec-025](../../specs/025-self-hostable-node-relay.md) (Node.js deployment), implemented in Plan-025 Tier 7.
+- **Relay-server wire protocol** — owned by Spec-008 (v2 wire protocol) + Spec-025 (Node.js deployment), implemented in Plan-025 Tier 7.
 - **Persistence backend for KeyRing** — owned by [Plan-018](../../plans/018-identity-and-participant-state.md) Tier 5. The constructor seam (§8) is the integration surface; substance lives downstream.
-- **Operator-facing config and deployment posture** — owned by [Spec-025](../../specs/025-self-hostable-node-relay.md) (Docker / Caddy / reverse-proxy topology).
-- **End-user-facing token issuance flows** — owned by [Plan-002](../../plans/002-invite-membership-and-presence.md) (invite tokens) and [Plan-018](../../plans/018-identity-and-participant-state.md) (refresh tokens).
+- **Operator-facing config and deployment posture** — owned by Spec-025 (Docker / Caddy / reverse-proxy topology).
+- **End-user-facing token issuance flows** — owned by Plan-002 (invite tokens) and [Plan-018](../../plans/018-identity-and-participant-state.md) (refresh tokens).
 
 ### 1.3 Why `substrate_exempt`
 
-[Plan-025](../../plans/025-self-hostable-node-relay.md) Tier 1 Partial Phase 1 (the implementation phase this design governs) is admitted under the readiness-audit runbook's [§Per-Phase Audit Semantics](../../operations/plan-implementation-readiness-audit-runbook.md) `substrate_exempt` predicate: `spec_coverage: []` because Spec-025 governs network behavior (the relay surface) — not package-level primitives. The plan-readiness audit gates G1–G7 do not apply to the implementation PR; [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md) acceptance criteria apply at code-review time.
+Plan-025 Tier 1 Partial Phase 1 (the implementation phase this design governs) is admitted under the readiness-audit runbook's [§Per-Phase Audit Semantics](../../operations/plan-implementation-readiness-audit-runbook.md) `substrate_exempt` predicate: `spec_coverage: []` because Spec-025 governs network behavior (the relay surface) — not package-level primitives. The plan-readiness audit gates G1–G7 do not apply to the implementation PR; [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md) acceptance criteria apply at code-review time.
 
 ## 2. Governing contracts
 
@@ -38,8 +38,8 @@ This design spec deliberately does **not** cover:
 | PASETO Spec — Version 4 | Primary source for both primitives — https://github.com/paseto-standard/paseto-spec/blob/master/docs/01-Protocol-Versions/Version4.md |
 | PASETO Spec — Common (PAE) | Primary source for Pre-Authentication Encoding — https://github.com/paseto-standard/paseto-spec/blob/master/docs/01-Protocol-Versions/Common.md |
 | PASETO Test Vectors v4 | Release-gate vector source — https://github.com/paseto-standard/test-vectors/blob/master/v4.json |
-| [Spec-025](../../specs/025-self-hostable-node-relay.md) | Context only; `spec_coverage: []` — Spec-025 governs the relay-server surface, not the package primitives |
-| [Plan-025](../../plans/025-self-hostable-node-relay.md) §Target Areas, §Tier 1 Partial PR Sequence | Owning plan; carves Phase 1 substrate out from Tier 7 relay implementation |
+| Spec-025 | Context only; `spec_coverage: []` — Spec-025 governs the relay-server surface, not the package primitives |
+| Plan-025 §Target Areas, §Tier 1 Partial PR Sequence | Owning plan; carves Phase 1 substrate out from Tier 7 relay implementation |
 
 ## 3. Public surface
 
@@ -252,7 +252,7 @@ The MAC-before-decrypt ordering (step 4 before step 5) is the load-bearing invar
 **Out of scope** (these are other layers' jobs):
 
 - **Local-process attacker with arbitrary memory read** — OS process boundaries and the future sidecar separation own this. Cryptographic primitives operating in the same address space as their callers cannot defend against this.
-- **Replay attack** (same token submitted twice within validity window) — PASETO itself does not claim replay defense; the token carries no unique-ID required for "have I seen this before" stateful checks. The relay ([Spec-025](../../specs/025-self-hostable-node-relay.md) / Plan-025 Tier 7) is the correct layer.
+- **Replay attack** (same token submitted twice within validity window) — PASETO itself does not claim replay defense; the token carries no unique-ID required for "have I seen this before" stateful checks. The relay (Spec-025 / Plan-025 Tier 7) is the correct layer.
 - **Compromised dependency** — supply-chain posture (§9) covers this with pinning, `minimumReleaseAge`, and `blockExoticSubdeps`; it is not a primitive-design concern.
 
 ### 5.2 Invariants the package guarantees
@@ -467,8 +467,8 @@ The following six decisions were settled during planning and are recorded here f
 ### Governing repo docs
 
 - [ADR-010: PASETO + WebAuthn + MLS Auth](../../decisions/010-paseto-webauthn-mls-auth.md) — lines 29, 129–136
-- [Plan-025: Self-Hostable Node Relay](../../plans/025-self-hostable-node-relay.md) — §Scope, §Target Areas, §Tier 1 Partial PR Sequence
-- [Spec-025: Self-Hostable Node Relay](../../specs/025-self-hostable-node-relay.md) — context only (no Phase 1 ACs; `spec_coverage: []`)
+- Plan-025: Self-Hostable Node Relay — §Scope, §Target Areas, §Tier 1 Partial PR Sequence
+- Spec-025: Self-Hostable Node Relay — context only (no Phase 1 ACs; `spec_coverage: []`)
 - [Cross-plan dependencies](../../architecture/cross-plan-dependencies.md) — §5 Tier 1 row + Plan-025 Substrate-vs-Namespace Carve-Out
 - [Plan-implementation readiness-audit runbook](../../operations/plan-implementation-readiness-audit-runbook.md) — §Per-Phase Audit Semantics
 - [CONTRIBUTING.md](../../../CONTRIBUTING.md) — GitFlow-lite, Conventional Branch, Conventional Commits

@@ -110,7 +110,7 @@ describe("the write gate reaches assistive technology by name", () => {
         />,
       );
     });
-    // 8.8: a transition never disturbs the foreground process. The emulator is the
+    // A transition never disturbs the foreground process. The emulator is the
     // same instance — the mount effect did not run a second time — and only the
     // gate moved.
     expect(observed).toHaveBeenCalledTimes(1);

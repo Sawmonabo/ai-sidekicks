@@ -7,9 +7,9 @@
 // recompute `canonical_bytes(row)`, recompute
 // `BLAKE3(prev_hash || canonical_bytes(row))`, compare to the stored
 // `row_hash`, then verify `daemon_signature` against those same canonical
-// bytes using the `NodeId`-resolved public key from the session participant
-// roster. This module owns both halves of that recipe — write side and read
-// side — and deliberately nothing else.
+// bytes using the public key resolved from the session's registered signing
+// keys by `NodeId`. This module owns both halves of that recipe — write side
+// and read side — and deliberately nothing else.
 //
 // I-006-2-06 — ONE CANONICALIZATION PER ROW — is enforced structurally rather
 // than by discipline: `signRow` ACCEPTS `CanonicalBytes` and never produces
@@ -103,13 +103,13 @@ const ED25519_SIGNATURE_LENGTH = 64;
 export type Ed25519PrivateKey = Uint8Array & { readonly __brand: "Ed25519PrivateKey" };
 
 /**
- * A 32-byte RFC 8032 Ed25519 public key used to verify audit-log material —
- * the `NodeId`-resolved roster key for `daemon_signature`, or the participant's
- * own key for `participant_signature`.
+ * A 32-byte RFC 8032 Ed25519 public key used to verify audit-log material: the
+ * key resolved by `NodeId` from the session's registered signing keys, against
+ * which `daemon_signature` verifies.
  *
  * Same brand rationale as {@link Ed25519PrivateKey}, minus the custody
  * argument: the brand here buys call-site clarity (a public key can never be
- * transposed with a private one) and keeps the resolved-from-the-roster
+ * transposed with a private one) and keeps the resolved-from-the-registry
  * provenance visible in the type.
  */
 export type Ed25519PublicKey = Uint8Array & { readonly __brand: "Ed25519PublicKey" };
@@ -152,17 +152,12 @@ export const GENESIS_PREV_HASH: Uint8Array = new Uint8Array(CHAIN_HASH_LENGTH);
  * The three integrity columns {@link signRow} mints for one `session_events`
  * row — exactly what the function computes, no more.
  *
- * `participantSignature` is deliberately ABSENT even though the row may carry
- * one: `signRow` holds no participant key and structurally cannot populate it,
- * and a type whose sole producer can never fill a member is a type that lies
- * about its own shape.
- * `Plan-006 §Open Authoring Decisions (Category 2 — Audit-Surfaced)` settles the
- * composition — the second attestation comes from a SEPARATE call
- * ({@link mintParticipantSignature}), not from a `signRow` parameter — and the
- * append path (T3.1) assembles the two. The canonical bytes are absent for the
- * same reason they are not a column: the row does not persist them, the
- * verifier recomputes them, and every caller already holds them because it
- * passed them in.
+ * The row's second signature column is deliberately ABSENT from this type:
+ * nothing mints it, and a type whose sole producer can never fill a member is a
+ * type that lies about its own shape. That column ships NULL on every row. The
+ * canonical bytes are absent for the same reason they are not a column: the row
+ * does not persist them, the verifier recomputes them, and every caller already
+ * holds them because it passed them in.
  *
  * `prevHash` IS echoed back — as a defensive COPY of the input, never the
  * caller's own array — and the echo is an AFFORDANCE, not an enforcement. What
@@ -202,11 +197,11 @@ export interface SignedRow {
  *
  * This module's TWO throws both guard a CALLER-RESOLVED input instead, never a
  * stored one: a wrong-shaped `prevHash` handed to {@link signRow} on the write
- * side, and a wrong-shaped public key handed to {@link verifyRow} or
- * {@link verifyParticipantSignature} on the read side. Neither is a tamper
- * signal — the caller mints the first and resolves the second from the
- * participant roster — so folding either into a `failureMode` would page an
- * operator for a plumbing bug and discard the real cause.
+ * side, and a wrong-shaped public key handed to {@link verifyRow} on the read
+ * side. Neither is a tamper signal — the caller mints the first and resolves
+ * the second from the session's registered signing keys — so folding either
+ * into a `failureMode` would page an operator for a plumbing bug and discard
+ * the real cause.
  *
  * `failureMode` carries the two literals
  * `Security Architecture §Verification Rules` names for the per-row checks a
@@ -374,11 +369,10 @@ export function signRow(
  * `Security Architecture §Verification Rules`, run against one uncompacted row
  * (`retention_class IS NULL`).
  *
- * The caller supplies `canonical` by re-canonicalizing the stored row through
- * T2.1, and `daemonPublicKey` by resolving the row's `NodeId` against the
- * session participant roster per `Spec-006 §Canonical Serialization Rules`.
- * Neither resolution belongs here: this module knows the recipe, not the
- * roster.
+ * The caller supplies `canonical` by re-canonicalizing the stored row, and
+ * `daemonPublicKey` by resolving the row's `NodeId` against the session's
+ * registered signing keys. Neither resolution belongs here: this module knows
+ * the recipe, not where the keys live.
  *
  * CHECK ORDER IS OBSERVABLE, AND IT IS FOUR STAGES RATHER THAN TWO. First
  * failure wins, so this order IS the verdict for any row failing more than one
@@ -448,8 +442,9 @@ export function signRow(
  * the WRITE side a bad `prev_hash` is a caller bug to refuse before minting a
  * doomed signature, while on the READ side it is a tamper SYMPTOM and belongs
  * in the verdict. `daemonPublicKey` is the read-side exception that proves the
- * rule — the caller RESOLVES it from the participant roster rather than reading
- * it off the row, so a wrong-shaped one throws (see {@link verifyEd25519}).
+ * rule — the caller RESOLVES it from the session's registered signing keys
+ * rather than reading it off the row, so a wrong-shaped one throws (see
+ * {@link verifyEd25519}).
  */
 export function verifyRow(
   canonical: CanonicalBytes,
@@ -522,7 +517,7 @@ export function verifyRow(
   // A PLACEHOLDER ROW'S `sequence` IS UNCOMMITTED, SO CONTIGUITY IS NOT A
   // BACKSTOP. `sequence` IS one of those eleven members, so a SIGNED row's
   // signature binds it — but a row with three zero-filled integrity columns has
-  // no daemon signature, and Plan-001 writes `participant_signature` NULL
+  // no daemon signature, and the row's second signature column ships NULL
   // beside them, so nothing on such a row commits its `sequence`: placeholder
   // rows can be fabricated, deleted, and renumbered. Nor is there a schema rule
   // to fall back on. `0001-initial.ts` documents the column "monotonic per
@@ -639,82 +634,6 @@ export function verifyRow(
 }
 
 // --------------------------------------------------------------------------
-// Participant attestation — the optional second signature.
-// --------------------------------------------------------------------------
-
-/**
- * Mints `participant_signature` = `Ed25519(participant_signing_key,
- * canonical_bytes(row))` per `Plan-006 §Ed25519 Signatures`, over the SAME
- * canonical bytes {@link signRow} hashed and daemon-signed — so I-006-2-06
- * holds across both attestations on a row, not just the daemon's.
- *
- * WRITE-SIDE MECHANISM ONLY.
- * `Plan-006 §Open Authoring Decisions (Category 2 — Audit-Surfaced)` puts the
- * WHEN-to-mint decision in Plan-002 / Plan-022 territory; this function decides
- * it not at all, refuses no category, and consults no registry. The
- * WHICH-events-are-sensitive enum is contracts-package territory that has NOT
- * landed: Plan-006 T4.6 owns it, and owes a taxonomy derivation before it can
- * be written, because the source of truth is PROSE rather than an enumeration —
- * `Security Architecture §Per-Event Daemon Signature` describes the sensitive
- * set as approvals, policy changes, and membership revocations, with the column
- * NULL for events that need no participant attestation. Nothing in this plan
- * needs the enum before Phase 4:
- * `Security Architecture §Verification Rules` rule 2 verifies a participant
- * signature only "if present".
- *
- * KEY-CONFUSION RESIDUE, left open at this layer on purpose, and smaller than
- * the parameter type first suggests. This function takes the same
- * {@link Ed25519PrivateKey} as `signRow`'s daemon key, so passing the DAEMON key
- * here mints a `participant_signature` over bytes `daemon_signature` already
- * covers. On its own that forges nothing: the read side resolves the
- * PARTICIPANT's public key ({@link verifyParticipantSignature}), and a
- * daemon-key signature does not verify against it. The single-sided write bug
- * is therefore FAIL-CLOSED — it surfaces as `signature_mismatch` on every
- * sensitive event, which is noisy and misattributed rather than a silent
- * forgery. Collapsing the independent second attestation into a duplicate of
- * the first takes BOTH sides mis-plumbed, which is why the closure site is the
- * one layer that owns both — the caller routing keys: Plan-002 / Plan-022.
- *
- * A distinct `ParticipantSigningKey` brand would close the write side by
- * construction and is NOT minted here because it would pre-commit surfaces that
- * do not exist yet: T2.7's published interface types its unseal path as
- * `Ed25519PrivateKey`, and the participant key has two unimplemented
- * derivations — the WebAuthn PRF-derived key on desktop and ADR-021's at-rest
- * identity key on CLI, per
- * `Security Architecture §Per-Event Daemon Signature`.
- */
-export function mintParticipantSignature(
-  canonical: CanonicalBytes,
-  participantSigningKey: Ed25519PrivateKey,
-): Uint8Array {
-  return ed25519.sign(canonical, participantSigningKey);
-}
-
-/**
- * Read-side counterpart of {@link mintParticipantSignature} — the second clause
- * of `Security Architecture §Verification Rules` rule 2: "If
- * `participant_signature` is present, verify it with the participant's public
- * key."
- *
- * Returns a boolean rather than a {@link RowVerification} because there is
- * nothing to discriminate: a participant-signature failure maps onto the same
- * `signature_mismatch` mode rule 2 already carries, and this check has no chain
- * half. ABSENCE is not this function's business either — the column is NULL for
- * every event needing no participant attestation, so whether a missing
- * signature is legitimate is the caller's question, and callers invoke this only
- * for a signature that is present. Answering that question is what the
- * WHICH-events-are-sensitive enum is for, and it has not landed: T4.6 owns it,
- * per {@link mintParticipantSignature}'s note.
- */
-export function verifyParticipantSignature(
-  canonical: CanonicalBytes,
-  participantSignature: Uint8Array,
-  participantPublicKey: Ed25519PublicKey,
-): boolean {
-  return verifyEd25519(canonical, participantSignature, participantPublicKey);
-}
-
-// --------------------------------------------------------------------------
 // Internals.
 // --------------------------------------------------------------------------
 
@@ -779,15 +698,16 @@ function buildChainInput(prevHash: Uint8Array, canonical: CanonicalBytes): Uint8
  * the right verdict and the catch below keeps it: a signature comes off the
  * STORED row, so a wrong-width or non-byte one IS adversarial data and
  * `signature_mismatch` is what T4.1 should report. For the PUBLIC KEY it is not:
- * the caller RESOLVES it from the participant roster, so a wrong-shaped one is a
- * plumbing bug — T2.7's unvalidated `as Ed25519PublicKey` cast, a truncated
- * keystore read, a mis-sliced roster record — and folding it into
+ * the caller RESOLVES it from the session's registered signing keys, so a
+ * wrong-shaped one is a plumbing bug — an unvalidated `as Ed25519PublicKey`
+ * cast, a truncated keystore read, a mis-sliced registry record — and folding
+ * it into
  * `signature_mismatch` would make T4.1 emit `audit_integrity_failed` on EVERY
  * row of EVERY session, halting replay and paging an operator for a tamper that
  * never happened, with the real cause discarded. The guard lives HERE and not in
- * {@link verifyRow} because {@link verifyParticipantSignature} reaches this same
- * helper, and it runs BEFORE the call so a request carrying both a bad key and a
- * bad signature reports the caller bug, which dominates.
+ * {@link verifyRow} so that every caller of this helper inherits it, and it runs
+ * BEFORE the call so a request carrying both a bad key and a bad signature
+ * reports the caller bug, which dominates.
  *
  * The catch stays for the signature verdict and as forward insulation — noble's
  * internal try is an implementation detail of the pinned version, not a
@@ -808,7 +728,7 @@ function verifyEd25519(
 ): boolean {
   if (!isBytesOfLength(publicKey, ED25519_PUBLIC_KEY_LENGTH)) {
     throw new Error(
-      `Ed25519 verification requires a ${ED25519_PUBLIC_KEY_LENGTH}-byte Uint8Array public key — the NodeId-resolved key from the session participant roster per Spec-006 §Canonical Serialization Rules — but received ${describeByteShape(publicKey)}. That is a key-resolution bug, not a tampered row: reporting it as signature_mismatch would raise audit_integrity_failed on every row it touches.`,
+      `Ed25519 verification requires a ${ED25519_PUBLIC_KEY_LENGTH}-byte Uint8Array public key — the key resolved by NodeId from the session's registered signing keys — but received ${describeByteShape(publicKey)}. That is a key-resolution bug, not a tampered row: reporting it as signature_mismatch would raise audit_integrity_failed on every row it touches.`,
     );
   }
 
@@ -827,7 +747,7 @@ function verifyEd25519(
  * Every call site holds a value whose DECLARED type is already `Uint8Array`,
  * and that is the point: the declaration is a claim the compiler could not
  * check. `row.prevHash` / `row.rowHash` / `row.daemonSignature` crossed the
- * SQLite boundary; `publicKey` crossed a roster lookup and T2.7's cast;
+ * SQLite boundary; `publicKey` crossed a signing-key lookup and a cast;
  * `signRow`'s `prevHash` can itself be a stored `row_hash` read back out of
  * SQLite. An `unknown` parameter keeps the check honest — nothing is narrowed
  * on the way in — and keeps the `instanceof` from reading as redundant against

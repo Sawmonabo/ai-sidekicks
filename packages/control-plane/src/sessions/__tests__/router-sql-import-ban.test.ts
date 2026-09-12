@@ -1,4 +1,4 @@
-// Plan-008 §I-008-3 #2 — the enforcement's own negative control.
+// The `pg`-import ban's own negative control.
 //
 // The invariant is that the tRPC session router, the SSE subscription factory, and
 // their declaration siblings route 100% through `SessionDirectoryService` and never
@@ -42,7 +42,7 @@ const SESSIONS_DIRECTORY = resolve(import.meta.dirname, "..");
 const WORKSPACE_ROOT = resolve(import.meta.dirname, "../../../../..");
 
 /**
- * The files I-008-3 #2 governs, mirroring the `files` array in the root config.
+ * The files the ban governs, mirroring the `files` array in the root config.
  *
  * Deliberately restated rather than imported: the config is the subject, so reading
  * the list out of it would make every case tautological — a typo in the glob would
@@ -97,7 +97,7 @@ const ESLINT_CASE_TIMEOUT_MS = 30_000;
 
 vi.setConfig({ testTimeout: ESLINT_CASE_TIMEOUT_MS });
 
-describe("I-008-3 #2 — the `pg` ban fires on every governed file", () => {
+describe("the `pg` ban fires on every governed file", () => {
   for (const fileName of FORBIDDEN_PG_IMPORT_FILES) {
     for (const [formLabel, source, expectedRuleId] of PG_IMPORT_FORMS) {
       it(`refuses ${formLabel} in ${fileName}`, async () => {
@@ -110,15 +110,15 @@ describe("I-008-3 #2 — the `pg` ban fires on every governed file", () => {
         );
 
         expect(violations).toHaveLength(1);
-        // The message carries the invariant id, which is operator-facing
-        // diagnostic: an edit that loosens it into something generic surfaces here.
-        expect(violations[0]?.message).toContain("Plan-008 I-008-3 #2");
+        // The message names the seam the four files must route through — an
+        // edit that loosens it into something generic surfaces here.
+        expect(violations[0]?.message).toContain("SessionDirectoryService");
       });
     }
   }
 });
 
-describe("I-008-3 #2 — the scope is a boundary and not an absence", () => {
+describe("the ban's scope is a boundary and not an absence", () => {
   it("leaves the wrapper that legitimately imports `pg` alone", async () => {
     // `session-directory-service.ts` IS the module the four route through, so
     // importing the driver is its job. Without this the cases above would hold over

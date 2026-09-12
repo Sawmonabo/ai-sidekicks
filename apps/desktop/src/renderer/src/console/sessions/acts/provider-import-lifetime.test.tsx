@@ -34,7 +34,7 @@ import { useProviderImport } from "./provider-import-model.js";
 import {
   openImportDisclosure,
   QUIET_PREFERENCES,
-  requireJoinDisclosure,
+  requireImportDisclosure,
 } from "./session-acts.test-support.js";
 import { BRING_YOUR_HISTORY_SCENARIO } from "../../bridge/scenario/bring-your-history.js";
 import { DrivenGrowthStream } from "../../bridge/growth-port/driven-growth-stream.test-support.js";
@@ -249,7 +249,6 @@ describe("the disclosure switch while an import is being read", () => {
         bridge={bridgeReading(stream)}
         preferences={QUIET_PREFERENCES}
         onStart={() => undefined}
-        onJoined={() => undefined}
       />,
     );
     await openImportDisclosure(container);
@@ -261,7 +260,7 @@ describe("the disclosure switch while an import is being read", () => {
     });
 
     // Rule 9: the control stays on screen and says why it will not move.
-    expect(requireJoinDisclosure(container).disabled).toBe(true);
+    expect(requireImportDisclosure(container).getAttribute("aria-disabled")).toBe("true");
     expect(container.textContent).toContain(DISCLOSURE_SENTENCE_FRAGMENT);
   });
 
@@ -274,13 +273,12 @@ describe("the disclosure switch while an import is being read", () => {
         bridge={bridgeReading(stream)}
         preferences={QUIET_PREFERENCES}
         onStart={() => undefined}
-        onJoined={() => undefined}
       />,
     );
     await openImportDisclosure(container);
     await settle();
 
-    expect(requireJoinDisclosure(container).disabled).toBe(false);
+    expect(requireImportDisclosure(container).getAttribute("aria-disabled")).not.toBe("true");
     expect(container.textContent).not.toContain(DISCLOSURE_SENTENCE_FRAGMENT);
   });
 });

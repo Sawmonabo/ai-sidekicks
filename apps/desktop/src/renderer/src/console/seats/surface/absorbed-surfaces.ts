@@ -23,10 +23,8 @@
 // `invite.accept` with it, and the deep-link invariants confine that token to the
 // main process — the renderer holds an opaque reference instead. So there is no
 // caller left that could supply what the component's one prop requires, and the
-// acceptance it performs is performed by main behind the reference
-// (`collaboration/invites/pending-invite.ts`). Its own header records the same
-// reshape from the other side. Both components are untouched; nothing here mounts
-// either of them.
+// acceptance it performs is performed by main behind the reference. Both components
+// are untouched; nothing here mounts either of them.
 //
 // IN `seats/` RATHER THAN IN `frame/`, WHICH IS WHERE THEY WERE WRITTEN. A mount here
 // reads a bridge source, two primitives, and a branded id, and nothing above

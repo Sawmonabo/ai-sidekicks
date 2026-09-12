@@ -34,7 +34,7 @@
 //   P8 — `runtime_node_presence` PRIMARY KEY on `node_id` rejects a duplicate.
 //   P9 — `session_id` FK and `participant_id` FK on `runtime_node_attachments`
 //        are enforced (FK violation surfaces a Postgres `23503`).
-//   P10 — `applyMigrations` called on an already-fully-migrated handle (v1 + v2
+//   P10 — `applyMigrations` called on an already-fully-migrated handle (v1
 //        bootstrapped via `beforeEach` direct-exec, v3 applied via
 //        `applyRuntimeNodesMigration`) is idempotent — no throw, no duplicate
 //        `schema_migrations` rows. The cross-path complement to
@@ -46,25 +46,22 @@
 //        pre-applied versions).
 //
 // ----------------------------------------------------------------------------
-// Why this file uses direct-exec v1 + v2 bootstrap + direct-exec v3 application
+// Why this file uses a direct-exec v1 bootstrap + direct-exec v3 application
 // ----------------------------------------------------------------------------
 //
 // This file exercises `RUNTIME_NODES_MIGRATION_SQL` semantics in isolation at
 // the SQL layer — column shape, CHECK clauses, FK enforcement, the two unique
 // indexes, the presence PK, idempotency on repeated direct exec. Post Plan-003
-// PR #145, `applyMigrations()` iterates `MIGRATIONS = [v1, v2, v3]` and applies
-// ALL THREE in one call, so using `applyMigrations()` in this file's
+// `applyMigrations()` iterates every registered migration and applies them all
+// in one call, so using `applyMigrations()` in this file's
 // `beforeEach` would pre-apply v3 — defeating the point of every test below
 // (P1's "runtime_node tables should not yet exist" probe, P2-P9's "apply v3
 // cleanly, then probe" structure, P10's "re-exec v3 SQL stays idempotent at
 // the SQL layer" assertion).
 //
-// Instead, `beforeEach` direct-execs `INITIAL_MIGRATION_SQL` (v1) THEN
-// `SESSION_INVITES_MIGRATION_SQL` (v2) so each test starts at exactly the AC's
-// precondition — a DB "migrated through 0002" with the runtime-node tables
-// absent. (This differs from `0002-session-invites.test.ts`'s `beforeEach`,
-// which bootstraps v1 ONLY, because that file's AC precondition is a DB at v1;
-// THIS file's AC precondition is a DB through v2.) The local
+// Instead, `beforeEach` direct-execs `INITIAL_MIGRATION_SQL` (v1) so each test
+// starts at exactly the precondition — a DB at v1 with the runtime-node tables
+// absent. The local
 // `applyRuntimeNodesMigration` helper then applies v3 SQL directly via the
 // same `tx.exec()` primitive — wrapping it in a single transaction so the
 // migration body and its `INSERT INTO schema_migrations` commit atomically
@@ -72,7 +69,7 @@
 // inlined here so the test substrate matches the production atomicity
 // boundary).
 //
-// Canonical-path runner coverage (R1: applyMigrations applies v1+v2+v3; R2:
+// Canonical-path runner coverage (R1: applyMigrations applies every registered version; R2:
 // applyMigrations is idempotent at the runner-loop layer) lives in the
 // dedicated `sessions/__tests__/migration-runner.test.ts` test file. P10 below
 // is the COMPLEMENTARY SQL-level idempotency assertion: after all three
@@ -102,7 +99,6 @@ import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { INITIAL_MIGRATION_SQL } from "../0001-initial.js";
-import { SESSION_INVITES_MIGRATION_SQL } from "../0002-session-invites.js";
 import { RUNTIME_NODES_MIGRATION_SQL } from "../0003-runtime-nodes.js";
 import { applyMigrations, type Querier } from "../../sessions/migration-runner.js";
 
@@ -119,6 +115,10 @@ import { applyMigrations, type Querier } from "../../sessions/migration-runner.j
 const SESSION_ID = "01970000-0000-7000-8000-00000000a001";
 const SESSION_ID_2 = "01970000-0000-7000-8000-00000000a002";
 const PARTICIPANT_ID = "01970000-0000-7000-8000-00000000b001";
+// The user who owns the seeded sessions. Distinct from `PARTICIPANT_ID` so the
+// "no matching participants(id) row" FK test can seed a session without also
+// seeding the participant its attachment row references.
+const SESSION_OWNER_ID = "01970000-0000-7000-8000-00000000b0ff";
 
 // ----------------------------------------------------------------------------
 // PGlite -> Querier adapter
@@ -179,20 +179,17 @@ let ctx: TestContext;
 
 beforeEach(async () => {
   // Fresh in-memory PGlite per test — no tmpdir cleanup needed. Bootstraps
-  // v1 THEN v2 via direct `tx.exec(...)` so each test starts at exactly the
+  // v1 via direct `tx.exec(...)` so each test starts at exactly the
   // AC's precondition (a DB "migrated through 0002") with the runtime-node
   // tables absent. Using `applyMigrations(querier)` here would pre-apply v3
   // post Plan-003 PR #145 — see the file-level "Why this file uses direct-exec
-  // v1 + v2 bootstrap" header for the full rationale. The transaction wrappers
+  // v1 bootstrap" header for the full rationale. The transaction wrappers
   // mirror the canonical `applyMigrations` atomicity boundary so a torn write
   // in the bootstrap leaves the DB cleanly at the prior version.
   const pg: PGlite = new PGlite();
   const querier: Querier = adaptPGlite(pg);
   await querier.transaction(async (tx) => {
     await tx.exec(INITIAL_MIGRATION_SQL);
-  });
-  await querier.transaction(async (tx) => {
-    await tx.exec(SESSION_INVITES_MIGRATION_SQL);
   });
   ctx = { pg, querier };
 });
@@ -210,7 +207,7 @@ afterEach(async () => {
 // (`querier.transaction(...) -> tx.exec(SQL)`); inlined here so this file's
 // tests exercise the v3 SQL semantics in isolation without going through the
 // canonical runner-loop (which post PR #145 would apply v3 in `beforeEach`
-// via the v1+v2+v3 iteration, pre-applying it before each test could probe
+// via the registered-migration iteration, pre-applying it before each test could probe
 // "runtime_node tables not yet present"). Canonical-path runner coverage lives
 // in `sessions/__tests__/migration-runner.test.ts`.
 async function applyRuntimeNodesMigration(querier: Querier): Promise<void> {
@@ -235,7 +232,12 @@ async function seedSessionAndParticipant(
     await querier.query("INSERT INTO participants (id) VALUES ($1)", [PARTICIPANT_ID]);
   }
   if (withSession) {
-    await querier.query("INSERT INTO sessions (id) VALUES ($1), ($2)", [SESSION_ID, SESSION_ID_2]);
+    await querier.query("INSERT INTO participants (id) VALUES ($1)", [SESSION_OWNER_ID]);
+    await querier.query("INSERT INTO sessions (id, owner_user_id) VALUES ($1, $3), ($2, $3)", [
+      SESSION_ID,
+      SESSION_ID_2,
+      SESSION_OWNER_ID,
+    ]);
   }
 }
 
@@ -245,7 +247,7 @@ async function seedSessionAndParticipant(
 
 describe("0003-runtime-nodes migration (P1 — both tables exist after v3)", () => {
   it("creates runtime_node_attachments + runtime_node_presence in the public schema", async () => {
-    // Pre-condition: v1 + v2 applied by beforeEach. Re-probe just to anchor the
+    // Pre-condition: v1 applied by beforeEach. Re-probe just to anchor the
     // baseline — BOTH runtime-node tables MUST NOT exist before v3 runs.
     const before = await ctx.querier.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
@@ -271,27 +273,24 @@ describe("0003-runtime-nodes migration (P1 — both tables exist after v3)", () 
 });
 
 // ----------------------------------------------------------------------------
-// P2 — schema_migrations carries (1, ...), (2, ...), (3, ...) anchor rows
+// P2 — schema_migrations carries (1, ...) and (3, ...) anchor rows
 // ----------------------------------------------------------------------------
 
 describe("0003-runtime-nodes migration (P2 — schema_migrations anchor rows)", () => {
-  it("inserts (3, 'Runtime node attachments and presence') alongside (1, ...) and (2, ...)", async () => {
+  it("inserts (3, 'Runtime node attachments and presence') alongside (1, ...)", async () => {
     await applyRuntimeNodesMigration(ctx.querier);
 
     const probe = await ctx.querier.query<{ version: number; description: string }>(
       "SELECT version, description FROM schema_migrations ORDER BY version ASC",
     );
-    expect(probe.rows).toHaveLength(3);
+    expect(probe.rows).toHaveLength(2);
 
     const v1Row = probe.rows[0];
-    const v2Row = probe.rows[1];
-    const v3Row = probe.rows[2];
+    const v3Row = probe.rows[1];
     expect(v1Row).toBeDefined();
-    expect(v2Row).toBeDefined();
     expect(v3Row).toBeDefined();
-    if (v1Row === undefined || v2Row === undefined || v3Row === undefined) return;
+    if (v1Row === undefined || v3Row === undefined) return;
     expect(v1Row.version).toBe(1);
-    expect(v2Row.version).toBe(2);
     expect(v3Row.version).toBe(3);
     // The description string is pinned defensively — `hasMigrationApplied`
     // (`sessions/migration-runner.ts`) keys on `version` alone, but the
@@ -606,10 +605,10 @@ describe("0003-runtime-nodes migration (P9 — FK constraints enforced)", () => 
 
 describe("0003-runtime-nodes migration (P10 — applyMigrations idempotency post-v3)", () => {
   it("re-calling applyMigrations after v3 is applied is a no-op (no throw, no duplicate rows)", async () => {
-    // `applyMigrations` (`sessions/migration-runner.ts`) iterates
-    // `MIGRATIONS = [v1, v2, v3]` post Plan-003 PR #145, with a per-version
+    // `applyMigrations` (`sessions/migration-runner.ts`) iterates every
+    // registered migration with a per-version
     // `hasMigrationApplied` outer probe that short-circuits when the version's
-    // anchor row exists. This test pre-applies v1 + v2 (via `beforeEach`
+    // anchor row exists. This test pre-applies v1 (via `beforeEach`
     // direct-exec) AND v3 (via the local `applyRuntimeNodesMigration`
     // direct-exec helper), then calls `applyMigrations` and asserts it's a
     // no-op — every per-version outer probe MUST recognize the pre-applied
@@ -630,14 +629,14 @@ describe("0003-runtime-nodes migration (P10 — applyMigrations idempotency post
     // Second call — must be a no-op.
     await expect(applyMigrations(ctx.querier)).resolves.toBeUndefined();
 
-    // Row counts unchanged: exactly four rows total, exactly one (3, ...) row.
+    // Row counts unchanged: exactly three rows total, exactly one (3, ...) row.
     const counts = await ctx.querier.query<{ count: string }>(
       "SELECT COUNT(*)::text AS count FROM schema_migrations",
     );
     const countsRow = counts.rows[0];
     expect(countsRow).toBeDefined();
     if (countsRow === undefined) return;
-    expect(Number.parseInt(countsRow.count, 10)).toBe(4);
+    expect(Number.parseInt(countsRow.count, 10)).toBe(3);
 
     const v3Probe = await ctx.querier.query<{ description: string }>(
       "SELECT description FROM schema_migrations WHERE version = $1",

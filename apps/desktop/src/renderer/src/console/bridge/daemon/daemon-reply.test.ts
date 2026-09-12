@@ -13,16 +13,14 @@
 // says no shape a rejection arrives in leaves the door as an exception. The two
 // roles both suites play live in `daemon-reply.test-support.ts`.
 
-import type { ParticipantId } from "@ai-sidekicks/contracts";
-
 import { isConsoleRefusal } from "../../core/index.js";
 import { callDaemon, DAEMON_REPLY_REFUSAL_ORIGIN } from "./daemon-reply.js";
 import { describeFailingPaths } from "./failing-member-paths.js";
 import { refusalOf, SESSION_ID } from "./daemon-reply.test-support.js";
 import { bridgeAnswering } from "../fixture/call-plane/bridge.test-support.js";
 
-/** A participant id the branded schema accepts. Same seam, same run-time check. */
-const PARTICIPANT_ID = "019b79ee-0280-7f00-8110-a11ce0000001" as ParticipantId;
+/** A device id the response schema accepts. Same seam, same run-time check. */
+const DEVICE_ID = "device-workstation";
 
 /** An RFC 3339 instant the response schema accepts. */
 const SEEN_AT = "2026-01-01T14:20:00.500Z";
@@ -30,16 +28,18 @@ const SEEN_AT = "2026-01-01T14:20:00.500Z";
 /**
  * A value the response schema rejects, spelled so a leak is unmistakable.
  *
- * Shaped like the participant content rule 9 forbids in a refusal detail, so the
+ * Shaped like the message content rule 9 forbids in a refusal detail, so the
  * assertion that it is absent reads as the claim it is making.
  */
-const OFF_CONTRACT = "the participant said something private";
+const OFF_CONTRACT = "the person said something private";
 
 /** One served presence reply, in the shape the registered schema admits. */
 function servedPresenceReply(lastSeen: string, count = 1): unknown {
   return {
-    participants: Array.from({ length: count }, () => ({
-      participantId: PARTICIPANT_ID,
+    devices: Array.from({ length: count }, () => ({
+      deviceId: DEVICE_ID,
+      deviceType: "desktop",
+      appVisible: true,
       state: "online",
       lastSeen,
     })),
@@ -57,7 +57,7 @@ describe("callDaemon — a served reply is a parsed reply", () => {
     if (reply.status === "served") {
       // Read through the response TYPE the registry binds, so a row pointing at the
       // wrong schema fails this file at compile time and not only at run time.
-      expect(reply.value.participants[0]?.participantId).toBe(PARTICIPANT_ID);
+      expect(reply.value.devices[0]?.deviceId).toBe(DEVICE_ID);
     }
   });
 
@@ -65,7 +65,15 @@ describe("callDaemon — a served reply is a parsed reply", () => {
     // Without this, the case above would pass for a `callDaemon` that parsed nothing
     // and handed the reply straight back.
     const { bridge } = bridgeAnswering(async () => ({
-      participants: [{ participantId: PARTICIPANT_ID, state: "loitering", lastSeen: SEEN_AT }],
+      devices: [
+        {
+          deviceId: DEVICE_ID,
+          deviceType: "desktop",
+          appVisible: true,
+          state: "loitering",
+          lastSeen: SEEN_AT,
+        },
+      ],
     }));
 
     const reply = await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID });
@@ -91,7 +99,7 @@ describe("callDaemon — a reply the contract does not admit is a refusal", () =
 
     const refusal = refusalOf(await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID }));
 
-    expect(refusal.detail).toContain("participants.0.lastSeen");
+    expect(refusal.detail).toContain("devices.0.lastSeen");
   });
 
   it("never puts the refused VALUE in the sentence a person reads", async () => {
@@ -115,7 +123,7 @@ describe("callDaemon — a reply the contract does not admit is a refusal", () =
     const refusal = refusalOf(await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID }));
 
     expect(refusal.detail).toContain("and more");
-    expect(refusal.detail.match(/participants\.\d+\.lastSeen/gu)).toHaveLength(3);
+    expect(refusal.detail.match(/devices\.\d+\.lastSeen/gu)).toHaveLength(3);
   });
 });
 
@@ -181,11 +189,11 @@ describe("describeFailingPaths — a shape it cannot read yields no clause", () 
             throw new Error("this getter is the defect");
           },
         },
-        { path: ["participants", 0, "lastSeen"] },
+        { path: ["devices", 0, "lastSeen"] },
       ],
     };
 
-    expect(describeFailingPaths(mixed)).toBe(" (at participants.0.lastSeen)");
+    expect(describeFailingPaths(mixed)).toBe(" (at devices.0.lastSeen)");
   });
 
   it("names a segment it cannot render rather than throwing on it", () => {
@@ -201,8 +209,8 @@ describe("describeFailingPaths — a shape it cannot read yields no clause", () 
   it("negative control: an ordinary validator error still names its members", () => {
     // Without this, a guard that answered `""` for everything would pass all four
     // cases above and silently delete the clause from every refusal sentence.
-    const error: unknown = { issues: [{ path: ["participants", 0, "state"] }] };
+    const error: unknown = { issues: [{ path: ["devices", 0, "state"] }] };
 
-    expect(describeFailingPaths(error)).toBe(" (at participants.0.state)");
+    expect(describeFailingPaths(error)).toBe(" (at devices.0.state)");
   });
 });

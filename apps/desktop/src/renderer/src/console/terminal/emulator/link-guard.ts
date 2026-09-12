@@ -2,7 +2,7 @@
 //
 // Its own module rather than a section inside `xterm-adapter.ts`, for
 // `renderer-pool.ts`'s reason: this is a pure rule over a string, it is one of the
-// wrapper's five `Spec-023 §Console Libraries` constraints in its own right, and a
+// wrapper's five constraints in its own right, and a
 // security rule that can be driven with the strings an attack would use is worth
 // more than one reachable only through a mouse event nobody can dispatch.
 //

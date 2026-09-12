@@ -6,13 +6,12 @@
 // actually renders. A second copy of the list would pass while the two drifted,
 // which is the failure the check exists to prevent.
 //
-// The second half is the one that earns a test. `Spec-023 §Console Design
-// (Meridian)` 8.8 requires every transition to render as a ledger line naming its
-// reason, with the three AUTOMATIC reasons kept distinct — a surface that collapsed
-// them into "the lease was released" would look right against a fixture that only
-// ever scripted two of the five. So the fixture is held to reaching all five, and
-// the vocabulary is asserted against `Spec-006`'s own closed set rather than
-// against whatever the scenario happens to contain.
+// The second half is the one that earns a test. Every transition renders as a ledger
+// line naming its reason, with the three AUTOMATIC reasons kept distinct — a surface
+// that collapsed them into "the lease was released" would look right against a fixture
+// that only ever scripted two of the five. So the fixture is held to reaching all five,
+// and the vocabulary is asserted against the wire's own closed set rather than against
+// whatever the scenario happens to contain.
 
 import { describe, expect, it } from "vitest";
 

@@ -158,7 +158,6 @@ describe("diff pane — the absence it renders", () => {
       WORKSPACE_ENTITY,
       REPO_ENTITY,
       { kind: "worktree", id: "worktree-1" } as const,
-      { kind: "invite", id: "invite-1" } as const,
       { kind: "participant", id: "participant-1" } as const,
     ]) {
       const { container } = render(<DiffPane context={diffPaneContextFor(entity)} />);

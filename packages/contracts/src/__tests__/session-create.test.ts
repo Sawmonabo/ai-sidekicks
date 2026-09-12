@@ -1,7 +1,7 @@
-// Plan-001 PR #2 — Test C2: `SessionCreate payload validates required fields`.
+// `SessionCreate` payload validates required fields.
 //
-// Backstops Spec-001 AC1 (a session is created with stable id + initial
-// projection). The request schema is permissive (both fields optional —
+// Backstops session creation with a stable id and an initial projection.
+// The request schema is permissive (both fields optional —
 // the daemon fills defaults from session config); the response schema is
 // strict — every projection field must be present so downstream consumers
 // can rebuild local state without an extra round trip.
@@ -14,9 +14,9 @@
 //       - extra unknown keys are rejected (`.strict()` enforcement)
 //   • Response:
 //       - well-formed payload parses, preserves field shapes
-//       - missing `sessionId` / `state` / `memberships` / `channels` rejects
+//       - missing `sessionId` / `state` / `channels` rejects
 //       - invalid `state` enum value rejects
-//       - inner `memberships[].state` enum violation rejects (composability)
+//       - inner `channels[].state` enum violation rejects (composability)
 import { describe, expect, it } from "vitest";
 
 import {
@@ -26,8 +26,6 @@ import {
 } from "../session.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
-const PARTICIPANT_ID = "660e8400-e29b-41d4-a716-446655440001";
-const MEMBERSHIP_ID = "770e8400-e29b-41d4-a716-446655440002";
 const CHANNEL_ID = "880e8400-e29b-41d4-a716-446655440003";
 
 // Fixture returns a wire-shaped object with no per-field brand casts —
@@ -39,14 +37,6 @@ const CHANNEL_ID = "880e8400-e29b-41d4-a716-446655440003";
 const buildValidResponse = () => ({
   sessionId: SESSION_ID,
   state: "active" as const,
-  memberships: [
-    {
-      id: MEMBERSHIP_ID,
-      participantId: PARTICIPANT_ID,
-      role: "owner" as const,
-      state: "active" as const,
-    },
-  ],
   channels: [
     {
       id: CHANNEL_ID,
@@ -100,29 +90,27 @@ describe("SessionCreateRequestSchema (C2: request shape)", () => {
   });
 });
 
-describe("SessionCreateResponseSchema (C2: response shape)", () => {
+describe("SessionCreateResponseSchema (response shape)", () => {
   it("accepts a well-formed response and round-trips field values", () => {
     const valid = buildValidResponse();
     const parsed = SessionCreateResponseSchema.parse(valid);
     expect(parsed.sessionId).toBe(SESSION_ID);
     expect(parsed.state).toBe("active");
-    expect(parsed.memberships).toHaveLength(1);
-    expect(parsed.memberships[0]?.role).toBe("owner");
+    expect(parsed.channels).toHaveLength(1);
     expect(parsed.channels[0]?.state).toBe("active");
   });
 
-  it("accepts an empty memberships and channels list (Spec-001 §State 'provisioning')", () => {
+  it("accepts an empty channels list (a session still provisioning)", () => {
     const provisioning = {
       ...buildValidResponse(),
       state: "provisioning",
-      memberships: [],
       channels: [],
     };
     const result = SessionCreateResponseSchema.safeParse(provisioning);
     expect(result.success).toBe(true);
   });
 
-  it.each(["sessionId", "state", "memberships", "channels"] as const)(
+  it.each(["sessionId", "state", "channels"] as const)(
     "rejects a response missing required field: %s",
     (field) => {
       const valid = buildValidResponse();
@@ -139,29 +127,29 @@ describe("SessionCreateResponseSchema (C2: response shape)", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects nested membership with invalid `state` enum (composability)", () => {
+  it("rejects a nested channel with an invalid `state` enum (composability)", () => {
     const valid = buildValidResponse();
     const broken = {
       ...valid,
-      memberships: [{ ...valid.memberships[0]!, state: "totally-made-up" }],
+      channels: [{ ...valid.channels[0]!, state: "totally-made-up" }],
     };
     const result = SessionCreateResponseSchema.safeParse(broken);
     expect(result.success).toBe(false);
   });
 
-  it("rejects a malformed sessionId (UUID guard reuses C1 invariant)", () => {
+  it("rejects a malformed sessionId (UUID guard composes)", () => {
     const broken = { ...buildValidResponse(), sessionId: "not-a-uuid" };
     const result = SessionCreateResponseSchema.safeParse(broken);
     expect(result.success).toBe(false);
   });
 
   // --------------------------------------------------------------------
-  // Round 3 R2-5: ChannelSummary.name length cap + whitespace + NUL guards
+  // ChannelSummary.name length cap + whitespace + NUL guards
   // --------------------------------------------------------------------
   // The `name` field is optional on the wire (the implicit `main` channel
-  // is unnamed); when present, the same `wireFreeFormString` guards that
-  // protect `identityHandle` apply (channel names are user-visible UI
-  // labels — same trust-boundary stance).
+  // is unnamed); when present, the `wireFreeFormString` guards apply —
+  // channel names are user-visible UI labels, so they sit on the same
+  // trust boundary.
 
   it("accepts a channel with no `name` (the implicit main channel)", () => {
     const valid = buildValidResponse();

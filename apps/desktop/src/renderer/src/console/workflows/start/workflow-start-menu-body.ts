@@ -4,7 +4,7 @@
 // registrations pass and a different board. `apps/desktop/AGENTS.md` decides the
 // registration form by asking whether a body is painted before a person acts, and the
 // `+` menu is closed until somebody presses its disclosure — so the picker, the
-// definition directory it reads through, the start act it dispatches, and the denial it
+// definition directory it reads through, the start act it dispatches, and the refusal it
 // renders are all code that a session which never opens that menu should not carry.
 //
 // IT WAS A DOOR RE-EXPORT, and what that cost is the reason this file exists. The rail

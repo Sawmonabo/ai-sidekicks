@@ -204,7 +204,7 @@ export interface RepoMountHealth {
 }
 // Single-T `z.ZodType<T>` — a derived read-side projection, never a tRPC input
 // surface, so it needs no double-T input-inference bridge (matches
-// `MembershipSummarySchema` in session.ts / `RuntimeNodeAttachResponseSchema`
+// `ChannelSummarySchema` in session.ts / `RuntimeNodeAttachResponseSchema`
 // in runtime-node.ts).
 export const RepoMountHealthSchema: z.ZodType<RepoMountHealth> = z
   .object({
@@ -757,7 +757,7 @@ export const RepoDetachResponseSchema: z.ZodType<RepoDetachResponse> = z
 // Bound on the per-mode reason strings in
 // `WorkspaceExecutionModeCapabilitiesReadResponse.restrictions`. 512 is this
 // package's SHORT-HUMAN-REASON class (`RUNTIME_NODE_DETACH_REASON_MAX_LEN`,
-// `RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN`, `INVITE_REVOKE_REASON_MAX_LEN`),
+// `RUNTIME_NODE_CAPABILITY_UPDATE_REASON_MAX_LEN`),
 // which is the right class here: V1's matrix is STATIC by `vcs_type` (D-009-5),
 // so these values are short daemon-authored explanations such as "no git
 // repository at the mount root", never captured subprocess output.
@@ -1096,9 +1096,9 @@ export interface WorkspaceListResponse {
   }>;
 }
 // The item TYPE stays INLINE and unnamed, transcribed from the wire doc's own
-// anonymous `Array<{…}>` spelling. The contrast case is `MembershipSummary` /
-// `ChannelSummary` in session.ts, which the wire doc NAMES and which several
-// surfaces reuse; nothing else in Plan-009 consumes this shape, so exporting a
+// anonymous `Array<{…}>` spelling. The contrast case is `ChannelSummary` in
+// session.ts, which the wire doc NAMES and which several surfaces reuse;
+// nothing else consumes this shape, so exporting a
 // `WorkspaceSummary` would pre-commit every downstream importer to a symbol
 // neither the plan nor the spec asked for. Consumers that need the element type
 // spell `WorkspaceListResponse["workspaces"][number]`. The in-file precedent
@@ -1106,7 +1106,7 @@ export interface WorkspaceListResponse {
 //
 // The SCHEMA is a module-local, unexported const rather than an inline
 // `z.array(z.object({…}))`, matching event.ts's `sessionCreatedPayloadSchema`
-// and presence.ts's `PresenceReadResponseParticipantSchema`: nesting a
+// and presence.ts's `PresenceReadResponseDeviceSchema`: nesting a
 // forty-line object two levels inside a call argument buries the field list.
 // Unexported, so it adds no public surface and needs no
 // `isolatedDeclarations` annotation — the outer schema's

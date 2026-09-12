@@ -15,7 +15,6 @@ import { describe, expect, it } from "vitest";
 
 import type { CreateChannelDraft } from "./create-channel-draft.js";
 import { CHANNEL_MODERATION_FIELDS, draftSnapshotsMatch } from "./create-channel-fields.js";
-import { PARTICIPANT_OTHER } from "./channels.test-support.js";
 import { namedDraft } from "./create-channel-draft.test-support.js";
 
 describe("create channel draft — what a settled create is allowed to clear", () => {
@@ -24,17 +23,14 @@ describe("create channel draft — what a settled create is allowed to clear", (
    *
    * The moderation members come off their own tuple, so the table is closed against the
    * form's vocabulary rather than hand-listed — and the case below asserts the WIDTH
-   * against the snapshot's own shape, so a ninth field arrives here or fails.
+   * against the snapshot's own shape, so a fifth field arrives here or fails.
    */
   const DRAFT_EDITS: readonly {
     readonly field: string;
     readonly apply: (draft: CreateChannelDraft) => void;
   }[] = [
     { field: "name", apply: (draft) => draft.setName("review two") },
-    { field: "kind", apply: (draft) => draft.setKind("direct") },
     { field: "audience", apply: (draft) => draft.setAudience("humans-only") },
-    { field: "turnPolicy", apply: (draft) => draft.setTurnPolicy("round-robin") },
-    { field: "roundRobinOrder", apply: (draft) => draft.setRoundRobinOrder("dana, sam") },
     { field: "turnsPerAgent", apply: (draft) => draft.setTurnsPerAgent("2") },
     ...CHANNEL_MODERATION_FIELDS.map((field) => ({
       field,
@@ -42,12 +38,6 @@ describe("create channel draft — what a settled create is allowed to clear", (
         draft.setModeration(field, true);
       },
     })),
-    {
-      field: "otherParticipantId",
-      apply: (draft: CreateChannelDraft) => {
-        draft.setOtherParticipantId(PARTICIPANT_OTHER);
-      },
-    },
   ];
 
   it("empties a draft nothing has been typed into since it was sent", () => {

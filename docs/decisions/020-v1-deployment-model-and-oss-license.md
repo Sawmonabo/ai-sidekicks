@@ -259,7 +259,6 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 
 - [Deployment Topology](../architecture/deployment-topology.md) — `Collaborative Hosted Control Plane` and `Collaborative Self-Hosted Control Plane` topology rows cross-link to this ADR per BL-053 Exit Criteria.
 - [V1 Feature Scope](../architecture/v1-feature-scope.md) — Deployment Options section cites this ADR per BL-053 Exit Criteria.
-- [Spec-008: Control Plane Relay and Session Join](../specs/008-control-plane-relay-and-session-join.md) — v2 relay protocol that both relay backends implement.
 - [Spec-021: Rate Limiting Policy](../specs/021-rate-limiting-policy.md) — deployment-aware rate-limiter abstraction.
 - [Spec-027: Self-Host Secure Defaults](../specs/027-self-host-secure-defaults.md) — normative secure-defaults posture for the `Collaborative Self-Hosted Control Plane` topology committed to by this ADR; operator-facing companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-027 Acceptance Criterion).
 - [BL-044](../archive/backlog-archive.md) — Plan-021 Rate Limiting (ships both backends in V1).

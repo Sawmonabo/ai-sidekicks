@@ -74,7 +74,6 @@ import {
   PHASE_GRAPH_MIN_ZOOM,
   WORKFLOW_CANCEL_REASON_BYTE_CAP,
 } from "./workflows-caps.js";
-import { CAST_BAR_CHIP_CAP } from "./workspace-caps.js";
 
 /** Every bound that counts whole things. A fractional or zero cap counts nothing. */
 const COUNTING_BOUNDS: readonly (readonly [string, number])[] = [
@@ -83,7 +82,6 @@ const COUNTING_BOUNDS: readonly (readonly [string, number])[] = [
   ["PALETTE_RECENTS_CAP", PALETTE_RECENTS_CAP],
   ["PALETTE_RESULT_CAP", PALETTE_RESULT_CAP],
   ["WHEN_CLAUSE_MAX_DEPTH", WHEN_CLAUSE_MAX_DEPTH],
-  ["CAST_BAR_CHIP_CAP", CAST_BAR_CHIP_CAP],
   ["TRIPWIRE_REPORT_CAP", TRIPWIRE_REPORT_CAP],
   ["SCENARIO_PENDING_REPLY_CAP", SCENARIO_PENDING_REPLY_CAP],
   ["PRE_INITIALISATION_BUFFER_CAP", PRE_INITIALISATION_BUFFER_CAP],

@@ -1,11 +1,10 @@
 // A seat with exactly one occupant, owner-scoped.
 //
-// Five of this family's seats hold one body rather than a keyed table, and this
-// directory is the five of them beside the primitive they are built on — the
+// Four of this family's seats hold one body rather than a keyed table, and this
+// directory is the four of them beside the primitive they are built on — the
 // composer (one message input per session view), the timeline row slot (one renderer
-// for every row), the row footer beneath it, the floor request the deck answers, and
-// the window overlay. Each wants the same three properties the pane and sidebar
-// registries want: the same owner may re-register (a hot reload re-runs the owning
+// for every row), the row footer beneath it, and the floor request the deck answers.
+// Each wants the same three properties the pane and sidebar registries want: the same owner may re-register (a hot reload re-runs the owning
 // family's module), a different owner may not (which body renders would otherwise
 // depend on module import order), and a refusal names both owners.
 //
@@ -15,13 +14,13 @@
 // `core/keyed-registry.ts`, and this class only fixes the key.
 //
 // THE DIRECTORY CARRIES NO DOOR OF ITS OWN, and that is the rule rather than an
-// omission: no sibling in `seats/` reads any of these five modules, so the only
+// omission: no sibling in `seats/` reads any of these four modules, so the only
 // reader outside this directory is the FAMILY door, which re-exports from the module
 // that declares each name. An `index.ts` here would publish names only that door
 // could reach, and reaching them through it would be the barrel chain
 // `console-no-barrel-chain` fails.
 //
-// This class itself stays off the family door entirely: the five seats import it as
+// This class itself stays off the family door entirely: the four seats import it as
 // a sibling. A caller outside `seats/` that wanted a single-slot seat would be
 // minting a seam, and minting seams is what this family is for.
 

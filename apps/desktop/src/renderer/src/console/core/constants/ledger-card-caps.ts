@@ -57,7 +57,7 @@ export const CODE_WORKER_THRESHOLD_BYTES = 4096;
  */
 export const CODE_HIGHLIGHT_SOURCE_BYTE_CAP = 262_144;
 /**
- * Footnote definitions one timeline's registry retains.
+ * Footnote definitions a single timeline's registry retains.
  *
  * This console keeps one popover host per timeline with a definition registry keyed by
  * source — `ledger/cards/markdown/footnotes/footnote-registry.ts` states why. Bounded

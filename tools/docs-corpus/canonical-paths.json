@@ -50,7 +50,7 @@
     {
       "canonical": "sidekicks",
       "deprecated": [
-        "(^|[^[:alnum:]@/_-]|(^|[][[:space:]\"\\'`(=])[.~]{0,2}/[^[:space:]:]*)ai-sidekicks[[:space:]]+(config|cp|daemon|db|driver|events|init|invite|login|mcp|membership|onboarding|policy|relay|replay|run|self-update|session|settings|telemetry|workflow|workspace|worktree)([^[:alnum:]_-]|$)",
+        "(^|[^[:alnum:]@/_-]|(^|[][[:space:]\"\\'`(=])[.~]{0,2}/[^[:space:]:]*)ai-sidekicks[[:space:]]+(config|cp|daemon|db|driver|events|init|login|mcp|onboarding|policy|relay|replay|run|self-update|session|settings|telemetry|workflow|workspace|worktree)([^[:alnum:]_-]|$)",
         "(^|[^[:alnum:]@/_-]|(^|[][[:space:]\"\\'`(=])[.~]{0,2}/[^[:space:]:]*)ai-sidekicks[[:space:]]+-",
         "\"ai-sidekicks\"[[:space:]]*:[[:space:]]*\"",
         "bin:[[:space:]]*\"ai-sidekicks\"",

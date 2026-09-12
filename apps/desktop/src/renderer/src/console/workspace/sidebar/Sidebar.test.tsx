@@ -40,7 +40,7 @@ describe("Sidebar — the sections host", () => {
     expect(labels[SIDEBAR_SECTION_IDS.indexOf("goal")]).toContain("Goal");
     expect(labels[SIDEBAR_SECTION_IDS.indexOf("channels")]).toContain("Channels");
     expect(labels[SIDEBAR_SECTION_IDS.indexOf("runs")]).toContain("Runs");
-    expect(labels[SIDEBAR_SECTION_IDS.indexOf("members")]).toContain("Members");
+    expect(labels[SIDEBAR_SECTION_IDS.indexOf("artifacts")]).toContain("Artifacts");
   });
 
   it("starts every section collapsed, with no body mounted at all", () => {

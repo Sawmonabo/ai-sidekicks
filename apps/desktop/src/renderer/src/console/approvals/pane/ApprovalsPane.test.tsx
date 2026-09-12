@@ -113,7 +113,7 @@ describe("standing permissions ride the same pane", () => {
     await settle(bridge);
     const permissions = section("Standing permissions");
     expect(within(permissions).getAllByRole("listitem")).toHaveLength(3);
-    expect(within(permissions).getByText(/grantor.s membership changed/u)).not.toBeNull();
+    expect(within(permissions).getByText(/node.s trust changed/u)).not.toBeNull();
   });
 });
 

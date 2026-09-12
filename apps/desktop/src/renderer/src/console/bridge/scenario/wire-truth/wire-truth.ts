@@ -29,8 +29,7 @@
 //     occupies.
 //   • `wire-truth/reply-walk.ts` — one scripted answer per call, and one spendable
 //     latency on that answer.
-//   • `wire-truth/membership.ts` — the viewer a scenario states and the roles it
-//     declares.
+//   • `wire-truth/viewer.ts` — the viewer a scenario states.
 //   • `wire-truth/defect.ts` — what a defect is.
 //
 // WHERE A BEAT'S MEMBERS COME FROM WHEN THE STRICT LAYER REGISTERS NO VARIANT. This is
@@ -56,7 +55,7 @@
 import { describeBeatDefect } from "./beat-shape.js";
 import { findBeatOrderDefects } from "./beat-order.js";
 import type { ScenarioWireTruthDefect } from "./defect.js";
-import { describeViewerDefect, findMembershipRoleDefects } from "./membership.js";
+import { describeViewerDefect } from "./viewer.js";
 import { findReplyDefects } from "./reply-walk.js";
 import type { ConsoleScenario } from "../runtime/index.js";
 
@@ -84,7 +83,6 @@ export function findScenarioWireTruthDefects(
     if (viewerDefect !== undefined) {
       defects.push(viewerDefect);
     }
-    defects.push(...findMembershipRoleDefects(scenario));
   }
   return defects;
 }

@@ -104,7 +104,6 @@ describe("starting a session — one create at a time", () => {
     const call = vi.fn().mockResolvedValue({
       sessionId: CREATED_SESSION_ID,
       state: "active",
-      memberships: [],
       channels: [],
     });
     installProbeBridge(call);

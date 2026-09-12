@@ -1,11 +1,11 @@
 // Who the lease fold is told is looking, and what the pane does with each answer.
 //
-// Three arms, and the pane behaves differently on all three: the claimant's own hold
-// offers the handback and names the surface "no input channel"; somebody else's hold
-// offers the claim; and a REFUSED identity read withholds the control entirely rather
-// than offering an act the console could not attribute — while still showing who the
-// log says holds the shell, because the withholding is about the control and not about
-// the reading.
+// Three arms, and the pane behaves differently on all three: this window's own hold
+// offers the handback and names the surface "no input channel"; a hold from another
+// window offers the claim; and a REFUSED identity read withholds the control entirely
+// rather than offering an act the console could not attribute — while still saying
+// where the log says the shell is held, because the withholding is about the control
+// and not about the reading.
 
 import { waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -48,9 +48,9 @@ describe("terminal pane — the viewer the lease fold is told about", () => {
     return name;
   }
 
-  it("reads the claimant's own take as theirs, and offers them the handback", async () => {
-    // The scenario's first transition is a `taken` by the owner. Told that this
-    // window IS the owner, the fold answers `held-by-you` — which is exactly what the
+  it("reads this window's own take as its own, and offers the handback", async () => {
+    // The scenario's first transition is a `taken`. Told that this window is the
+    // participant it named, the fold answers `held-by-you` — which is exactly what the
     // hard-coded `undefined` made unreachable.
     const region = renderPane(
       storeThrough(1),
@@ -65,9 +65,9 @@ describe("terminal pane — the viewer the lease fold is told about", () => {
     expect(await surfaceName(region)).toBe("Terminal output, read-only: no input channel");
   });
 
-  it("negative control: the same log with another viewer is somebody else's hold", async () => {
+  it("negative control: the same log read from another window is not this one's hold", async () => {
     // Without this the case above would pass against a pane that reported every held
-    // lease as the viewer's. Same store, same transition, a different answer to the
+    // lease as this window's. Same store, same transition, a different answer to the
     // one read that changed.
     const region = renderPane(
       storeThrough(1),
@@ -76,7 +76,7 @@ describe("terminal pane — the viewer the lease fold is told about", () => {
     await waitFor(() => {
       expect(claimControl(region)).not.toBeNull();
     });
-    expect(region.textContent).toContain("Held by");
+    expect(region.textContent).toContain("The shell is held from another window.");
     expect(region.textContent).not.toContain("You may type into the shared shell.");
     expect(claimControl(region)?.textContent).toBe("Claim the shell");
     expect(writeEnabled(region)).toBe("false");
@@ -98,15 +98,15 @@ describe("terminal pane — the viewer the lease fold is told about", () => {
     expect(writeEnabled(region)).toBe("false");
   });
 
-  it("negative control: a refused identity still shows the log's holder", async () => {
+  it("negative control: a refused identity still says the shell is held", async () => {
     // The withholding is about the CONTROL, not about the reading. A pane that had
-    // blanked the lease line would pass the case above and tell nobody who holds the
-    // shell.
+    // blanked the lease line would pass the case above and say nothing at all about
+    // where the shell is.
     const region = renderPane(storeThrough(1), bridgeRefusingCaller());
     await waitFor(() => {
       expect(region.querySelector(".meridian-lease-line .meridian-refusal--inline")).not.toBeNull();
     });
-    expect(region.textContent).toContain("Held by");
-    expect(region.textContent).toContain(TERMINAL_SCENARIO_CAST.owner);
+    expect(region.textContent).toContain("Held");
+    expect(region.textContent).toContain("The shell is held from another window.");
   });
 });

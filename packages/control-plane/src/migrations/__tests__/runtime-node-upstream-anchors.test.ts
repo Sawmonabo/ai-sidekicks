@@ -49,22 +49,20 @@
 // SQLite schema, so there is nothing for a daemon test to assert about
 // `runtime_node_*`. Duplicating the negative there would be noise.
 //
-// (c) Division of labor — distinct from the Plan-002 P10 delta guard
+// (c) Division of labor — distinct from the delta guard
 // ----------------------------------------------------------------------------
-// The sibling `migration-shape.test.ts` (Plan-002 §Test Plan P10) is a STEPWISE
-// DELTA guard: it snapshots the public table set immediately before and after
-// the v2 apply and asserts the v1→v2 delta is exactly `{ session_invites }`.
-// Its `beforeEach` deliberately applies v1 ONLY (direct `tx.exec`) so the delta
-// has a pre-v2 baseline.
+// The sibling `migration-shape.test.ts` is a DELTA guard: it snapshots the
+// public table set before and after the runner's apply and asserts the delta is
+// exactly the tables the later migrations claim. Its `beforeEach` deliberately
+// applies the initial migration ONLY (direct `tx.exec`) so the delta has a
+// baseline.
 //
 // THIS file is the complementary ABSOLUTE-STATE guard: it applies ALL shipped
-// migrations (v1 + v2 + v3 via the canonical `applyMigrations` runner) and
-// asserts the resulting full schema CONTAINS the Plan-001 anchors and — post
-// Phase 3 PR #145 — now CONTAINS the Plan-003 runtime-node tables (assertion
-// (3) flipped to PRESENT; see tripwire (d)). It is not a delta and it does not re-assert the
-// `session_invites` delta (that is P10's charter); it answers a different
-// question — "is the upstream contract Plan-003 depends on actually shipped, and
-// has Plan-003 stayed within its Phase-1 lane?".
+// migrations via the canonical `applyMigrations` runner and asserts the
+// resulting full schema CONTAINS the session-directory anchors and the
+// runtime-node tables. It is not a delta; it answers a different question —
+// "is the upstream contract the runtime-node flow depends on actually
+// shipped?".
 //
 // (d) Lifecycle TRIPWIRE on assertion (3) — RESOLVED in Phase 3 PR #145
 // ----------------------------------------------------------------------------
@@ -173,11 +171,10 @@ let ctx: TestContext;
 beforeEach(async () => {
   // Fresh in-memory PGlite per test, then apply ALL shipped control-plane
   // migrations through the canonical runner. Unlike `migration-shape.test.ts`
-  // (which applies v1 ONLY because P10 needs a pre-v2 delta baseline), this
-  // guard wants the ABSOLUTE post-all-migrations schema, so it uses
-  // `applyMigrations` — which walks `MIGRATIONS = [v1, v2, v3]` and applies
-  // every pending version (migration-runner.ts). Post Phase 3 PR #145 this call
-  // also produces the runtime_node_* tables — see header tripwire (d).
+  // (which applies the initial migration ONLY because the delta needs a
+  // baseline), this guard wants the ABSOLUTE post-all-migrations schema, so it
+  // uses `applyMigrations` — which walks every registered version
+  // (migration-runner.ts).
   const pg: PGlite = new PGlite();
   const querier: Querier = adaptPGlite(pg);
   await applyMigrations(querier);

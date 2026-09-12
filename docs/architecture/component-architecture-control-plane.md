@@ -65,14 +65,12 @@ The Collaboration Control Plane exists to share session coordination state acros
 ## Related Domain Docs
 
 - [Session Model](../domain/session-model.md)
-- [Participant And Membership Model](../domain/participant-and-membership-model.md)
+- [User And Device Model](../domain/user-and-device-model.md)
 - [Runtime Node Model](../domain/runtime-node-model.md)
 
 ## Related Specs
 
 - [Shared Session Core](../specs/001-shared-session-core.md)
-- [Invite Membership And Presence](../specs/002-invite-membership-and-presence.md)
-- [Control Plane Relay And Session Join](../specs/008-control-plane-relay-and-session-join.md)
 - [Identity And Participant State](../specs/018-identity-and-participant-state.md)
 
 ## Related ADRs

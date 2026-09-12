@@ -3,46 +3,31 @@
 // A file beside `channels.test-support.tsx` rather than inside it, on the same rule
 // that split the surfaces: the directory list and the create form are two components
 // with two harnesses, and one file holding both had reached this package's size gate.
-// What is SHARED — the id table, the row and roster builders, the scenarios, and the
-// bridge every case answers through — stays there and is imported here, because a
-// second copy of any of it is two suites disagreeing about the same session.
+// What is SHARED — the id table, the row builder, the scenarios, and the bridge every
+// case answers through — stays there and is imported here, because a second copy of any
+// of it is two suites disagreeing about the same session.
 //
 // EVERY CONTROL IS ADDRESSED POSITIONALLY OR THROUGH THE WIRE'S OWN VOCABULARY, never
-// by its label. A case that clicked on the word "Direct" would go green against a form
-// that had stopped sending `direct`, and the label is the half a person can safely
+// by its label. A case that clicked on a word would go green against a form that had
+// stopped sending the value behind it, and the label is the half a person can safely
 // change.
 
-import { act, fireEvent, render } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 
-import {
-  GROWTH_CHANNEL_KINDS,
-  type ConsoleBridge,
-  type GrowthChannelKind,
-} from "../../bridge/index.js";
+import { type ConsoleBridge } from "../../bridge/index.js";
 import { CreateChannel } from "./CreateChannel.js";
-import {
-  LABELS,
-  PARTICIPANT_OTHER,
-  PARTICIPANT_YOU,
-  SESSION_ID,
-  channelsBridge,
-  viewerOf,
-} from "./channels.test-support.js";
+import { SESSION_ID, channelsBridge } from "./channels.test-support.js";
 
 /** What a case may steer about the create form it renders on its own. */
 export interface CreateChannelOverrides {
   readonly bridge?: ConsoleBridge;
-  readonly viewerParticipantId?: string | undefined;
-  readonly participantIds?: readonly string[];
   /** Which session the form is for. A case re-addressing the mount passes a second one. */
   readonly sessionId?: string;
 }
 
-/** The five configuration members the general arm collects, each as its own control. */
+/** The three configuration members the form collects, each as its own control. */
 export interface CreateChannelPolicyControls {
   readonly audience: HTMLSelectElement;
-  readonly turnPolicy: HTMLSelectElement;
-  readonly roundRobinOrder: HTMLInputElement;
   readonly turnsPerAgent: HTMLInputElement;
   readonly moderationBoxes: readonly HTMLInputElement[];
 }
@@ -60,15 +45,7 @@ export function createChannelElement(
   overrides: CreateChannelOverrides,
   bridge: ConsoleBridge,
 ): React.JSX.Element {
-  return (
-    <CreateChannel
-      bridge={bridge}
-      sessionId={overrides.sessionId ?? SESSION_ID}
-      viewerParticipantId={viewerOf(overrides)}
-      participantIds={overrides.participantIds ?? [PARTICIPANT_YOU, PARTICIPANT_OTHER]}
-      labels={LABELS}
-    />
-  );
+  return <CreateChannel bridge={bridge} sessionId={overrides.sessionId ?? SESSION_ID} />;
 }
 
 /**
@@ -90,32 +67,16 @@ export function typeName(container: HTMLElement, name: string): void {
 }
 
 /**
- * Choose one kind, addressed through the closed set the form renders from.
- *
- * Indexed off `GROWTH_CHANNEL_KINDS` rather than matched on a label, so a case names
- * the wire's own vocabulary and a relabelled control does not silently pick the other
- * arm.
- */
-export function chooseKind(container: HTMLElement, kind: GrowthChannelKind): void {
-  const index = GROWTH_CHANNEL_KINDS.indexOf(kind);
-  act(() => {
-    requiredElement<HTMLButtonElement>(container, ".meridian-create-channel__kind", index).click();
-  });
-}
-
-/**
  * The policy controls, in the order the form declares them.
  *
- * Positional because that order is the form's own and a person meets it that way:
- * audience then turn policy among the selects, and the name then the round-robin order
- * then the per-agent cap among the text fields.
+ * Positional because that order is the form's own and a person meets it that way: the
+ * audience is the only select, and the name comes before the per-agent cap among the
+ * text fields.
  */
 export function policyFields(container: HTMLElement): CreateChannelPolicyControls {
   return {
     audience: requiredElement(container, ".meridian-create-channel__select", 0),
-    turnPolicy: requiredElement(container, ".meridian-create-channel__select", 1),
-    roundRobinOrder: requiredElement(container, ".meridian-create-channel__text", 1),
-    turnsPerAgent: requiredElement(container, ".meridian-create-channel__text", 2),
+    turnsPerAgent: requiredElement(container, ".meridian-create-channel__text", 1),
     moderationBoxes: [...container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')],
   };
 }

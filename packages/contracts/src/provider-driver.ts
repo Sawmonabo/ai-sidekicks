@@ -1236,18 +1236,14 @@ export const DriverResumeResultSchema: z.ZodType<DriverResumeResult, DriverResum
       .object({
         status: z.literal("resumed"),
         // `bindingId` is a machine-generated OPAQUE provider session-binding
-        // handle (`Spec-005 §Required Behavior`) — the same category as the `invites.ts`
-        // PASETO token (`z.string().min(1).max(INVITE_TOKEN_MAX_LEN)`), whose
-        // comment (invites.ts:145-150) deliberately OMITS the `/\S/` + NUL guards
-        // because those target HUMAN-entered fields. We make a different choice
-        // here for a DIFFERENT reason — not "stronger is better": this handle is
+        // handle. An opaque machine handle does not need the `/\S/` + NUL
+        // guards that target HUMAN-entered fields, but it gets them here for a
+        // different reason — not "stronger is better": this handle is
         // PERSISTED into `runtime_bindings` and emitted on `runtime_node.*`
         // events, so `wireFreeFormString`'s `/\S/` + NUL guards are
         // defense-in-depth against storage / log-injection hazards on a stored
-        // untrusted value, a separate rationale from invites' hot-path token
-        // validation (not a claim invites under-hardened). The cap
-        // (`DRIVER_BINDING_ID_MAX_LEN = 256`) is sized for a short session-binding
-        // handle, distinct from invites' 4096-char token blob.
+        // untrusted value. The cap (`DRIVER_BINDING_ID_MAX_LEN = 256`) is sized
+        // for a short session-binding handle.
         bindingId: wireFreeFormString(DRIVER_BINDING_ID_MAX_LEN, "DriverResumeResult.bindingId"),
         // SHAPE only (integer >= 0) — the same bound, and the same split, as
         // `DriverRollbackResultSchema`'s `applied` floor. The DOMAIN checks (that

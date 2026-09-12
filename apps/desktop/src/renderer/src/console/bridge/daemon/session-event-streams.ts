@@ -118,10 +118,10 @@ export interface NarrowedSessionEventStream {
  * exactly this discriminant — and a flag on the narrowed row would have to be read by
  * everything that handles one.
  *
- * Its kinds are not the whole of when it fires. A room moves when somebody's presence
- * transitions, which is a kind here, and when what they are DOING changes, which the
- * census carries no event for at all: composing rides beside presence rather than
- * inside it. So the kinds are the log-borne half, and whatever serves this
+ * Its kinds are not the whole of when it fires. A room moves when a device's presence
+ * transitions, which is a kind here, and when a run's activity changes, which the
+ * census carries no event for at all: the activity field rides beside presence rather
+ * than inside it. So the kinds are the log-borne half, and whatever serves this
  * subscription owns the other.
  */
 export interface AwarenessSignalStream {

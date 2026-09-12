@@ -6,25 +6,22 @@
 // render — and it is a file boundary rather than a second component in one module,
 // which is the same rule stated one level up.
 //
-// THE TERMINAL'S IDENTITY. `Spec-023 §Console Design (Meridian)` 8.8 and
-// `Spec-003 §Required Behavior` give a session exactly one shared terminal — not one
-// per node and not one per pane — and both registered lease methods are
-// session-scoped. So the session id IS this terminal's identity in the console's own
-// request shapes; it is not a fabricated key, it is the name of the session's single
-// shell.
+// THE TERMINAL'S IDENTITY. A session has exactly one shared terminal — not one per node
+// and not one per pane — and both registered lease methods are session-scoped. So the
+// session id IS this terminal's identity in the console's own request shapes; it is not
+// a fabricated key, it is the name of the session's single shell.
 //
-// THE VIEWER IS READ, NOT ASSUMED. `callerParticipantRead` is the port's answer to
-// which entry in this session's roster this window is, and the fold takes it as the
-// input that tells `held-by-you` from `held-by-another`. It used to take a hard-coded
-// `undefined`, which made every take the claimant's own lease read as somebody else's:
-// the person the daemon had just granted the shell to kept seeing Claim, could not
-// release, and typed into nothing. While the read is out — or when it is refused — the
-// claim control is WITHHELD rather than offered on a guess, and the fold still gets no
-// viewer, so the fail-closed direction is unchanged.
+// THE VIEWER IS READ, NOT ASSUMED. `callerParticipantRead` is the port's answer to which
+// window this is, and the fold takes it as the input that tells a hold this window has
+// from one it does not. It used to take a hard-coded `undefined`, which made every take
+// read as somebody else's: the window the daemon had just granted the shell to kept
+// seeing Claim, could not release, and typed into nothing. While the read is out — or
+// when it is refused — the claim control is WITHHELD rather than offered on a guess, and
+// the fold still gets no viewer, so the fail-closed direction is unchanged.
 //
-// THE HOST'S REACHABILITY IS PROJECTED, NOT ASSUMED. 8.8's degraded state is a holder
-// whose node has gone offline, and the lease events carry no node — so this pane folds
-// the log's registered `runtime_node.*` presence events beside the lease and hands the
+// THE HOST'S REACHABILITY IS PROJECTED, NOT ASSUMED. The degraded state is a hold whose
+// node has gone offline, and the lease events carry no node — so this pane folds the
+// log's registered `runtime_node.*` presence events beside the lease and hands the
 // result in as the vouching input. It answers only where the session has exactly one
 // attached node, because that is the only case in which the wire leaves no doubt about
 // which host runs the session's single shared shell; `node-presence-model.ts` states
@@ -43,7 +40,6 @@ import { useMemo } from "react";
 
 import { type ConsoleBridge } from "../../bridge/index.js";
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
-import { useCallerMembershipRoleFor } from "../../seats/index.js";
 import {
   useSessionPartition,
   useSessionStore,
@@ -51,7 +47,6 @@ import {
   type SessionStoreState,
 } from "../../store/index.js";
 import { LeaseLine } from "../lease/LeaseLine.js";
-import type { TerminalParticipantMark } from "../lease/participant-mark.js";
 import { XtermHost } from "../emulator/XtermHost.js";
 import { projectTerminalLease, type TerminalLeaseState } from "../lease/lease-model.js";
 import { projectNodePresence, resolveSoleHoldingNode } from "./node-presence-model.js";
@@ -89,13 +84,6 @@ export function BoundTerminalPane(props: BoundTerminalPaneProps): React.JSX.Elem
   const timeline = useSessionStore(sessionStore, selectTimeline);
   const outputReading = useTerminalOutputStream(bridge, sessionId);
   const viewerIdentity = useTerminalViewerIdentity(bridge, sessionId);
-  // The entitlement beside the identity, because the claim control needs both: the
-  // fold compares the holder against WHO this window is, and the daemon checks what
-  // that participant MAY DO before it moves the shell. Through the seat that composes
-  // that question, because `store/` sits below `bridge/` on the console's DAG and may
-  // not reach a port — the adaptation belongs above both families and not in each
-  // surface that wants an answer.
-  const callerRole = useCallerMembershipRoleFor(bridge, sessionStore);
 
   // Derivation under `useMemo`, which is where `store/session/session-hooks.ts` puts it: the
   // selector returns the stored array and the fold runs only when that array's
@@ -128,7 +116,7 @@ export function BoundTerminalPane(props: BoundTerminalPaneProps): React.JSX.Elem
     [timeline, holdingNode, viewerParticipantId],
   );
 
-  // 8.9's aside is a sentence about the step-in control, so it renders where that
+  // The aside is a sentence about the step-in control, so it renders where that
   // control has something to act on. It reads the `run` PARTITION rather than the log:
   // the run-lifecycle projector is the console's one authority on which beats put a run
   // into which state, and a second fold beside it answered `true` for a `run.running`
@@ -137,31 +125,13 @@ export function BoundTerminalPane(props: BoundTerminalPaneProps): React.JSX.Elem
   const runs = useSessionPartition(sessionStore, "run");
   const isStepInReachable = useMemo(() => hasSteppableRun(runs), [runs]);
 
-  const markFor = useMemo(() => {
-    const allocator = sessionStore.hueAllocator;
-    return (participantId: string): TerminalParticipantMark | undefined => {
-      const assignment = allocator.assignmentFor(participantId);
-      return assignment === undefined
-        ? undefined
-        : {
-            hueStep: assignment.step,
-            ringTreatment: assignment.ringTreatment,
-            // No projector claims `participant.joined` yet, so the roster supplies
-            // no name and the surface renders the wire id rather than inventing one.
-            displayName: undefined,
-          };
-    };
-  }, [sessionStore]);
-
   return (
     <>
       <LeaseLine
         bridge={bridge}
         sessionId={sessionId}
         state={lease}
-        markFor={markFor}
         viewerIdentity={viewerIdentity}
-        callerRole={callerRole}
         hasSteppableRun={isStepInReachable}
       />
       {outputReading.status === "refused" ? (

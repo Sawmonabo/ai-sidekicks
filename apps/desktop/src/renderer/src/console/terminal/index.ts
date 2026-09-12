@@ -2,18 +2,17 @@
 //
 // The family owns the session's one shared shell: the emulator wrapper, the watch
 // mode every non-holder gets, the lease line, and the transition ledger. All four
-// are built. What is NOT built is the OUTPUT — the byte stream, the scrollback,
-// and the resize report are `Plan-023 §Console growth slate` row 3, which the
-// growth port refuses by name — so the pane mounts a real emulator with nothing
-// to show and says so, and the row's arrival is a drain into a surface that is
-// already there rather than a new mount.
+// are built. What is NOT built is the OUTPUT — the byte stream, the scrollback, and
+// the resize report are a growth-slate row the growth port refuses by name — so the
+// pane mounts a real emulator with nothing to show and says so, and the row's arrival
+// is a drain into a surface that is already there rather than a new mount.
 //
 // The registration lives here, and so does the pane BODY (`terminal/pane/`), for
 // `console/browser/index.ts`'s reason: the seat board composes families, not bodies,
 // and a body parked under `console/panes/` is subtracted from both view-family
 // layering rules.
 //
-// WHAT THE FAMILY OWNS TODAY, after T-023p-1C-7, GROUPED BY SEAM. The family held its
+// WHAT THE FAMILY OWNS TODAY, GROUPED BY SEAM. The family held its
 // modules flat over three concerns that share no state and change for no common
 // reason, which is a bucket rather than a module; each is now a sub-module directory
 // reached by deep intra-family specifiers, and the door below is unchanged. The count
@@ -30,12 +29,12 @@
 //     surface can render (`emulator-state.ts`), the page-wide WebGL slot allocator
 //     (`renderer-pool.ts`), the link scheme guard (`link-guard.ts`), and the mount
 //     point (`XtermHost.tsx`).
-//   • `lease/` — who holds the write lease and how a viewer asks for it: the fold
-//     (`lease-model.ts`) over the one-event reader beneath it (`lease-transition.ts`),
-//     the viewer's identity read (`viewer-identity.ts`), the acquisition terms
-//     (`lease-acquisition.ts`), the one wire call (`lease-claim.ts`), and the line
-//     that renders all of it (`LeaseLine.tsx`) with its ledger, holder name,
-//     participant mark, and withheld-claim control.
+//   • `lease/` — where the write lease is held and how this window asks for it: the
+//     fold (`lease-model.ts`) over the one-event reader beneath it
+//     (`lease-transition.ts`), the read of which window this is (`viewer-identity.ts`),
+//     the acquisition terms (`lease-acquisition.ts`), the one wire call
+//     (`lease-claim.ts`), and the line that renders all of it (`LeaseLine.tsx`) with
+//     its ledger, its holding statement, and its withheld-claim control.
 //   • `pane/` — the deck's terminal body and the reads only it makes: the pane
 //     (`TerminalPane.tsx`) and its bound half (`BoundTerminalPane.tsx`), the
 //     body the door below loads (`pane/terminal-pane-body.ts`), the host-presence
@@ -70,9 +69,9 @@ import type { ConsolePaneRegistry } from "../seats/index.js";
 /**
  * Claim the terminal family's pane kinds.
  *
- * One kind, and structurally one: `Spec-023 §Console Design (Meridian)` 8.8 gives
- * V1 exactly one terminal surface per session, and the deck's single mount door
- * makes a second claim on this kind an error rather than a swap.
+ * One kind, and structurally one: a session has exactly one terminal surface, and the
+ * deck's single mount door makes a second claim on this kind an error rather than a
+ * swap.
  */
 export function registerTerminalPanes(registry: ConsolePaneRegistry): void {
   registry.register({

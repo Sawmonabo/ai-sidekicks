@@ -200,9 +200,6 @@ const productionFetchHandler = buildControlPlaneFetchHandler({
   generateSessionId: () => {
     throw tier5DeferralError("generateSessionId (UUID v7)");
   },
-  resolveIdentityHandle: () => {
-    throw tier5DeferralError("resolveIdentityHandle (Plan-018 + Plan-002)");
-  },
   eventStreamProvider: () => {
     throw tier5DeferralError("eventStreamProvider (Plan-006 event log)");
   },

@@ -84,9 +84,6 @@
 //
 //   * It does not write `retention_class` or `stub_signature` — T3.2's
 //     compactor owns both columns and their migration.
-//   * It does not mint `participant_signature`. The column is nullable and no
-//     V1 producer supplies one; `signer.ts` exports the minting function for
-//     whoever does.
 //   * It scaffolds no composition root. There is no production construction
 //     site for the Plan-003/005 producers yet, so wiring the halt registry into
 //     `bootstrap/index.ts` would be scaffolding a seam Phase 4's T4.2 observer
@@ -422,13 +419,13 @@ export class EventLogService {
          id, session_id, sequence, occurred_at, monotonic_ns,
          category, type, actor, payload, pii_payload,
          correlation_id, causation_id, version,
-         prev_hash, row_hash, daemon_signature, participant_signature,
+         prev_hash, row_hash, daemon_signature,
          pii_participant_id, content_payload
        ) VALUES (
          @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
          @category, @type, @actor, @payload, @pii_payload,
          @correlation_id, @causation_id, @version,
-         @prev_hash, @row_hash, @daemon_signature, NULL,
+         @prev_hash, @row_hash, @daemon_signature,
          @pii_participant_id, @content_payload
        )`,
     );

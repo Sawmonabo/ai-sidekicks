@@ -75,8 +75,8 @@ export const uuidTextFormSchema: z.ZodType<string, string> = z
  * schemas (per ADR-014). The `as unknown as` cast is load-bearing; the runtime
  * `.brand(brandName)` call preserves Zod's internal brand metadata.
  *
- * Used for the UUID-based branded IDs declared in `session.ts` and `invites.ts`
- * (SessionId, ParticipantId, MembershipId, ChannelId, InviteId) and for every
+ * Used for the UUID-based branded IDs declared in `session.ts`
+ * (SessionId, ParticipantId, MembershipId, ChannelId) and for every
  * later family composed through it (RunId, ArtifactId, the repo / worktree /
  * runtime-node ids). Every one of them therefore shares ONE accept set —
  * `RFC_9562_TEXT_FORM` above — so a value that parses as one branded id parses

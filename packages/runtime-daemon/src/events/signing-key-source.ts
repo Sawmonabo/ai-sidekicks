@@ -245,8 +245,8 @@ export interface DaemonSigningKeySource extends DaemonSigningKeyProvisioner {
    *
    * The result is a live secret, and a FRESH array the implementation owns
    * rather than a view over the sealer's buffer (see the private-key narrowing
-   * site for why). Hand it straight to `signRow` (or to
-   * `mintParticipantSignature`) as the parameter it takes; do not cache it, log
+   * site for why). Hand it straight to `signRow` as the parameter it takes; do
+   * not cache it, log
    * it, or copy it into a longer-lived structure — every extra holder is one
    * more place a master-key wipe cannot reach, and under this RETURN-A-VALUE
    * signature the resolver cannot scrub the array on the caller's behalf. That
@@ -256,7 +256,7 @@ export interface DaemonSigningKeySource extends DaemonSigningKeyProvisioner {
    *
    * Rejects when the session has no row: `create` was never called, or the row
    * was removed. Deliberately NOT create-on-read — minting a second keypair
-   * behind a read would produce signatures no roster-registered public key
+   * behind a read would produce signatures no registered public key
    * verifies, which is the failure `create`'s exactly-once note describes,
    * reached silently instead of loudly.
    *

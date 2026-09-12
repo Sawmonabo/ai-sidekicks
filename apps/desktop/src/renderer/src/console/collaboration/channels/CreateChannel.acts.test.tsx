@@ -3,7 +3,7 @@
 // Driven against the real fixture, so a scripted daemon refusal arrives the way one
 // will: thrown from the growth port, unwrapped, carrying the daemon's own dotted code.
 // That is what makes routing a refusal to a FIELD assertable at all — a paraphrased
-// code would collapse the three destinations into one.
+// code would collapse the two destinations into one.
 
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -13,13 +13,8 @@ import {
   growthAnswering,
 } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { settle } from "../../core/settle.test-support.js";
-import {
-  PARTICIPANT_OTHER,
-  channelsBridge,
-  scenarioAnswering,
-  scenarioRefusing,
-} from "./channels.test-support.js";
-import { chooseKind, renderCreateChannel, typeName } from "./create-channel.test-support.js";
+import { channelsBridge, scenarioAnswering, scenarioRefusing } from "./channels.test-support.js";
+import { renderCreateChannel, typeName } from "./create-channel.test-support.js";
 
 const CHANNEL_CREATE_CALL = "channel.create";
 const CREATED_CHANNEL_ID = "channel-created";
@@ -37,14 +32,6 @@ async function submit(container: HTMLElement): Promise<void> {
     container.querySelector<HTMLButtonElement>(".meridian-create-channel__submit")?.click();
   });
   await settle();
-}
-
-/** Choose the direct arm and pick the one other person in the session. */
-function pickTheOtherPerson(container: HTMLElement): void {
-  chooseKind(container, "direct");
-  act(() => {
-    container.querySelector<HTMLButtonElement>(".meridian-create-channel__candidate")?.click();
-  });
 }
 
 /** What the name field currently reads. */
@@ -199,7 +186,6 @@ describe("creating a channel — cancelling", () => {
     // and a Cancel that reached the wire would invent an act the plane does not have.
     const { container } = renderCreateChannel();
     typeName(container, "review");
-    pickTheOtherPerson(container);
 
     act(() => {
       container.querySelector<HTMLButtonElement>(".meridian-create-channel__cancel")?.click();
@@ -234,27 +220,6 @@ describe("creating a channel — where each refusal lands", () => {
 
     expect(nameFieldRefusal(container)).toContain("channel.name_reserved");
     expect(nameFieldRefusal(container)).toContain("`general` is reserved on this node.");
-  });
-
-  it("marks the picker when the person chosen is no longer a member", async () => {
-    const { container } = renderCreateChannel({
-      bridge: channelsBridge({
-        scenario: scenarioRefusing(
-          CHANNEL_CREATE_CALL,
-          "channel.not_found",
-          "That participant is no longer in this session.",
-        ),
-      }),
-    });
-    typeName(container, "with Dana");
-    pickTheOtherPerson(container);
-
-    await submit(container);
-
-    const picker = container.querySelector(".meridian-create-channel__direct")?.textContent ?? "";
-    expect(picker).toContain("channel.not_found");
-    expect(picker).toContain(PARTICIPANT_OTHER);
-    expect(nameFieldRefusal(container)).toBe("");
   });
 
   it("renders every other refusal under the control that asked", async () => {

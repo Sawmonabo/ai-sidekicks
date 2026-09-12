@@ -417,9 +417,9 @@ const RENDERER_SYNTAX_BANS = [
   TEXT_SNAPSHOT_MATCHER_REACH,
   // Renderer-wide rather than console-scoped, because the hazard is the renderer's and
   // not the console's: a surface that reads the bridge off the global with no existence
-  // check throws inside a render under a preload that failed to install. Four legacy
+  // check throws inside a render under a preload that failed to install. Two legacy
   // modules outside `console/` do read it that way today; they are exempted BY NAME in
-  // their own block below, so the count is frozen and a fifth cannot land unnoticed.
+  // their own block below, so the count is frozen and a third cannot land unnoticed.
   BRIDGE_GLOBAL_READ,
 ];
 
@@ -833,16 +833,16 @@ export default [
     },
   },
   {
-    // The four LEGACY renderer modules that read the bridge off the global directly,
+    // The two LEGACY renderer modules that read the bridge off the global directly,
     // exempted by NAME rather than by leaving the rule scoped to two subtrees. The
-    // difference is the whole point: a named exemption freezes the count at four and
-    // makes a fifth reader a lint failure in the diff that adds it, where a subtree
+    // difference is the whole point: a named exemption freezes the count at two and
+    // makes a third reader a lint failure in the diff that adds it, where a subtree
     // scope would admit one silently.
     //
-    // Three of them read `window.sidekicks.daemon` with NO existence check at all,
+    // One of them reads `window.sidekicks.daemon` with NO existence check at all,
     // where `readInstalledBridge` (`console/bridge/live-bridge.ts`) answers `undefined`
     // for both the absent and the misshapen global — so under a preload that failed to
-    // install they throw inside a render. The migration is to take the bridge from
+    // install it throws inside a render. The migration is to take the bridge from
     // `BridgeProvider`'s context as every console surface does; it is a real layering
     // change (the provider lives under `console/`) and belongs in its own diff, which
     // is why the state is recorded here rather than papered over.
@@ -851,8 +851,6 @@ export default [
     // these files, and dropping one would lift it for exactly the files least able to
     // afford it.
     files: [
-      "src/renderer/src/session-members/participant-roster.tsx",
-      "src/renderer/src/session-members/invite-accept-view.tsx",
       "src/renderer/src/session-bootstrap/SessionBootstrap.tsx",
       "src/renderer/src/runtime-node-attach/attach-request.ts",
     ],
@@ -1003,7 +1001,7 @@ export default [
   //
   // Scope is the console subtree ONLY — `src/renderer/src/console/**/*.{ts,tsx}`,
   // co-located tests included, since a suite reads top to bottom like anything else and
-  // the four legacy renderer families predate the section these rules carry.
+  // the three legacy renderer families predate the section these rules carry.
   //
   // Both rules run `type: "unsorted"`: the claim is the ORDER OF THE SECTIONS, never an
   // alphabet. Within a section source order is preserved exactly, so a file whose

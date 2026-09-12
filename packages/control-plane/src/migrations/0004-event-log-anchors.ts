@@ -86,12 +86,11 @@
 //
 // Postgres DDL is fully transactional. The runner wraps the entire migration
 // plus the schema_migrations INSERT in a single `querier.transaction(...)`
-// boundary (mirroring how `applyMigrations` wraps v1 through v3) so a torn
-// write (process kill mid-migration, disk error) leaves the database fully at
-// v3, never half-migrated to "v4 partial". The migration SQL itself does NOT
+// boundary (mirroring how `applyMigrations` wraps the earlier versions) so a
+// torn write (process kill mid-migration, disk error) leaves the database fully
+// at v3, never half-migrated to "v4 partial". The migration SQL itself does NOT
 // contain `BEGIN;`/`COMMIT;` — the transaction boundary is owned by the caller,
-// identical to `INITIAL_MIGRATION_SQL`, `SESSION_INVITES_MIGRATION_SQL`, and
-// `RUNTIME_NODES_MIGRATION_SQL`.
+// identical to `INITIAL_MIGRATION_SQL` and `RUNTIME_NODES_MIGRATION_SQL`.
 //
 // Spec coverage: `Spec-006 §Anchoring Cadence` (the seven-member anchor
 // payload this table stores). Verifies invariant: I-006-3-02 (metadata-only

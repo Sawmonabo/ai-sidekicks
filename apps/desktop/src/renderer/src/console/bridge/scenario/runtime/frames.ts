@@ -8,11 +8,11 @@
 // frozen clock — so a fixture resolves it by asking which frame has fallen due rather
 // than by answering the same value forever.
 //
-// ITS OWN MODULE FOR `scenario-pending-invites.ts`'S REASON. `scenario.ts` is what a
-// reader opens to learn what a scenario IS, and four independently-reasoned frame
-// families in front of that shape bury it. What stays there is the composition and the
-// reply table; what leaves is each family's own declaration, which is read by the one
-// fixture namespace that resolves it and by nothing else.
+// ITS OWN MODULE. `vocabulary.ts` is what a reader opens to learn what a scenario
+// IS, and independently-reasoned frame families in front of that shape bury it. What
+// stays there is the composition and the reply table; what leaves is each family's
+// own declaration, which is read by the one fixture namespace that resolves it and by
+// nothing else.
 
 import type { ParticipantId, RuntimeNodeRosterEntry } from "@ai-sidekicks/contracts";
 

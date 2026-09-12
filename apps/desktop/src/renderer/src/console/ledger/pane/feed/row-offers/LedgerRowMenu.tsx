@@ -3,8 +3,7 @@
 // ONE CONTROL AND NOT FIVE BUTTONS. `Spec-023 §Console Design (Meridian)` rule 7 puts
 // a row at one line until it is opened, and five inline controls would be five lines'
 // worth of chrome on every row of a log a person scrolls through thousands of. So the
-// row carries a single revealed trigger and the offers live behind it, which is the
-// same arrangement `collaboration/members/MembershipActionsMenu.tsx` reaches for.
+// row carries a single revealed trigger and the offers live behind it.
 //
 // THE REVEAL IS THE PRIMITIVE'S AND THE CONTROL IS THIS FAMILY'S.
 // `primitives/figures/ledger-row.css` publishes `meridian-ledger-row__revealed` for exactly

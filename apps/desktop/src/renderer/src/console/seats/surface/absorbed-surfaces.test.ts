@@ -30,11 +30,10 @@ import { describe, expect, it } from "vitest";
 import type { SessionId } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { COLLABORATION_SCENARIO } from "../../bridge/scenario/collaboration/collaboration.js";
 import { unscriptedScenario } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { ConsoleRefusalError } from "../../core/index.js";
-import { PAST_REFRESH_DEBOUNCE_MS } from "../../core/settle.test-support.js";
 import { SurfaceAbsence } from "../../primitives/index.js";
+import { FLAGSHIP_SCENARIO } from "../../bridge/scenario/flagship/flagship.js";
 import { SETTINGS_SCENARIO } from "../../bridge/scenario/settings/settings.js";
 import { SETTINGS_RUNTIME_NODE_ATTACH_DRAFT } from "../../bridge/scenario/settings/runtime-nodes.js";
 import {
@@ -87,12 +86,9 @@ function centredAbsence(node: ReactNode): { type: unknown; props: Record<string,
  */
 const ROSTER_POPULATED_MS = 580;
 
-/** One frame later: the runner's attachment ends while its heartbeat still reads healthy. */
-const RUNNER_DEPARTURE_MS = 640;
-
-/** A real fixture bridge over this family's own scenario. */
+/** A real fixture bridge over a scenario that names a roster. */
 function fixtureBridge(): ConsoleBridge {
-  return createFixtureBridge({ scenario: COLLABORATION_SCENARIO });
+  return createFixtureBridge({ scenario: SETTINGS_SCENARIO });
 }
 
 describe("absorbed surfaces — the families a console surface mounts", () => {
@@ -218,9 +214,8 @@ describe("absorbed surfaces — the attach flow and the declaration it reviews",
   it("composes no declaration where the deck supplies none", () => {
     // The trust decision, made once here rather than at each caller: a helper that
     // could be handed a draft is a helper whose callers could compose one.
-    const element = centredAbsence(
-      renderAbsorbedAttachFlow(fixtureBridge(), COLLABORATION_SCENARIO.sessionId),
-    );
+    const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+    const element = centredAbsence(renderAbsorbedAttachFlow(bridge, FLAGSHIP_SCENARIO.sessionId));
     expect(element.type).not.toBe(AttachFlow);
     expect(element.props["kind"]).toBe("not-checked");
   });
@@ -254,14 +249,13 @@ describe("absorbed surfaces — the read seam the roster is handed", () => {
     const bridge = fixtureBridge();
     bridge.scenarioEngine?.advance(ROSTER_POPULATED_MS);
 
-    const response = await rosterReadsFor(bridge, COLLABORATION_SCENARIO.sessionId).readRoster({
-      sessionId: COLLABORATION_SCENARIO.sessionId as SessionId,
+    const response = await rosterReadsFor(bridge, SETTINGS_SCENARIO.sessionId).readRoster({
+      sessionId: SETTINGS_SCENARIO.sessionId as SessionId,
     });
 
     expect(response.nodes.map((node) => node.nodeId)).toStrictEqual([
-      "node-sawyer-laptop",
-      "node-priya-desktop",
-      "node-tomas-runner",
+      "node-workstation",
+      "node-builder",
     ]);
   });
 
@@ -292,8 +286,8 @@ describe("absorbed surfaces — the read seam the roster is handed", () => {
     bridge.scenarioEngine?.advance(ROSTER_POPULATED_MS);
 
     await expect(
-      rosterReadsFor(bridge, COLLABORATION_SCENARIO.sessionId).readRoster({
-        sessionId: COLLABORATION_SCENARIO.sessionId as SessionId,
+      rosterReadsFor(bridge, SETTINGS_SCENARIO.sessionId).readRoster({
+        sessionId: SETTINGS_SCENARIO.sessionId as SessionId,
       }),
     ).resolves.toBeDefined();
   });
@@ -303,8 +297,8 @@ describe("absorbed surfaces — the read seam the roster is handed", () => {
     // runs on every parent render. Composed fresh each call, the seam would churn
     // the subscription on every keystroke above the mount.
     const bridge = fixtureBridge();
-    expect(rosterReadsFor(bridge, COLLABORATION_SCENARIO.sessionId)).toBe(
-      rosterReadsFor(bridge, COLLABORATION_SCENARIO.sessionId),
+    expect(rosterReadsFor(bridge, SETTINGS_SCENARIO.sessionId)).toBe(
+      rosterReadsFor(bridge, SETTINGS_SCENARIO.sessionId),
     );
   });
 
@@ -313,8 +307,8 @@ describe("absorbed surfaces — the read seam the roster is handed", () => {
     // reused for every bridge — would pass the case above while leaving a
     // replaced transport unnoticeable, which is the failure the identity exists
     // to make visible.
-    expect(rosterReadsFor(fixtureBridge(), COLLABORATION_SCENARIO.sessionId)).not.toBe(
-      rosterReadsFor(fixtureBridge(), COLLABORATION_SCENARIO.sessionId),
+    expect(rosterReadsFor(fixtureBridge(), SETTINGS_SCENARIO.sessionId)).not.toBe(
+      rosterReadsFor(fixtureBridge(), SETTINGS_SCENARIO.sessionId),
     );
   });
 
@@ -324,43 +318,9 @@ describe("absorbed surfaces — the read seam the roster is handed", () => {
     const firstBridge = fixtureBridge();
     const secondBridge = createFixtureBridge({ scenario: NO_ROSTER_SCENARIO });
 
-    const firstSeam = rosterReadsFor(firstBridge, COLLABORATION_SCENARIO.sessionId);
+    const firstSeam = rosterReadsFor(firstBridge, SETTINGS_SCENARIO.sessionId);
     const secondSeam = rosterReadsFor(secondBridge, NO_ROSTER_SCENARIO.sessionId);
 
     expect(secondSeam).not.toBe(firstSeam);
-  });
-
-  it("hands back the bridge's own unsubscribe on a live subscription", () => {
-    const bridge = fixtureBridge();
-    let signals = 0;
-
-    const release = rosterReadsFor(bridge, COLLABORATION_SCENARIO.sessionId).subscribePresence(
-      COLLABORATION_SCENARIO.sessionId as SessionId,
-      () => {
-        signals += 1;
-      },
-    );
-    // The departure beat has to fall INSIDE the window-crossing advance below for
-    // the release assertion to mean anything. Shrink the coalescing window past this
-    // and the second advance stops reaching the beat, leaving a case that passes
-    // because nothing was ever scheduled — asserted rather than assumed.
-    expect(ROSTER_POPULATED_MS + PAST_REFRESH_DEBOUNCE_MS).toBeGreaterThan(RUNNER_DEPARTURE_MS);
-    // A presence beat asks for a re-read; it does not perform one. The ask lands in
-    // the seam's scheduler, so the clock has to cross the coalescing window before
-    // any reader is raised at all — advancing only to the roster beat would read
-    // zero here and say nothing about the release.
-    bridge.scenarioEngine?.advance(ROSTER_POPULATED_MS);
-    bridge.scenarioEngine?.advance(PAST_REFRESH_DEBOUNCE_MS);
-    const signalsWhileSubscribed = signals;
-    release();
-    // The departure beat has already landed inside that second advance, so a refresh
-    // is pending for it at the moment of release. Crossing the window again is what
-    // makes the assertion below load-bearing: the scheduled raise this reader would
-    // have taken fires into a released seam.
-    bridge.scenarioEngine?.advance(PAST_REFRESH_DEBOUNCE_MS);
-
-    expect(signalsWhileSubscribed).toBeGreaterThan(0);
-    // Released means released: the departure beat past the release reaches nobody.
-    expect(signals).toBe(signalsWhileSubscribed);
   });
 });

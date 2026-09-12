@@ -23,19 +23,20 @@ export interface CastBarSessionStateProps {
  * The wire's own session state.
  *
  * Three arms, and they are the three facts: the state, the read still in flight, and
- * the refusal. The refusal is RENDERED rather than swallowed, because a bar that
+ * the refusal. The refusal is RENDERED rather than swallowed, because a header that
  * showed an id with no state beside it is indistinguishable from one whose session is
  * genuinely `active` — and only one of those is something the console established.
  *
- * Inline is the shape rule 9 assigns it: a read that did not answer changed nothing.
+ * Inline is the shape the refusal grammar assigns it: a read that did not answer
+ * changed nothing.
  * The session is what it was, the id beside it is still true, and the operator can
  * put the question again by reopening the session. A card would file this in the
  * ledger as something that happened to the session, and a banner would say the whole
- * room can no longer do something — and neither is true of a read that failed.
+ * session can no longer do something — and neither is true of a read that failed.
  *
  * `tone="neutral"` on every state, including `purged`. A chip coloured by which state
- * it carries would be this bar deciding which session states are alarming, on a
- * surface whose one colour rule spends hue on identity.
+ * it carries would be this header deciding which session states are alarming, and the
+ * two hues this console has both carry attention rather than classification.
  */
 export function CastBarSessionState(props: CastBarSessionStateProps): React.JSX.Element {
   const { identity } = props;

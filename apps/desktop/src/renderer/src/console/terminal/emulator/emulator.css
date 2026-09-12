@@ -9,8 +9,7 @@
  * family root for the shapes more than one directory reaches for. Every one is
  * imported from `console/terminal/index.ts` and from nowhere else, so the bundler
  * sees exactly one edge into each — which is what keeps this family out of the
- * document the operator waits for, per `Spec-023 §Console Design (Meridian)`
- * §Budgets.
+ * document the operator waits for.
  *
  * xterm.js draws inside `.meridian-terminal-host__surface`. Its own sheet
  * (`@xterm/xterm/css/xterm.css`, imported by `xterm-adapter.ts` so it rides the
@@ -30,8 +29,8 @@
 }
 
 /*
- * A read-only surface reads as read-only. Not a disabled control — 8.8 makes the
- * input area ABSENT for a watcher rather than disabled — so the signal is the
+ * A read-only surface reads as read-only. Not a disabled control — the input area is
+ * ABSENT for a watcher rather than disabled — so the signal is the
  * boundary, and the name the region carries says the rest.
  */
 .meridian-terminal-host[data-write-enabled="false"] {

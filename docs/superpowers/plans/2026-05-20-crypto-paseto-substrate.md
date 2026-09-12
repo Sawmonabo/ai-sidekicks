@@ -17,11 +17,11 @@
 | [Design spec](../specs/2026-05-20-crypto-paseto-substrate-design.md) | Public surface contract; threat model; invariants I1–I6 |
 | [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md):129–136 | In-house lib mandate; dual-primitive coverage; audited deps; RFC conformance release gate |
 | [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md):29 | Plan-018 v4.local dependency declared |
-| [Plan-025](../../plans/025-self-hostable-node-relay.md) §Tier 1 Partial PR Sequence (lines 256–297) | Owning plan; carves Phase 1 substrate out from Tier 7 relay implementation |
-| [Spec-025](../../specs/025-self-hostable-node-relay.md) | Context only; `spec_coverage: []` (Spec-025 governs the relay surface, not package primitives) |
+| Plan-025 §Tier 1 Partial PR Sequence (lines 256–297) | Owning plan; carves Phase 1 substrate out from Tier 7 relay implementation |
+| Spec-025 | Context only; `spec_coverage: []` (Spec-025 governs the relay surface, not package primitives) |
 | [Cross-plan dependencies](../../architecture/cross-plan-dependencies.md) §5 + Plan-025 Substrate-vs-Namespace Carve-Out | Names Plan-018 Tier 5 as the persistence owner for KeyRing |
 | [Plan-implementation readiness-audit runbook](../../operations/plan-implementation-readiness-audit-runbook.md) §Per-Phase Audit Semantics | Admits `substrate_exempt` for this phase |
-| [Plan-002](../../plans/002-invite-membership-and-presence.md) Phase 2 precondition | Downstream consumer (CP-002-4) — invite-token minting |
+| Plan-002 Phase 2 precondition | Downstream consumer (CP-002-4) — invite-token minting |
 | [CONTRIBUTING.md](../../../CONTRIBUTING.md) | GitFlow-lite; Conventional Branch; Conventional Commits |
 | [AGENTS.md](../../../AGENTS.md) | Primary-source citation discipline |
 
@@ -43,7 +43,7 @@ This phase is admitted under the readiness-audit runbook's `substrate_exempt` pr
 ```yaml
 audit_status: substrate_exempt
 substrate_carveout: 1
-cross_plan_carve_out: ../architecture/cross-plan-dependencies.md#plan-025-substrate-vs-namespace-carve-out-tier-1--tier-7
+cross_plan_carve_out: ../architecture/cross-plan-dependencies.md
 spec_coverage: []
 ```
 
@@ -2150,7 +2150,7 @@ This task is **not** part of the code PR — it's the doc-only follow-ups owed a
 
 - [ ] **Item 1: Plan-002 Phase 2 precondition update**
 
-File: `docs/plans/002-invite-membership-and-presence.md`. Phase 2 precondition reads "Plan-025 Tier 1 Partial merged". Update its satisfaction state and cite this PR's squash-merge SHA on `develop`.
+File: Plan-002. Phase 2 precondition reads "Plan-025 Tier 1 Partial merged". Update its satisfaction state and cite this PR's squash-merge SHA on `develop`.
 
 - [ ] **Item 2: File `BL-NNN` — Plan-025 doc drift**
 

@@ -2,8 +2,8 @@
 //
 // WHY IT IS ONE CLASS AND NOT ONE PER SURFACE
 //
-// The membership ledger changes a role, suspends, reactivates, and revokes; the
-// sent-invite ledger revokes. Five controls, one shape: exactly one
+// The channel directory mutes, unmutes, and archives; the create form creates. Four
+// controls, one shape: exactly one
 // may be in flight at a time, the pressed control settles in place, the daemon's
 // refusal renders against the row that asked for it, and nothing is applied
 // locally before the call returns. Written per surface that is two copies of a
@@ -19,21 +19,21 @@
 // disable would each start a second call. So `run` refuses rather than calls
 // while one is unsettled. It refuses AUDIBLY, against the key that was attempted,
 // because a press that vanishes is indistinguishable from one the daemon ignored.
-// It does not queue: a membership change held and applied later is a second act
+// It does not queue: a lifecycle change held and applied later is a second act
 // nobody re-confirmed, against a row whose state may have moved underneath it.
 //
 // WHY THE REFUSAL IS KEYED
 //
-// A section holds several rows and each can refuse differently: one membership
-// answers `membership.last_owner` while its neighbour answers nothing at all.
+// A section holds several rows and each can refuse differently: one channel
+// answers `channel.archived` while its neighbour answers nothing at all.
 // A single "last error" field would render the wrong row's refusal beside the
 // right row's control. The key is whatever the caller uses to name the subject —
-// a membership id or an invite id.
+// a channel id.
 //
 // AND WHY THE SUBJECT MOVING IS A DIFFERENT QUESTION FROM A SECOND PRESS
 //
 // A key names one ROW. The surface that holds those rows has a subject of its own —
-// the session the ledger belongs to — and that subject can move out from under a
+// the session the directory belongs to — and that subject can move out from under a
 // call already in flight, which no keyed refusal can express: the row the reply
 // names does not exist in the session now on screen, and the latch it releases
 // would be releasing a control nobody in this session ever pressed. So a holder
@@ -94,11 +94,9 @@ export const COLLABORATION_REFUSAL_ORIGIN = "collaboration";
  * registry's own suite — and it stays because it is the half that fails at the CALL,
  * the moment a write is rostered ahead of a schema for it, rather than at the wire.
  *
- * DAEMON-AS-GATEWAY, per the shipped `invite-accept-view.tsx`: the renderer speaks one
- * transport and the daemon proxies the control-plane `invite.*` and `membership.*`
- * methods behind it. `controlPlane.call` is deliberately not used — it would open a
- * second seam this client does not have, and the one shipped caller of these wires
- * established which side of that line they sit on.
+ * DAEMON-AS-GATEWAY: the renderer speaks one transport and the daemon proxies
+ * whatever sits behind it. `controlPlane.call` is deliberately not used — it would
+ * open a second seam this client does not have.
  */
 export type CollaborationMutationMethod = MutatingDaemonMethod & ConsoleDaemonMethod;
 
@@ -107,7 +105,7 @@ export type CollaborationMutationMethod = MutatingDaemonMethod & ConsoleDaemonMe
  *
  * Console-local rather than a wire code, and named so it reads as one: nothing was
  * sent, so no daemon namespace may be quoted here. A refusal wearing
- * `membership.conflict` would attribute this console's own rule to the daemon.
+ * `channel.conflict` would attribute this console's own rule to the daemon.
  */
 const MUTATION_IN_FLIGHT_CODE = "mutation-in-flight";
 
@@ -200,7 +198,7 @@ export class WireMutationCoordinator<TRequest, TResponse> {
 
   public constructor(options: {
     readonly perform: WireMutation<TRequest, TResponse>;
-    /** One noun for the refusal sentence — "the role change", "the invite". */
+    /** One noun for the refusal sentence — "the mute", "the channel". */
     readonly describeWhat: string;
     /**
      * Which refusals STAND against their subject once the call has settled. Every one
@@ -387,8 +385,8 @@ export function useWireMutation<TRequest, TResponse>(
 /**
  * One growth-port WRITE, as the shape a coordinator consumes.
  *
- * `daemonMutation`'s twin, and two functions rather than one over both because the
- * two seams answer in two vocabularies: the call door answers `DaemonReply` and the
+ * A separate function from the call door's own binding because the two seams answer
+ * in two vocabularies: the call door answers `DaemonReply` and the
  * growth port answers `GrowthOutcome`, whose refused arm names the operation, the
  * slate row, and the document that owes the wire. This is where the second becomes the
  * first — and it is a WIDENING and not a translation: a `GrowthUnavailable` already IS

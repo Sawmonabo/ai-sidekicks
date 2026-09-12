@@ -1,11 +1,11 @@
 // Where this family's sidebar sections are filled, and nothing else.
 //
-// ONE BODY, NOT EIGHT. `seats/slots/sidebar-sections.ts` carries all eight sections the
-// spec names and splits them across three families: `channels`, `agents`, and
-// `members` are the collaboration family's, `repos` and `artifacts` the repos
-// family's, and `goal`, `runs`, and `approvals` this one's. Each registers its
-// own through the same seat — which is the whole reason the seat exists, because
-// eight bodies edited into one component would be seven merge conflicts.
+// ONE BODY, NOT SEVEN. `seats/slots/sidebar-sections.ts` carries all seven sections
+// and splits them across three families: `channels` and `agents` are the session
+// surfaces family's, `repos` and `artifacts` the repos family's, and `goal`, `runs`,
+// and `approvals` this one's. Each registers its own through the same seat — which is
+// the whole reason the seat exists, because seven bodies edited into one component
+// would be six merge conflicts.
 //
 // ALL THREE HAVE A BODY HERE. `runs` and `approvals` are the sidebar's own
 // independently loaded reads — the seat's own header states why the approvals PANE was

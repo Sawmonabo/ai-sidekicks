@@ -92,7 +92,6 @@ describe("SessionBootstrap", () => {
     const daemonCall = vi.fn().mockResolvedValue({
       sessionId: knownSessionId,
       state: "active",
-      memberships: [],
       channels: [],
     });
     installMockBridge(daemonCall);
@@ -165,7 +164,6 @@ describe("SessionBootstrap", () => {
       const daemonCall = vi.fn().mockResolvedValue({
         sessionId: knownSessionId,
         state: "active",
-        memberships: [],
         channels: [],
       });
       installMockBridge(daemonCall);
@@ -212,7 +210,6 @@ describe("SessionBootstrap", () => {
       const daemonCall = vi.fn().mockResolvedValue({
         sessionId: knownSessionId,
         state: "active",
-        memberships: [],
         channels: [],
       });
       installMockBridge(daemonCall);

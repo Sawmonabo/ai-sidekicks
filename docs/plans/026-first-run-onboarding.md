@@ -352,7 +352,7 @@ Each entry transcribes an obligation already committed in the named counterparty
 
 **Obligation.** This plan registers `onboarding.spki_mismatch` in [error-contracts.md](../architecture/contracts/error-contracts.md) but never raises it: the raiser is Plan-008's hosted-relay TOFU verification path. [Spec-026 §Fallback Behavior](../specs/026-first-run-onboarding.md#fallback-behavior) explicitly defers the Spec-008-side event registration for that refusal path rather than omitting it by oversight, so the corpus intends the code to cross the plan boundary — what has been missing is a durable carrier making the crossing auditable at Plan-008's own dispatch. This row is that carrier.
 
-**Resolution.** Registration-only on this side; the return-cite is owed at Plan-008's dispatch, not at this audit. Plan-008 is Tier 5 and already `approved`; nothing here re-opens it and no Tier-5 amendment is requested. A wire-visible error code with a named downstream consumer and no obligation row is invisible to consumer-side dependency checks — the consumer is precisely the party that does not know — which is why the row exists rather than a prose note. **Direction:** Provide to [Plan-008](./008-control-plane-relay-and-session-join.md). **Tasks:** T3.4 (registration only).
+**Resolution.** Registration-only on this side; the return-cite is owed at Plan-008's dispatch, not at this audit. Plan-008 is Tier 5 and already `approved`; nothing here re-opens it and no Tier-5 amendment is requested. A wire-visible error code with a named downstream consumer and no obligation row is invisible to consumer-side dependency checks — the consumer is precisely the party that does not know — which is why the row exists rather than a prose note. **Direction:** Provide to Plan-008. **Tasks:** T3.4 (registration only).
 
 ### CP-026-6 — Provider registry and readiness consumed from Plan-029
 
@@ -1023,8 +1023,6 @@ And **strictly upstream** of nothing — it is a leaf-node plan. CLI-first-relea
 - [Spec-026: First-Run Three-Way-Choice Onboarding](../specs/026-first-run-onboarding.md)
 - [Spec-023: Desktop Shell And Renderer](../specs/023-desktop-shell-and-renderer.md)
 - [Spec-007: Local IPC And Daemon Control](../specs/007-local-ipc-and-daemon-control.md)
-- [Spec-025: Self-Hostable Node Relay](../specs/025-self-hostable-node-relay.md)
-- [Spec-008: Control-Plane Relay And Session Join](../specs/008-control-plane-relay-and-session-join.md)
 - [Spec-006: Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md)
 - [ADR-020: V1 Deployment Model And OSS License](../decisions/020-v1-deployment-model-and-oss-license.md)
 - [ADR-016: Electron Desktop Shell](../decisions/016-electron-desktop-shell.md)
@@ -1035,7 +1033,6 @@ And **strictly upstream** of nothing — it is a leaf-node plan. CLI-first-relea
 - [Security Architecture](../architecture/security-architecture.md)
 - [Plan-023: Desktop Shell And Renderer](./023-desktop-shell-and-renderer.md)
 - [Plan-007: Local IPC And Daemon Control](./007-local-ipc-and-daemon-control.md)
-- [Plan-025: Self-Hostable Node Relay](./025-self-hostable-node-relay.md)
 
 ### External primary sources
 

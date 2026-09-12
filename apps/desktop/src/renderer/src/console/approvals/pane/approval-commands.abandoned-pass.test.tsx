@@ -54,7 +54,6 @@ function inputResolvingThrough(
     resolveRefusalByApprovalId: new Map<string, ConsoleRefusal>(),
     resolve,
     goal: NO_GOAL,
-    canMutateGoal: false,
     isMutatingGoal: false,
     clearGoal: () => undefined,
   };

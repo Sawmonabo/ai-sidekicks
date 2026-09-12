@@ -15,10 +15,9 @@ import { type SidebarBulkItem } from "../../../seats/index.js";
 import { BulkActionBar } from "./BulkActionBar.js";
 import { BulkSelectionModel } from "./bulk-selection.js";
 
-const SESSION_ID = "9f2c4a10-0000-4000-8000-0000000000aa";
 const QUEUE_ITEM_ONE = "9f2c4a10-0000-4000-8000-000000000001";
 const QUEUE_ITEM_TWO = "9f2c4a10-0000-4000-8000-000000000002";
-const INVITE_ID = "9f2c4a10-0000-4000-8000-0000000000bb";
+const WORKTREE_ID = "9f2c4a10-0000-4000-8000-0000000000bb";
 
 const FIRST_QUEUED: SidebarBulkItem = {
   sectionId: "runs",
@@ -32,11 +31,11 @@ const SECOND_QUEUED: SidebarBulkItem = {
   itemId: QUEUE_ITEM_TWO,
   label: "Rebase onto develop",
 };
-const INVITE: SidebarBulkItem = {
-  sectionId: "members",
-  act: "revoke-invite",
-  itemId: INVITE_ID,
-  label: "ada@example.test",
+const WORKTREE: SidebarBulkItem = {
+  sectionId: "repos",
+  act: "retire-worktree",
+  itemId: WORKTREE_ID,
+  label: "implementer",
 };
 
 function renderBar(
@@ -45,9 +44,7 @@ function renderBar(
 ): HTMLElement {
   const bridge =
     options.bridge ?? createFixtureBridge({ scenario: unscriptedScenario("sidebar-bulk-bar") });
-  const { container } = render(
-    <BulkActionBar model={model} bridge={bridge} sessionId={SESSION_ID} />,
-  );
+  const { container } = render(<BulkActionBar model={model} bridge={bridge} />);
   return container;
 }
 
@@ -65,7 +62,7 @@ function renderRoutableBar(model: BulkSelectionModel): {
 } {
   const bridge = createFixtureBridge({ scenario: unscriptedScenario("sidebar-bulk-bar") });
   const barFor = (forModel: BulkSelectionModel): React.JSX.Element => (
-    <BulkActionBar model={forModel} bridge={bridge} sessionId={SESSION_ID} />
+    <BulkActionBar model={forModel} bridge={bridge} />
   );
   const { container, rerender } = render(barFor(model));
   return {
@@ -102,18 +99,26 @@ describe("the bulk action bar", () => {
   });
 
   it("offers one act per act in the selection, each with its own count", () => {
-    // Two acts because two kinds of row are selected — and NOT three, which is what
-    // a bar drawn from the act table rather than from the selection would show.
+    // Two acts because two kinds of row are selected, and one act when only one kind
+    // is — a bar drawn from the act table rather than from the selection would offer
+    // both buttons in each case.
     const model = new BulkSelectionModel();
     model.toggle(FIRST_QUEUED);
     model.toggle(SECOND_QUEUED);
-    model.toggle(INVITE);
+    model.toggle(WORKTREE);
 
     const container = renderBar(model);
 
     expect(buttonsNamed(container, ".meridian-sidebar-bulk__act")).toStrictEqual([
       "Cancel queued (2)",
-      "Revoke invites (1)",
+      "Retire worktrees (1)",
+    ]);
+
+    const queuedOnly = new BulkSelectionModel();
+    queuedOnly.toggle(FIRST_QUEUED);
+
+    expect(buttonsNamed(renderBar(queuedOnly), ".meridian-sidebar-bulk__act")).toStrictEqual([
+      "Cancel queued (1)",
     ]);
   });
 

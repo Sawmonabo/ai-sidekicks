@@ -130,7 +130,7 @@
 // bridge-driven test. A surface whose only reachable state is its refusal is a
 // surface nothing has drawn.
 //
-// ITS UNSCRIPTED ARM IS THE INVITE LEDGER'S AND NOT THE APPROVALS READS', and the
+// ITS UNSCRIPTED ARM IS THE EMPTY SET AND NOT THE APPROVALS READS' REFUSAL, and the
 // agent plane's own section in `growth/growth-port.ts` gives the reason: a session
 // with no agents attached is what a fresh session IS, so the empty roster is a state
 // the agent console and this chip both have to draw rather than a claim no script
@@ -182,7 +182,7 @@
 //
 // It is served here so a scenario can put the centre in that arm, and it REFUSES for
 // a scenario that scripts nothing, which is `callerParticipantRead`'s disposition
-// rather than the invite ledger's: a permission has no empty form. "Nobody asked"
+// rather than an empty answer: a permission has no empty form. "Nobody asked"
 // is a true statement about a script that has not said, and answering `granted`
 // would be the fixture promising a notification nothing in the console can deliver.
 //
@@ -215,8 +215,8 @@
 // completed download, and its bundled asset set were folded out of the shelf and it
 // reported that nothing had been produced.
 //
-// AND THE UNSCRIPTED ARM IS THE EMPTY SET rather than a refusal, on the invite
-// ledger's rule: a session whose browser has produced nothing is an ordinary session
+// AND THE UNSCRIPTED ARM IS THE EMPTY SET rather than a refusal, on the same rule: a
+// session whose browser has produced nothing is an ordinary session
 // and the shelf draws it, whereas a refusal here would claim the question was never
 // asked. A scenario that publishes artifacts and names none of them as browser
 // output is saying they came from somewhere else, which is the answer this serves.
@@ -228,8 +228,8 @@
 // no field at all, so under a refusing port both were unreachable in every scenario,
 // screenshot, and bridge-driven test.
 //
-// AND IT IS SCRIPT-ONLY, which is the `workflowRunRead` disposition and not the invite
-// ledger's. This read is ADDRESSED BY A SUBJECT — it answers facts about one named
+// AND IT IS SCRIPT-ONLY, which is the `workflowRunRead` disposition and not the empty
+// set's. This read is ADDRESSED BY A SUBJECT — it answers facts about one named
 // workspace — so an empty form would assert that the workspace exists and is bound to
 // no root at all, which for a workspace no author declared is an invention rather than
 // an absence. A scenario that scripts nothing for a workspace therefore gets the
@@ -257,7 +257,6 @@ import { FIXTURE_SERVED_ATTACHMENT_INGEST_OPERATION_IDS } from "../growth/attach
 import { FIXTURE_SERVED_COLLABORATION_OPERATION_IDS } from "../collaboration/collaboration-reads.js";
 import { FIXTURE_SERVED_SESSION_OPERATION_IDS } from "../collaboration/session-answers.js";
 import { FIXTURE_SERVED_DIAGNOSTICS_OPERATION_IDS } from "../settings/diagnostics-reads.js";
-import { FIXTURE_SERVED_INVITE_OPERATION_IDS } from "../invites/invite-answers.js";
 import { FIXTURE_SERVED_MCP_OPERATION_IDS } from "../settings/mcp-governance.js";
 import { FIXTURE_SERVED_ONBOARDING_OPERATION_IDS } from "../settings/onboarding-answers.js";
 import { FIXTURE_SERVED_PRESENCE_OPERATION_IDS } from "../shell/presence-answers.js";
@@ -303,7 +302,6 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "terminalReleaseWriteLease",
   "workspaceExecutionContextRead",
   ...typeof FIXTURE_SERVED_COLLABORATION_OPERATION_IDS,
-  ...typeof FIXTURE_SERVED_INVITE_OPERATION_IDS,
   ...typeof FIXTURE_SERVED_PRESENCE_OPERATION_IDS,
   "providerSessionImportBegin",
   "providerSessionImportSubscribe",
@@ -378,16 +376,11 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // repos — the workspace's own execution context, answered from a scenario that
   // scripts one and refused for one that does not. See the header.
   "workspaceExecutionContextRead",
-  // channels and memberships — the four lifecycle verbs, the channel roster read, the
-  // membership roster read, and one participant's per-device presence, taken from the
-  // module that implements them so the ids and the handlers cannot disagree. Every one
-  // is script-only, and `collaboration/collaboration-reads.ts` carries the reasoning for each.
+  // channels — the four lifecycle verbs, the one user's per-device presence, and the
+  // terminal-control holder, taken from the module that implements them so the ids and
+  // the handlers cannot disagree. Every one is script-only, and
+  // `collaboration/collaboration-reads.ts` carries the reasoning for each.
   ...FIXTURE_SERVED_COLLABORATION_OPERATION_IDS,
-  // invite — the sent-invite ledger read and the whole pending lifecycle, so the
-  // confirmation's six outcome arms are each reachable from a scenario rather than only
-  // from a unit case. Taken from the module that implements them, which carries the
-  // reasoning for each.
-  ...FIXTURE_SERVED_INVITE_OPERATION_IDS,
   // presence — the activity read and the node's own control-plane host, from the same
   // kind of module. The composer's two writes are deliberately absent, and
   // `shell/presence-answers.ts` says why.

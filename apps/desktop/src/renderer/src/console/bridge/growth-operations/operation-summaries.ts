@@ -111,7 +111,6 @@ export const GROWTH_OPERATION_SUMMARIES: Readonly<Record<GrowthOperationId, stri
     "put the telemetry question in front of the participant as its own step, after the relay choice resolves and never bundled into it",
   shellConfigRead: "read the shell-level preferences",
   shellConfigWrite: "set one shell-level preference",
-  invitesList: "list pending invites",
   healthSubscribe: "node health for the strip and the park banner",
   sessionSearch: "search sessions from the palette and the all-sessions list",
   sessionGoalUpdate:
@@ -188,8 +187,6 @@ export const GROWTH_OPERATION_SUMMARIES: Readonly<Record<GrowthOperationId, stri
     "read which of a session's participants this window is, so a members surface can address the sender and an approvals control can resolve the caller's own role rather than treating an unread one as read-only",
   callbackToolRegistryRead:
     "read the callback tools registered into a session, so the approvals pane can name what an agent may call rather than only what it has already been seen calling",
-  membershipRosterRead:
-    "read a membershipId beside each of a session's participants, so the membership controls are reachable on a session this window did not create",
   participantPresenceDetailRead:
     "read one participant's per-device presence fan-out, which is the detail the roster's density rule promises one hover away and which no registered reply carries today",
   // agents.ts
@@ -266,28 +263,9 @@ export const GROWTH_OPERATION_SUMMARIES: Readonly<Record<GrowthOperationId, stri
     "return a muted channel to the ordinary attention weight, the one lifecycle move that is reversible",
   channelArchive:
     "retire a channel terminally, so the directory can sink it below the live rows and stop offering it as somewhere to work",
-  channelRosterRead:
-    "read each channel's kind, its member pair where it has one, and the configuration whose audience says whether this session's agents read it — the three facts a directory needs to badge a row and to label a direct channel by the other human in it",
   // presence.ts
   presenceActivityRead:
-    "read the session's live activity state — who is composing where, and which runs are working where — so the indicators beside a channel and a roster row have a producer at all",
-  presenceComposingSet:
-    "say that this participant is composing in one channel, so the indicator the console renders for everyone else has a sender on this machine too",
-  presenceComposingClear:
-    "say that this participant has stopped, so a reader's indicator ends on a signal rather than on the receiver's stale bound",
-  // invites.ts
-  invitePendingSubscribe:
-    "receive the invitations waiting on this participant's confirmation, each as an opaque reference main can resolve and this renderer cannot",
-  inviteOutcomeSubscribe:
-    "receive how an attempt on one of those references ended — joined, or needing authentication, or refused — since acceptance runs in main and its reply is not where the answer lands",
-  inviteConfirmPending:
-    "confirm one pending invitation by its reference, which is the only act that accepts and happens only when a person asks for it",
-  inviteRetryPending:
-    "re-drive the preview of one outstanding deep link by the opaque attempt handle its unavailable state supplied, which names which link failed and can confirm nothing",
-  inviteDismissPending:
-    "put one pending invitation away and release its reference, sending no decline verb anywhere because declining is implicit",
-  controlPlaneHostRead:
-    "read the host this node's control plane answers on, so a freshly minted invitation can be shown as the link a person actually sends rather than as an identifier that opens nothing",
+    "read the session's live activity state — which runs are working where — so the indicators beside a channel have a producer at all",
   // run-records.ts
   runRecordInterventionHistoryRead:
     "read every durable intervention raised against one run — its origin discriminator, the admitting principal on the participant arm, the queue item it admitted, and the decrypted directive where the authoring participant's key still opens it",

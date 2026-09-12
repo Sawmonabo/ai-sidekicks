@@ -258,9 +258,8 @@ const ARTIFACT_REFUSAL_RECOVERIES: Readonly<Record<ArtifactRefusalCode, Artifact
     "artifact.delete_forbidden": {
       // Deliberately distinct from the code above: that one is referential integrity a
       // differently-ordered delete sequence remedies, and this one no delete order does.
-      // The roles are stated because the permission matrix is public surface.
       nextMove:
-        "This is a permission answer rather than an ordering one, so deleting something else first does not help. An owner may delete any artifact in the session and a collaborator only the ones they produced; the artifact, its payload references, and its bytes are all unchanged.",
+        "This is a permission answer rather than an ordering one, so deleting something else first does not help. The daemon refused the delete itself; the artifact, its payload references, and its bytes are all unchanged.",
       distinctions: NO_DISTINCTIONS,
     },
     "artifact.relay_expired": {

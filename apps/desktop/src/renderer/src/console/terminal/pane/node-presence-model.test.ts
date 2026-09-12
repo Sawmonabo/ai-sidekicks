@@ -8,7 +8,7 @@
 // same member name as a `CapabilityDetails` snapshot, so a fold keyed on the member
 // read a capability health change as a presence transition and lost the host. The
 // RESOLUTION is deliberately narrow: it answers only where the session has exactly
-// one attached node, because the wire carries no link from a lease holder to the
+// one attached node, because the wire carries no link from a hold to the
 // machine it sits on, and every case below that would pass against an
 // implementation that guessed has a control that fails against one.
 
@@ -215,7 +215,7 @@ describe("resolving a holding node — one host, or no answer", () => {
     ).toStrictEqual({ nodeId: HOST_NODE_ID, isReachable: true });
   });
 
-  it("refuses to pick between two hosts, because the wire links neither to a holder", () => {
+  it("refuses to pick between two hosts, because the wire links neither to the hold", () => {
     expect(
       resolveSoleHoldingNode([
         { nodeId: HOST_NODE_ID, reachability: "unreachable" },

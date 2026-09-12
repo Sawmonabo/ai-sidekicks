@@ -9,8 +9,7 @@
  * family root for the shapes more than one directory reaches for. Every one is
  * imported from `console/terminal/index.ts` and from nowhere else, so the bundler
  * sees exactly one edge into each — which is what keeps this family out of the
- * document the operator waits for, per `Spec-023 §Console Design (Meridian)`
- * §Budgets.
+ * document the operator waits for.
  */
 
 /*

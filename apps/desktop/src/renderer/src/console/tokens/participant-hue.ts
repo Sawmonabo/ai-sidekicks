@@ -92,7 +92,7 @@ export class ParticipantHueAllocator {
    * discriminator between the first two — so the wheel is keyed on WHOEVER an event is
    * attributed to, and both kinds get a colour by the same hash, on the same wheel,
    * with the same re-admission rule. It has to be one wheel: two people and an agent
-   * are three speakers on one timeline, and colouring agents from a second wheel would
+   * are three speakers on the same timeline, and colouring agents from a second wheel would
    * let one collide with a participant it sits next to. The parameter keeps the
    * `participantId` spelling every caller and helper here already uses; what it names
    * is an identity on the wheel, not a claim about which kind it is.

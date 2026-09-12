@@ -17,7 +17,6 @@ import type { ChannelGrowthSignatures } from "./channels.js";
 import type { DiagnosticsGrowthSignatures } from "./diagnostics.js";
 import type { GitflowGrowthSignatures } from "./gitflow.js";
 import type { IdentityGrowthSignatures } from "./identity.js";
-import type { InviteGrowthSignatures } from "./invites.js";
 import type { LedgerGrowthSignatures } from "./ledger.js";
 import type { McpGrowthSignatures } from "./mcp.js";
 import type { PaneGrowthSignatures } from "./panes.js";
@@ -55,5 +54,4 @@ export interface GrowthOperationSignatures
     McpGrowthSignatures,
     ChannelGrowthSignatures,
     PresenceGrowthSignatures,
-    InviteGrowthSignatures,
     RunRecordGrowthSignatures {}

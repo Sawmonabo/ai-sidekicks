@@ -74,8 +74,7 @@
 // opened no store, recorded no origin, and navigated nowhere, and the new session
 // stayed absent from the all-sessions list until the window came down. The probe
 // takes one additive, optional `onCreated` now, and `acts/session-start.ts` is what
-// a settled create reaches — beside `onJoined`, doing the same four things a settled
-// join does, for the act next door.
+// a settled create reaches.
 //
 // AND THE COMPOSED DRAFT REACHES THE SAME ACT, through the seat its two families meet
 // on. It had the same defect for the same reason from the other side: a completed send
@@ -100,15 +99,13 @@
 // `setState` produces the next render. Every dependency below is a STABLE
 // identity: a store, the bridge, or a wire-verbatim string off the route.
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import type { ConsoleSurfaceContext, NewSessionControlComponent } from "../seats/index.js";
-import { useConsoleClock, type GrowthPort } from "../bridge/index.js";
 import { NotificationCenter, useAttentionSettlementAnnouncement } from "./notifications/index.js";
 import { InlineRefusal } from "../primitives/index.js";
 import { absorbedSurfaceAsks, renderAbsorbedSessionProbe } from "../seats/index.js";
 import { useOpenSessionIds } from "../store/index.js";
-import { InviteShelf, type InviteShelfReader } from "./invitations/InviteShelf.js";
 import { useOpenSessionProjection } from "./rows/open-session-rows.js";
 import { useSessionPreferences } from "./rows/session-preferences.js";
 import { sessionListDegradation } from "./session-list-degradation.js";
@@ -153,13 +150,7 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   // looking at this screen, and the directory was read a second time on every window
   // that had this surface and the binding both. `SessionAttentionBinding.tsx` says the
   // rest; what matters here is that this surface has become a reader.
-  const {
-    directory,
-    sessionIds: attentionSessionIds,
-    reading: attention,
-    delivery,
-    retry: retryAttention,
-  } = useSessionAttention();
+  const { directory, reading: attention, delivery, retry: retryAttention } = useSessionAttention();
   const windowSessionIds = useOpenSessionIds(context.sessionStoreRegistry);
   // Every open session's own projection, not the route's. This address names no
   // session, so `context.sessionStore` is `undefined` here for the life of the
@@ -212,36 +203,6 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
       : undefined,
   });
 
-  // The invites read is scoped to one session on the wire and this destination is
-  // not, so it fans out over THE SAME session set the attention read asks about —
-  // the one `attentionSessionIds` already merged. Keyed on the route's session
-  // instead, this read asked about nothing at all: every address that mounts this
-  // surface is `kind: "sessions"` and names no session, so the projection was always
-  // `undefined` and every invitation the console could name was reported unasked.
-  //
-  // An empty set stays an empty fan-out, and the shelf renders "nothing was asked"
-  // rather than an empty inbox. Each session's outcome travels on its own, so one
-  // session's refusal cannot hide another's answer — the shelf merges them and
-  // reports a refusal only when nothing at all was served.
-  const { growth } = context.bridge;
-  const readInvites = useMemo<InviteShelfReader>(
-    () => inviteShelfReaderFor(growth, attentionSessionIds),
-    [growth, attentionSessionIds],
-  );
-
-  // The shelf arms one wake-up per outstanding invitation expiry, so it needs the
-  // clock this window runs on — the scenario's frozen one under the fixture, so a
-  // screenshot's expiry thresholds are byte-stable.
-  //
-  // Through the window's own clock hook rather than a memo of this surface's. The
-  // live arm of `consoleClockFor` MINTS, so its result is identity-unstable by
-  // construction, and a memo is a hint React is free to discard — which would hand
-  // the shelf a new clock identity on a pass the bridge never moved on, and
-  // `useDeadlineWake` takes the clock as its SUBJECT, so a re-minted one re-seeds the
-  // held instant. The hook pins the resolution in state, which is where a resource
-  // identity belongs.
-  const shelfClock = useConsoleClock();
-
   // Every act a press on this destination performs, bound to the context above.
   // `acts/session-destination-acts.ts` owns what each one DOES; this file owns where
   // they are drawn and what closes them.
@@ -284,17 +245,6 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
           }
           setStartRequestCount((previous) => previous + 1);
         }}
-        onJoined={(sessionId) => {
-          // A SETTLED join and never the press. The node's directory now answers a
-          // session it did not answer a moment ago, and this window's binding read that
-          // list once for the whole window — so without this the joined session is
-          // absent from the all-sessions list until the window comes down. The act has
-          // already settled and carries the session it joined, which is what makes this
-          // a read of something that HAPPENED rather than a guess put beside a call
-          // still in flight.
-          recheckSessionDirectory();
-          openSession(sessionId);
-        }}
         blockedReason={actBlock.act.sentence}
         startBlockedReason={actBlock.startBlockedSentence}
       />
@@ -334,7 +284,6 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
         </div>
 
         <aside className="meridian-sessions__aside" aria-label="What is waiting on you">
-          <InviteShelf read={readInvites} uiStateStore={context.uiStateStore} clock={shelfClock} />
           <NotificationCenter
             reading={attention}
             delivery={delivery}
@@ -363,23 +312,4 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
       )}
     </section>
   );
-}
-
-/**
- * The invitations read, fanned out over the sessions this destination can name.
- *
- * The mirror of `attentionProjectionReaderFor`, and deliberately its shape: both
- * wires are session-scoped, this destination is not, both are asked about the same
- * merged set, and both carry every session's outcome rather than only the served
- * ones — so each surface can tell a refused read from an empty answer for itself.
- *
- * An empty set answers an empty array rather than a refusal: nothing was asked, and
- * the shelf has its own sentence for that.
- */
-function inviteShelfReaderFor(
-  growth: GrowthPort,
-  sessionIds: readonly string[],
-): InviteShelfReader {
-  return async () =>
-    await Promise.all(sessionIds.map(async (sessionId) => await growth.invitesList({ sessionId })));
 }

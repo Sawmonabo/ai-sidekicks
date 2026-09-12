@@ -182,7 +182,7 @@ describe("the sidebar's models — a render React abandons leaves nothing behind
     const holder = new CollaborationSessionModelHolder();
 
     render(
-      <SurfaceErrorBoundary surfaceName="The members section">
+      <SurfaceErrorBoundary surfaceName="The channels section">
         <ExplodingProbe
           holder={holder}
           bridge={counted.bridge}
@@ -201,7 +201,7 @@ describe("the sidebar's models — a render React abandons leaves nothing behind
     const holder = new CollaborationSessionModelHolder();
 
     render(
-      <SurfaceErrorBoundary surfaceName="The members section">
+      <SurfaceErrorBoundary surfaceName="The channels section">
         <RenderTimeAcquisitionProbe
           holder={holder}
           bridge={counted.bridge}

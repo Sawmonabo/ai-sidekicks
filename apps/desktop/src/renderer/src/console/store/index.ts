@@ -105,16 +105,7 @@ export {
 // family's own store. Written twice before it was hoisted, and the second copy was
 // missing: a walkthrough that trapped focus and left the whole route surface reachable
 // behind it.
-//
-// The act and the act-taking hook are published beside the store-bound one because the
-// third caller cannot use that one: the window overlay seat hands its body acts and
-// never a store, and `seats/slots/window-overlay-seat.ts` types that prop from here.
-export {
-  modalSurfaceClaimFor,
-  useModalSurfaceClaim,
-  useModalSurfaceLifetime,
-  type ModalSurfaceClaimAct,
-} from "./shell/modal-surface-lifetime.js";
+export { useModalSurfaceLifetime } from "./shell/modal-surface-lifetime.js";
 
 // The shell's own condition, and the two derivations every reader of it shares.
 //
@@ -168,12 +159,10 @@ export {
   shellBlocksAreEqual,
   shellMutationBlock,
 } from "./shell/shell-mutation-block.js";
-// The refusal a block becomes, and the predicate that recognises one. Both leave the
-// family because both producers of a blocked dispatch are VIEW families and siblings
-// cannot reach each other: the invitation mint settles one, and so does the ledger's
-// ask answer. The origin string itself stays inside — it is the seam these two names
-// exist to keep from being spelled twice.
-export { isShellBlockRefusal, shellBlockRefusal } from "./shell/shell-mutation-block.js";
+// The refusal a block becomes. It leaves the family because the producer of a blocked
+// dispatch is a VIEW family and siblings cannot reach each other: the ledger's ask
+// answer settles one. The origin string itself stays inside.
+export { shellBlockRefusal } from "./shell/shell-mutation-block.js";
 export type { MutatingDaemonMethod, ShellMutationBlock } from "./shell/shell-mutation-block.js";
 // `useShellBlockFor` is the subscribed per-method reading every dispatching surface
 // draws its disabled state and its reason from — one hook rather than the same three
@@ -304,7 +293,6 @@ export { SessionRefreshTriggers } from "./read/refresh-triggers.js";
 // `useOpenSessionIds` ships with them because the sessions surface and the
 // context picker each have to name which sessions are open before either can
 // read one, and the registry is the only thing that knows.
-export { useCallerMembershipRole } from "./session/caller-membership-role.js";
 export { useFrameStore } from "./shell/frame-hooks.js";
 export { useLocationHash } from "./shell/location-hash.js";
 export {
@@ -313,13 +301,6 @@ export {
   useSessionPartition,
   useSessionStore,
 } from "./session/session-hooks.js";
-// `useSessionEntity` joins them for its own reason rather than theirs: it is the
-// NARROWEST subscription this family offers — one row, re-rendering when that row
-// changes and not when its neighbour does — and the surfaces that want one are view
-// families. The cast bar's participant card is the first: it reads one roster entry
-// out of the `participant` partition, and reaching for the partition instead would
-// re-render every open card whenever any member's row moved.
-export { useSessionEntity } from "./session/session-hooks.js";
 // The readings ABOUT a projection, from the module that holds them. Declared in a
 // second line rather than folded into the one above because they come from a second
 // module — a door re-exports a symbol from the module that DECLARES it, never through
@@ -437,20 +418,6 @@ export type { SessionStoreScoped } from "./session/session-store-rebind.js";
 
 export { GenerationLatch, useGenerationLatch } from "./read/generation-latch.js";
 export type { CurrentGenerationClaim, GenerationClaim } from "./read/generation-latch.js";
-// The caller's own membership role, forwarded with the two types a caller has to name
-// to use it. Two surfaces gate a control on it: the approvals pane's goal editor, and
-// the terminal lease line, where taking the shell is owner/collaborator-only so a
-// control offered on identity alone offered viewers and runtime contributors a
-// mutation that can only be refused. The reader is a PARAMETER because this family
-// sits below `bridge/` and may not reach a port, so the view family that can passes
-// one in — which is also why the two types travel: a caller adapting that outcome has
-// to be able to NAME the shape, and one mapping three arms onto what a control may
-// offer writes that mapping over the union rather than over a boolean it inferred.
-export type {
-  CallerMembershipRoleResult,
-  CallerParticipantReader,
-} from "./session/caller-membership-role.js";
-
 // The resume reading. Its consumer is the ledger surface that mounts a session's
 // workspace: the refused arm says the position this session was last read up to could
 // not be resolved and the log was re-read from the beginning of its window, which is a

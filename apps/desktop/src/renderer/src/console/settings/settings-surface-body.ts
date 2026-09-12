@@ -2,7 +2,7 @@
 //
 // THIS FILE IS A SECOND ENTRY POINT INTO THIS FAMILY, and everything about its shape
 // follows from that. `index.ts` is the family's door — what a sibling imports — and it
-// is reached from the console's initial import graph, because `collaboration-family.ts`
+// is reached from the console's initial import graph, because `session-surfaces-family.ts`
 // has to call the registrar before a route can resolve. This module is reached only by
 // the registrar's `body` loader, so what it imports is what a person pays for when they
 // open settings and never before.

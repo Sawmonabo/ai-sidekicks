@@ -12,7 +12,7 @@
 //   P1 — the table exists only AFTER applying v4 (probe
 //        `information_schema.tables`): absent at the "migrated through 0003"
 //        baseline, present after.
-//   P2 — `schema_migrations` carries (1, ...), (2, ...), (3, ...), and
+//   P2 — `schema_migrations` carries (1, ...), (3, ...), and
 //        (4, 'Event log anchors (integrity witness)').
 //   P3 — exact column set (the AC): EXACTLY the 8 columns of the canonical DDL,
 //        with their declared types and nullability.
@@ -32,15 +32,15 @@
 //        store's read/write path depends on it and the two drivers DIVERGE.
 //
 // ----------------------------------------------------------------------------
-// Why this file uses direct-exec v1 + v2 + v3 bootstrap + direct-exec v4
+// Why this file uses a direct-exec v1 + v3 bootstrap + direct-exec v4
 // ----------------------------------------------------------------------------
 //
 // This file exercises `EVENT_LOG_ANCHORS_MIGRATION_SQL` semantics in isolation
 // at the SQL layer. Post Plan-006 T3.3, `applyMigrations()` iterates
-// `MIGRATIONS = [v1, v2, v3, v4]` and applies ALL FOUR in one call, so using
+// every registered migration and applies them all in one call, so using
 // `applyMigrations()` in this file's `beforeEach` would pre-apply v4 —
 // defeating P1's "the table should not yet exist" probe and P2-P8's "apply v4
-// cleanly, then probe" structure. Instead `beforeEach` direct-execs v1, v2, and
+// cleanly, then probe" structure. Instead `beforeEach` direct-execs v1 and
 // v3 so each test starts at exactly the AC's precondition, mirroring the
 // pattern `0003-runtime-nodes.test.ts` states in full. Canonical-path runner
 // coverage (the v1..v4 loop and its idempotency) lives in
@@ -59,7 +59,6 @@ import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { INITIAL_MIGRATION_SQL } from "../0001-initial.js";
-import { SESSION_INVITES_MIGRATION_SQL } from "../0002-session-invites.js";
 import { RUNTIME_NODES_MIGRATION_SQL } from "../0003-runtime-nodes.js";
 import { EVENT_LOG_ANCHORS_MIGRATION_SQL } from "../0004-event-log-anchors.js";
 import { applyMigrations, type Querier } from "../../sessions/migration-runner.js";
@@ -69,6 +68,7 @@ import { applyMigrations, type Querier } from "../../sessions/migration-runner.j
 // ----------------------------------------------------------------------------
 
 const SESSION_ID = "01970000-0000-7000-8000-00000000a001";
+const SESSION_OWNER_ID = "01970000-0000-7000-8000-00000000b0ff";
 const ABSENT_SESSION_ID = "01970000-0000-7000-8000-00000000dead";
 const NODE_ID = "node-alpha";
 const ANCHORED_AT = "2026-08-04T00:00:00.000Z";
@@ -131,11 +131,7 @@ let ctx: TestContext;
 beforeEach(async () => {
   const pg: PGlite = new PGlite();
   const querier: Querier = adaptPGlite(pg);
-  for (const migrationSql of [
-    INITIAL_MIGRATION_SQL,
-    SESSION_INVITES_MIGRATION_SQL,
-    RUNTIME_NODES_MIGRATION_SQL,
-  ]) {
+  for (const migrationSql of [INITIAL_MIGRATION_SQL, RUNTIME_NODES_MIGRATION_SQL]) {
     // Each exec is wrapped in a transaction so the migration body and its
     // `schema_migrations` INSERT commit atomically — the same boundary the
     // canonical `applyMigrations` uses, inlined here.
@@ -158,9 +154,14 @@ async function applyEventLogAnchorsMigration(querier: Querier): Promise<void> {
   });
 }
 
-// Seed the FK ancestor. P6 deliberately skips it.
+// Seed the FK ancestors — a session needs the user who owns it. P6
+// deliberately skips both.
 async function seedSession(querier: Querier): Promise<void> {
-  await querier.query("INSERT INTO sessions (id) VALUES ($1)", [SESSION_ID]);
+  await querier.query("INSERT INTO participants (id) VALUES ($1)", [SESSION_OWNER_ID]);
+  await querier.query("INSERT INTO sessions (id, owner_user_id) VALUES ($1, $2)", [
+    SESSION_ID,
+    SESSION_OWNER_ID,
+  ]);
 }
 
 async function insertAnchor(
@@ -233,17 +234,17 @@ describe("0004-event-log-anchors migration (P1 — the table exists after v4)", 
 // ----------------------------------------------------------------------------
 
 describe("0004-event-log-anchors migration (P2 — schema_migrations anchor rows)", () => {
-  it("inserts (4, 'Event log anchors (integrity witness)') alongside (1..3)", async () => {
+  it("inserts (4, 'Event log anchors (integrity witness)') alongside (1, ...) and (3, ...)", async () => {
     await applyEventLogAnchorsMigration(ctx.querier);
 
     const probe = await ctx.querier.query<{ version: number; description: string }>(
       "SELECT version, description FROM schema_migrations ORDER BY version ASC",
     );
-    expect(probe.rows.map((row) => row.version)).toEqual([1, 2, 3, 4]);
+    expect(probe.rows.map((row) => row.version)).toEqual([1, 3, 4]);
     // The description is pinned defensively: `hasMigrationApplied` keys on
     // `version` alone, so a copy-pasted description would slip past every
     // version-only probe while making manual migration debugging misleading.
-    expect(probe.rows[3]?.description).toBe("Event log anchors (integrity witness)");
+    expect(probe.rows[2]?.description).toBe("Event log anchors (integrity witness)");
   });
 });
 
@@ -571,6 +572,6 @@ describe("0004-event-log-anchors migration (P10 — runner idempotency)", () => 
     const probe = await ctx.querier.query<{ version: number }>(
       "SELECT version FROM schema_migrations ORDER BY version ASC",
     );
-    expect(probe.rows).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }]);
+    expect(probe.rows).toEqual([{ version: 1 }, { version: 3 }, { version: 4 }]);
   });
 });

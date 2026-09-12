@@ -1,8 +1,8 @@
 // The console's own wrapper over `@xterm/xterm`: one terminal surface, composed.
 //
-// `Spec-023 §Console Libraries` ADOPTS `@xterm/xterm` 6.0.0 with the WebGL, fit,
-// search, unicode11, serialize, and web-links addons and OWN-BUILDS the React
-// wrapper, the renderer pool, and the link scheme guard, under five constraints.
+// The console adopts `@xterm/xterm` 6.0.0 with the WebGL, fit, search, unicode11,
+// serialize, and web-links addons and own-builds the React wrapper, the renderer pool,
+// and the link scheme guard, under five constraints.
 // Each one is a decision this family makes rather than a note a reviewer has to
 // remember, and each lives with the code that keeps it:
 //
@@ -231,7 +231,7 @@ export class XtermTerminalAdapter {
     this.#addons.fitGrid();
   }
 
-  /** The visible grid, as text. `Spec-023 §Console Libraries`' serialize addon. */
+  /** The visible grid, as text, through the serialize addon. */
   public serialize(): string {
     return this.#addons.serialize();
   }

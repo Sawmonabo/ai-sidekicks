@@ -153,7 +153,7 @@ export default {
         "`registerConsoleSurface`, which is a call and not an import — so the console imports " +
         "it through no path, and this rule takes no exception. It is deliberately not a ban on " +
         "every sibling subtree: Plan-023's Phase-1C rule has the console absorb the shipped " +
-        "Tier-1 components (`session-bootstrap/`, `session-members/`, `runtime-node-attach/`) " +
+        "Tier-1 components (`session-bootstrap/`, `runtime-node-attach/`) " +
         "by import, and a gate stricter than its own plan is a defect. A later plan whose page " +
         "mounts into the console adds its subtree to this list.",
       severity: "error",

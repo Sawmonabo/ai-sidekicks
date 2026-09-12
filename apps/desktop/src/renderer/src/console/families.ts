@@ -42,7 +42,7 @@
 // No logic lands here. If this file ever needs a condition, a try, or a value of
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
-import { registerCollaborationFamily } from "./collaboration-family.js";
+import { registerSessionSurfacesFamily } from "./session-surfaces-family.js";
 import { registerComposerFamily } from "../shell/index.js";
 import { registerPaneHarnessSurface } from "./frame/pane-harness/PaneHarnessSurface.js";
 import { registerRunLifecycleProjectors } from "./frame/run-projection/run-lifecycle-projector.js";
@@ -206,7 +206,7 @@ export function registerConsoleFamilies(
   // seven one-line diffs at seven distinct positions.
   registerLedger(surfaces, ledgerComposition); // T-023p-1C-2 ledger
   registerComposerFamily(projectors, sidebarSections); // T-023p-1C-3 composer
-  registerCollaborationFamily(surfaces, sidebarSections, projectors, frameBindings, sessionsMount); // T-023p-1C-4 collaboration
+  registerSessionSurfacesFamily(surfaces, sidebarSections, frameBindings, sessionsMount); // session surfaces
   registerRepos(sidebarSections, inlineCardSeats); // T-023p-1C-5 repos
   registerWorkflowSurfaces(surfaces, pinnedRegions); // T-023p-1C-6 workflows
   // T-023p-1C-7 browser-terminal

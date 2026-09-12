@@ -115,13 +115,6 @@ export const REPOS_SCENARIO: ConsoleScenario = {
   // the join order — that entry is whoever opened the session, on whichever machine.
   // The fixture's caller-identity read answers from this field and from nothing else.
   viewingParticipantId: PARTICIPANT_YOU,
-  // And their role, without which the identity above answers into an empty roster and
-  // every role-gated control renders closed for a reason nothing checked — which on
-  // this family's surfaces is the whole proposal gate. ONE ENTRY, not three: the
-  // members of the session are exactly the keys here, and the two agents are ATTACHED
-  // rather than admitted, so they hold no membership and no role. `owner`, because
-  // this participant is the one who attached both repositories.
-  membershipRoleByParticipantId: { [PARTICIPANT_YOU]: "owner" },
   startedAtIso: REPOS_SCENARIO_STARTED_AT_ISO,
   beats: [
     reposBeat({

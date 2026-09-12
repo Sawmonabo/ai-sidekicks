@@ -17,15 +17,14 @@
 // failure (the supplied sessionId does not resolve), matching the
 // `SecureDefaultsValidationError` "unknown setting" treatment.
 //
-// Throw sites: per Spec-007 AC-N2 + AC-N3, the `readSession` and
-// `joinSession` deps contracts (declared in `handlers/session-read.ts` and
-// `handlers/session-join.ts`) MUST surface unknown sessionIds by throwing
+// Throw site: the `readSession` deps contract (declared in
+// `handlers/session-read.ts`) MUST surface unknown sessionIds by throwing
 // this class. Throwing a plain `Error` collapses to `-32603 InternalError`
 // (catch-all) and is a contract violation.
 
 /**
- * Thrown by `SessionReadDeps.readSession` and `SessionJoinDeps.joinSession`
- * when the supplied `sessionId` does not resolve to a known session.
+ * Thrown by `SessionReadDeps.readSession` when the supplied `sessionId`
+ * does not resolve to a known session.
  *
  * The `code` literal is the wire-stable `data.type` discriminator; the
  * optional `fields` carries the structured throw-site detail (the

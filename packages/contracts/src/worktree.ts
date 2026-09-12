@@ -86,15 +86,14 @@ import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.j
 // `ephemeral clone`. That four-member taxonomy is Plan-009 canon, so it is
 // satisfied by IMPORT, never redefinition (I-010-1 / CP-010-1) — re-exported
 // here so the taxonomy is reachable through this module's own surface, the
-// same cross-module composition channels.ts / memberships.ts / presence.ts
+// same cross-module composition channels.ts / presence.ts
 // use for session.ts's ids and runtime-node.ts uses for `NodeId`. Both this
 // module and repo.ts are star-exported by index.ts; a re-export that resolves
 // to the SAME declaration is not an ambiguous duplicate (the THREE-way
 // `SessionIdSchema` path — its session.ts declaration plus the channels.ts and
-// presence.ts re-exports — is the standing proof; memberships.ts re-exports
-// other session.ts-declared ids but not this one).
+// presence.ts re-exports — is the standing proof).
 //
-// TWO STATEMENTS, the shape all four of those siblings use: the type-only
+// TWO STATEMENTS, the shape those siblings use: the type-only
 // half MUST spell `export type { ... }` (the `isolatedModules` +
 // `verbatimModuleSyntax` posture from tsconfig.base.json forbids erased
 // re-exports on the runtime form), and the value half re-exports the
@@ -434,7 +433,7 @@ export const WORKTREE_GIT_REF_MAX_LEN = 256;
 //
 // 512 is the package's SHORT-HUMAN-REASON class
 // (`EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN`,
-// `RUNTIME_NODE_DETACH_REASON_MAX_LEN`, `INVITE_REVOKE_REASON_MAX_LEN`), and
+// `RUNTIME_NODE_DETACH_REASON_MAX_LEN`), and
 // I-010-15 is why that is the right class: the daemon resolves the VERDICT, so
 // this field carries a short authored summary ("candidate holds uncommitted
 // changes"), never captured `git status` output. The 8192 captured-output

@@ -1,11 +1,11 @@
-// The three bulk acts, and the wire each one sends.
+// The two bulk acts, and the wire each one sends.
 //
-// `Spec-023 §Console Design (Meridian)` §The surface set offers "bulk operations where
-// a verb exists for each item and the operation is batched with per-item results:
-// cancel several queued items, revoke several invites, retire several worktrees". The
-// conjunct that governs this file is the FIRST one: a verb exists for each item. All
-// three verbs are registered on the console's own daemon-method contract, so nothing
-// here reaches the growth port and no act is offered that has no wire.
+// The design track offers bulk operations where a verb exists for each item and the
+// operation is batched with per-item results: cancel several queued items, retire
+// several worktrees. The conjunct that governs this file is the FIRST one: a verb
+// exists for each item. Both verbs are registered on the console's own daemon-method
+// contract, so nothing here reaches the growth port and no act is offered that has no
+// wire.
 //
 // ONE CALL PER ITEM, AND THAT IS THE POINT. "Batched" here means the person acts once,
 // not that the wire carries one request: no registered method takes a set, and a
@@ -13,7 +13,7 @@
 // each item's own reply is what settles it — which is exactly what makes the design
 // track's "never runs a bulk operation sequentially and silently" checkable.
 //
-// THE TABLE IS TOTAL OVER THE ACT SET. A fourth act fails to compile here rather than
+// THE TABLE IS TOTAL OVER THE ACT SET. A third act fails to compile here rather than
 // rendering a button that sends nothing.
 
 import { callDaemon, heldIdAsWireId, type DaemonReply } from "../../../bridge/index.js";
@@ -35,11 +35,7 @@ export interface SidebarBulkActDescriptor {
   readonly confirmVerb: string;
   /** What the confirm says is about to happen, ahead of the list of items. */
   readonly describe: (itemCount: number) => string;
-  readonly call: (
-    bridge: ConsoleBridge,
-    sessionId: string,
-    itemId: string,
-  ) => Promise<DaemonReply<unknown>>;
+  readonly call: (bridge: ConsoleBridge, itemId: string) => Promise<DaemonReply<unknown>>;
 }
 
 /**
@@ -58,32 +54,21 @@ export const SIDEBAR_BULK_ACT_DESCRIPTORS: Readonly<
     confirmVerb: "Cancel",
     describe: (itemCount) =>
       `${describeCount(itemCount, "queued item", "queued items")} will be cancelled before admission.`,
-    call: (bridge, _sessionId, itemId) =>
+    call: (bridge, itemId) =>
       callDaemon(bridge, "run.queueCancel", { queueItemId: heldIdAsWireId(itemId) }),
-  },
-  "revoke-invite": {
-    label: "Revoke invites",
-    confirmVerb: "Revoke",
-    describe: (itemCount) =>
-      `${describeCount(itemCount, "invite", "invites")} will be revoked and can no longer be redeemed.`,
-    call: (bridge, sessionId, itemId) =>
-      callDaemon(bridge, "invite.revoke", {
-        sessionId: heldIdAsWireId(sessionId),
-        inviteId: heldIdAsWireId(itemId),
-      }),
   },
   "retire-worktree": {
     label: "Retire worktrees",
     confirmVerb: "Retire",
     describe: (itemCount) =>
       `${describeCount(itemCount, "worktree", "worktrees")} will be retired. The record survives; the checkout is reclaimed afterwards.`,
-    call: (bridge, _sessionId, itemId) =>
+    call: (bridge, itemId) =>
       callDaemon(bridge, "repo.worktreeRetire", { worktreeId: heldIdAsWireId(itemId) }),
   },
 };
 
 /**
- * "One invite" / "Three invites", as a sentence opener.
+ * "One worktree" / "Three worktrees", as a sentence opener.
  *
  * The console's own reading of its own selection rather than a wire figure, so it is
  * plain prose; the figures rule reserves the mono class for values the daemon sent.

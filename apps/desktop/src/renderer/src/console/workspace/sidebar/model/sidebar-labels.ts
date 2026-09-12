@@ -31,5 +31,4 @@ export const SIDEBAR_SECTION_LABELS: Readonly<Record<SidebarSectionId, string>> 
   repos: "Repos and worktrees",
   approvals: "Approvals",
   artifacts: "Artifacts",
-  members: "Members",
 };

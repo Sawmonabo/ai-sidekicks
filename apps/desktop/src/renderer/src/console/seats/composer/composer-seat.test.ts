@@ -40,7 +40,7 @@ describe("composer seat — one composer per session view", () => {
   it("refuses a second owner rather than swapping", () => {
     registerComposerSeat("composer-family", composerBody);
     expect(() => {
-      registerComposerSeat("collaboration-family", () => null);
+      registerComposerSeat("session-surfaces-family", () => null);
     }).toThrow(DuplicateRegistrationError);
     // The refusal must not have half-applied: the first body still renders.
     expect(composerSeatRenderer()).toBe(composerBody);

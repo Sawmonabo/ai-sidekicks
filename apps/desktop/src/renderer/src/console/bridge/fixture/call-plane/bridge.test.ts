@@ -6,7 +6,7 @@
 // fixture that matched the contract's SHAPE was still answering something the live
 // bridge never would: `daemon.subscribe` takes an event name and the fixture
 // ignored it, so a surface subscribed to `run.starting` was handed
-// `session.created` and `membership.created` too, each cast to the type it had
+// `session.created` and `presence.online` too, each cast to the type it had
 // asked for. A screenshot or an end-to-end result taken against that is a result
 // the live bridge cannot produce.
 //

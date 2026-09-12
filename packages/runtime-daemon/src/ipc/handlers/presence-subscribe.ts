@@ -1,105 +1,76 @@
-// `presence.subscribe` JSON-RPC handler — the daemon→client `PresenceUpdate`
-// push slice of the `presence.*` namespace — Plan-002 Phase 3 (T3.3).
+// `presence.subscribe` JSON-RPC handler — the daemon-to-client `PresenceUpdate`
+// push slice of the `presence.*` namespace.
 //
-// The daemon→client push is realized as the notify side of a
-// `presence.subscribe` subscription on the Phase 2 streaming primitive: a
-// push is NOT a request/response RPC; it flows as `$/subscription/notify`
-// frames keyed by a `subscriptionId` allocated through a prior `subscribe`
-// call. `PresenceUpdate` (`Spec-002 §Interfaces And Contracts` "daemon pushes serialized Yjs
-// Awareness state to local clients") is the VALUE that travels over the
-// subscription, and `PresenceUpdateSchema` is wired as that subscription's
-// per-value `valueSchema` below. Cf. `session-subscribe.ts`, the streaming
-// precedent whose pushed value is the generic `SessionEvent`.
+// Presence in this runtime is PER-DEVICE liveness of the one user's linked
+// devices, never a list of people. The daemon-to-client push is realized as
+// the notify side of a `presence.subscribe` subscription on the streaming
+// primitive: a push is NOT a request/response RPC; it flows as
+// `$/subscription/notify` frames keyed by a `subscriptionId` allocated through
+// a prior `subscribe` call. `PresenceUpdate` — the serialized Yjs Awareness
+// state — is the VALUE that travels over the subscription, and
+// `PresenceUpdateSchema` is wired as that subscription's per-value
+// `valueSchema` below. Cf. `session-subscribe.ts`, the streaming precedent
+// whose pushed value is the generic `SessionEvent`.
 //
 // Why not a `presence.update` request/response method:
-//   The method registry's dispatch path is client-initiated request/
-//   response ONLY (`streaming-primitive.ts:43-66` — the gateway's outbound
-//   surface is INTENTIONALLY MINIMAL; a server-unilateral notification
-//   method would widen the gateway contract, which Phase 3 forbids and
-//   which exceeds this task's target_paths). Server→client push is the
-//   streaming primitive's job, exposed to clients via a `subscribe` call.
-//   `Spec-002 §Interfaces And Contracts`'s "daemon pushes" is realized as the notify side of a
-//   `presence.subscribe` subscription, not a registered push-method.
+//   The method registry's dispatch path is client-initiated request/response
+//   ONLY — the gateway's outbound surface is INTENTIONALLY MINIMAL, and a
+//   server-unilateral notification method would widen the gateway contract.
+//   Server-to-client push is the streaming primitive's job, exposed to clients
+//   via a `subscribe` call.
 //
-// Spec coverage:
-//   * `Spec-002 §Interfaces And Contracts` — "`PresenceUpdate`
-//     (JSON-RPC, local IPC) — daemon pushes serialized Yjs Awareness state
-//     to local clients." Realized here as the `presence.subscribe` notify
-//     stream carrying `PresenceUpdate` values (`{sessionId,
-//     awarenessState: Uint8Array}`).
-//   * `Spec-002 §State And Data Implications` (Pr4) — durable
-//     presence state-change events (`presence.online`/`idle`/
-//     `reconnecting`/`offline`) emitted to the session event log. This is
-//     a DEPS-CONTRACT obligation documented on
-//     `PresenceSubscribeDeps.subscribeToPresence` below (the runtime
-//     trigger is downstream of T3.3); the Pr4 round-trip test proves the
-//     emission artifact lands as real `session_events` rows.
-//   * Plan-002 §Phase 3 (CP-002-2) — register the `presence.*` namespace
-//     under the Plan-007-partial wire substrate; this file is the push
-//     (`subscribe`) slice, `presence-read.ts` is the query (`read`) slice.
-//
-// Invariants this module participates in (canonical text in
-// `docs/plans/007-local-ipc-and-daemon-control.md §Invariants`, I-007-6 through I-007-10):
-//   * I-007-1 — load-before-bind: `registerPresenceSubscribe` is called by
-//     the bootstrap orchestrator AFTER the registry is loaded and AFTER the
-//     streaming primitive has been constructed (the primitive eagerly
-//     registers its `$/subscription/cancel` handler at construction time
-//     per `streaming-primitive.ts` lines 276-282).
-//   * I-007-6 — duplicate-method registration is rejected at register-time.
-//   * I-007-7 — schema-validates-before-dispatch. The registry's `safeParse`
-//     path runs against `PresenceSubscribeRequestSchema` before the handler
-//     body executes; the streaming-side analog (per-value validation before
+// Invariants this module participates in:
+//   * Load-before-bind: `registerPresenceSubscribe` is called by the bootstrap
+//     orchestrator AFTER the registry is loaded and AFTER the streaming
+//     primitive has been constructed (the primitive eagerly registers its
+//     `$/subscription/cancel` handler at construction time).
+//   * Duplicate-method registration is rejected at register-time.
+//   * Schema-validates-before-dispatch. The registry's `safeParse` path runs
+//     against `PresenceSubscribeRequestSchema` before the handler body
+//     executes; the streaming-side analog (per-value validation before a
 //     `$/subscription/notify` send) runs INSIDE the streaming primitive on
-//     every `sub.next(value)` call against the `PresenceUpdateSchema` passed
-//     to `createSubscription`.
-//   * I-007-8 — sanitized error mapping. Errors thrown from the handler are
-//     caught by the registry's `dispatch()` wrapper and mapped to the
-//     canonical JSON-RPC error envelope.
-//   * I-007-10 — subscribe-init response precedes the first notification
-//     frame. The init `{subscriptionId}` response MUST land on the wire
-//     BEFORE any `$/subscription/notify` for that subscription; the
-//     synchronous-replay buffering + `setImmediate` flush below (see the
+//     every `sub.next(value)` call against the `PresenceUpdateSchema` passed to
+//     `createSubscription`.
+//   * Sanitized error mapping. Errors thrown from the handler are caught by
+//     the registry's `dispatch()` wrapper and mapped to the canonical JSON-RPC
+//     error envelope.
+//   * Subscribe-init response precedes the first notification frame. The init
+//     `{subscriptionId}` response MUST land on the wire BEFORE any
+//     `$/subscription/notify` for that subscription; the synchronous-replay
+//     buffering plus `setImmediate` flush below (see the
 //     `registerPresenceSubscribe` step 3 JSDoc) is the daemon-side half of
 //     this invariant (the SDK-side synchronous dispatcher-entry registration
 //     is the paired half).
-//   * The `Plan-007 §I-007-11 — LocalSubscriptionProducer<T>.onCancel fires across all externally-imposed cancel paths`
-//     streaming-leak invariant
-//     (its why-load-bearing clause names Plan-002 `presence.*` explicitly) —
-//     the upstream-detach callback
-//     returned by `subscribeToPresence` is registered via `sub.onCancel`
-//     so wire-cancel / transport-disconnect / trusted-internal teardown all
-//     propagate cleanup upstream. Without it, every subscribe/cancel cycle
-//     leaks one upstream watcher.
+//   * `LocalSubscriptionProducer<T>.onCancel` fires across every
+//     externally-imposed cancel path: the upstream-detach callback returned by
+//     `subscribeToPresence` is registered via `sub.onCancel` so wire-cancel,
+//     transport-disconnect, and trusted-internal teardown all propagate
+//     cleanup upstream. Without it, every subscribe/cancel cycle leaks one
+//     upstream watcher.
 //
-// I-002-3 — presence is in-memory only:
-//   The pushed `PresenceUpdate.awarenessState` is the serialized in-memory
-//   Yjs Awareness CRDT (NEVER persisted). Only durable presence-state-CHANGE
+// Presence is in-memory only:
+//   The pushed `PresenceUpdate.awarenessState` is the serialized in-memory Yjs
+//   Awareness CRDT (NEVER persisted). Only durable presence-state-CHANGE
 //   EVENTS (`presence.online` etc.) land in `session_events` — and those are
 //   emitted by the upstream substrate per the deps JSDoc below, NOT by this
 //   handler. The handler routes ephemeral CRDT bytes to the wire and never
 //   touches durable storage.
 //
 // What this file does NOT do (deferred to siblings):
-//   * Yjs Awareness ingestion / fan-out — owned by Plan-002 Phase 3's
-//     `presence-register-service.ts` (CP-002-1) + Postgres LISTEN/NOTIFY
-//     (T3.2). This file consumes the resulting stream through the
-//     `PresenceSubscribeDeps.subscribeToPresence` callback.
-//   * The runtime trigger that fires `presence.online`/`idle`/`reconnecting`/
-//     `offline` emissions — owned by the daemon's heartbeat / WS-liveness
-//     watcher (Plan-001 Phase 5 bootstrap). This file only DOCUMENTS the
-//     emission contract on the deps interface (Pr4).
+//   * Yjs Awareness ingestion / fan-out — owned by
+//     `presence-register-service.ts`. This file consumes the resulting stream
+//     through the `PresenceSubscribeDeps.subscribeToPresence` callback.
+//   * The runtime trigger that fires `presence.online` / `idle` /
+//     `reconnecting` / `offline` emissions — owned by the daemon's heartbeat /
+//     connection-liveness watcher. This file only DOCUMENTS the emission
+//     contract on the deps interface.
 //
-// Method-name format ratified: dotted-camelCase per
-// `docs/architecture/contracts/api-payload-contracts.md §JSON-RPC Method-Name Registry (Tier 1 Ratified)`.
-// The canonical regex
-// `/^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` accepts `"presence.subscribe"`.
-// The method-name TABLE there enumerates only Plan-007 Phase 3's
-// `session.*` surface; Plan-002 registers the `presence.*` namespace against
-// the same ratified FORMAT (`Plan-002 §API And Transport Changes` / CP-002-2). The `subscribe`
-// method string is derived from the streaming-push mechanics + the Phase 6
-// renderer presence-consumption surface (`Plan-002 §Phase 6 — Renderer (Tier 2)`
-// T6.2 — presence indicators over the generic `window.sidekicks` preload
-// bridge), which maps 1:1 to the JSON-RPC method name per the `session.*` precedent.
+// Method-name format: dotted-camelCase. The canonical regex
+// `/^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` accepts
+// `"presence.subscribe"`. The `subscribe` method string is derived from the
+// streaming-push mechanics plus the renderer's presence-consumption surface
+// over the generic `window.sidekicks` preload bridge, which maps 1:1 to the
+// JSON-RPC method name per the `session.*` precedent.
 
 import type {
   Handler,
@@ -121,7 +92,7 @@ import type { StreamingPrimitive } from "../streaming-primitive.js";
  * Dependencies required by `presence.subscribe`'s handler closure.
  *
  * Two slots (mirrors `SessionSubscribeDeps`):
- *   * `streamingPrimitive` — the Phase 2 primitive instance the bootstrap
+ *   * `streamingPrimitive` — the primitive instance the bootstrap
  *     orchestrator constructed and shares across every streaming handler.
  *     The handler calls `createSubscription<PresenceUpdate>(transportId,
  *     PresenceUpdateSchema)` synchronously at dispatch time and receives a
@@ -134,15 +105,15 @@ import type { StreamingPrimitive } from "../streaming-primitive.js";
  *     wire-cancel, transport-disconnect, AND trusted-internal teardown all
  *     propagate cleanup back to the upstream presence source.
  *
- * The bootstrap orchestrator (Plan-001 Phase 5) supplies the concrete
- * implementation, sourcing updates from the in-memory Yjs Awareness CRDT
- * owned by Plan-002 Phase 3's `presence-register-service.ts` (CP-002-1).
+ * The bootstrap orchestrator supplies the concrete implementation, sourcing
+ * updates from the in-memory Yjs Awareness CRDT owned by
+ * `presence-register-service.ts`.
  */
 export interface PresenceSubscribeDeps {
   /**
-   * The Phase 2 streaming primitive instance the orchestrator constructed.
-   * Shared across every streaming handler so the per-transport reverse-
-   * index (used by `cleanupTransport`) is unified.
+   * The streaming primitive instance the orchestrator constructed. Shared
+   * across every streaming handler so the per-transport reverse-index (used by
+   * `cleanupTransport`) is unified.
    */
   readonly streamingPrimitive: StreamingPrimitive;
 
@@ -156,8 +127,8 @@ export interface PresenceSubscribeDeps {
    * `sub.onCancel` to propagate teardown upstream when the wire client
    * cancels, the transport disconnects, or `cancelSubscription` runs.
    *
-   * **Re-entrant safety precondition** (`Plan-007 §I-007-11 — LocalSubscriptionProducer<T>.onCancel fires across all externally-imposed cancel paths`): the
-   * returned `unsubscribe` callback MAY be invoked synchronously from
+   * **Re-entrant safety precondition**: the returned `unsubscribe` callback
+   * MAY be invoked synchronously from
    * inside the `onUpdate` call stack (a live-tail `sub.next()` failure
    * cancels the subscription, firing registered `onCancel` handlers —
    * including this `unsubscribe` — while the upstream's emit frame is still
@@ -167,67 +138,58 @@ export interface PresenceSubscribeDeps {
    *
    * Domain-side errors during subscription setup MUST surface as thrown
    * `Error` instances — the registry's `dispatch()` wrapper catches them
-   * and applies `mapJsonRpcError` per I-007-8.
+   * and applies `mapJsonRpcError`.
    *
    * ---------------------------------------------------------------------
-   * DURABLE PRESENCE-STATE-CHANGE EVENT EMISSION CONTRACT (Pr4 — Spec-002
-   * §State And Data Implications; canonical taxonomy in Spec-006
-   * §Presence).
+   * DURABLE PRESENCE-STATE-CHANGE EVENT EMISSION CONTRACT
    * ---------------------------------------------------------------------
    *
    * THIS IS A LOAD-BEARING OBLIGATION ON THE DEPS IMPLEMENTOR — NOT on this
-   * handler. The handler routes ephemeral CRDT bytes; the durable audit
-   * trail is emitted by the upstream substrate (the daemon's heartbeat /
-   * WebSocket-liveness watcher, Plan-001 Phase 5 bootstrap) as it observes
-   * presence TRANSITIONS for the session this subscription targets.
+   * handler. The handler routes ephemeral CRDT bytes; the durable audit trail
+   * is emitted by the upstream substrate (the daemon's heartbeat /
+   * connection-liveness watcher) as it observes presence TRANSITIONS for the
+   * devices attached to the session this subscription targets.
    *
    * On EVERY presence state transition, the substrate MUST append one
    * `AppendableEvent` to the session's durable event log via the durable
-   * append path — Plan-006 T3.1's `EventLogService.append` once it lands;
-   * Plan-001's `SessionService.append` is guarded test-only per the T3.1
-   * precondition — with EXACTLY this shape:
+   * append path — `SessionService.append` is guarded test-only, so the
+   * event-log service is the production writer — with EXACTLY this shape:
    *
-   *   * `category: "membership_change"`
-   *       NOT "presence". `Spec-002 §State And Data Implications` prose says "under the `presence`
-   *       category" — that is a documentation slip. The canonical
-   *       `EventCategory` enum in `packages/contracts/src/event.ts`
-   *       has NO `presence` member; Spec-006 §Presence is headed
-   *       "### Presence (`membership_change`)" and the Spec-006 taxonomy
-   *       summary table lists all 4 presence types under `membership_change`.
-   *       Emitting `category: "presence"` would break the integrity hash
-   *       chain when Plan-006 Tier 4 lands the typed taxonomy.
-   *
-   *   * `type` — one of the 4 canonical strings (Spec-006 §Presence):
+   *   * `type` — one of the 4 canonical strings:
    *       `"presence.online"`       — connected / actively present (this
    *                                   covers BOTH the initial connect AND
    *                                   recovery from reconnecting/offline
    *                                   back to online — `previousState`
    *                                   discriminates the two cases);
-   *       `"presence.idle"`         — device became idle;
+   *       `"presence.idle"`         — the device became idle;
    *       `"presence.reconnecting"` — lost connection, attempting reconnect;
-   *       `"presence.offline"`      — device disconnected.
-   *     ALL FOUR states MUST be expressible. `online`/`idle` are
-   *     heartbeat/activity-driven; `reconnecting`/`offline` are WS-liveness-
-   *     driven (`Spec-002 §Heartbeat Transport` — a dropped WebSocket triggers the reconnect
-   *     grace window). This is a FULL lifecycle, not a degradation-only
-   *     (online→reconnecting→offline) chain.
+   *       `"presence.offline"`      — the device disconnected.
+   *     ALL FOUR states MUST be expressible. `online` / `idle` are
+   *     heartbeat/activity-driven; `reconnecting` / `offline` are
+   *     connection-liveness-driven (a dropped socket opens the reconnect grace
+   *     window). This is a FULL lifecycle, not a degradation-only
+   *     (online → reconnecting → offline) chain.
    *
-   *   * `payload` — exactly (Spec-006 §Presence payload shape):
-   *       `{ sessionId, participantId, deviceId, previousState?, newState }`
+   *   * `category` — READ IT, do not restate it. The contracts package owns
+   *     the type-to-category assignment and publishes it as
+   *     `SESSION_EVENT_CATEGORY_BY_TYPE`; the substrate MUST look the emitted
+   *     `type` up there rather than hardcoding a literal, because a hardcoded
+   *     category that drifts from the canonical assignment breaks the
+   *     integrity hash chain rather than failing a parse.
+   *
+   *   * `payload` — the device the transition is about, plus the transition:
+   *       `{ sessionId, deviceId, previousState?, newState }`
    *     where `newState` is REQUIRED and `previousState` is OPTIONAL (absent
    *     on the very first transition for a device), both drawn from
    *     `PresenceState` (`"online" | "idle" | "reconnecting" | "offline"`,
-   *     exported from `@ai-sidekicks/contracts`).
+   *     exported from `@ai-sidekicks/contracts`). There is no per-person axis:
+   *     every device on a session belongs to the one user, so `deviceId` is
+   *     the whole of the subject.
    *
-   * The presence ROWS themselves (the Yjs Awareness CRDT) are NEVER
-   * persisted (I-002-3) — only these state-change EVENTS are. The events
-   * are forward-compatible: the projector forward-compat-skips unknown
-   * event types (`session-projector.ts:122-128`), so these rows land in
-   * `session_events` and replay safely WITHOUT a contracts change today.
-   * Plan-006 Tier 4 adds the integrity-typed `presence.*` variants to
-   * `contracts/src/event.ts` (deferred per CP-002-6, same as the invite/
-   * membership lifecycle types); this emission MUST use the exact
-   * category/type/payload above so it remains valid when that lands.
+   * The presence ROWS themselves (the Yjs Awareness CRDT) are NEVER persisted
+   * — only these state-change EVENTS are. The events are forward-compatible:
+   * the projector forward-compat-skips unknown event types, so these rows land
+   * in `session_events` and replay safely without a contracts change.
    */
   readonly subscribeToPresence: (
     sessionId: SessionId,
@@ -258,7 +220,8 @@ export interface PresenceSubscribeDeps {
  *      `subscriptionId` and registers the per-transport reverse-index entry.
  *      `PresenceUpdateSchema` is the per-value `valueSchema` — every pushed
  *      `PresenceUpdate` is validated against it before the
- *      `$/subscription/notify` frame is sent (I-007-7 streaming analog).
+ *      `$/subscription/notify` frame is sent (the streaming analog of
+ *      schema-validates-before-dispatch).
  *   3. Wire the upstream presence-source onto the producer. Per the
  *      wire-ordering invariant, events fired SYNCHRONOUSLY during the
  *      subscription-setup window are BUFFERED and flushed on a
@@ -269,12 +232,12 @@ export interface PresenceSubscribeDeps {
  *      for the full microtask-vs-check-phase rationale.)
  *   4. Register the upstream-detach `unsubscribe` via `sub.onCancel` so
  *      wire-cancel / transport-disconnect / trusted-internal teardown all
- *      propagate cleanup upstream (the Plan-007 §I-007-11 leak invariant).
+ *      propagate cleanup upstream (the streaming-leak invariant).
  *   5. Return `{ subscriptionId }` — the wire client routes inbound
  *      `$/subscription/notify` frames keyed by it.
  *
  * Idempotency / re-registration: see `registerSessionCreate` JSDoc.
- * I-007-6 rejects duplicate registration at register-time.
+ * Duplicate registration is rejected at register-time.
  */
 export function registerPresenceSubscribe(
   registry: MethodRegistry,
@@ -294,15 +257,16 @@ export function registerPresenceSubscribe(
     // Allocate the producer handle. Synchronous: no I/O. The primitive
     // generates a fresh `subscriptionId` via `crypto.randomUUID()` and
     // registers the per-transport reverse-index entry. `PresenceUpdateSchema`
-    // is the per-value validation schema — the streaming I-007-7 analog.
+    // is the per-value validation schema — the streaming analog of
+    // schema-validates-before-dispatch.
     const sub = deps.streamingPrimitive.createSubscription<PresenceUpdate>(
       transportId,
       PresenceUpdateSchema,
     );
 
     // Wire upstream → producer with the synchronous-replay buffering pattern
-    // from `session-subscribe.ts`. I-007-10 (subscribe-init response precedes
-    // the first notification frame): the init `{subscriptionId}` response MUST
+    // from `session-subscribe.ts`. The subscribe-init response precedes the
+    // first notification frame: the init `{subscriptionId}` response MUST
     // land on the wire BEFORE any `$/subscription/notify` for that
     // subscription; updates fired synchronously during setup are buffered and
     // flushed on the `setImmediate` boundary below (the check phase, AFTER
@@ -346,7 +310,7 @@ export function registerPresenceSubscribe(
           replayBuffer.push(update);
         }
       });
-      // Register the upstream-detach callback (the Plan-007 §I-007-11 leak
+      // Register the upstream-detach callback (the streaming-leak
       // invariant). If a wire-cancel or transport-disconnect lands after this
       // point, the streaming primitive fires `unsubscribe` so the upstream
       // presence source detaches. Registration here (after the synchronous

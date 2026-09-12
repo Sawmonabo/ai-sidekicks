@@ -205,9 +205,6 @@ function makeIntegrationDeps(provider: SessionEventStreamProvider): ControlPlane
     generateSessionId: () => {
       throw NEVER_REACHED("generateSessionId");
     },
-    resolveIdentityHandle: () => {
-      throw NEVER_REACHED("resolveIdentityHandle");
-    },
     eventStreamProvider: provider,
   };
 }

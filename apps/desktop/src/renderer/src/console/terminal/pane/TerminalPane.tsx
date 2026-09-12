@@ -14,13 +14,13 @@
 // emulator's own name inside it is the one accessible name this family still spells.
 //
 // WHAT IS LIVE HERE AND WHAT IS NOT. The lease is wire-true today —
-// `pty.control_changed` is a registered event type carrying the holder, the holder
-// it replaced, and a closed five-member reason — so the holder line, the transition
-// ledger, and every state 8.8 names are folded from the session log by
+// `pty.control_changed` is a registered event type carrying the holder, the holder it
+// replaced, and a closed five-member reason — so the holding line, the transition
+// ledger, and every state the fold settles into come from the session log by
 // `lease-model.ts` and are not fixtures. The OUTPUT is not: the byte stream, the
-// scrollback, and the resize report are `Plan-023 §Console growth slate` row 3,
-// which the growth port refuses by name. `terminal/pane/output-stream.ts` holds that read
-// and the deletion obligation that retires it.
+// scrollback, and the resize report are a growth-slate row the growth port refuses by
+// name. `terminal/pane/output-stream.ts` holds that read and the deletion obligation
+// that retires it.
 
 import { Nothing } from "../../primitives/index.js";
 import { BoundTerminalPane } from "./BoundTerminalPane.js";

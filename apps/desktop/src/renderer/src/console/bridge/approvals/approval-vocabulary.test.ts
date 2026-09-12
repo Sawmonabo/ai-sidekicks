@@ -47,11 +47,10 @@ describe("the closed sets are the sets the design fixes", () => {
     expect(APPROVAL_DECISIONS).toHaveLength(2);
   });
 
-  it("carries two scope kinds and four invalidation triggers", () => {
+  it("carries two scope kinds and three invalidation triggers", () => {
     expect([...REMEMBERED_SCOPE_KINDS]).toStrictEqual(["run", "session"]);
     expect([...INVALIDATION_TRIGGERS]).toStrictEqual([
       "explicit",
-      "membership_change",
       "node_trust_change",
       "session_end",
     ]);

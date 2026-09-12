@@ -1,17 +1,8 @@
 // P1/P2/P3: SessionDirectoryService — Plan-001 PR #4 acceptance gates.
 //
-// P1: SessionCreate returns stable session id and persists to directory
-//     (Spec-001 AC1, AC2).
-// P2: Second SessionCreate by same client does not silently fork
-//     (Spec-001 AC5; BL-069 idempotent-upsert invariant).
-// P3: SessionJoin verifies membership and returns existing membership id
-//     (Spec-001 AC4, AC5). NOTE: the plan body's "returns existing
-//     timeline cursor" phrasing is satisfied by membership-reuse alone in
-//     PR #4 — `SessionJoinResponse` has no cursor field on the wire
-//     (`{ sessionId, participantId, membershipId, sharedMetadata }`).
-//     Cursor reuse is exercised by Plan-001 PR #5 SDK composition via
-//     SessionRead, where the daemon-supplied authoritative cursor is
-//     overlaid on the control plane's placeholder.
+// P1: SessionCreate returns stable session id and persists to directory.
+// P2: Second SessionCreate by same client does not silently fork — the
+//     idempotent-upsert invariant.
 //
 // Migration-runner coverage: matches the runtime-daemon test shape for
 // `applyMigrations` idempotency (re-call on a migrated handle is a no-op,
@@ -36,21 +27,14 @@ import { PGlite, type Transaction } from "@electric-sql/pglite";
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type {
-  MembershipId,
-  MembershipRole,
-  ParticipantId,
-  SessionId,
-} from "@ai-sidekicks/contracts";
+import type { ParticipantId, SessionId } from "@ai-sidekicks/contracts";
 
 import { applyMigrations, type Querier } from "../migration-runner.js";
-import { ResourceLimitExceededException } from "../errors.js";
 import {
   SessionDirectoryService,
   createPgPoolQuerier,
   createSessionDirectoryServiceFromPool,
   type CreateSessionInput,
-  type JoinSessionInput,
 } from "../session-directory-service.js";
 
 // ----------------------------------------------------------------------------
@@ -262,40 +246,34 @@ describe("SessionDirectoryService — P1 (create persists with stable id)", () =
       config: { greeting: "hello" },
       metadata: { tag: "p1" },
     };
-    // Owner participant must exist before the membership FK can resolve.
+    // The owning user must exist before the session's owner FK can resolve.
     await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
 
     const response = await ctx.service.createSession(input);
 
-    // Returned id matches the supplied id (BL-069 invariant).
+    // Returned id matches the supplied id.
     expect(response.sessionId).toBe(SESSION_ID);
     // Default session state is 'provisioning' per the schema column DEFAULT.
     expect(response.state).toBe("provisioning");
-    // The owner-membership row is materialized at create time.
-    expect(response.memberships).toHaveLength(1);
-    const ownerMembership = response.memberships[0];
-    expect(ownerMembership).toBeDefined();
-    if (ownerMembership === undefined) return;
-    expect(ownerMembership.participantId).toBe(OWNER_PARTICIPANT_ID);
-    expect(ownerMembership.role).toBe("owner");
-    expect(ownerMembership.state).toBe("active");
-    // Channels live in the daemon's local event log, not the control plane
-    // (ADR-017). The wire shape requires the field — empty array is the
-    // canonical "no channel metadata here" signal.
+    // Channels live in the daemon's local event log, not the control plane. The
+    // wire shape requires the field — empty array is the canonical "no channel
+    // metadata here" signal.
     expect(response.channels).toEqual([]);
 
     // Direct row probe — proves the persistence side, independent of the
-    // service's read path. Spec-001 AC2 says the create lands in the
-    // directory; this is the load-bearing assertion.
-    const probe = await ctx.querier.query<{ id: string; state: string }>(
-      "SELECT id, state FROM sessions WHERE id = $1",
-      [SESSION_ID],
-    );
+    // service's read path. This is the load-bearing assertion: the create
+    // lands in the directory, bound to its owner.
+    const probe = await ctx.querier.query<{
+      id: string;
+      owner_user_id: string;
+      state: string;
+    }>("SELECT id, owner_user_id, state FROM sessions WHERE id = $1", [SESSION_ID]);
     expect(probe.rows).toHaveLength(1);
     const row = probe.rows[0];
     expect(row).toBeDefined();
     if (row === undefined) return;
     expect(row.id).toBe(SESSION_ID);
+    expect(row.owner_user_id).toBe(OWNER_PARTICIPANT_ID);
     expect(row.state).toBe("provisioning");
   });
 
@@ -339,18 +317,11 @@ describe("SessionDirectoryService — P1 (create persists with stable id)", () =
     expect(read).toBeNull();
   });
 
-  it("createSession is atomic — a missing-participant FK violation leaves no orphan session row", async () => {
-    // B2 atomicity guard: the session upsert and owner-membership upsert
-    // run inside a single `Querier.transaction(...)` block, so a failure
-    // on the membership upsert (FK violation against a participant id
-    // that does not exist, or any transient error) MUST roll back the
-    // session row.
-    //
-    // Without the transaction wrapper, the session row would commit
-    // before the membership upsert ran, leaving an orphan visible to
-    // `readSession` and admin queries. A retry would treat the orphan
-    // as canonical state via the idempotent upsert and re-fail on the
-    // membership step — cementing the corruption.
+  it("createSession refuses an owner who is not a registered user and leaves no session row", async () => {
+    // `sessions.owner_user_id` carries a FK to `participants(id)` and no
+    // DEFAULT, so a create naming an unregistered owner fails at the database
+    // rather than materializing a session nobody owns. The refusal happens on
+    // the session INSERT itself, inside the transaction, so nothing commits.
     const before = await ctx.querier.query<{ count: string }>(
       "SELECT COUNT(*)::text AS count FROM sessions",
     );
@@ -359,8 +330,8 @@ describe("SessionDirectoryService — P1 (create persists with stable id)", () =
     if (beforeRow === undefined) return;
     expect(Number.parseInt(beforeRow.count, 10)).toBe(0);
 
-    // Note: OWNER_PARTICIPANT_ID is intentionally NOT inserted — the
-    // membership upsert's FK against `participants(id)` will throw.
+    // Note: OWNER_PARTICIPANT_ID is intentionally NOT inserted — the session
+    // row's owner FK against `participants(id)` will throw.
     await expect(
       ctx.service.createSession({
         sessionId: SESSION_ID,
@@ -397,10 +368,6 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
       config: { phase: "first" },
       metadata: { phase: "first" },
     });
-    const firstOwnerMembership = first.memberships[0];
-    expect(firstOwnerMembership).toBeDefined();
-    if (firstOwnerMembership === undefined) return;
-    const firstMembershipId: MembershipId = firstOwnerMembership.id;
 
     // Second call: same sessionId, same owner. Different config/metadata
     // payloads to prove the upsert does NOT clobber the original — a
@@ -412,22 +379,13 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
       config: { phase: "second" },
       metadata: { phase: "second" },
     });
-    const secondOwnerMembership = second.memberships[0];
-    expect(secondOwnerMembership).toBeDefined();
-    if (secondOwnerMembership === undefined) return;
-    const secondMembershipId: MembershipId = secondOwnerMembership.id;
 
     // The session id is preserved (no forked row).
     expect(second.sessionId).toBe(SESSION_ID);
     expect(second.sessionId).toBe(first.sessionId);
-    // Membership id is preserved (no forked owner-membership row).
-    expect(secondMembershipId).toBe(firstMembershipId);
 
-    // Direct row probe: exactly ONE sessions row, exactly ONE
-    // session_memberships row. The schema's UNIQUE(session_id,
-    // participant_id) on session_memberships is the load-bearing seam
-    // for the membership uniqueness; the upsert pattern is what protects
-    // the SESSIONS uniqueness on retry.
+    // Direct row probe: exactly ONE sessions row. The upsert pattern is what
+    // protects that uniqueness on retry.
     const sessionsCount = await ctx.querier.query<{ count: string }>(
       "SELECT COUNT(*)::text AS count FROM sessions WHERE id = $1",
       [SESSION_ID],
@@ -437,24 +395,17 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     if (sessionsRow === undefined) return;
     expect(Number.parseInt(sessionsRow.count, 10)).toBe(1);
 
-    const membershipsCount = await ctx.querier.query<{ count: string }>(
-      "SELECT COUNT(*)::text AS count FROM session_memberships WHERE session_id = $1",
-      [SESSION_ID],
-    );
-    const membershipsRow = membershipsCount.rows[0];
-    expect(membershipsRow).toBeDefined();
-    if (membershipsRow === undefined) return;
-    expect(Number.parseInt(membershipsRow.count, 10)).toBe(1);
-
-    // Verify the original config/metadata survived (the upsert is a
-    // no-op on the data columns, by design — see service docstring).
+    // Verify the original owner, config, and metadata survived (the upsert is a
+    // no-op on every data column, by design — see service docstring).
     const persistedRow = await ctx.querier.query<{
+      owner_user_id: string;
       config: Record<string, unknown>;
       metadata: Record<string, unknown>;
-    }>("SELECT config, metadata FROM sessions WHERE id = $1", [SESSION_ID]);
+    }>("SELECT owner_user_id, config, metadata FROM sessions WHERE id = $1", [SESSION_ID]);
     const persisted = persistedRow.rows[0];
     expect(persisted).toBeDefined();
     if (persisted === undefined) return;
+    expect(persisted.owner_user_id).toBe(OWNER_PARTICIPANT_ID);
     expect(persisted.config).toEqual({ phase: "first" });
     expect(persisted.metadata).toEqual({ phase: "first" });
   });
@@ -486,42 +437,28 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
     expect(Number.parseInt(sessionsRow.count, 10)).toBe(2);
   });
 
-  it("createSession with an existing sessionId but a different owner is rejected (Codex P1)", async () => {
-    // Codex P1 / R2: the owner-mismatch guard inside `createSession`'s
-    // transaction. BL-069 invariant #4 — "owner identity is bound at the
-    // first authenticated RPC via PASETO v4 trust-on-first-use" — means a
-    // second create with the same `sessionId` but a DIFFERENT
-    // `ownerParticipantId` is NOT a retry; it is an attempt to bind a
-    // second owner. Without the guard, the membership upsert's
-    // UNIQUE(session_id, participant_id) target — which keys on the
-    // (session, participant) PAIR, not on the role — silently inserts a
-    // second `(S, P2, 'owner')` row, granting P2 owner privileges
-    // without invitation/elevation. R1 dropped the auto-mint participant
-    // (B1) which closed the most-likely path; the residual gap (an
-    // explicit caller passing a mismatched ownerParticipantId) survived
-    // until Codex caught it. This test pins the residual.
-    //
-    // Plan-002 owns ownership-transfer / co-owner promotion flows; that
-    // is NOT a regression target for this test — the guard fires at
-    // create time only.
+  it("createSession with an existing sessionId but a different owner is rejected", async () => {
+    // The owner-mismatch guard inside `createSession`'s transaction. Owner
+    // identity is bound at the first create, so a second create with the same
+    // `sessionId` but a DIFFERENT `ownerParticipantId` is NOT a retry — it is
+    // an attempt to take over someone else's session. Without the guard the
+    // upsert's conflict clause would silently leave the original owner in place
+    // and report success, so the caller would believe it owned a session it
+    // does not.
     await ctx.querier.query("INSERT INTO participants (id) VALUES ($1), ($2)", [
       OWNER_PARTICIPANT_ID,
       SECOND_PARTICIPANT_ID,
     ]);
 
-    // First create: P1 binds owner.
-    const first = await ctx.service.createSession({
+    // First create binds the owner.
+    await ctx.service.createSession({
       sessionId: SESSION_ID,
       ownerParticipantId: OWNER_PARTICIPANT_ID,
     });
-    const firstOwnerMembership = first.memberships[0];
-    expect(firstOwnerMembership).toBeDefined();
-    if (firstOwnerMembership === undefined) return;
-    expect(firstOwnerMembership.participantId).toBe(OWNER_PARTICIPANT_ID);
 
-    // Second create: same sessionId, DIFFERENT participant. MUST throw.
-    // The error message includes the sessionId so an operator reading
-    // the log can correlate the rejection to the offending request.
+    // Second create: same sessionId, DIFFERENT user. MUST throw. The error
+    // message includes the sessionId so an operator reading the log can
+    // correlate the rejection to the offending request.
     await expect(
       ctx.service.createSession({
         sessionId: SESSION_ID,
@@ -529,39 +466,29 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
       }),
     ).rejects.toThrow(SESSION_ID);
 
-    // Direct row probe: the failed second create MUST NOT have inserted
-    // a second owner-membership row, AND the original P1 owner row
-    // MUST be intact. A regression that loses the guard would surface
-    // here as count = 2 with (P1, P2) participants. The transaction
-    // wrapper guarantees the failed call leaves no residue regardless
-    // of when in the body the throw fires.
-    const probe = await ctx.querier.query<{ participant_id: string; role: string }>(
-      `SELECT participant_id, role FROM session_memberships
-        WHERE session_id = $1 ORDER BY participant_id`,
+    // Direct row probe: the original owner is intact and no second session row
+    // appeared. A regression that lost the guard would surface here as the
+    // second caller's id on the row, or as a silent success above.
+    const probe = await ctx.querier.query<{ owner_user_id: string }>(
+      "SELECT owner_user_id FROM sessions WHERE id = $1",
       [SESSION_ID],
     );
     expect(probe.rows).toHaveLength(1);
     const persistedOwner = probe.rows[0];
     expect(persistedOwner).toBeDefined();
     if (persistedOwner === undefined) return;
-    expect(persistedOwner.participant_id).toBe(OWNER_PARTICIPANT_ID);
-    expect(persistedOwner.role).toBe("owner");
+    expect(persistedOwner.owner_user_id).toBe(OWNER_PARTICIPANT_ID);
 
-    // Same-owner retry must still be idempotent — the guard does NOT
-    // turn into a "first-create-only" gate. A third call with the
-    // ORIGINAL owner returns the same response shape and leaves the
-    // row count unchanged.
+    // Same-owner retry must still be idempotent — the guard does NOT turn into
+    // a "first-create-only" gate.
     const retry = await ctx.service.createSession({
       sessionId: SESSION_ID,
       ownerParticipantId: OWNER_PARTICIPANT_ID,
     });
-    const retryOwnerMembership = retry.memberships[0];
-    expect(retryOwnerMembership).toBeDefined();
-    if (retryOwnerMembership === undefined) return;
-    expect(retryOwnerMembership.id).toBe(firstOwnerMembership.id);
+    expect(retry.sessionId).toBe(SESSION_ID);
 
     const probeAfterRetry = await ctx.querier.query<{ count: string }>(
-      "SELECT COUNT(*)::text AS count FROM session_memberships WHERE session_id = $1",
+      "SELECT COUNT(*)::text AS count FROM sessions WHERE id = $1",
       [SESSION_ID],
     );
     const probeAfterRetryRow = probeAfterRetry.rows[0];
@@ -571,60 +498,40 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
   });
 
   // --------------------------------------------------------------------------
-  // Codex R4 — explicit row lock between session upsert and owner probe
+  // The owner check consumes the upsert's own returned row
   // --------------------------------------------------------------------------
   //
-  // Test strategy choice (documented per orchestrator's instructions):
+  // Test strategy choice: we pin the statement shape with a logging proxy that
+  // captures the SQL stream issued during `createSession`. The property under
+  // test is a NEGATIVE one that no row probe can observe — that the owner-
+  // mismatch guard reads the persisted owner out of the upsert's own `RETURNING`
+  // clause rather than issuing a second read.
   //
-  //   We pin the lock-acquisition behavior with a logging proxy that
-  //   captures the SQL stream issued during `createSession` and asserts
-  //   that a `SELECT ... FOR UPDATE` appears in the right position
-  //   relative to the session upsert, the owner-mismatch probe, and the
-  //   owner-membership upsert. Removing the explicit lock from the
-  //   service body makes this test fail; reordering the lock to a
-  //   semantically wrong position (before the upsert, after the probe)
-  //   also fails.
+  // Why that property is the safety-critical one: a read-then-compare against a
+  // separate SELECT reopens the race the single statement closes. Under
+  // Postgres `READ COMMITTED`, two transactions creating the same `sessionId`
+  // could each take their own snapshot, each see no conflicting owner, and each
+  // proceed — which is why the previous separate-table shape needed an explicit
+  // `SELECT ... FOR UPDATE` between the upsert and the probe. With the owner on
+  // the session row, the upsert's conflict clause is the serialization point and
+  // its `RETURNING` is the committed truth, so a second read is not merely
+  // redundant: adding one back would be a regression.
   //
-  // Why we do NOT add a true concurrency test:
-  //
-  //   PGlite is in-process, single-connection-per-instance, and
-  //   serializes statements at the driver boundary. There is no way to
-  //   simulate two genuinely concurrent transactions on the same
-  //   sessionId without a multi-connection harness. Production wiring
-  //   (Plan-001 PR #5) composes a `Querier` from `pg.Pool` against a
-  //   real Postgres instance — that PR can host a true concurrency
-  //   test if the team decides one is needed beyond the lock-presence
-  //   regression check pinned here.
-  //
-  // Why we do NOT add a defensive direct-tx "manually lock then probe"
-  // test (orchestrator's option #3):
-  //
-  //   That path is already covered by the existing R3 test
-  //   "createSession with an existing sessionId but a different owner is
-  //   rejected (Codex P1)" — it exercises the application-layer probe
-  //   via two sequential service calls. A second probe-test does not
-  //   pin the FOR UPDATE; only the logging proxy does.
-  it("createSession acquires SELECT FOR UPDATE on the sessions row before the owner probe (Codex R4)", async () => {
-    // BL-069 §4 + the R3 owner-mismatch guard close the create-time TOFU
-    // invariant for sequential callers; R4 closes the residual where two
-    // concurrent createSession calls under READ COMMITTED can both read
-    // an empty owner set in their respective snapshots and both INSERT
-    // an `(S, *, 'owner')` row (UNIQUE(session_id, participant_id) does
-    // not collide on different participants). The fix: an explicit
-    // `SELECT id FROM sessions WHERE id = $1 FOR UPDATE` between the
-    // session upsert and the owner-mismatch probe. This test pins the
-    // lock-acquisition position so a future refactor that removes or
-    // misplaces the lock surfaces here.
+  // Why we do NOT add a true concurrency test: PGlite is in-process,
+  // single-connection-per-instance, and serializes statements at the driver
+  // boundary, so two genuinely concurrent transactions on the same sessionId
+  // cannot be simulated without a multi-connection harness.
+  it("createSession issues ONE session statement inside the transaction and reads the owner from its RETURNING clause", async () => {
     await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
 
     // Wrap the test querier in a logging proxy that captures every SQL
-    // statement issued — including queries inside `transaction(...)`
-    // (the recursive wrapping mirrors `wrap()` above so in-tx queries are
-    // captured, not just outer-Querier queries). Each capture entry is
-    // tagged with a `querierId` so the assertions below can discriminate
-    // outer-Querier statements from in-tx-Querier statements — see the
-    // "wrong-Querier regression" block at the bottom for why that
-    // discrimination is the load-bearing piece under pg.Pool (T5.5).
+    // statement issued — including queries inside `transaction(...)` (the
+    // recursive wrapping mirrors `wrap()` above so in-tx queries are captured,
+    // not just outer-Querier queries). Each capture entry is tagged with a
+    // `querierId` so the assertions below can discriminate outer-Querier
+    // statements from in-tx-Querier statements — see the "wrong-Querier
+    // regression" block at the bottom for why that discrimination is the
+    // load-bearing piece under pg.Pool.
     const OUTER_ID = "outer";
     const captured: CapturedQuery[] = [];
     const loggingQuerier: Querier = wrapWithLog(ctx.querier, captured, OUTER_ID);
@@ -635,158 +542,81 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
       ownerParticipantId: OWNER_PARTICIPANT_ID,
     });
 
-    // The four load-bearing statements inside `createSession`'s
-    // transaction, identified by stable SQL fragments:
-    //   1. session upsert        — `INSERT INTO sessions ... ON CONFLICT (id)`
-    //   2. row lock              — `FROM sessions WHERE id = $1 FOR UPDATE`
-    //   3. owner-mismatch probe  — `FROM session_memberships ... role = 'owner'`
-    //   4. owner-membership ups. — `INSERT INTO session_memberships`
-    //
-    // Whitespace-tolerant patterns (vitest's `toMatch` accepts RegExp).
-    // `\b` after a table name is defensive: without it, regex 1 would
-    // substring-match `INSERT INTO sessions_archive ... ON CONFLICT (id)`
-    // (the `[\s\S]*` between table name and conflict target swallows the
-    // suffix). Same gap applies to regexes 3 and 4 — `session_memberships`
-    // is a prefix of a hypothetical `session_memberships_history`. Regexes
-    // requiring `\s+` immediately after the table name (the FOR UPDATE
-    // probe and its count-check at the bottom) are already safe because
-    // an underscore-suffix would not satisfy the whitespace assertion.
-    const sessionUpsertIdx = captured.findIndex((entry) =>
-      /INSERT\s+INTO\s+sessions\b[\s\S]*ON\s+CONFLICT\s*\(\s*id\s*\)/i.test(entry.sql),
-    );
-    const forUpdateIdx = captured.findIndex((entry) =>
-      /FROM\s+sessions\s+WHERE\s+id\s*=\s*\$1\s+FOR\s+UPDATE/i.test(entry.sql),
-    );
-    const ownerProbeIdx = captured.findIndex((entry) =>
-      /FROM\s+session_memberships\b[\s\S]*role\s*=\s*'owner'/i.test(entry.sql),
-    );
-    const membershipUpsertIdx = captured.findIndex((entry) =>
-      /INSERT\s+INTO\s+session_memberships\b/i.test(entry.sql),
-    );
-
-    // All four statements MUST be present.
+    // The single load-bearing statement, identified by a stable SQL fragment.
+    // `\b` after the table name is defensive: without it the pattern would
+    // substring-match `INSERT INTO sessions_archive ... ON CONFLICT (id)` (the
+    // `[\s\S]*` between table name and conflict target swallows the suffix).
+    const upsertPattern = /INSERT\s+INTO\s+sessions\b[\s\S]*ON\s+CONFLICT\s*\(\s*id\s*\)/i;
+    const sessionUpsertIdx = captured.findIndex((entry) => upsertPattern.test(entry.sql));
     expect(sessionUpsertIdx).toBeGreaterThanOrEqual(0);
-    expect(forUpdateIdx).toBeGreaterThanOrEqual(0);
-    expect(ownerProbeIdx).toBeGreaterThanOrEqual(0);
-    expect(membershipUpsertIdx).toBeGreaterThanOrEqual(0);
 
-    // Ordering: upsert -> FOR UPDATE -> owner probe -> membership upsert.
-    // The lock MUST come AFTER the upsert so the row exists for
-    // FOR UPDATE to grip; it MUST come BEFORE the owner-mismatch probe
-    // so the probe runs under the lock; the membership upsert is the
-    // tail of the transaction.
-    expect(sessionUpsertIdx).toBeLessThan(forUpdateIdx);
-    expect(forUpdateIdx).toBeLessThan(ownerProbeIdx);
-    expect(ownerProbeIdx).toBeLessThan(membershipUpsertIdx);
-
-    // Also assert that exactly one FOR UPDATE was issued — guards
-    // against a future regression that lifts the lock to the outer
-    // Querier (where it would lock the wrong connection / no connection
-    // at all under pg.Pool semantics) or that issues it twice.
-    const forUpdateCount = captured.filter((entry) =>
-      /FROM\s+sessions\s+WHERE\s+id\s*=\s*\$1\s+FOR\s+UPDATE/i.test(entry.sql),
-    ).length;
-    expect(forUpdateCount).toBe(1);
-
-    // ----- Wrong-Querier regression discriminator (Plan-001 T5.6) -----
-    //
-    // Each of the four load-bearing statements MUST have been issued
-    // through the in-tx Querier (the `tx` passed to the `transaction(fn)`
-    // callback), NOT through the outer `this.#querier`. The wrapWithLog
-    // proxy assigns the outer Querier `querierId = "outer"` and re-wraps
-    // the in-tx Querier with a fresh `"outer.tx-<n>"` id, so the load-
-    // bearing assertion is `entry.querierId !== OUTER_ID`.
-    //
-    // Why this matters under pg.Pool (T5.5): the outer Querier checks
-    // out a one-shot connection from the pool per call; the
-    // `transaction(fn)` Querier holds a SPECIFIC client across BEGIN /
-    // inner statements / COMMIT. A regression that routes any of these
-    // statements through `this.#querier` instead of the in-tx `tx` —
-    // most dangerously the `FOR UPDATE` — would lock a row on a
-    // DIFFERENT pool client than the one running the transaction, and
-    // the lock would release on that side-client's return-to-pool
-    // instead of being held across the transaction's commit. Concurrent
-    // createSession calls would no longer serialize on the row lock.
-    //
-    // The pre-T5.6 assertions (presence + ordering + count) could not
-    // discriminate this case because the captured array was a flat
-    // string stream with no provenance. The tagged shape closes that
-    // residual.
     const sessionUpsertEntry = captured[sessionUpsertIdx];
-    const forUpdateEntry = captured[forUpdateIdx];
-    const ownerProbeEntry = captured[ownerProbeIdx];
-    const membershipUpsertEntry = captured[membershipUpsertIdx];
     expect(sessionUpsertEntry).toBeDefined();
-    expect(forUpdateEntry).toBeDefined();
-    expect(ownerProbeEntry).toBeDefined();
-    expect(membershipUpsertEntry).toBeDefined();
-    if (
-      sessionUpsertEntry === undefined ||
-      forUpdateEntry === undefined ||
-      ownerProbeEntry === undefined ||
-      membershipUpsertEntry === undefined
-    ) {
-      return;
-    }
-    // The FOR UPDATE is the most safety-critical of the four; it is the
-    // direct manifestation of I-001-1 (lock-ordering: sessions →
-    // session_memberships). Calling it out by name keeps the failure
-    // message diagnostic-friendly under regression.
-    expect(forUpdateEntry.querierId).not.toBe(OUTER_ID);
-    expect(forUpdateEntry.querierId).toMatch(/^outer\.tx-\d+$/);
-    // The remaining three transaction statements must ALSO run through
-    // the in-tx Querier — they share the transaction's atomicity and
-    // would suffer the same pool-checkout split-brain if any were
-    // routed through the outer Querier.
-    expect(sessionUpsertEntry.querierId).not.toBe(OUTER_ID);
-    expect(ownerProbeEntry.querierId).not.toBe(OUTER_ID);
-    expect(membershipUpsertEntry.querierId).not.toBe(OUTER_ID);
-    // All four statements must come from the SAME in-tx Querier
-    // (createSession only opens one transaction; emission across two
-    // distinct tx-scoped ids would mean either a nested or a sibling
-    // transaction was introduced, both of which would break the
-    // single-COMMIT atomicity guarantee asserted elsewhere).
-    expect(sessionUpsertEntry.querierId).toBe(forUpdateEntry.querierId);
-    expect(ownerProbeEntry.querierId).toBe(forUpdateEntry.querierId);
-    expect(membershipUpsertEntry.querierId).toBe(forUpdateEntry.querierId);
+    if (sessionUpsertEntry === undefined) return;
 
-    // Final correctness check: exactly one owner-membership row exists
-    // (the lock did not perturb the canonical write path).
-    const probe = await ctx.querier.query<{ count: string }>(
-      "SELECT COUNT(*)::text AS count FROM session_memberships WHERE session_id = $1",
+    // The upsert returns the persisted owner — that is what the guard compares
+    // against. A regression that dropped the column from `RETURNING` would have
+    // to reintroduce a second read to get it.
+    expect(sessionUpsertEntry.sql).toMatch(/RETURNING[\s\S]*owner_user_id/i);
+
+    // Exactly one `sessions` statement — no follow-up owner probe, and no
+    // `SELECT ... FOR UPDATE`, both of which would mean the guard stopped
+    // trusting the upsert's own output.
+    expect(captured.filter((entry) => upsertPattern.test(entry.sql))).toHaveLength(1);
+    expect(captured.filter((entry) => /FOR\s+UPDATE/i.test(entry.sql))).toHaveLength(0);
+    expect(
+      captured.filter(
+        (entry) => /FROM\s+sessions\b/i.test(entry.sql) && entry.sql !== sessionUpsertEntry.sql,
+      ),
+    ).toHaveLength(0);
+
+    // ----- Wrong-Querier regression discriminator -----
+    //
+    // The upsert MUST have been issued through the in-tx Querier (the `tx`
+    // passed to the `transaction(fn)` callback), NOT through the outer
+    // `this.#querier`. The wrapWithLog proxy assigns the outer Querier
+    // `querierId = "outer"` and re-wraps the in-tx Querier with a fresh
+    // `"outer.tx-<n>"` id, so the load-bearing assertion is
+    // `entry.querierId !== OUTER_ID`.
+    //
+    // Why this matters under pg.Pool: the outer Querier checks out a one-shot
+    // connection from the pool per call; the `transaction(fn)` Querier holds a
+    // SPECIFIC client across BEGIN / inner statements / COMMIT. A regression
+    // that routed the upsert through `this.#querier` would take its row lock on
+    // a DIFFERENT pool client than the one running the transaction, and release
+    // it on that side-client's return-to-pool instead of holding it to the
+    // commit — so concurrent createSession calls would no longer serialize.
+    expect(sessionUpsertEntry.querierId).not.toBe(OUTER_ID);
+    expect(sessionUpsertEntry.querierId).toMatch(/^outer\.tx-\d+$/);
+
+    // Final correctness check: exactly one session row, owned by the caller
+    // (the statement-shape assertions did not come at the cost of the write).
+    const probe = await ctx.querier.query<{ owner_user_id: string }>(
+      "SELECT owner_user_id FROM sessions WHERE id = $1",
       [SESSION_ID],
     );
-    const probeRow = probe.rows[0];
-    expect(probeRow).toBeDefined();
-    if (probeRow === undefined) return;
-    expect(Number.parseInt(probeRow.count, 10)).toBe(1);
+    expect(probe.rows).toHaveLength(1);
+    expect(probe.rows[0]?.owner_user_id).toBe(OWNER_PARTICIPANT_ID);
   });
 
-  it("createSession with same logical owner but UPPERCASE UUID is idempotent (Codex P2 — UUID casing)", async () => {
-    // Codex P2 / R5: the owner-mismatch guard added in R3 compared
-    // `participant_id` against `input.ownerParticipantId` via strict
-    // string equality. Postgres canonicalizes UUIDs to lowercase on
-    // storage/return (RFC 9562 admits both cases as valid input), so a
-    // caller that passes the same logical owner UUID with uppercase hex
-    // digits on retry would falsely trip the "different owner" throw —
-    // breaking BL-069's idempotent-upsert invariant for any caller whose
-    // ParticipantId source happens to use uppercase. The fix normalizes
-    // both sides via `.toLowerCase()` before equality. This test pins
-    // the idempotency for the uppercase-retry path; a regression that
-    // dropped the normalization would surface here as a thrown error
-    // and a duplicate owner-membership row count > 1.
+  it("createSession with same logical owner but UPPERCASE UUID is idempotent", async () => {
+    // The owner-mismatch guard compares the persisted `owner_user_id` against
+    // `input.ownerParticipantId`. Postgres canonicalizes UUIDs to lowercase on
+    // storage and return (RFC 9562 admits both cases as valid input), so under
+    // strict string equality a caller that passes the same logical owner UUID
+    // with uppercase hex digits on retry would falsely trip the "different
+    // owner" throw — breaking the idempotent-upsert contract for any caller
+    // whose id source happens to use uppercase. Both sides are normalized via
+    // `.toLowerCase()` before equality. A regression that dropped the
+    // normalization would surface here as a thrown error.
     await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
 
     // First create: owner UUID in canonical lowercase form (the
     // `OWNER_PARTICIPANT_ID` fixture is already lowercase).
-    const first = await ctx.service.createSession({
+    await ctx.service.createSession({
       sessionId: SESSION_ID,
       ownerParticipantId: OWNER_PARTICIPANT_ID,
     });
-    const firstOwnerMembership = first.memberships[0];
-    expect(firstOwnerMembership).toBeDefined();
-    if (firstOwnerMembership === undefined) return;
-    const firstMembershipId: MembershipId = firstOwnerMembership.id;
 
     // Second create: same sessionId + same logical owner UUID, but
     // UPPERCASED. RFC 9562 admits both cases; the brand has no runtime
@@ -800,668 +630,18 @@ describe("SessionDirectoryService — P2 (idempotent re-create does not fork)", 
       }),
     ).resolves.not.toThrow();
 
-    // Direct row probe: exactly ONE owner-membership row, and the
-    // original membership id is preserved. The `sessions` table is not
-    // re-probed here for cardinality — the existing first P2 test
-    // ("a second createSession with the same sessionId returns the same
-    // row, not a new one") already pins `COUNT(*) FROM sessions = 1`
-    // for the same-sessionId-retry path; UNIQUE PK on `sessions.id`
-    // makes a duplicate row a structural impossibility, so re-asserting
-    // it here would be noise.
-    const membershipsProbe = await ctx.querier.query<{ id: string; participant_id: string }>(
-      `SELECT id, participant_id FROM session_memberships
-        WHERE session_id = $1 AND role = 'owner'`,
+    // Direct row probe: the persisted owner is canonical lowercase regardless
+    // of which casing the caller used on either create call (Postgres returns
+    // the storage form), and the retry did not rewrite it.
+    const ownerProbe = await ctx.querier.query<{ owner_user_id: string }>(
+      "SELECT owner_user_id FROM sessions WHERE id = $1",
       [SESSION_ID],
     );
-    expect(membershipsProbe.rows).toHaveLength(1);
-    const persistedMembership = membershipsProbe.rows[0];
-    expect(persistedMembership).toBeDefined();
-    if (persistedMembership === undefined) return;
-    expect(persistedMembership.id).toBe(firstMembershipId);
-    // The persisted participant_id is canonical lowercase regardless of
-    // which casing the caller used on either create call (Postgres
-    // returns the storage form).
-    expect(persistedMembership.participant_id).toBe(OWNER_PARTICIPANT_ID);
-  });
-});
-
-// ----------------------------------------------------------------------------
-// P3 — SessionJoin verifies membership and returns canonical id on rejoin
-// ----------------------------------------------------------------------------
-//
-// IMPORTANT: the plan body's "returns existing timeline cursor" phrasing
-// resolves to membership-reuse only in PR #4 — see the file-level header
-// for the contract-shape rationale. The cursor is composed at the SDK
-// layer (PR #5) by calling SessionRead after SessionJoin.
-
-describe("SessionDirectoryService — P3 (join is idempotent on canonical membership)", () => {
-  it("first join inserts a membership; second join returns the same membership id", async () => {
-    // Setup: owner already exists, session already exists. The joiner is
-    // a different participant joining for the first time.
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1), ($2)", [
-      OWNER_PARTICIPANT_ID,
-      SECOND_PARTICIPANT_ID,
-    ]);
-    await ctx.service.createSession({
-      sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
-    });
-
-    const joinInput: JoinSessionInput = {
-      sessionId: SESSION_ID,
-      participantId: SECOND_PARTICIPANT_ID,
-      role: "collaborator",
-    };
-
-    const firstJoin = await ctx.service.joinSession(joinInput);
-    expect(firstJoin).not.toBeNull();
-    if (firstJoin === null) return;
-    expect(firstJoin.sessionId).toBe(SESSION_ID);
-    expect(firstJoin.participantId).toBe(SECOND_PARTICIPANT_ID);
-    const firstMembershipId: MembershipId = firstJoin.membershipId;
-
-    // The wire contract publishes `sharedMetadata` as the session's
-    // metadata column; we created the session with `{}` defaults so the
-    // payload is the empty object.
-    expect(firstJoin.sharedMetadata).toEqual({});
-
-    // Re-join: same sessionId + same participantId. AC5 invariant —
-    // membership id is canonical, no fork.
-    const secondJoin = await ctx.service.joinSession(joinInput);
-    expect(secondJoin).not.toBeNull();
-    if (secondJoin === null) return;
-    expect(secondJoin.membershipId).toBe(firstMembershipId);
-
-    // Direct probe: exactly TWO membership rows for this session
-    // (owner + the rejoining collaborator). A regression that lost the
-    // UNIQUE(session_id, participant_id) constraint or used `INSERT`
-    // without `ON CONFLICT` would surface here as 3 rows.
-    const probe = await ctx.querier.query<{ count: string }>(
-      "SELECT COUNT(*)::text AS count FROM session_memberships WHERE session_id = $1",
-      [SESSION_ID],
-    );
-    const probeRow = probe.rows[0];
-    expect(probeRow).toBeDefined();
-    if (probeRow === undefined) return;
-    expect(Number.parseInt(probeRow.count, 10)).toBe(2);
-  });
-
-  it("joinSession returns null for an unknown session id", async () => {
-    // Setup the participant so the joinSession call fails on the SESSION
-    // probe, not on a membership FK constraint.
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [SECOND_PARTICIPANT_ID]);
-    const result = await ctx.service.joinSession({
-      sessionId: SESSION_ID,
-      participantId: SECOND_PARTICIPANT_ID,
-    });
-    expect(result).toBeNull();
-  });
-
-  it("joinSession preserves an existing suspended membership row on rejoin", async () => {
-    // joinSession is NOT a reactivation primitive — see service docstring.
-    // The upsert preserves both `role` and `state` on conflict so a
-    // future Plan-002 reviewer reading the call site cannot mistake it
-    // for a safe re-activation path. This test pins the preserve-on-
-    // conflict behavior explicitly so a regression that swaps the upsert
-    // to `DO UPDATE SET role = EXCLUDED.role, state = 'active'` surfaces
-    // immediately as a failed assertion.
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1), ($2)", [
-      OWNER_PARTICIPANT_ID,
-      SECOND_PARTICIPANT_ID,
-    ]);
-    await ctx.service.createSession({
-      sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
-    });
-
-    // Step 1: first join as `collaborator` — the upsert inserts a fresh
-    // row in state `active`.
-    const firstJoin = await ctx.service.joinSession({
-      sessionId: SESSION_ID,
-      participantId: SECOND_PARTICIPANT_ID,
-      role: "collaborator",
-    });
-    expect(firstJoin).not.toBeNull();
-    if (firstJoin === null) return;
-    const firstMembershipId: MembershipId = firstJoin.membershipId;
-
-    // Step 2: out-of-band lifecycle transition (Plan-002's territory in
-    // the real system; we simulate it here with a direct UPDATE so the
-    // test does not depend on Plan-002 having landed). Move the row to
-    // `suspended`.
-    await ctx.querier.query("UPDATE session_memberships SET state = 'suspended' WHERE id = $1", [
-      firstMembershipId,
-    ]);
-
-    // Step 3: re-join with a different role (`viewer`). The upsert
-    // collides on UNIQUE(session_id, participant_id) and the conflict
-    // clause touches only `updated_at` — the role argument is ignored,
-    // and the suspended state is preserved.
-    const secondJoin = await ctx.service.joinSession({
-      sessionId: SESSION_ID,
-      participantId: SECOND_PARTICIPANT_ID,
-      role: "viewer",
-    });
-    expect(secondJoin).not.toBeNull();
-    if (secondJoin === null) return;
-    expect(secondJoin.membershipId).toBe(firstMembershipId);
-
-    // Direct probe: row state is unchanged. A regression that
-    // reactivated on join would surface as `state = 'active'` and/or
-    // `role = 'viewer'` here.
-    const probe = await ctx.querier.query<{ role: string; state: string }>(
-      "SELECT role, state FROM session_memberships WHERE id = $1",
-      [firstMembershipId],
-    );
-    const probeRow = probe.rows[0];
-    expect(probeRow).toBeDefined();
-    if (probeRow === undefined) return;
-    expect(probeRow.role).toBe("collaborator");
-    expect(probeRow.state).toBe("suspended");
-  });
-
-  it("joinSession rejects role: 'owner' (Codex P1 — privilege escalation)", async () => {
-    // Codex P1 / R5: `joinSession` previously took
-    // `role?: MembershipRole | undefined`, which includes `"owner"`.
-    // BL-069 §4 binds owner identity at `createSession` time via TOFU,
-    // and the membership upsert collides on UNIQUE(session_id,
-    // participant_id) — keying on the (session, participant) PAIR, not
-    // on the role. A new participant calling
-    // `joinSession({ sessionId: S, participantId: P_new, role: "owner" })`
-    // would silently INSERT a second `(S, P_new, 'owner')` row,
-    // granting P_new owner privileges without invitation, elevation,
-    // or promotion.
-    //
-    // The fix has two layers:
-    //   1. Compile-time: `JoinSessionInput.role` narrows to
-    //      `NonOwnerMembershipRole` (i.e. `MembershipRole` minus
-    //      `"owner"`), rejecting TypeScript callers at type-check time.
-    //   2. Runtime: a guard at the very top of `joinSession` throws
-    //      with a typed error message that names BL-069 §4 and points
-    //      to Plan-002 for the legitimate ownership-transfer path.
-    //
-    // This test exercises the runtime guard (layer 2). The cast through
-    // `MembershipRole` bypasses the compile-time narrowing — that's
-    // intentional, since the runtime guard is the SECOND defense and
-    // must be exercised to verify it fires for dynamic / cross-language
-    // callers that don't see the TypeScript types.
-    //
-    // Plan-002 owns ownership-transfer / co-owner promotion flows; this
-    // test does not exercise those (they have their own promotion path,
-    // not `joinSession`).
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1), ($2)", [
-      OWNER_PARTICIPANT_ID,
-      SECOND_PARTICIPANT_ID,
-    ]);
-    await ctx.service.createSession({
-      sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
-    });
-
-    // The cast is the load-bearing piece: `JoinSessionInput.role` is
-    // `NonOwnerMembershipRole | undefined` at compile time, so we need
-    // to widen back to `MembershipRole` to construct the privilege-
-    // escalation payload. The runtime guard is what we're testing.
-    const escalation = {
-      sessionId: SESSION_ID,
-      participantId: SECOND_PARTICIPANT_ID,
-      role: "owner" as MembershipRole,
-    } as JoinSessionInput;
-
-    // Error message MUST name BL-069 §4 (so an operator reading the log
-    // can correlate the rejection to the governing invariant) and MUST
-    // point to Plan-002 (so the legitimate ownership-transfer path is
-    // discoverable from the error). We assert on substrings rather than
-    // the full message so future doc-link adjustments don't break the
-    // test.
-    await expect(ctx.service.joinSession(escalation)).rejects.toThrow(/BL-069/);
-    await expect(ctx.service.joinSession(escalation)).rejects.toThrow(/Plan-002/);
-
-    // Direct row probe: zero new owner-membership rows for the
-    // attacking participant. The original P1 owner row stays intact
-    // (count = 1 across all owners; participant_id = OWNER_PARTICIPANT_ID).
-    // A regression that lost the runtime guard would surface here as
-    // count = 2 with (P1, P2) participants both holding 'owner'.
-    const ownerRows = await ctx.querier.query<{ participant_id: string }>(
-      `SELECT participant_id FROM session_memberships
-        WHERE session_id = $1 AND role = 'owner'
-        ORDER BY participant_id`,
-      [SESSION_ID],
-    );
-    expect(ownerRows.rows).toHaveLength(1);
-    const ownerRow = ownerRows.rows[0];
-    expect(ownerRow).toBeDefined();
-    if (ownerRow === undefined) return;
-    expect(ownerRow.participant_id).toBe(OWNER_PARTICIPANT_ID);
-
-    // Defense in depth: SECOND_PARTICIPANT_ID has no membership row of
-    // ANY role for this session — the guard fires before any row write.
-    const escalatorRows = await ctx.querier.query<{ count: string }>(
-      "SELECT COUNT(*)::text AS count FROM session_memberships WHERE session_id = $1 AND participant_id = $2",
-      [SESSION_ID, SECOND_PARTICIPANT_ID],
-    );
-    const escalatorRow = escalatorRows.rows[0];
-    expect(escalatorRow).toBeDefined();
-    if (escalatorRow === undefined) return;
-    expect(Number.parseInt(escalatorRow.count, 10)).toBe(0);
-  });
-
-  it("joinSession rejects role: 'owner' BEFORE the session-existence probe (Codex P1 — fail fast)", async () => {
-    // The owner-rejection runtime guard fires BEFORE the
-    // session-existence probe so a privilege-escalation attempt against
-    // a NON-EXISTENT sessionId surfaces as the same throw a caller
-    // against an existing session would see, rather than as `null`.
-    // Otherwise a probe-then-throw ordering would leak existence
-    // information AND let the attacker distinguish "session doesn't
-    // exist" from "you're not allowed to do that". This test pins the
-    // ordering — a regression that swapped the two would surface here
-    // as a `null` return instead of a thrown error.
-    //
-    // No participant rows are seeded; the session also doesn't exist.
-    // The throw must still fire on the role check first.
-    const escalation = {
-      sessionId: SESSION_ID, // never created
-      participantId: SECOND_PARTICIPANT_ID,
-      role: "owner" as MembershipRole,
-    } as JoinSessionInput;
-
-    // Both error-message substrings (`/BL-069/` and `/Plan-002/`) are
-    // asserted here for parallelism with the first owner-rejection test
-    // above — they share the same throw path, so a regression that
-    // dropped either substring would surface here as well as in that
-    // test.
-    await expect(ctx.service.joinSession(escalation)).rejects.toThrow(/BL-069/);
-    await expect(ctx.service.joinSession(escalation)).rejects.toThrow(/Plan-002/);
-  });
-});
-
-// ----------------------------------------------------------------------------
-// P5 — AC8 participants-per-session enforcement (Plan-001 + Tier 1 closing audit)
-// ----------------------------------------------------------------------------
-//
-// Spec-001 §Resource Limits row 1 names "Participants per session: 10
-// (Control plane on join)" with §Limit Enforcement requiring the
-// canonical `resource.limit_exceeded` wire envelope. The Tier 1 closing
-// audit's A1 G3 surfaced that the precheck was never wired into
-// `joinSession`. Path A (audit DQ-1) implements the three-layer change:
-//
-//   • Service layer (this file): the count-and-throw block under the
-//     `Querier.transaction(...)` wrapper + the rejoin-probe skip so
-//     existing participants don't double-count.
-//   • Domain exception (`errors.ts`): typed `ResourceLimitExceededException`
-//     carrying the contracts-shaped `{resource, limit, current}` payload.
-//   • Transport (`trpc.ts` + `session-router.factory.ts`): tRPC
-//     `errorFormatter` projects the typed cause onto `data.aisError`;
-//     router rethrows as `TOO_MANY_REQUESTS` per HTTP 429 convention.
-//
-// The cap is resolved from `sessions.config.participantLimit` per
-// Spec-001 §Limit Enforcement ("configurable per session via session
-// config"); a positive finite override is honored verbatim (after
-// flooring), and the default of 10 from §Resource Limits row 1 is the
-// fallback when the override is absent, non-numeric, non-finite, or
-// non-positive.
-
-describe("SessionDirectoryService — P5 (AC8 participant-limit enforcement)", () => {
-  // 10 unique participant ids used to fill the session to the default cap.
-  // The owner consumes slot 1; nine collaborators fill slots 2-10; the
-  // eleventh joiner trips the cap. ULIDs chosen so the brand-check passes.
-  const NINE_COLLABORATOR_IDS: ReadonlyArray<ParticipantId> = [
-    "01970000-0000-7000-8000-000000000002" as ParticipantId,
-    "01970000-0000-7000-8000-000000000003" as ParticipantId,
-    "01970000-0000-7000-8000-000000000004" as ParticipantId,
-    "01970000-0000-7000-8000-000000000005" as ParticipantId,
-    "01970000-0000-7000-8000-000000000006" as ParticipantId,
-    "01970000-0000-7000-8000-000000000007" as ParticipantId,
-    "01970000-0000-7000-8000-000000000008" as ParticipantId,
-    "01970000-0000-7000-8000-000000000009" as ParticipantId,
-    "01970000-0000-7000-8000-00000000000a" as ParticipantId,
-  ];
-  const ELEVENTH_PARTICIPANT: ParticipantId =
-    "01970000-0000-7000-8000-00000000000b" as ParticipantId;
-
-  it("the eleventh joinSession throws ResourceLimitExceededException with the canonical Spec-001 payload", async () => {
-    // Setup: owner + 9 collaborators + 1 over-cap candidate = 11
-    // participants. The owner consumes slot 1 at createSession; the 9
-    // collaborators consume slots 2-10 via successful joinSession
-    // calls; the 11th joiner trips the AC8 cap.
-    const allIds: ParticipantId[] = [
-      OWNER_PARTICIPANT_ID,
-      ...NINE_COLLABORATOR_IDS,
-      ELEVENTH_PARTICIPANT,
-    ];
-    for (const id of allIds) {
-      await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [id]);
-    }
-    await ctx.service.createSession({
-      sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
-    });
-    for (const id of NINE_COLLABORATOR_IDS) {
-      const join = await ctx.service.joinSession({
-        sessionId: SESSION_ID,
-        participantId: id,
-        role: "collaborator",
-      });
-      expect(join).not.toBeNull();
-    }
-
-    // 11th join — must throw the typed exception with the canonical
-    // wire-shape payload. The transport layer projects this verbatim
-    // onto `data.aisError`; downstream SDK consumers branch on
-    // `details.resource === "participants per session"` per Spec-001.
-    let caught: unknown = null;
-    try {
-      await ctx.service.joinSession({
-        sessionId: SESSION_ID,
-        participantId: ELEVENTH_PARTICIPANT,
-        role: "collaborator",
-      });
-    } catch (err) {
-      caught = err;
-    }
-    expect(caught).toBeInstanceOf(ResourceLimitExceededException);
-    if (!(caught instanceof ResourceLimitExceededException)) return;
-    expect(caught.code).toBe("resource.limit_exceeded");
-    expect(caught.details).toEqual({
-      resource: "participants per session",
-      limit: 10,
-      current: 10,
-    });
-
-    // Direct probe: still exactly 10 membership rows on the session —
-    // the 11th INSERT never landed (the transaction rolled back).
-    const probe = await ctx.querier.query<{ count: string }>(
-      "SELECT COUNT(*)::text AS count FROM session_memberships WHERE session_id = $1",
-      [SESSION_ID],
-    );
-    const probeRow = probe.rows[0];
-    expect(probeRow).toBeDefined();
-    if (probeRow === undefined) return;
-    expect(Number.parseInt(probeRow.count, 10)).toBe(10);
-  });
-
-  it("rejoin from an existing participant at the cap is idempotent (does not double-count, does not throw)", async () => {
-    // Edge case: 10 memberships exist (owner + 9 collaborators); an
-    // existing participant rejoins. The AC8 count-check MUST be skipped
-    // (the rejoin-probe sees the existing row and short-circuits) so a
-    // legitimate reconnect at the cap doesn't surface as a spurious
-    // limit-exceeded.
-    const allIds: ParticipantId[] = [OWNER_PARTICIPANT_ID, ...NINE_COLLABORATOR_IDS];
-    for (const id of allIds) {
-      await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [id]);
-    }
-    await ctx.service.createSession({
-      sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
-    });
-    let firstMembershipId: MembershipId | null = null;
-    for (const id of NINE_COLLABORATOR_IDS) {
-      const join = await ctx.service.joinSession({
-        sessionId: SESSION_ID,
-        participantId: id,
-        role: "collaborator",
-      });
-      expect(join).not.toBeNull();
-      if (join !== null && firstMembershipId === null) {
-        firstMembershipId = join.membershipId;
-      }
-    }
-    // Direct row probe: confirm we are AT the cap (not under, not over).
-    const beforeProbe = await ctx.querier.query<{ count: string }>(
-      "SELECT COUNT(*)::text AS count FROM session_memberships WHERE session_id = $1",
-      [SESSION_ID],
-    );
-    expect(Number.parseInt(beforeProbe.rows[0]?.count ?? "0", 10)).toBe(10);
-
-    // Existing participant rejoins — must succeed, returning the same
-    // membership id. No exception.
-    const rejoin = await ctx.service.joinSession({
-      sessionId: SESSION_ID,
-      participantId: NINE_COLLABORATOR_IDS[0]!,
-      role: "collaborator",
-    });
-    expect(rejoin).not.toBeNull();
-    if (rejoin === null) return;
-    expect(rejoin.membershipId).toBe(firstMembershipId);
-
-    // Row count still 10 — no row added, no rollback dropped existing rows.
-    const afterProbe = await ctx.querier.query<{ count: string }>(
-      "SELECT COUNT(*)::text AS count FROM session_memberships WHERE session_id = $1",
-      [SESSION_ID],
-    );
-    expect(Number.parseInt(afterProbe.rows[0]?.count ?? "0", 10)).toBe(10);
-  });
-
-  it("11 concurrent joinSession calls under the cap serialize via FOR UPDATE — exactly 10 succeed, 1 throws", async () => {
-    // Race regression: AC8 enforcement requires the count-and-insert pair
-    // to serialize via the parent-session row lock. Without `FOR UPDATE`,
-    // two concurrent joiners can both observe `count = 9` and both
-    // proceed to INSERT, blowing past the cap. The transaction wrapper +
-    // FOR UPDATE in joinSession's first statement is the load-bearing
-    // serialization seam.
-    //
-    // PGlite is single-threaded but does honor `FOR UPDATE` semantics
-    // across concurrent transactions launched via Promise.all (each
-    // transaction's COMMIT happens-before the next transaction's BEGIN
-    // observes the lock). A regression that dropped the transaction
-    // wrapper would surface here as >1 over-cap successes (the second-
-    // through-eleventh joiners would race the count probe without
-    // serialization).
-    const ELEVEN_PARTICIPANT_IDS: ReadonlyArray<ParticipantId> = [
-      ...NINE_COLLABORATOR_IDS,
-      ELEVENTH_PARTICIPANT,
-      "01970000-0000-7000-8000-00000000000c" as ParticipantId,
-    ];
-    const allIds: ParticipantId[] = [OWNER_PARTICIPANT_ID, ...ELEVEN_PARTICIPANT_IDS];
-    for (const id of allIds) {
-      await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [id]);
-    }
-    await ctx.service.createSession({
-      sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
-    });
-
-    // 11 concurrent joiners. The first 9 fill slots 2-10 (owner is slot
-    // 1); the 10th joiner is racing the 11th. Exactly one must throw.
-    const results = await Promise.allSettled(
-      ELEVEN_PARTICIPANT_IDS.map((id) =>
-        ctx.service.joinSession({
-          sessionId: SESSION_ID,
-          participantId: id,
-          role: "collaborator",
-        }),
-      ),
-    );
-    const fulfilled = results.filter((r) => r.status === "fulfilled");
-    const rejected = results.filter((r) => r.status === "rejected");
-    // 11 joiners + 1 owner (slot 1) = 12 candidates for a 10-cap session.
-    // Slots 2-10 can be filled (9 slots), so exactly 9 fulfilled + 2
-    // rejected. The owner already consumed slot 1 at createSession.
-    expect(fulfilled).toHaveLength(9);
-    expect(rejected).toHaveLength(2);
-    // Every rejection must be the typed exception (not a generic Error)
-    // — a regression that races the count probe without serialization
-    // would still surface here as fewer rejections, but extras would
-    // also catch generic Error throws from FK violations etc.
-    for (const r of rejected) {
-      const rejection = r as PromiseRejectedResult;
-      expect(rejection.reason).toBeInstanceOf(ResourceLimitExceededException);
-    }
-
-    // Final-state probe: exactly 10 memberships on the session.
-    const probe = await ctx.querier.query<{ count: string }>(
-      "SELECT COUNT(*)::text AS count FROM session_memberships WHERE session_id = $1",
-      [SESSION_ID],
-    );
-    expect(Number.parseInt(probe.rows[0]?.count ?? "0", 10)).toBe(10);
-  });
-
-  it("honors per-session config.participantLimit override (`Spec-001 §Limit Enforcement`)", async () => {
-    // Spec-001 §Limit Enforcement: "Limits are configurable per session
-    // via session config. The values above are defaults." A session
-    // created with `config: { participantLimit: 3 }` must trip the cap
-    // at the 4th joiner, not the 11th — and the wire envelope's `limit`
-    // field must reflect the resolved override (3), not the default 10.
-    const COLLABORATOR_A: ParticipantId = "01970000-0000-7000-8000-000000000102" as ParticipantId;
-    const COLLABORATOR_B: ParticipantId = "01970000-0000-7000-8000-000000000103" as ParticipantId;
-    const OVER_CAP_CANDIDATE: ParticipantId =
-      "01970000-0000-7000-8000-000000000104" as ParticipantId;
-    const allIds: ParticipantId[] = [
-      OWNER_PARTICIPANT_ID,
-      COLLABORATOR_A,
-      COLLABORATOR_B,
-      OVER_CAP_CANDIDATE,
-    ];
-    for (const id of allIds) {
-      await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [id]);
-    }
-    await ctx.service.createSession({
-      sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
-      config: { participantLimit: 3 },
-    });
-
-    // Owner consumes slot 1; A + B consume slots 2-3 at the override cap.
-    for (const id of [COLLABORATOR_A, COLLABORATOR_B]) {
-      const join = await ctx.service.joinSession({
-        sessionId: SESSION_ID,
-        participantId: id,
-        role: "collaborator",
-      });
-      expect(join).not.toBeNull();
-    }
-
-    // 4th joiner trips the override cap. The wire payload must carry
-    // `limit: 3` (the resolved override), not `limit: 10` (the default).
-    let caught: unknown = null;
-    try {
-      await ctx.service.joinSession({
-        sessionId: SESSION_ID,
-        participantId: OVER_CAP_CANDIDATE,
-        role: "collaborator",
-      });
-    } catch (err) {
-      caught = err;
-    }
-    expect(caught).toBeInstanceOf(ResourceLimitExceededException);
-    if (!(caught instanceof ResourceLimitExceededException)) return;
-    expect(caught.code).toBe("resource.limit_exceeded");
-    expect(caught.details).toEqual({
-      resource: "participants per session",
-      limit: 3,
-      current: 3,
-    });
-    // Error message must also reflect the resolved cap, not the default.
-    expect(caught.message).toContain("(3/3)");
-
-    // Direct row probe: still exactly 3 memberships (the 4th rolled back).
-    const probe = await ctx.querier.query<{ count: string }>(
-      "SELECT COUNT(*)::text AS count FROM session_memberships WHERE session_id = $1",
-      [SESSION_ID],
-    );
-    expect(Number.parseInt(probe.rows[0]?.count ?? "0", 10)).toBe(3);
-  });
-
-  it("fractional config.participantLimit in (0, 1) falls back to the default (no unjoinable session)", async () => {
-    // Regression: a typed-but-malformed override like `participantLimit: 0.5`
-    // floors to 0. Without the `raw < 1` guard on `resolveParticipantLimit`,
-    // the cap would resolve to 0 and `current >= 0` would trip on the very
-    // first joiner — every join rejected, session unjoinable. Spec-001 does
-    // not define "disable joining" semantics, so the fallback to the
-    // default-of-10 is the correct treatment of malformed config.
-    const COLLABORATOR: ParticipantId = "01970000-0000-7000-8000-000000000202" as ParticipantId;
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [COLLABORATOR]);
-    await ctx.service.createSession({
-      sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
-      config: { participantLimit: 0.5 },
-    });
-
-    // First joiner MUST succeed — proves the session is joinable.
-    const join = await ctx.service.joinSession({
-      sessionId: SESSION_ID,
-      participantId: COLLABORATOR,
-      role: "collaborator",
-    });
-    expect(join).not.toBeNull();
-
-    // The cap reverted to the default of 10. Fill the session to 10 + try
-    // an 11th joiner; the 11th must trip the cap with `limit: 10`, proving
-    // the fallback resolved to the default (not the floored-to-0 ghost).
-    const EIGHT_MORE_IDS: ReadonlyArray<ParticipantId> = [
-      "01970000-0000-7000-8000-000000000203" as ParticipantId,
-      "01970000-0000-7000-8000-000000000204" as ParticipantId,
-      "01970000-0000-7000-8000-000000000205" as ParticipantId,
-      "01970000-0000-7000-8000-000000000206" as ParticipantId,
-      "01970000-0000-7000-8000-000000000207" as ParticipantId,
-      "01970000-0000-7000-8000-000000000208" as ParticipantId,
-      "01970000-0000-7000-8000-000000000209" as ParticipantId,
-      "01970000-0000-7000-8000-00000000020a" as ParticipantId,
-    ];
-    const OVER_CAP: ParticipantId = "01970000-0000-7000-8000-00000000020b" as ParticipantId;
-    for (const id of [...EIGHT_MORE_IDS, OVER_CAP]) {
-      await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [id]);
-    }
-    for (const id of EIGHT_MORE_IDS) {
-      const j = await ctx.service.joinSession({
-        sessionId: SESSION_ID,
-        participantId: id,
-        role: "collaborator",
-      });
-      expect(j).not.toBeNull();
-    }
-    let caught: unknown = null;
-    try {
-      await ctx.service.joinSession({
-        sessionId: SESSION_ID,
-        participantId: OVER_CAP,
-        role: "collaborator",
-      });
-    } catch (err) {
-      caught = err;
-    }
-    expect(caught).toBeInstanceOf(ResourceLimitExceededException);
-    if (!(caught instanceof ResourceLimitExceededException)) return;
-    expect(caught.details).toEqual({
-      resource: "participants per session",
-      limit: 10,
-      current: 10,
-    });
-  });
-
-  it("config.participantLimit === 1 is honored verbatim (solo-owner session boundary)", async () => {
-    // Boundary case: `participantLimit: 1` is a valid spec interpretation
-    // (a session that only the owner can occupy). The `raw < 1` predicate
-    // must NOT swallow this — it must resolve to 1, and the very first
-    // additional joiner must trip the cap.
-    const COLLABORATOR: ParticipantId = "01970000-0000-7000-8000-000000000302" as ParticipantId;
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [OWNER_PARTICIPANT_ID]);
-    await ctx.querier.query("INSERT INTO participants (id) VALUES ($1)", [COLLABORATOR]);
-    await ctx.service.createSession({
-      sessionId: SESSION_ID,
-      ownerParticipantId: OWNER_PARTICIPANT_ID,
-      config: { participantLimit: 1 },
-    });
-
-    let caught: unknown = null;
-    try {
-      await ctx.service.joinSession({
-        sessionId: SESSION_ID,
-        participantId: COLLABORATOR,
-        role: "collaborator",
-      });
-    } catch (err) {
-      caught = err;
-    }
-    expect(caught).toBeInstanceOf(ResourceLimitExceededException);
-    if (!(caught instanceof ResourceLimitExceededException)) return;
-    expect(caught.details).toEqual({
-      resource: "participants per session",
-      limit: 1,
-      current: 1,
-    });
-    expect(caught.message).toContain("(1/1)");
+    expect(ownerProbe.rows).toHaveLength(1);
+    const persistedSession = ownerProbe.rows[0];
+    expect(persistedSession).toBeDefined();
+    if (persistedSession === undefined) return;
+    expect(persistedSession.owner_user_id).toBe(OWNER_PARTICIPANT_ID);
   });
 });
 
@@ -1485,21 +665,16 @@ describe("applyMigrations — idempotency", () => {
     // regression that bypassed the `hasMigrationApplied` short-circuit
     // would surface as a `42P07 relation already exists` error.
     //
-    // Post Plan-002 Amendment 2 (PR #102), `applyMigrations` iterated the
-    // `MIGRATIONS` array `[v1, v2]`; cross-plan amendment — Plan-003 Phase 3
-    // (PR #145) appends v3 (`runtime_node_attachments` + `runtime_node_presence`),
-    // so the canonical-path bootstrap now leaves THREE version anchor rows in
-    // schema_migrations and the assertion shape updated to
-    // `[{v:1},{v:2},{v:3}]`. The expanded canonical-path coverage (R1+R2) lives
-    // in the dedicated `migration-runner.test.ts` test file; this assertion
-    // remains the composition-level proof that running the migration runner
-    // through the directory-service test fixture preserves the same idempotency.
+    // The expanded canonical-path coverage (R1+R2) lives in the dedicated
+    // `migration-runner.test.ts` file; this assertion remains the
+    // composition-level proof that running the migration runner through the
+    // directory-service test fixture preserves the same idempotency.
     await applyMigrations(ctx.querier);
     await applyMigrations(ctx.querier);
     const probe = await ctx.querier.query<{ version: number }>(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    expect(probe.rows).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }]);
+    expect(probe.rows).toEqual([{ version: 1 }, { version: 3 }, { version: 4 }]);
   });
 
   it("applyMigrations is concurrency-safe — concurrent calls on the same fresh database serialize via advisory lock (Codex R8)", async () => {
@@ -1583,19 +758,14 @@ describe("applyMigrations — idempotency", () => {
 
       // (a) End-state correctness: each migration landed exactly once.
       // Post Amendment 2 the runner iterated `[v1, v2]`; cross-plan amendments
-      // append v3 (Plan-003 Phase 3, PR #145) and v4 (Plan-006 T3.3), so ALL
-      // FOUR anchor rows must be present (a regression that drops v2, v3, or v4
-      // would surface here as a shorter array). The advisory-lock serialization this test exercises is
-      // unchanged — concurrent racers still land each version exactly once.
+      // Every registered version's anchor row must be present (a regression
+      // that drops one surfaces here as a shorter array). The advisory-lock
+      // serialization this test exercises is unchanged — concurrent racers
+      // still land each version exactly once.
       const migrationsProbe = await pg.query<{ version: number }>(
         "SELECT version FROM schema_migrations ORDER BY version",
       );
-      expect(migrationsProbe.rows).toEqual([
-        { version: 1 },
-        { version: 2 },
-        { version: 3 },
-        { version: 4 },
-      ]);
+      expect(migrationsProbe.rows).toEqual([{ version: 1 }, { version: 3 }, { version: 4 }]);
 
       const participantsProbe = await pg.query<{ exists: boolean }>(
         `SELECT EXISTS (
@@ -1630,8 +800,9 @@ describe("applyMigrations — idempotency", () => {
     // A regression to a substrate that DROPS CHECKs (e.g. a hypothetical
     // pg-mem swap) would surface here.
     await expect(
-      ctx.querier.query("INSERT INTO sessions (id, state) VALUES ($1, $2)", [
+      ctx.querier.query("INSERT INTO sessions (id, owner_user_id, state) VALUES ($1, $2, $3)", [
         SESSION_ID,
+        OWNER_PARTICIPANT_ID,
         "not_a_real_state",
       ]),
     ).rejects.toThrow();
@@ -1886,18 +1057,17 @@ function makeMockPoolClient(): MockPoolClient {
 // each method is deterministic, so the queue position is stable.
 
 function cannedRowsForCreateSession(): CannedResponse[] {
-  // The service issues, inside the transaction (after BEGIN):
-  //   1. session upsert        -> 1 SessionRow
-  //   2. SELECT ... FOR UPDATE -> 1 row (id only)
-  //   3. owner-mismatch probe  -> 0 rows (no existing owner)
-  //   4. membership upsert     -> 1 MembershipRow
-  // Then COMMIT.
+  // The service issues exactly one statement inside the transaction (after
+  // BEGIN): the session upsert, returning one SessionRow whose
+  // `owner_user_id` is what the owner-mismatch guard compares against. Then
+  // COMMIT.
   return [
     {
       kind: "rows",
       rows: [
         {
           id: SESSION_ID,
+          owner_user_id: OWNER_PARTICIPANT_ID,
           state: "provisioning",
           config: {},
           metadata: {},
@@ -1907,83 +1077,7 @@ function cannedRowsForCreateSession(): CannedResponse[] {
         },
       ],
     },
-    { kind: "rows", rows: [{ id: SESSION_ID }] },
-    { kind: "rows", rows: [] },
-    {
-      kind: "rows",
-      rows: [
-        {
-          id: "01970000-0000-7000-8000-00000000c001",
-          session_id: SESSION_ID,
-          participant_id: OWNER_PARTICIPANT_ID,
-          role: "owner",
-          state: "active",
-          joined_at: new Date("2026-05-09T00:00:00Z"),
-          updated_at: new Date("2026-05-09T00:00:00Z"),
-        },
-      ],
-    },
   ];
-}
-
-function cannedRowsForJoinSession(opts: {
-  readonly participantId: ParticipantId;
-  readonly membershipId: string;
-  // `isRejoin: true` means the (session, participant) pair already has a
-  // membership row — the AC8 count-check is skipped and the inner query
-  // sequence is 3 statements instead of 4. AC8 enforcement was added
-  // 2026-05-_ per Plan-001 §Decision Log (Path A promotion).
-  readonly isRejoin?: boolean;
-}): CannedResponse[] {
-  // The service runs every joinSession inside `Querier.transaction(...)`
-  // so the held PoolClient sees (in order):
-  //   1. session probe (FOR UPDATE)   -> 1 SessionRow
-  //   2. rejoin probe                  -> 0 rows on new join, 1 row on rejoin
-  //   3. (new-join only) count probe   -> 1 row { n: <current member count> }
-  //   4. membership upsert             -> 1 MembershipRow
-  // BEGIN + COMMIT are issued by the pg.Pool adapter and do not consume
-  // canned rows (the mock client treats empty-FIFO as a not-found error;
-  // we let the adapter's BEGIN/COMMIT calls fall through the default
-  // empty-rows handler in the mock).
-  const sessionProbe: CannedResponse = {
-    kind: "rows",
-    rows: [
-      {
-        id: SESSION_ID,
-        state: "provisioning",
-        config: {},
-        metadata: {},
-        min_client_version: null,
-        created_at: new Date("2026-05-09T00:00:00Z"),
-        updated_at: new Date("2026-05-09T00:00:00Z"),
-      },
-    ],
-  };
-  const rejoinProbe: CannedResponse = {
-    kind: "rows",
-    rows: opts.isRejoin === true ? [{ exists: 1 }] : [],
-  };
-  const countProbe: CannedResponse = {
-    kind: "rows",
-    rows: [{ n: 0 }],
-  };
-  const upsert: CannedResponse = {
-    kind: "rows",
-    rows: [
-      {
-        id: opts.membershipId,
-        session_id: SESSION_ID,
-        participant_id: opts.participantId,
-        role: "collaborator",
-        state: "active",
-        joined_at: new Date("2026-05-09T00:00:00Z"),
-        updated_at: new Date("2026-05-09T00:00:00Z"),
-      },
-    ],
-  };
-  return opts.isRejoin === true
-    ? [sessionProbe, rejoinProbe, upsert]
-    : [sessionProbe, rejoinProbe, countProbe, upsert];
 }
 
 describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
@@ -2440,18 +1534,15 @@ describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
   // Spec-001 AC1 — createSession through pg.Pool yields stable shape
   // --------------------------------------------------------------------------
 
-  it("Spec-001 AC1: createSession through the pg.Pool-backed Querier yields one stable session id, one owner membership, one default channel (empty)", async () => {
-    // AC1 says "createSession yields one stable session id, one owner
-    // membership, one default channel". The behavioral correctness of the
-    // SQL itself is already proven in the PGlite path (P1 block above).
-    // What T5.5 needs to prove is that the SAME service code, when run
-    // against the pg.Pool-backed Querier, ROUTES through the right
-    // substrate (the held client for the transaction) and produces the
-    // contract-shape response. The control plane has no event log per
-    // ADR-017, so `channels` is the empty array (the canonical "no channel
-    // metadata here" signal); PR #5's SDK composition layer merges the
-    // daemon's projected channels with this empty list to produce the
-    // user-visible channel list.
+  it("createSession through the pg.Pool-backed Querier yields one stable session id and an empty default channel list", async () => {
+    // The behavioral correctness of the SQL itself is already proven in the
+    // PGlite path (P1 block above). What this proves is that the SAME service
+    // code, when run against the pg.Pool-backed Querier, ROUTES through the
+    // right substrate (the held client for the transaction) and produces the
+    // contract-shape response. The control plane has no event log, so
+    // `channels` is the empty array (the canonical "no channel metadata here"
+    // signal); the SDK composition layer merges the daemon's projected channels
+    // with this empty list to produce the user-visible channel list.
     const pool = makeMockPool();
     pool._connectImpl = async (): Promise<MockPoolClient> => {
       const client = makeMockPoolClient();
@@ -2470,23 +1561,16 @@ describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
       ownerParticipantId: OWNER_PARTICIPANT_ID,
     });
 
-    // Contract-shape assertions: one stable id, one owner membership, one
-    // default (empty) channels array. Mirrors the PGlite-path P1 assertion
-    // surface — same response shape across both substrates.
+    // Contract-shape assertions: one stable id and a default (empty) channels
+    // array. Mirrors the PGlite-path P1 assertion surface — same response shape
+    // across both substrates.
     expect(response.sessionId).toBe(SESSION_ID);
     expect(response.state).toBe("provisioning");
-    expect(response.memberships).toHaveLength(1);
-    const ownerMembership = response.memberships[0];
-    expect(ownerMembership).toBeDefined();
-    if (ownerMembership === undefined) return;
-    expect(ownerMembership.participantId).toBe(OWNER_PARTICIPANT_ID);
-    expect(ownerMembership.role).toBe("owner");
-    expect(ownerMembership.state).toBe("active");
     expect(response.channels).toEqual([]);
 
-    // Routing assertions: createSession opened a transaction. All four
-    // body statements MUST have landed on the held client, NOT on the
-    // pool's one-shot path. The pool.query mock was never called.
+    // Routing assertions: createSession opened a transaction. The body
+    // statement MUST have landed on the held client, NOT on the pool's one-shot
+    // path. The pool.query mock was never called.
     expect(pool.connect).toHaveBeenCalledTimes(1);
     expect(pool.query).not.toHaveBeenCalled();
     const client = pool._clients[0];
@@ -2613,126 +1697,6 @@ describe("createPgPoolQuerier — pool-checkout-and-release path", () => {
     expect(releaseIdx).toBeGreaterThan(commitIdx);
     const between = clientCallKinds.slice(commitIdx + 1, releaseIdx);
     expect(between).toEqual(["client.removeListener.error"]);
-  });
-
-  // --------------------------------------------------------------------------
-  // Spec-001 AC4 — second joinSession returns same membership id
-  // --------------------------------------------------------------------------
-
-  it("Spec-001 AC4: a second joinSession through the pg.Pool-backed Querier returns the same membership id (canonical, no fork) via the pool's transactional path", async () => {
-    // AC4 says "second joinSession returns the same session id, existing
-    // membership state, and existing event history". Plan-001 P5 +
-    // closing-audit Path A wrapped `joinSession` in
-    // `Querier.transaction(...)` so AC8 (participants-per-session cap)
-    // can serialize count + upsert under a `FOR UPDATE` row lock; AC4's
-    // idempotency contract continues to hold across that change.
-    //
-    // The PGlite path P3 already proves "same membership id on rejoin"
-    // end-to-end against a real Postgres-shaped substrate. What T5.5 +
-    // the AC8 enforcement need to pin here is that the SAME response
-    // shape lands when the service runs against the pg.Pool-backed
-    // Querier, AND that the routing now uses the held-client transaction
-    // path (one `pool.connect()` per joinSession, all inner statements
-    // through `client.query()`) — a regression that drops the
-    // transaction wrapper would surface as `pool.connect` not being
-    // called.
-    const MEMBERSHIP_ID = "01970000-0000-7000-8000-00000000c777";
-    const pool = makeMockPool();
-    // Each joinSession now issues:
-    //   1. BEGIN                       (adapter; no canned row needed —
-    //                                   default empty-rows handler suffices)
-    //   2. SELECT ... FOR UPDATE       -> SessionRow
-    //   3. rejoin probe                -> 0 rows on first, 1 row on second
-    //   4. (first only) COUNT probe    -> { n: 0 }
-    //   5. membership upsert           -> MembershipRow
-    //   6. COMMIT                      (adapter; same as BEGIN)
-    // Queue per-statement rows on the FIRST PoolClient the pool hands
-    // out. The pool's `connect()` mock pushes a fresh client into
-    // `pool._clients` — we set its `_queryImpl` after the first connect.
-    const firstCallRows = cannedRowsForJoinSession({
-      participantId: SECOND_PARTICIPANT_ID,
-      membershipId: MEMBERSHIP_ID,
-    });
-    const secondCallRows = cannedRowsForJoinSession({
-      participantId: SECOND_PARTICIPANT_ID,
-      membershipId: MEMBERSHIP_ID,
-      isRejoin: true,
-    });
-    // The mock's `connect()` makes a fresh client per call. We override
-    // `_connectImpl` to set the canned-row queue on each freshly-issued
-    // client BEFORE handing it back to the adapter.
-    const queues: CannedResponse[][] = [firstCallRows, secondCallRows];
-    (pool as { _connectImpl?: () => Promise<MockPoolClient> })._connectImpl = async () => {
-      const client = makeMockPoolClient();
-      pool._clients.push(client);
-      const queue = queues.shift();
-      if (queue !== undefined) {
-        // Filter the canned-row queue to skip BEGIN/COMMIT — the mock's
-        // default empty-rows handler covers those control statements; the
-        // FIFO drains only on the four (or three) data statements.
-        client._queryImpl = queue;
-      }
-      // Wrap the client's query mock so BEGIN/COMMIT/ROLLBACK fall through
-      // to the empty-rows default and the data statements consume the FIFO.
-      const originalQuery = client.query as unknown as (
-        sql: string,
-        params?: ReadonlyArray<unknown>,
-      ) => Promise<QueryResult<QueryResultRow>>;
-      client.query = vi.fn(
-        async <R extends QueryResultRow>(
-          sql: string,
-          params?: ReadonlyArray<unknown>,
-        ): Promise<QueryResult<R>> => {
-          const upper = sql.trim().toUpperCase();
-          if (upper === "BEGIN" || upper === "COMMIT" || upper === "ROLLBACK") {
-            // Control statements bypass the canned-row FIFO — return an
-            // empty rows shape directly. The adapter doesn't read the
-            // result on BEGIN/COMMIT; only the data statements (FOR
-            // UPDATE / rejoin probe / count / upsert) consume the FIFO.
-            return {
-              rows: [] as R[],
-              command: "",
-              rowCount: 0,
-              oid: 0,
-              fields: [],
-            };
-          }
-          return (await originalQuery(sql, params)) as QueryResult<R>;
-        },
-      ) as unknown as MockPoolClient["query"];
-      return client;
-    };
-    const service = createSessionDirectoryServiceFromPool(pool);
-
-    const firstJoin = await service.joinSession({
-      sessionId: SESSION_ID,
-      participantId: SECOND_PARTICIPANT_ID,
-      role: "collaborator",
-    });
-    expect(firstJoin).not.toBeNull();
-    if (firstJoin === null) return;
-    expect(firstJoin.membershipId).toBe(MEMBERSHIP_ID);
-
-    const secondJoin = await service.joinSession({
-      sessionId: SESSION_ID,
-      participantId: SECOND_PARTICIPANT_ID,
-      role: "collaborator",
-    });
-    expect(secondJoin).not.toBeNull();
-    if (secondJoin === null) return;
-    // Canonical membership id — no fork on rejoin. AC4 invariant.
-    expect(secondJoin.membershipId).toBe(firstJoin.membershipId);
-    expect(secondJoin.sessionId).toBe(SESSION_ID);
-
-    // Routing assertions: joinSession now opens a transaction per call.
-    // pool.query MUST NOT be called (all inner statements route through
-    // the held client). pool.connect MUST be called exactly twice (one
-    // per joinSession). A regression that dropped the transaction
-    // wrapper would surface as pool.query being called and pool.connect
-    // staying at 0 — exactly the inverse of the pre-AC8 assertion.
-    expect(pool.query).not.toHaveBeenCalled();
-    expect(pool.connect).toHaveBeenCalledTimes(2);
-    expect(pool._clients).toHaveLength(2);
   });
 
   // --------------------------------------------------------------------------

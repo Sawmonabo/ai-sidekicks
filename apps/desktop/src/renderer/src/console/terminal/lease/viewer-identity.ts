@@ -1,33 +1,22 @@
-// Which participant this window is, for the one terminal decision that needs it.
+// Which window this is, for the one terminal decision that needs it.
 //
 // WHY THE LEASE CANNOT DO WITHOUT IT. `lease-model.ts` tells `held-by-you` from
-// `held-by-another` by comparing the wire's holder against the viewer, and the pane
-// used to hand that fold a hard-coded `undefined`. Every take therefore classified
-// as somebody else's: the participant the daemon had just granted the lease to kept
-// being offered "Claim the shell", had no way to release it, and watched the
-// emulator stay read-only. The fold was right and its input was a placeholder.
+// `held-by-another` by comparing the wire's holder against this window, and the pane
+// used to hand that fold a hard-coded `undefined`. Every take therefore classified as
+// somewhere else's: the window the daemon had just granted the lease to kept being
+// offered "Claim the shell", had no way to release it, and watched the emulator stay
+// read-only. The fold was right and its input was a placeholder.
 //
-// THE READ IS THE PORT'S. `bridge/growth-operations/identity.ts`'s `callerParticipantRead` is
-// the console's one answer to "which entry in this session's roster is this window",
-// and the row deliberately carries no role — the roster already holds every member's
-// role, and a second copy on this reply would be two sources of truth for it. This
-// module takes the identifier and nothing else.
+// THE READ IS THE PORT'S. `bridge/growth-operations/identity.ts`'s
+// `callerParticipantRead` is the console's one answer to "which identity is this
+// window", and this module takes that identifier and nothing else.
 //
-// WHY THIS IS NOT `store/session/caller-membership-role.ts`'s `useCallerMembershipRole`. That hook answers a
-// ROLE: it chains the same read to a roster lookup, and it takes the read as an
-// injected function because `store/` sits BELOW `bridge/` on the console's DAG and
-// may not reach a port at all. The terminal pane is a view family and may, so the
-// bridge is taken directly and no adapter is invented for it — and what this surface
-// gates on is the identity itself rather than a role, so folding a roster lookup in
-// would be reading a partition to answer a question it is not about.
-//
-// SETTLED IDENTITIES BELONG TO THE INPUTS THAT PRODUCED THEM, which is that hook's
-// rule and holds here for its reason. A pane handed a different bridge or a
-// different session gets a different answer, and the previous one must not stand in
-// the interval before the replacement lands — so the reading is held for its
-// `(bridge, sessionId)` subject by the console's one holder, which reverts it to
-// `not-loaded` on the pass that first sees the new inputs rather than reporting the
-// old window's participant against the new session's log.
+// SETTLED IDENTITIES BELONG TO THE INPUTS THAT PRODUCED THEM. A pane handed a
+// different bridge or a different session gets a different answer, and the previous one
+// must not stand in the interval before the replacement lands — so the reading is held
+// for its `(bridge, sessionId)` subject by the console's one holder, which reverts it
+// to `not-loaded` on the pass that first sees the new inputs rather than reporting the
+// old window's identity against the new session's log.
 
 import { useEffect } from "react";
 
@@ -36,13 +25,13 @@ import { normalizeWireRejection, type ConsoleRefusal } from "../../core/index.js
 import { useSubjectScopedState } from "../../store/index.js";
 
 /**
- * Who this window is, or why the console cannot say.
+ * Which window this is, or why the console cannot say.
  *
  * Three arms rather than `string | undefined`, because a surface gating a control on
- * the viewer's identity has three genuinely different situations and only one of
- * them is an answer. Collapsing the other two would offer the claim control on an
- * identity nothing established — which is the same failure as the hard-coded viewer,
- * reached from the other side.
+ * this window's identity has three genuinely different situations and only one of them
+ * is an answer. Collapsing the other two would offer the claim control on an identity
+ * nothing established — which is the same failure as the hard-coded viewer, reached
+ * from the other side.
  */
 export type TerminalViewerIdentity =
   | { readonly status: "not-loaded" }
@@ -80,7 +69,7 @@ const VIEWER_IDENTITY_REJECTION_FALLBACK = {
 } as const;
 
 /**
- * Read which participant this window is, once per bridge-and-session pair.
+ * Read which identity this window carries, once per bridge-and-session pair.
  *
  * The refusal the port answers with is carried through untouched — it is already a
  * `ConsoleRefusal`, and it names the wire that is missing — so the surface renders

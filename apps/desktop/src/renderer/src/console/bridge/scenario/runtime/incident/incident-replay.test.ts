@@ -44,7 +44,6 @@ const SHAPE_UNDER_TEST = {
   sessionId: SESSION_ID,
   participantIdsInJoinOrder: [PARTICIPANT_YOU],
   viewingParticipantId: PARTICIPANT_YOU,
-  membershipRoleByParticipantId: { [PARTICIPANT_YOU]: "owner" },
   startedAtIso: "2026-01-14T11:20:00.000Z",
   replies: [],
 } as const;

@@ -66,7 +66,6 @@ const SESSION_ID = "019b78ff-f900-75e5-8510-ada11a5a46a5";
 const EVENT_ID_STEM = "019b78ff-f900-7ea1-8110-e5e0d115";
 const PARTICIPANT_YOU = "019b78ff-f900-79a4-8110-cca0117a0460";
 const PARTICIPANT_PRIYA = "019b78ff-f900-79a4-8120-cca0117a0470";
-const MEMBERSHIP_PRIYA = "019b78ff-f900-7e3b-8110-cca0117a0480";
 const AGENT_ARCHITECT = "019b78ff-f900-7a6e-8110-d1a4c1150105";
 const AGENT_IMPLEMENTER = "019b78ff-f900-7a6e-8120-d1a4c1150106";
 const AGENT_REVIEWER = "019b78ff-f900-7a6e-8130-d1a4c1150107";
@@ -159,9 +158,6 @@ const FIRST_SIXTY_SCRIPT: readonly LedgerScriptEntry[] = [
   ...ledgerOpeningEntries({
     sessionId: SESSION_ID,
     openedBy: PARTICIPANT_YOU,
-    joinedBy: PARTICIPANT_PRIYA,
-    membershipId: MEMBERSHIP_PRIYA,
-    joinedAtMs: atSecond(2),
     cast: FIRST_SIXTY_AGENTS.map((agent) => ({
       agentId: agent.agentId,
       name: agent.name,
@@ -339,17 +335,6 @@ export const LEDGER_FIRST_SIXTY_SCENARIO: ConsoleScenario = {
     AGENT_REVIEWER,
   ],
   viewingParticipantId: PARTICIPANT_YOU,
-  // The roster every role gate resolves through. The viewer is an owner, which is what
-  // lets a role-gated control be driven in this scenario at all; Priya's
-  // `collaborator` is the same value her `membership.created` beat carries — one fact,
-  // stated where the roster is read from and replayed where the log records it
-  // arriving. The agents are absent on purpose: an agent is attached rather than
-  // admitted and holds no membership, so a row here would resolve to a role no daemon
-  // granted.
-  membershipRoleByParticipantId: {
-    [PARTICIPANT_YOU]: "owner",
-    [PARTICIPANT_PRIYA]: "collaborator",
-  },
   startedAtIso: STARTED_AT_ISO,
   beats: scriptLedgerBeats({
     sessionId: SESSION_ID,

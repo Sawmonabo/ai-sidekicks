@@ -67,15 +67,6 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
   // an approvals surface that guessed its viewer would render an approve control for
   // whoever happens to be first in the join log.
   viewingParticipantId: PARTICIPANT_YOU,
-  // The membership each PERSON in the roster holds. The two agents in the join order
-  // take no entry: an agent is attached rather than admitted, so it holds no
-  // membership and the fixture does not claim to know one. Without this, the viewer's
-  // identity read succeeds into a roster carrying no role and every owner- and
-  // collaborator-gated control renders closed for a reason nothing checked.
-  membershipRoleByParticipantId: {
-    [PARTICIPANT_YOU]: "owner",
-    [PARTICIPANT_AWAY]: "collaborator",
-  },
   startedAtIso: "2026-01-01T13:30:00.000Z",
   beats: [
     {

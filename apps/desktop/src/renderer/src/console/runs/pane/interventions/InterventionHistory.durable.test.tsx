@@ -1,10 +1,10 @@
 // The history as the RUN's record: the durable rows, driven through the real fixture.
 //
 // A second suite beside `InterventionHistory.test.tsx`, which drives the half this
-// window dispatched. This one drives the half it did not: rows raised by another
-// participant, by this participant in a previous window, and by the system, read
-// through the growth port and rendered with the origin, the admitting principal, the
-// admitted queue item, and the directive the daemon could still decrypt.
+// window dispatched. This one drives the half it did not: rows raised on another
+// device, in a previous window, and by the system, read through the growth port and
+// rendered with the admission path, the admitted queue item, and the directive the
+// daemon could still decrypt.
 //
 // The refusal case is the others' negative control. A history that had lost the read
 // would render its empty arm under every scenario, and a suite that only asserted rows
@@ -48,7 +48,7 @@ describe("the durable record is the run's, not this window's", () => {
     ).toBe(caption?.id);
   });
 
-  it("names the origin on every row and the admitting principal on the participant arm", async () => {
+  it("names the admission path on every row, both labels included", async () => {
     const bridge = createFixtureBridge({ scenario: RUNS_SCENARIO });
 
     const container = await renderDurableHistory(bridge);
@@ -56,12 +56,12 @@ describe("the durable record is the run's, not this window's", () => {
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-interventions__row")).toHaveLength(4);
     });
+    // Read out of the rendered text rather than off the record, so a component that
+    // dropped the label fails here. Both labels appear, so a surface that rendered one
+    // of them for every row would fail too.
     const rendered = container.textContent ?? "";
     expect(rendered).toContain("participant");
     expect(rendered).toContain("system");
-    // The principal travels with the participant arm. Read out of the rendered text
-    // rather than off the record, so a component that dropped the member fails here.
-    expect(rendered).toContain("019b7a22-2200-79a4-8110-cca0117a0411");
   });
 
   it("says the directive is unreadable rather than rendering an empty line", async () => {

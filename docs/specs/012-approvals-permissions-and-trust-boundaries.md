@@ -7,7 +7,7 @@
 | **Slug** | `approvals-permissions-and-trust-boundaries` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Depends On** | [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md), [Participant And Membership Model](../domain/participant-and-membership-model.md), [Security Architecture](../architecture/security-architecture.md) |
+| **Depends On** | [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md), [User And Device Model](../domain/user-and-device-model.md), [Security Architecture](../architecture/security-architecture.md) |
 | **Implementation Plan** | [Plan-012: Approvals Permissions And Trust Boundaries](../plans/012-approvals-permissions-and-trust-boundaries.md) |
 
 ## Purpose
@@ -27,7 +27,7 @@ This spec covers approval requests, approval scopes, remembered grants, and the 
 ## Domain Dependencies
 
 - [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md)
-- [Participant And Membership Model](../domain/participant-and-membership-model.md)
+- [User And Device Model](../domain/user-and-device-model.md)
 - [Runtime Node Model](../domain/runtime-node-model.md)
 
 ## Architectural Dependencies

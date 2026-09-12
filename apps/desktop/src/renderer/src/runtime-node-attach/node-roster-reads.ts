@@ -110,8 +110,8 @@ export type RosterViewState =
  * The "nothing has been read for this subject yet" answer, as one frozen value.
  *
  * A module constant rather than a fresh literal, so the identity of the absence does
- * not change between the passes that produce it — the same reasoning `store/session/caller-membership-role.ts`
- * gives for freezing its own not-loaded arm.
+ * not change between the passes that produce it — the same reasoning
+ * `store/session/caller-identity.ts` gives for freezing its own not-loaded arm.
  */
 const ROSTER_NOT_READ: RosterViewState = { kind: "loading" };
 

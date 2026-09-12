@@ -1,10 +1,9 @@
 // The one structured goal a session may hold, with setting and clearing as two
 // different acts.
 //
-// Six rules, each visible in the code. The first and the fourth are the corpus's —
-// `api-payload-contracts.md §Plan-016 — Multi-Agent Channels And Orchestration`
-// registers the two operations and the field's bounds — and the other four are
-// this card's own, because no committed document states them:
+// Five rules, each visible in the code. The first and the fourth are the wire's — it
+// registers the two operations and the field's bounds — and the other three are this
+// card's own:
 //
 //   • **Set and clear are two controls.** There is no single control with an empty
 //     value, because an update without a goal is malformed rather than a clear, and
@@ -19,11 +18,6 @@
 //     rather than stacking a second call behind the first.
 //   • **The field refuses on the daemon's rule.** One to 4096 characters, non-blank,
 //     NUL-rejected, checked before the call rather than truncated to fit.
-//   • **A read-only role has no control at all.** Eligibility is never derived here:
-//     the caller supplies it, and an unknown role is treated as read-only, which is
-//     the fail-closed arm. Where the role could not be READ, the caller hands the
-//     refusal down with it and the card renders that sentence, so a missing control
-//     is explained rather than silently absent.
 //   • **The editor belongs to the session it was opened for.** The pane is rebound
 //     from one session to another by a prop change, and a card that closed only on
 //     a goal revision kept the open editor and the half-typed text across that move
@@ -44,7 +38,6 @@
 import { useCallback, useEffect, useId } from "react";
 import {
   ACCENT_FILL_CLASS,
-  InlineRefusal,
   Nothing,
   RemediedRefusal,
   WireFigure,
@@ -55,7 +48,7 @@ import { useSessionScopedState } from "../../../seats/index.js";
 import { isSendableGoalText } from "../../../bridge/index.js";
 import { SESSION_GOAL_MAX_LENGTH } from "../../../core/index.js";
 import { type SessionGoalProjection } from "../../../bridge/index.js";
-import { canClearSessionGoal } from "./goal-authorization.js";
+import { canClearSessionGoal } from "./goal-clear-eligibility.js";
 import { GoalReading } from "./GoalReading.js";
 
 /**
@@ -82,23 +75,6 @@ export interface SessionGoalCardProps {
   readonly bridge: ConsoleBridge;
   readonly sessionId: string;
   readonly goal: SessionGoalProjection;
-  /**
-   * Whether this participant's role may mutate the goal.
-   *
-   * `undefined` means the role has not been read. Treated exactly as read-only: the
-   * console never derives an eligibility, and offering a control on an unknown role
-   * would be deriving one.
-   */
-  readonly canMutate: boolean | undefined;
-  /**
-   * Why the role is unknown, where something refused to answer it.
-   *
-   * Separate from `refusal` below, which is the MUTATION's. The two are different
-   * failures — one says the console could not learn what this participant may do,
-   * the other says an attempt to change the goal was turned down — and folding them
-   * into one prop would render either sentence under the other's circumstances.
-   */
-  readonly authorizationRefusal: ConsoleRefusal | undefined;
   readonly isMutating: boolean;
   readonly refusal: ConsoleRefusal | undefined;
   readonly onUpdate: (text: string) => void;
@@ -152,7 +128,7 @@ export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element 
     <section className="meridian-goal" aria-label="Session goal">
       <div className="meridian-goal__line">
         <GoalReading goal={goal} />
-        {props.canMutate === true && !editor.isOpen ? (
+        {!editor.isOpen ? (
           <button
             className="meridian-goal__open"
             type="button"
@@ -168,7 +144,7 @@ export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element 
         ) : null}
       </div>
 
-      {props.canMutate === true && editor.isOpen ? (
+      {editor.isOpen ? (
         <div className="meridian-goal__editor">
           <label className="meridian-goal__label" htmlFor={fieldId}>
             The goal this session is working towards
@@ -211,7 +187,7 @@ export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element 
             <button
               className="meridian-goal__clear"
               type="button"
-              disabled={!canClearSessionGoal(goal, props.canMutate === true, props.isMutating)}
+              disabled={!canClearSessionGoal(goal, props.isMutating)}
               onClick={props.onClear}
             >
               Clear the goal
@@ -229,13 +205,6 @@ export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element 
         </div>
       ) : null}
 
-      {/* Why no control is offered, when something refused to say. Above the
-          mutation's own refusal because it explains the surface rather than an
-          attempt made on it, and rendered in both editing states because in this
-          one there is no editor to open. */}
-      {props.authorizationRefusal === undefined ? null : (
-        <InlineRefusal {...props.authorizationRefusal} />
-      )}
       {props.isMutating ? (
         <Nothing kind="computing" placement="inline" title="The goal change is settling." />
       ) : null}

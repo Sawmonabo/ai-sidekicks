@@ -54,7 +54,6 @@ export const SHELL_SCENARIO: ConsoleScenario = {
   sessionId: SESSION_ID,
   participantIdsInJoinOrder: [PARTICIPANT_YOU],
   viewingParticipantId: PARTICIPANT_YOU,
-  membershipRoleByParticipantId: { [PARTICIPANT_YOU]: "owner" },
   startedAtIso: STARTED_AT,
   // Three frames on three beat ticks. `store/shell/shell-state.ts` owns every word in them.
   shellStatus: [

@@ -8,12 +8,11 @@
 //
 // AND NO SELECTOR HERE NAMES A WIRE SHAPE. `store/entities/entities.ts` frames
 // `ConsoleSessionEvent` as a renderer-local projection contract so this family
-// holds no wire knowledge, and the two body reads that DID name one — the stamped
-// execution posture and the roster role — moved to `bridge/daemon/entity-body-reads.ts`
-// when the console banned contracts schemas above the bridge. They are validating
-// reads and a validating read needs the canonical shape; the family that owns the
-// wire's shapes is the family that may hold them. A store hook that wants one takes
-// it as an injected reader, exactly as it already takes the caller-identity read.
+// holds no wire knowledge, and the body read that DID name one — the stamped
+// execution posture — moved to `bridge/daemon/entity-body-reads.ts` when the console
+// banned contracts schemas above the bridge. It is a validating read and a validating
+// read needs the canonical shape; the family that owns the wire's shapes is the family
+// that may hold them. A store hook that wants one takes it as an injected reader.
 
 import type { ConsoleEntity, ConsoleEntityKind, ConsoleEntityRef } from "../entities/index.js";
 import type { SessionStoreState } from "./session-state.js";

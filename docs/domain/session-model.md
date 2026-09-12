@@ -109,7 +109,6 @@ State-machine precedent for the `provisioning -> active` split: Kubernetes Pod (
 
 - [Shared Session Core](../specs/001-shared-session-core.md)
 - [Session Event Taxonomy And Audit Log](../specs/006-session-event-taxonomy-and-audit-log.md)
-- [Control Plane Relay And Session Join](../specs/008-control-plane-relay-and-session-join.md)
 - [Data Retention And GDPR Compliance](../specs/022-data-retention-and-gdpr.md)
 
 ## Related ADRs

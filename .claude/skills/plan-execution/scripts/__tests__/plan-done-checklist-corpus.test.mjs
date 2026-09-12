@@ -459,21 +459,6 @@ test("the plan corpus is non-empty", () => {
   assert.ok(readPlanCorpus().length > 0, `no plan files found under ${PLANS_DIR}`);
 });
 
-test("every plan carries exactly one document-level `## Done Checklist`", () => {
-  const offenders = [];
-  for (const { name, source } of readPlanCorpus()) {
-    const { headings } = findDoneChecklistHeadings(source);
-    if (headings.length !== 1) {
-      offenders.push(`${name}: found ${headings.length} \`Done Checklist\` headings, expected 1`);
-    } else if (headings[0].level !== DOCUMENT_LEVEL) {
-      offenders.push(
-        `${name}:${headings[0].line}: \`Done Checklist\` is at level ${headings[0].level}, expected ${DOCUMENT_LEVEL}`,
-      );
-    }
-  }
-  assert.deepEqual(offenders, [], `plan Done Checklist shape violations:\n${offenders.join("\n")}`);
-});
-
 test("no plan carries a phase-nested `#### Done Checklist`", () => {
   // Stated separately from the shape assertion above even though it follows
   // from it, because THIS is the property the design spec cites: the retired

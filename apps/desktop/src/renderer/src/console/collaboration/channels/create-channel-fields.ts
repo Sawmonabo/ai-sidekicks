@@ -3,20 +3,16 @@
 //
 // A MODULE BESIDE THE DRAFT RATHER THAN INSIDE IT. `create-channel-draft.ts` holds what
 // a person has typed and composes the one request out of it; what lives here is the
-// shape that leaves the draft, the single rule that reads two of them, and the two
-// readers that turn a field's text into the value a request carries. The split is what
-// keeps the comparison honest: a member added to the snapshot below is a member
+// shape that leaves the draft, the single rule that reads two of them, and the reader
+// that turns a field's text into the value a request carries. The split is what keeps
+// the comparison honest: a member added to the snapshot below is a member
 // {@link draftSnapshotsMatch} walks, because both are declared in one place, and a
 // comparison written beside the private fields it reads would have been free to forget
-// one and stay green. The readers sit here for the same reason in the other direction —
-// they are the FIELD layer, decided by what a person typed and by nothing the draft
-// holds, so they are drivable without one.
+// one and stay green. The reader sits here for the same reason in the other direction —
+// it is the FIELD layer, decided by what a person typed and by nothing the draft holds,
+// so it is drivable without one.
 
-import type {
-  GrowthChannelAudience,
-  GrowthChannelKind,
-  GrowthChannelTurnPolicy,
-} from "../../bridge/index.js";
+import type { GrowthChannelAudience } from "../../bridge/index.js";
 
 /**
  * The moderation members a person can touch, declared once.
@@ -43,14 +39,10 @@ export type ChannelModerationField = (typeof CHANNEL_MODERATION_FIELDS)[number];
  */
 export interface CreateChannelDraftSnapshot {
   readonly name: string;
-  readonly kind: GrowthChannelKind;
   readonly audience: GrowthChannelAudience | undefined;
-  readonly turnPolicy: GrowthChannelTurnPolicy | undefined;
-  readonly roundRobinOrder: string;
   readonly turnsPerAgent: string;
   /** One entry per {@link CHANNEL_MODERATION_FIELDS} member, in that order. */
   readonly moderation: readonly (boolean | undefined)[];
-  readonly otherParticipantId: string | undefined;
 }
 
 /**
@@ -66,24 +58,11 @@ export function draftSnapshotsMatch(
 ): boolean {
   return (
     left.name === right.name &&
-    left.kind === right.kind &&
     left.audience === right.audience &&
-    left.turnPolicy === right.turnPolicy &&
-    left.roundRobinOrder === right.roundRobinOrder &&
     left.turnsPerAgent === right.turnsPerAgent &&
-    left.otherParticipantId === right.otherParticipantId &&
     left.moderation.length === right.moderation.length &&
     left.moderation.every((touched, index) => touched === right.moderation[index])
   );
-}
-
-/** The typed list, or `undefined` where nothing was typed. Blank entries are dropped. */
-export function readIdentifierList(typed: string): readonly string[] | undefined {
-  const entries = typed
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry !== "");
-  return entries.length === 0 ? undefined : entries;
 }
 
 /**

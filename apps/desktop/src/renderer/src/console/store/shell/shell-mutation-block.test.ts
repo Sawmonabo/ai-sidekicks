@@ -31,12 +31,6 @@ describe("the mutating method set", () => {
     // the call door refuses on. This literal is the render side's copy, because
     // `store/` sits below `bridge/` on the console DAG and cannot import it; the two
     // are held equal in both directions by that registry's own suite.
-    //
-    // `membership.update`, `invite.create` and `invite.revoke` are durable acts the
-    // daemon PROXIES to the control plane. The reply registry's `CHANGES_A_RUN` table
-    // answers a different question about them — whether a call moves a run — and says
-    // so in its own words while calling them "mutations all the same" that "change
-    // the session's own roster".
     expect([...MUTATING_DAEMON_METHODS]).toEqual([
       "run.queueCreate",
       "run.queueCancel",
@@ -54,10 +48,6 @@ describe("the mutating method set", () => {
       "repo.ephemeralCloneDispose",
       "repo.worktreeRetire",
       "session.create",
-      "session.join",
-      "membership.update",
-      "invite.create",
-      "invite.revoke",
       "providerAccount.probe",
     ]);
   });
@@ -78,7 +68,7 @@ describe("the mutating method set", () => {
       "daemon.hello",
       // The account plane's own read, beside the probe that is not one.
       "providerAccount.list",
-      // The collaboration plane's read, beside the membership update that is not one.
+      // The collaboration plane's read.
       "channel.list",
       // The repo plane's four reads, beside the seven writes that are not.
       "repo.mountRead",
@@ -149,24 +139,21 @@ describe("shellBlockForMethod", () => {
     expect(shellBlockForMethod(offline, "driver.subscribeEvents")).toBeUndefined();
   });
 
-  it("closes the two roster acts the daemon proxies, and only while it is closed", () => {
-    // NAMED RATHER THAN LEFT TO THE LOOP ABOVE, because these two are the pair whose
-    // classification the reply registry's run-change table answers `false` for — a
-    // different question — and the collaboration surfaces disable their controls from
-    // exactly this seam. A regression that dropped them from the tuple would leave the
-    // loop above passing over a smaller set and say nothing at all.
+  it("closes the session mint, and only while it is closed", () => {
+    // NAMED RATHER THAN LEFT TO THE LOOP ABOVE, because the sessions surface disables
+    // its own control from exactly this seam. A regression that dropped the verb from
+    // the tuple would leave the loop above passing over a smaller set and say nothing
+    // at all.
     const offline = stateWith({ kind: "offline", attemptLimit: 5, lastError: undefined });
     const stopped = stateWith({ kind: "stopped" });
     const connected = stateWith({ kind: "connected" });
 
-    for (const method of ["membership.update", "invite.revoke"]) {
-      expect(shellBlockForMethod(offline, method)?.code, method).toBe("shell-offline");
-      expect(shellBlockForMethod(stopped, method)?.code, method).toBe("shell-stopped");
-      // ADMITTED OTHERWISE, which is the half a blanket block would also satisfy: a
-      // console that closed these controls whatever the shell said would pass every
-      // assertion above.
-      expect(shellBlockForMethod(connected, method), method).toBeUndefined();
-      expect(shellBlockForMethod(UNREPORTED_SHELL_STATE, method), method).toBeUndefined();
-    }
+    expect(shellBlockForMethod(offline, "session.create")?.code).toBe("shell-offline");
+    expect(shellBlockForMethod(stopped, "session.create")?.code).toBe("shell-stopped");
+    // ADMITTED OTHERWISE, which is the half a blanket block would also satisfy: a
+    // console that closed this control whatever the shell said would pass every
+    // assertion above.
+    expect(shellBlockForMethod(connected, "session.create")).toBeUndefined();
+    expect(shellBlockForMethod(UNREPORTED_SHELL_STATE, "session.create")).toBeUndefined();
   });
 });

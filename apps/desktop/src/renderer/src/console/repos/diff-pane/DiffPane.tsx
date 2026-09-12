@@ -75,11 +75,6 @@ const ABSENT_DIFF_COPY: Readonly<
     detail:
       "Changes belong to a checkout, and a repository can hold several. Nothing resolves this repository to the workspace a diff would be taken over on this build, so none has been requested — and the console is not reporting that this repository is unchanged.",
   },
-  invite: {
-    title: "An invitation's changes are not read here yet.",
-    detail:
-      "An invitation has no working tree, and what its changes are is settled by the family that owns the card, not by this pane. Nothing has been requested, so nothing is being reported about it.",
-  },
   participant: {
     title: "A member's changes are not read here yet.",
     detail:

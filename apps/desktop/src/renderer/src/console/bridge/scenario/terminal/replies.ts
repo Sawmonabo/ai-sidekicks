@@ -33,8 +33,6 @@
 import type { ScenarioReply } from "../runtime/index.js";
 import { TERMINAL_SCENARIO_CAST } from "./cast.js";
 
-const COLLABORATOR = TERMINAL_SCENARIO_CAST.collaborator;
-
 /**
  * The one read the scenario answers, and the two lease calls it settles.
  *
@@ -46,17 +44,13 @@ const COLLABORATOR = TERMINAL_SCENARIO_CAST.collaborator;
 export const TERMINAL_REPLIES: readonly ScenarioReply[] = [
   { call: "agent.list", result: { agents: [{ agentId: TERMINAL_SCENARIO_CAST.agent }] } },
   {
-    // The contested take. `details` is the FLAT envelope's registered position for a
-    // refusal's structured context — `core/wire-rejection.ts` reads it there, and
-    // `core/refusal-extensions.ts` is the closed registry of what may be read out of
-    // it — so the holder reaches `ClaimRefusalHolder` through exactly the reader a
-    // live rejection reaches it through, with nothing in the surface knowing which
-    // bridge produced it.
+    // The contested take, refused with the daemon's own code and sentence and nothing
+    // structured beside it: no surface names the holder, so a `details` member here
+    // would be a fixture scripting a field the console parses and renders nowhere.
     call: "session.takeControl",
     refusal: {
       code: "pty.control_held_by_other",
-      message: "Somebody else holds this session's shell. Ask them to release it, then try again.",
-      details: { holderParticipantId: COLLABORATOR },
+      message: "Another device holds this session's shell. Release it there, then try again.",
     },
   },
   {

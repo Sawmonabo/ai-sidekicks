@@ -7,9 +7,9 @@
 // — those are two different claims, and asserting the reader only through the fold is
 // what made the second one carry both.
 //
-// Three of 8.8's "never" clauses are properties of THIS module: the holder comes off
-// the wire and nowhere else, a reason and a holder shape that disagree are not a
-// transition, and the five reasons render five distinct sentences. Each has a
+// Three of the surface's "never" clauses are properties of THIS module: the holder
+// comes off the wire and nowhere else, a reason and a holder shape that disagree are
+// not a transition, and the five reasons render five distinct sentences. Each has a
 // negative control, because every one of them would pass against a reader that simply
 // returned the payload it saw.
 
@@ -175,12 +175,9 @@ describe("reading the transition it could NOT read", () => {
 });
 
 describe("transition sentences — five reasons, five sentences", () => {
-  const labelFor = (participantId: string): string =>
-    participantId === OTHER_PARTICIPANT ? "Priya" : participantId;
-
   it("gives every reason in the closed set a distinct sentence", () => {
     const sentences = TERMINAL_LEASE_TRANSITION_REASONS.map((reason) =>
-      terminalLeaseTransitionSentence(transitionOf(reason), labelFor),
+      terminalLeaseTransitionSentence(transitionOf(reason)),
     );
     expect(new Set(sentences).size).toBe(TERMINAL_LEASE_TRANSITION_REASONS.length);
   });
@@ -188,18 +185,21 @@ describe("transition sentences — five reasons, five sentences", () => {
   it("keeps the three automatic reasons apart from each other and from a release", () => {
     const [, released, disconnect, authorizationLost, runIdle] = TERMINAL_LEASE_TRANSITION_REASONS;
     const sentenceFor = (reason: TerminalLeaseTransitionReason): string =>
-      terminalLeaseTransitionSentence(transitionOf(reason), labelFor);
-    expect(sentenceFor(released)).toContain("released the shell");
+      terminalLeaseTransitionSentence(transitionOf(reason));
+    expect(sentenceFor(released)).toContain("released");
     expect(sentenceFor(disconnect)).toContain("disconnected");
-    expect(sentenceFor(authorizationLost)).toContain("lost authorization");
+    expect(sentenceFor(authorizationLost)).toContain("lost its authorization");
     expect(sentenceFor(runIdle)).toContain("running state");
   });
 
-  it("names the participant the label function knows, and the wire id when it does not", () => {
-    expect(terminalLeaseTransitionSentence(transitionOf("taken"), labelFor)).toContain("Priya");
-    expect(
-      terminalLeaseTransitionSentence(transitionOf("taken"), (participantId) => participantId),
-    ).toContain(OTHER_PARTICIPANT);
+  it("names nobody in any of the five, because the shell has one owner", () => {
+    // The wire's holder members are read above and settle the holding; a sentence
+    // repeating an identifier back would answer a question nobody asked.
+    for (const reason of TERMINAL_LEASE_TRANSITION_REASONS) {
+      const sentence = terminalLeaseTransitionSentence(transitionOf(reason));
+      expect(sentence).not.toContain(OTHER_PARTICIPANT);
+      expect(sentence).not.toContain(VIEWER_PARTICIPANT);
+    }
   });
 
   it("negative control: a collapsed table would fail the distinctness claim", () => {

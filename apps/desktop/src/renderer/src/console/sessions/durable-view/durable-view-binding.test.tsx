@@ -7,10 +7,10 @@
 // later write lands in a database nothing reads, and the replacement is never
 // hydrated. None of the three raises anything.
 //
-// Both durable bindings on this destination are driven here rather than only the
-// holder, because the property under test is a React LIFETIME: a case that called
-// `acquire` by hand would prove the holder's arithmetic and nothing about what a
-// mounted surface is subscribed to.
+// The destination's durable binding is driven here rather than only the holder,
+// because the property under test is a React LIFETIME: a case that called `acquire`
+// by hand would prove the holder's arithmetic and nothing about what a mounted
+// surface is subscribed to.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -19,7 +19,6 @@ import { MemoryPersistenceAdapter } from "../../persistence/memory-adapter.js";
 import type { UiStateStore } from "../../persistence/index.js";
 import { openStoreOver } from "../sessions.test-support.js";
 import { DurableViewBindingHolder, type DurableViewBinding } from "./durable-view-binding.js";
-import { HIDDEN_INVITES_KEY, useHiddenInvites } from "../invitations/hidden-invites.js";
 import { SESSION_PIN_TIERS_KEY, useSessionPins, type SessionPinMap } from "../rows/session-pins.js";
 import { settle as settleReactWork } from "../../core/settle.test-support.js";
 
@@ -177,57 +176,5 @@ describe("the pin binding when the window replaces its durable store", () => {
     await settle();
 
     expect(renderedTiers(view.container)).toStrictEqual({ "session-a": "front" });
-  });
-});
-
-/** A probe over the other binding, so the same lifetime is proved for both. */
-function HiddenInviteProbe(props: { readonly store: UiStateStore }): React.JSX.Element {
-  const hidden = useHiddenInvites(props.store);
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        hidden.hide("invite-1");
-      }}
-    >
-      {JSON.stringify(hidden.hiddenInviteIds)}
-    </button>
-  );
-}
-
-describe("the hide-set binding when the window replaces its durable store", () => {
-  it("rebinds to the replacement rather than leaking the set into it", async () => {
-    const view = render(
-      <HiddenInviteProbe store={openStoreOver(new MemoryPersistenceAdapter())} />,
-    );
-    await settle();
-    act(() => {
-      view.container.querySelector("button")?.click();
-    });
-    await settle();
-    expect(view.container.textContent).toBe(JSON.stringify(["invite-1"]));
-
-    view.rerender(<HiddenInviteProbe store={openStoreOver(new MemoryPersistenceAdapter())} />);
-    await settle();
-
-    expect(view.container.textContent).toBe(JSON.stringify([]));
-  });
-
-  it("sends a hide made after the replacement to the replacement", async () => {
-    const replacementAdapter = new MemoryPersistenceAdapter();
-    const view = render(
-      <HiddenInviteProbe store={openStoreOver(new MemoryPersistenceAdapter())} />,
-    );
-    await settle();
-    view.rerender(<HiddenInviteProbe store={openStoreOver(replacementAdapter)} />);
-    await settle();
-
-    act(() => {
-      view.container.querySelector("button")?.click();
-    });
-    await settle();
-
-    const readBack = await openStoreOver(replacementAdapter).readGlobal(HIDDEN_INVITES_KEY);
-    expect(readBack?.value).toStrictEqual(["invite-1"]);
   });
 });

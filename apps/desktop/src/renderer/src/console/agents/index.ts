@@ -22,7 +22,7 @@
 // had to cross this door.
 //
 // NO STYLESHEET IS IMPORTED HERE, and the reason is what this door is REACHED BY.
-// `collaboration-family.ts` imports it eagerly for the agent console's surface
+// `session-surfaces-family.ts` imports it eagerly for the agent console's surface
 // registration, so every module and every sheet this door reaches statically is on the
 // initial graph of every launch. All eight of this family's sheets therefore enter at a
 // chunk root instead, and there are THREE such roots — re-derived by listing them rather
@@ -67,7 +67,7 @@
 //
 // THE PROVIDER SWITCH IS THE ONE FORM THAT LEAVES, AND IT LEAVES AS A LOADER. The
 // component itself is deliberately absent: a door line for it would be reached
-// statically from a door `collaboration-family.ts` imports eagerly, which is the
+// statically from a door `session-surfaces-family.ts` imports eagerly, which is the
 // boundary the loader exists to draw and which a tidy-looking re-export defeats
 // silently. What crosses is `loadProviderSwitchBody`, its context type, and the two
 // seams the form declares on its props and does not hold — the catalog reading it
@@ -92,7 +92,7 @@ import type { ProviderSwitchBodyContext } from "./provider-switch/provider-switc
 // the auxiliary window's surface slot, wearing its own heading. Straight from the module
 // that DECLARES them rather than through a door of that directory's own, which would be
 // the barrel chain `console-no-barrel-chain` fails. `panes/index.ts` calls the pane
-// registrar from its own reserved line and `collaboration-family.ts` calls the surface
+// registrar from its own reserved line and `session-surfaces-family.ts` calls the surface
 // one, so the two composition sites reach one module through one door.
 export {
   registerAgentConsolePane,
@@ -101,7 +101,7 @@ export {
 
 // This family's sidebar section — the roster, as the column's `agents` body.
 //
-// Through this door because the file that SEATS it is `collaboration-family.ts`, the
+// Through this door because the file that SEATS it is `session-surfaces-family.ts`, the
 // composition site that already names this family: `seats/slots/sidebar-sections.ts` files
 // `agents` with the collaboration family's sections, and that composition may name more
 // than one view family where a family door may not. The body itself is this family's,

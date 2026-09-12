@@ -25,7 +25,6 @@ import { AGENTS_SCENARIO } from "./agents/agents.js";
 import { BRING_YOUR_HISTORY_SCENARIO } from "./bring-your-history.js";
 import { APPROVALS_SCENARIO } from "./approvals/approvals.js";
 import { BROWSER_SCENARIO } from "./browser.js";
-import { COLLABORATION_SCENARIO } from "./collaboration/collaboration.js";
 import { COMPOSER_SCENARIO } from "./composer/composer.js";
 import { FIRST_RUN_SCENARIO } from "./first-run.js";
 import { FLAGSHIP_SCENARIO } from "./flagship/flagship.js";
@@ -57,8 +56,6 @@ export const CONSOLE_SCENARIOS: readonly ConsoleScenario[] = [
   COMPOSER_SCENARIO,
   RUNS_SCENARIO,
   APPROVALS_SCENARIO,
-  // T-023p-1C-4 collaboration
-  COLLABORATION_SCENARIO,
   AGENTS_SCENARIO,
   SETTINGS_SCENARIO,
   REPOS_SCENARIO, // T-023p-1C-5 repos

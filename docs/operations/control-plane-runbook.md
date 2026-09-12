@@ -79,12 +79,9 @@ sidekicks cp presence --session <id>
 
 ## Related Specs
 
-- [Invite Membership And Presence](../specs/002-invite-membership-and-presence.md)
-- [Control Plane Relay And Session Join](../specs/008-control-plane-relay-and-session-join.md)
 - [Identity And Participant State](../specs/018-identity-and-participant-state.md)
 
 ## Related Plans
 
 - [Shared Session Core](../plans/001-shared-session-core.md)
-- [Invite Membership And Presence](../plans/002-invite-membership-and-presence.md)
 - [Runtime Node Attach](../plans/003-runtime-node-attach.md)
