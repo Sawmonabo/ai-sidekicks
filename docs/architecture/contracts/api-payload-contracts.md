@@ -14,7 +14,7 @@ Every control-plane endpoint defined in this document is implicitly scoped to th
 
 - **Principal identity.** The Cedar `principal` is the `sub` claim of the caller's PASETO v4.public access token (a `ParticipantId`). This is the only identity Cedar evaluates. See [RFC 9068 §2.2 — `sub` claim](https://datatracker.ietf.org/doc/html/rfc9068#section-2.2) for the `sub`-as-principal pattern and [ADR-010 PASETO + WebAuthn + MLS Auth](../../decisions/010-paseto-webauthn-mls-auth.md) for the V1 PASETO profile.
 - **Proof-of-possession binding.** Each access token carries a DPoP-style confirmation claim (`cnf.jkt`, per [RFC 9449 §3.1 — Public Key Confirmation via Thumbprint](https://datatracker.ietf.org/doc/html/rfc9449#section-3.1)) whose value is the SHA-256 thumbprint of the caller's bound JWK. A token is valid only when accompanied by a DPoP proof signed by the matching private key. The bound access token is presented as `Authorization: DPoP <token>` per [RFC 9449 §7.1](https://www.rfc-editor.org/rfc/rfc9449#section-7.1) — never `Bearer`, which a conforming resource server rejects for a DPoP-bound token — and the accompanying proof carries the token's `ath` hash per [RFC 9449 §4.3](https://www.rfc-editor.org/rfc/rfc9449#section-4.3); see [security-architecture.md §DPoP sender-constraining](../security-architecture.md#control-plane-authentication-task-52) for the canonical statement. `cnf.jkt` is a replay-protection binding — **not** a second principal identity; Cedar never reads it as a `principal` input.
-- **Informational body fields.** Any body field that names a participant — `approver`, `inviter`, `requester`, `initiatorId`, `actor`, and equivalents — is routing/audit metadata only. Cedar does **not** read these fields as authorization input. Servers must reject a request when the body-supplied actor disagrees with the verified `sub`, rather than trusting the body. The converse is an application of this same rule rather than an exception to it: a request that needs no participant input declares **no principal member at all**, and `ReasoningSurfaceReadRequest` (§Plan-013, 2026-09-01) is the worked instance — its caller is resolved from the transport and its schema is strict, so a caller-supplied principal is refused rather than ignored. That is a resolution-side application of this bullet and deliberately not a sixth entry in the durable-recording list below, which enumerates only where an already-resolved principal is **retained** on a durable carrier — this read retains nothing.
+- **Informational body fields.** Any body field that names a participant — `approver`, `requester`, `initiatorId`, `actor`, and equivalents — is routing/audit metadata only. Cedar does **not** read these fields as authorization input. Servers must reject a request when the body-supplied actor disagrees with the verified `sub`, rather than trusting the body. The converse is an application of this same rule rather than an exception to it: a request that needs no participant input declares **no principal member at all**, and `ReasoningSurfaceReadRequest` (§Plan-013, 2026-09-01) is the worked instance — its caller is resolved from the transport and its schema is strict, so a caller-supplied principal is refused rather than ignored. That is a resolution-side application of this bullet and deliberately not a sixth entry in the durable-recording list below, which enumerates only where an already-resolved principal is **retained** on a durable carrier — this read retains nothing.
 - **Run-control resource context (2026-08-03 cross-user run-control authorization amendment).** For run-control adjudication — the Cedar `Action::"intervene"` evaluation on the target `Run` resource, covering interventions, the orchestration-layer `run.pause` / `run.resume` verbs, and — since 2026-08-29 — participant-triggered `driver.compactContext` identically — the target run's **hosting node** is a controlling request-context input, resolved daemon-side from the target run and never from a client-supplied field (the informational-body-fields rule above applies unchanged; the durable per-run hosting-node carrier this resolution reads is a named [Plan-004 §Preconditions](../../plans/004-queue-steer-pause-resume.md#preconditions) prerequisite — no shipped run accessor or schema column carries the node today, and the one consumer that needs no carrier is `driver.compactContext`, whose target is by construction a provider binding this daemon holds, so its hosting node resolves local without a lookup): authorization evaluates against session membership role, never run authorship, and a non-local hosting node **adds** the target-node-owner approval requirement (an approval in the `tool_execution` category per [Spec-024 Cross-Node Dispatch And Approval](../../specs/024-cross-node-dispatch-and-approval.md)) rather than substituting for the role check. The principal is transport-verified on both run-control paths: on the daemon's local socket — which admits only the node owner's own clients under the layered socket-reachability + session-token model and carries no PASETO token (the Local-daemon endpoints bullet below; [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication-task-51)) — the daemon binds the Cedar principal to its **node-owner participant identity** — the daemon's standing control-plane-authentication posture ([component-architecture-local-daemon.md §Responsibilities](../component-architecture-local-daemon.md#responsibilities)) — resolved through the Plan-018-gated credential/identity provider seam the §Signing-Key Registration Method Registry below already rides (the CP-006-13 constructor-injected credential-provider and `resolveCurrentParticipantId` pattern; `runtimenode.attach` is client-driven and hands the daemon no principal, so no attach hook supplies the value), daemon-resolved, never read from a body actor field, and failing closed while the provider is unwired — the run-control registration of that provider is a named [Plan-004 §Preconditions](../../plans/004-queue-steer-pause-resume.md#preconditions) prerequisite; a cross-user caller reaches run-control only over identity-carrying paths — a cross-node intervention arrives via Spec-024 dispatch, where the target binds the principal to the verified `caller_token.sub` after checking the token's signature and its `req_hash` body binding (the Cross-node dispatch bullet below): the envelope's request-hash-bound signed token is that transport's sender-constraining mechanism, and no separate DPoP proof rides the relay leg. Contract text: [Spec-004 §Interfaces And Contracts](../../specs/004-queue-steer-pause-resume.md#interfaces-and-contracts); rule owner: [Spec-012 §Required Behavior](../../specs/012-approvals-permissions-and-trust-boundaries.md#required-behavior).
 - **Local-daemon endpoints.** Endpoints reachable only over the daemon's local IPC socket (JSON-RPC 2.0 per [ADR-009 JSON-RPC IPC Wire Format](../../decisions/009-json-rpc-ipc-wire-format.md)) are authorized by socket reachability plus a required 256-bit session token presented by the Desktop Shell or CLI client (per BL-056 reconciliation on 2026-04-18; see [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication-task-51)); they do not require a PASETO access token. The renderer is not a direct daemon client — renderer-originated requests are brokered by the shell via the preload bridge. **Where a local handler reads that identity (2026-09-01):** socket reachability authorizes the _connection_, and a handler adjudicating per-caller policy needs the _principal_ — so the gateway resolves the node-owner participant identity through the same Plan-018-gated credential/identity provider seam the run-control bullet above names and stamps it on the dispatch context every handler already receives ([Plan-007](../../plans/007-local-ipc-and-daemon-control.md) I-007-21, its Phase 2B). It is daemon-resolved and never read from a body actor field, so the informational-body-fields rule applies to local handlers unchanged; while the identity provider is unwired the member is absent and a handler that requires one **refuses**, never substituting a default — a placeholder identity is indistinguishable from a real caller to a policy check, which would turn a fail-closed read into a fail-open one. First consumer: [Plan-013](../../plans/013-live-timeline-visibility-and-reasoning-surfaces.md)'s reasoning-surface read (CP-007-17), whose `policy_redacted` decision is exactly such an adjudication. When a local-daemon request is later forwarded cross-node via dispatch, the target daemon verifies the dispatch envelope's `caller_token` — signature plus the `req_hash` body binding per [Spec-024 Cross-Node Dispatch And Approval](../../specs/024-cross-node-dispatch-and-approval.md) — before Cedar runs: the request-hash-bound signed token is that path's sender-constraining, and no separate DPoP proof is carried on the relay leg (the Cross-node dispatch bullet below).
 - **Cross-node dispatch.** Cross-node approval envelopes follow [Spec-024 Cross-Node Dispatch And Approval](../../specs/024-cross-node-dispatch-and-approval.md): the Cedar `principal` on the target side is bound only to `caller_token.sub`; `approver_token.sub` is carried for audit and replay-binding via the shared `bound_jti` + `request_body_hash` and does **not** become a second principal.
@@ -52,7 +52,6 @@ All domain IDs use branded string types for compile-time safety.
 type SessionId = string & { readonly __brand: "SessionId" };
 type ParticipantId = string & { readonly __brand: "ParticipantId" };
 type MembershipId = string & { readonly __brand: "MembershipId" };
-type InviteId = string & { readonly __brand: "InviteId" };
 type NodeId = string & { readonly __brand: "NodeId" };
 type RunId = string & { readonly __brand: "RunId" };
 type ChannelId = string & { readonly __brand: "ChannelId" };
@@ -89,9 +88,6 @@ type ErrorNamespace =
   | "auth" // authentication/authorization
   | "run" // run state machine violations
   | "approval" // approval flow errors
-  | "invite" // invite lifecycle errors
-  | "membership" // membership/role lifecycle errors
-  | "presence" // presence/device-detail authorization errors
   | "workspace" // workspace lifecycle errors; sibling "repo" mount-lifecycle namespace per the canonical registry
   | "artifact" // artifact publication errors
   | "workflow" // workflow execution errors
@@ -127,9 +123,7 @@ type SessionState =
   | "purged";
 type MembershipRole = "owner" | "viewer" | "collaborator" | "runtime contributor";
 type MembershipState = "pending" | "active" | "suspended" | "revoked";
-type InviteState = "pending" | "accepted" | "revoked" | "expired";
 type PresenceState = "online" | "idle" | "reconnecting" | "offline";
-type JoinMode = "viewer" | "collaborator" | "runtime contributor";
 
 type RunState =
   | "queued"
@@ -290,7 +284,7 @@ interface ChannelSummary {
 
 ## Tier 1 (cont.): Plan-008 — Plan-008-Bootstrap (control-plane tRPC + SSE substrate)
 
-Plan-008 Phase 1 (Plan-008-bootstrap, Tier 1 carve-out per Plan-008 §Execution Windows) wraps Plan-001's `session-directory-service.ts` (Tier 1 above) in a typed [tRPC v11](https://trpc.io/) router served from Cloudflare Workers via [`@trpc/server/adapters/fetch`](https://trpc.io/docs/server/adapters/fetch) per [ADR-014 tRPC Control-Plane API](../../decisions/014-trpc-control-plane-api.md). The Tier 5 Plan-008 surface (relay broker, presence register, invite handoff) lives in §Tier 5 below; this Tier 1 carve-out ratifies the procedure-type assignments, the canonical method-name registry, and the SSE wire-frame primitive that the bootstrap depends on. Closes the `BLOCKED-ON-C6` tags inside Plan-008 §Phase 1 task descriptions T-008b-1-2, T-008b-1-3, and T-008b-1-5.
+Plan-008 Phase 1 (Plan-008-bootstrap, Tier 1 carve-out per Plan-008 §Execution Windows) wraps Plan-001's `session-directory-service.ts` (Tier 1 above) in a typed [tRPC v11](https://trpc.io/) router served from Cloudflare Workers via [`@trpc/server/adapters/fetch`](https://trpc.io/docs/server/adapters/fetch) per [ADR-014 tRPC Control-Plane API](../../decisions/014-trpc-control-plane-api.md). The Tier 5 Plan-008 surface (relay broker, presence register) lives in §Tier 5 below; this Tier 1 carve-out ratifies the procedure-type assignments, the canonical method-name registry, and the SSE wire-frame primitive that the bootstrap depends on. Closes the `BLOCKED-ON-C6` tags inside Plan-008 §Phase 1 task descriptions T-008b-1-2, T-008b-1-3, and T-008b-1-5.
 
 | tRPC procedure | Procedure type | Input schema (from `packages/contracts/src/session.ts`) | Output schema | Directory-service method called |
 | --- | --- | --- | --- | --- |
@@ -315,8 +309,7 @@ The procedure-type assignments follow the tRPC convention: read-only operations 
 //   Input:  SessionJoinRequest (defined in Tier 1, Plan-001 above)
 //   Output: SessionJoinResponse (defined in Tier 1, Plan-001 above)
 //   Wraps:  directoryService.joinSession(...)
-//   Tier 1 stub: rejects non-self joins with `auth.not_authorized` until
-//   Tier 5 invite/presence land per Plan-008 §I-008-2.
+//   Tier 1 stub: rejects non-self joins with `auth.not_authorized` per Plan-008 §I-008-2.
 
 // session.subscribe — tRPC subscription (SSE-backed via @trpc/server/adapters/fetch)
 //   Input:  SessionSubscribeRequest (defined in Tier 1, Plan-001 above)
@@ -360,7 +353,7 @@ Closes the BL-102 sub-item "JSON-RPC method-name canonical-format registry (`ses
 /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/
 ```
 
-Every dot-delimited segment starts with a lowercase letter and may contain camelCase (`[a-z][a-zA-Z0-9]*`) — the first segment (the namespace root) included, per the 2026-09-05 root widening recorded in this paragraph. This adopts the dotted-camelCase _segment_ style of the LSP precedent ([Language Server Protocol §General Messages](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) — e.g. `workspace.executeCommand`) and the MCP precedent ([Model Context Protocol §Protocol Messages](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — `tools.list`, `tools.call`), and applies that style **uniformly to every segment, the root included**. It did not always. Until 2026-09-05 the leading segment was tightened to lowercase-only, which rejected LSP's own camelCase-rooted names such as `textDocument.didOpen` while citing LSP — whose roots are camelCase — as the precedent for the style, and which, once the ten-verb `providerAccount.*` namespace was ratified ([Spec-029](../../specs/029-provider-accounts-and-credential-homes.md) / [Plan-029](../../plans/029-provider-accounts-and-credential-homes.md) / [ADR-028](../../decisions/028-provider-credential-custody-posture.md)) and registered in §Plan-029 — Provider Accounts And Credential Homes below, rejected a namespace root **this document itself registers** — so the `register()`-time guard below would have thrown on all ten verbs at daemon boot. The widening resolves the contradiction by moving the first segment to the class the later segments already admit, which is the class the cited precedent uses; renaming ten ratified verbs across every spec, plan, ADR, architecture contract, and runbook that carries them, to satisfy a regex whose own stated precedent contradicts it, was the wrong direction. Nothing else moves: segment-internal rules are unchanged, the two-segment minimum is unchanged, and an uppercase-**starting** segment is still rejected in any position (`Session.create` fails, as it always did). `providerAccount` is the only registered method root carrying an uppercase letter; the rest are lowercase identifiers — as enumerated at the Tier-8 audit, registered or shipped: `session`, `daemon`, `run`, `repo`, `approval`, `participant`, `gdpr`, `runtimenode`, `presence`, `invite`, `membership`, `channel`, plus the Tier-6-ratified Plan-016 roots `orchestration` and `agent`, the Tier-7-ratified Plan-011 root `gitflow`, the campaign-B18-registered Plan-028 root `mcp`, and the Tier-8-ratified roots `timeline` (Plan-013), `attention` (Plan-019), and `health` (Plan-020); still-planned: `driver`, `settings`, `event`, `artifact` (root set re-derived during the Tier-6 audit, gitflow added during the Tier-7 audit, mcp with the campaign-B18 registration (2026-07-22), and timeline, attention, and health during the Tier-8 audit; `invite`/`membership`/`channel` are SDK-declared daemon-as-gateway strings owned by Plan-002, bridged server-side to control-plane tRPC). The V1 Tier 1 surface (`session.create`, `session.read`, `session.join`, `session.subscribe`) uses all-lowercase segments; nested-namespace operations like `settings.effectiveRead` and `driver.listCapabilities` (lowercase root + camelCase tail) are permitted under this regex, as is a camelCase root such as `providerAccount.list`.
+Every dot-delimited segment starts with a lowercase letter and may contain camelCase (`[a-z][a-zA-Z0-9]*`) — the first segment (the namespace root) included, per the 2026-09-05 root widening recorded in this paragraph. This adopts the dotted-camelCase _segment_ style of the LSP precedent ([Language Server Protocol §General Messages](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) — e.g. `workspace.executeCommand`) and the MCP precedent ([Model Context Protocol §Protocol Messages](https://modelcontextprotocol.io/specification/2025-06-18/server/tools) — `tools.list`, `tools.call`), and applies that style **uniformly to every segment, the root included**. It did not always. Until 2026-09-05 the leading segment was tightened to lowercase-only, which rejected LSP's own camelCase-rooted names such as `textDocument.didOpen` while citing LSP — whose roots are camelCase — as the precedent for the style, and which, once the ten-verb `providerAccount.*` namespace was ratified ([Spec-029](../../specs/029-provider-accounts-and-credential-homes.md) / [Plan-029](../../plans/029-provider-accounts-and-credential-homes.md) / [ADR-028](../../decisions/028-provider-credential-custody-posture.md)) and registered in §Plan-029 — Provider Accounts And Credential Homes below, rejected a namespace root **this document itself registers** — so the `register()`-time guard below would have thrown on all ten verbs at daemon boot. The widening resolves the contradiction by moving the first segment to the class the later segments already admit, which is the class the cited precedent uses; renaming ten ratified verbs across every spec, plan, ADR, architecture contract, and runbook that carries them, to satisfy a regex whose own stated precedent contradicts it, was the wrong direction. Nothing else moves: segment-internal rules are unchanged, the two-segment minimum is unchanged, and an uppercase-**starting** segment is still rejected in any position (`Session.create` fails, as it always did). `providerAccount` is the only registered method root carrying an uppercase letter; the rest are lowercase identifiers — as enumerated at the Tier-8 audit, registered or shipped: `session`, `daemon`, `run`, `repo`, `approval`, `participant`, `gdpr`, `runtimenode`, `channel`, plus the Tier-6-ratified Plan-016 roots `orchestration` and `agent`, the Tier-7-ratified Plan-011 root `gitflow`, the campaign-B18-registered Plan-028 root `mcp`, and the Tier-8-ratified roots `timeline` (Plan-013), `attention` (Plan-019), and `health` (Plan-020); still-planned: `driver`, `settings`, `event`, `artifact` (root set re-derived during the Tier-6 audit, gitflow added during the Tier-7 audit, mcp with the campaign-B18 registration (2026-07-22), and timeline, attention, and health during the Tier-8 audit). The V1 Tier 1 surface (`session.create`, `session.read`, `session.join`, `session.subscribe`) uses all-lowercase segments; nested-namespace operations like `settings.effectiveRead` and `driver.listCapabilities` (lowercase root + camelCase tail) are permitted under this regex, as is a camelCase root such as `providerAccount.list`.
 
 The regex accepts the Tier 1 surface and rejects:
 
@@ -423,160 +416,6 @@ const ProtocolVersionSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 **Why the encoded form**: measuring the JSON encoding rather than the JavaScript string length covers escaping (a control character encodes to six ASCII bytes) and lets one rule read identically for the string, number, and null id forms the envelope admits.
 
 **Consumers**: any page builder sizing a reply against the frame it will become subtracts a framing reserve that includes this bound — see [Plan-013](../../plans/013-live-timeline-visibility-and-reasoning-surfaces.md) T1.5 and its `TIMELINE_PAGE_FRAME_RESERVE_BYTES` derivation. The reserve is therefore derived from an enforced rule rather than an assumed allowance.
-
----
-
-## Tier 2: Plan-002 — Invite Membership And Presence (Task 4.3)
-
-> **Amended 2026-08-11 (Spec-002 BL-133 amendment, PR #322):** `InvitePreview` and `ChannelDirectoryPublish` join the registry below — one anonymous non-consuming invite-metadata mutation (resolving the [Spec-023 §Deep-Link Invite Flow](../../specs/023-desktop-shell-and-renderer.md#deep-link-invite-flow) pin) and one daemon-called channel-directory ingest mutation (the consuming half of the [Spec-016 §Interfaces And Contracts](../../specs/016-multi-agent-channels-and-orchestration.md#interfaces-and-contracts) D-016-22 publication). **Known naming skew (flagged, not reconciled by this amendment):** the shipped contracts code names request types **without** the `Request` suffix — `packages/contracts/src/invites.ts` exports `InviteCreate` / `InviteAccept` beside `InviteCreateResponse`-style response types — while this registry's Tier-2 shapes carry the older `Invite*Request` spelling. The shapes are field-identical; the code names are the canonical symbols. A future registry-wide naming pass may reconcile the spelling — this amendment deliberately does not, to keep its diff scoped to the two new methods.
-
-```ts
-// InviteCreate
-interface InviteCreateRequest {
-  sessionId: SessionId;
-  inviter: ParticipantId;
-  joinMode: JoinMode;
-  expiresAt: string; // ISO 8601
-}
-interface InviteCreateResponse {
-  inviteId: InviteId;
-  token: string; // plaintext token for recipient (hashed in DB)
-  expiresAt: string;
-}
-
-// InviteAccept
-interface InviteAcceptRequest {
-  token: string;
-}
-interface InviteAcceptResponse {
-  inviteId: InviteId; // the invite consumed (now `accepted`)
-  membershipId: MembershipId;
-  sessionId: SessionId;
-  participantId: ParticipantId;
-  role: MembershipRole;
-  state: MembershipState; // the activated membership's state (NOT InviteState)
-}
-
-// InvitePreview (2026-08-11) — anonymous, NON-CONSUMING metadata read for the deep-link
-// confirmation step (Spec-002 Interfaces And Contracts; Spec-023 Deep-Link Invite Flow pin).
-// Registered as a tRPC .mutation() despite being read-only: a query would put the token in a
-// GET ?input= URL (server/proxy logs, browser history) — POST keeps it in the body. Zero
-// writes, never burns the jti; refusal checks run in InviteAccept's exact order, and refusals
-// project per error-contracts §Invite with invite.expired / invite.revoked at HTTP 410 via the
-// contracts-level status-override map (see error-contracts §Error Response Shape).
-interface InvitePreviewRequest {
-  token: string;
-}
-interface InvitePreviewResponse {
-  sessionId: SessionId; // target-session identity for the Spec-023 deep-link confirmation step — the
-  // same id accept's own response returns to the token holder, so preview discloses nothing accept
-  // does not (restored 2026-08-11, PR #322 Codex round 1: with no session-name producer in V1, an
-  // all-null display pair left the confirmation step nothing to identify the session by)
-  joinMode: JoinMode;
-  expiresAt: string; // ISO 8601
-  sessionName: string | null; // null until a session-naming owner exists (sessions has no name column) — no raw inviter identifiers
-  inviterDisplayName: string | null;
-}
-
-// InviteRevoke
-interface InviteRevokeRequest {
-  sessionId: SessionId;
-  inviteId: InviteId;
-  reason?: string;
-}
-interface InviteRevokeResponse {
-  inviteId: InviteId;
-  state: InviteState; // the invite's lifecycle state (NOT MembershipState)
-}
-
-// MembershipUpdate
-interface MembershipUpdateRequest {
-  membershipId: MembershipId;
-  action: "change_role" | "suspend" | "revoke" | "reactivate";
-  newRole?: MembershipRole; // required for change_role
-}
-interface MembershipUpdateResponse {
-  membershipId: MembershipId;
-  state: MembershipState;
-  role: MembershipRole;
-  updatedAt: string;
-}
-
-// PresenceHeartbeat
-interface PresenceHeartbeatRequest {
-  participantId: ParticipantId;
-  deviceId: string;
-  activityState: PresenceState;
-  metadata: {
-    deviceType: string;
-    focusedSessionId: SessionId | null;
-    focusedChannelId: ChannelId | null;
-    lastActivityAt: string;
-    appVisible: boolean;
-  };
-}
-// Response: 204 No Content (fire-and-forget)
-
-// PresenceUpdate (JSON-RPC, local IPC)
-interface PresenceUpdateParams {
-  sessionId: SessionId;
-  awarenessState: Uint8Array; // serialized Yjs Awareness CRDT
-}
-
-// PresenceRead (JSON-RPC, local IPC)
-interface PresenceReadParams {
-  sessionId: SessionId;
-}
-interface PresenceReadResult {
-  participants: Array<{
-    participantId: ParticipantId;
-    state: PresenceState;
-    lastSeen: string;
-  }>;
-}
-
-// ChannelList — read-only, per-caller-filtered projection of channels in a session (see Spec-002 Interfaces And Contracts, amended 2026-08-03: a direct-kind channel is omitted entirely — never blanked — for any caller outside its immutable two-human member pair, keyed on the authenticated principal from the control-plane auth context, never a request field; the request/response shapes below are unchanged by that filter).
-// Channel creation is handled by Plan-016 (multi-agent channels and orchestration).
-interface ChannelListRequest {
-  sessionId: SessionId;
-}
-interface ChannelListResponse {
-  channels: Array<{
-    id: ChannelId;
-    name?: string;
-    state: ChannelState;
-    participantCount: number;
-  }>;
-}
-
-// ChannelDirectoryPublish (2026-08-11; fold redesigned same day — PR #322 Codex round 1) —
-// DAEMON-called idempotent directory ingest (Spec-002 Interfaces And Contracts; the consuming half
-// of Spec-016 D-016-22's producer publication, Plan-016 T2.14 / CP-016-15 <-> Plan-002 CP-002-10).
-// Daemon-credentialed channel (the runtimenode.signingkeyregister daemon-called posture) — participants
-// never call it. The ingest retains one candidate per origin in session_channel_directory
-// (same-origin: higher originSeq; keyless legacy publications share one envelope-ordered slot),
-// re-resolves visible state from the retained set (archived latches terminally, sticky on the
-// stored row; otherwise the (originOccurredAt, originEventId)-max candidate's state), binds
-// kind + memberPair + name exactly
-// once from the origin-authenticated channel.created publication, and acknowledges only after the
-// durable upsert commits — the producer's at-least-once retry keys on that acknowledgment.
-interface ChannelDirectoryPublishRequest {
-  sessionId: SessionId;
-  channelId: ChannelId;
-  lifecycleEventKind: string; // the triggering Spec-006 event type ("channel.created" | "channel.muted" | "channel.unmuted" | "channel.archived") — disclosure binds only from an origin-authenticated "channel.created"; an unrecognized value folds the state axis only (fail-closed, existence preserved)
-  name?: string;
-  state: ChannelState;
-  kind: string; // Plan-016-owned vocabulary — unrecognized values ingest verbatim, consumers read fail-closed as direct
-  memberPair?: [ParticipantId, ParticipantId]; // direct-kind two-human pair; canonicalized (low < high) at ingest
-  originNodeId?: string; // origin daemon's node id — present iff originSeq is (both-or-neither); must match the authenticated caller for the publication to bind disclosure
-  originSeq?: number; // origin daemon's per-(session, origin) monotonic counter — the same-origin comparator; absent only for a publication derived from a pre-extension event whose payload lacks the keys (folds via the legacy slot, never binds disclosure)
-  originOccurredAt: string; // origin envelope occurredAt (ISO 8601) — cross-origin comparator, with...
-  originEventId: string; // ...origin envelope id as the lexicographic tiebreak
-}
-interface ChannelDirectoryPublishResponse {
-  channelId: ChannelId; // durable-commit acknowledgment
-}
-```
 
 ---
 
@@ -2793,7 +2632,6 @@ Plan-004's queue / intervention / pause-resume operations are exposed as eight `
 interface ControlPlaneSessionJoinRequest {
   sessionId: SessionId;
   identityHandle: string;
-  inviteToken?: string; // for invite-based join
 }
 interface ControlPlaneSessionJoinResponse {
   sessionId: SessionId;
@@ -2809,7 +2647,7 @@ interface RelayNegotiationRequest {
   transportPreferences: string[]; // e.g. ['websocket', 'http2']
 }
 interface RelayNegotiationResponse {
-  relayEndpoint: string; // per-session WSS URL the client dials; carries the negotiated sessionId so the relay verifier recovers it out-of-band from the connect-token (PASETO v4 implicit assertion, Spec-008 §Relay Negotiation). The self-hostable single-process relay mints it with sessionId as a path segment (wss://<host>/relay/<sessionId>, Plan-025 D-025-10); the hosted session-sharded Durable Object holds sessionId via its shard identity.
+  relayEndpoint: string; // per-session WSS URL the client dials; carries the negotiated sessionId so the relay verifier recovers it out-of-band from the connect-token (PASETO v4 implicit assertion, Spec-008 §Relay Negotiation). The self-hostable single-process relay mints it with sessionId as a path segment (wss://<host>/relay/<sessionId>); the hosted session-sharded Durable Object holds sessionId via its shard identity.
   transportProtocol: string;
   cipherSuite: string; // negotiated cipher suite, e.g. 'v1/pairwise' (Spec-008 §Relay Negotiation)
   connectionToken: string; // short-lived auth token
@@ -2920,7 +2758,7 @@ No control-plane procedure is added, and nothing here rides the relay transport 
 
 ### Envelope-Interior Application-Payload Kind Registry (Tier 5, Plan-008 T-008r-1-3)
 
-The discriminator that separates the message families riding **inside** one pairwise ciphertext envelope (registered 2026-08-12 — Plan-008 CP-008-16, ratified as Plan-014 D-014-5 by that plan's relay-scope targeted readiness-audit delta). Spec-008 §Peer History Backfill On Join (V1) and [Spec-014 §Cross-Node Artifact Relay (V1)](../../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) each place their payloads in that envelope and each refuses a new frame message type, citing the other's use of the same seam — so without a tag the receiving demultiplexer has no input at all. **Owner: Plan-008**, in `packages/contracts/src/session-join.ts` — one level below the `RelayFrameType` 1-byte frame enum hoisted into the same file by the NS-19 Tier-7 audit (D-025-1): `RelayFrameType` separates frames, this union separates payloads inside one frame's decrypted plaintext. The union is `RelayApplicationPayload`, a Zod `discriminatedUnion` over the required string member **`kind`**, whose vocabulary is the `RelayApplicationPayloadKind` enum. It lands with the codec block at **T-008r-1-3** (the file itself CREATEd at T-008r-1-1) and is consumed by the client coordinator's demux at **T-008r-4-10** and the bridge engines at **T-008r-4-14**.
+The discriminator that separates the message families riding **inside** one pairwise ciphertext envelope (registered 2026-08-12 — Plan-008 CP-008-16, ratified as Plan-014 D-014-5 by that plan's relay-scope targeted readiness-audit delta). Spec-008 §Peer History Backfill On Join (V1) and [Spec-014 §Cross-Node Artifact Relay (V1)](../../specs/014-artifacts-files-and-attachments.md#cross-node-artifact-relay-v1) each place their payloads in that envelope and each refuses a new frame message type, citing the other's use of the same seam — so without a tag the receiving demultiplexer has no input at all. **Owner: Plan-008**, in `packages/contracts/src/session-join.ts` — one level below the `RelayFrameType` 1-byte frame enum hoisted into the same file by the NS-19 Tier-7 audit: `RelayFrameType` separates frames, this union separates payloads inside one frame's decrypted plaintext. The union is `RelayApplicationPayload`, a Zod `discriminatedUnion` over the required string member **`kind`**, whose vocabulary is the `RelayApplicationPayloadKind` enum. It lands with the codec block at **T-008r-1-3** (the file itself CREATEd at T-008r-1-1) and is consumed by the client coordinator's demux at **T-008r-4-10** and the bridge engines at **T-008r-4-14**.
 
 | `kind` | Payload | Registering plan |
 | --- | --- | --- |
@@ -3187,7 +3025,7 @@ interface WorkspaceListResponse {
 
 ### Repo Method-Name Registry (Tier 6)
 
-Plan-009's repo-attachment and workspace-binding surface is exposed as six `repo.*` methods, ratified by the Tier-6 plan-readiness audit (Plan-009 D-009-1, CP-009-5). Names register under the Plan-007-partial daemon `MethodRegistry` at Tier 6 per the §5 substrate-vs-namespace carve-out (`presence.*` precedent); registration's BL-142 precondition (registry-regex conformance to the Tier-1 `METHOD_NAME_FORMAT`) is resolved (2026-06-21). These methods ride the daemon JSON-RPC transport only — repo mounts and workspaces are node-local filesystem state (ADR-004), so no control-plane tRPC sibling exists. Method strings are imperative and disjoint-by-form from the past-participle Spec-006 durable event names (`repo.attached`, `repo.detached`).
+Plan-009's repo-attachment and workspace-binding surface is exposed as six `repo.*` methods, ratified by the Tier-6 plan-readiness audit (Plan-009 D-009-1, CP-009-5). Names register under the Plan-007-partial daemon `MethodRegistry` at Tier 6 per the §5 substrate-vs-namespace carve-out; registration's BL-142 precondition (registry-regex conformance to the Tier-1 `METHOD_NAME_FORMAT`) is resolved (2026-06-21). These methods ride the daemon JSON-RPC transport only — repo mounts and workspaces are node-local filesystem state (ADR-004), so no control-plane tRPC sibling exists. Method strings are imperative and disjoint-by-form from the past-participle Spec-006 durable event names (`repo.attached`, `repo.detached`).
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -4500,7 +4338,7 @@ Heading retitled by the Tier-6 audit: Plan-016 executes at Tier 6 (cross-plan-de
 
 ### Plan-016 — Multi-Agent Channels And Orchestration
 
-Contracts rewritten during the Tier-6 plan-readiness audit (D-016-1..20). Canonical TypeScript source once shipped: `packages/contracts/src/orchestration.ts` (single file — ChannelCreate included; Plan-002's `channels.ts` is read-projection-only and stays untouched). `AgentId` is a new branded UUID (`brandedUuidIdSchema<AgentId>("AgentId")`). All mutations are daemon JSON-RPC (channel/orchestration/agent authority is daemon-local, ADR-001/ADR-003 posture); `channel.list` remains Plan-002's SDK-declared daemon-as-gateway directory read and is NOT part of this surface.
+Contracts rewritten during the Tier-6 plan-readiness audit (D-016-1..20). Canonical TypeScript source once shipped: `packages/contracts/src/orchestration.ts` (single file — ChannelCreate included). `AgentId` is a new branded UUID (`brandedUuidIdSchema<AgentId>("AgentId")`). All mutations are daemon JSON-RPC (channel/orchestration/agent authority is daemon-local, ADR-001/ADR-003 posture).
 
 ```ts
 // Typed configs (D-016-4) — replace the former Record<string, unknown> placeholders
@@ -4548,8 +4386,8 @@ interface ChannelLifecycleResponse {
 }
 
 // ChannelRosterRead — wire: channel.rosterRead (D-016-6; daemon-native session-local roster
-// — distinct from Plan-002's channel.list control-plane directory read; a direct-kind channel
-// is omitted for callers outside its member pair — Spec-016 §Interfaces And Contracts, D-016-21)
+// — a direct-kind channel is omitted for callers outside its member pair
+// — Spec-016 §Interfaces And Contracts, D-016-21)
 interface ChannelRosterReadRequest {
   sessionId: SessionId;
 }
@@ -5092,11 +4930,11 @@ interface OrchestrationRunLinkCarrier {
 
 | Method | Procedure type | Request → Response | Notes |
 | --- | --- | --- | --- |
-| `channel.create` | RPC | `ChannelCreateRequest` → `ChannelCreateResponse` | First daemon-native handler under the `channel` root (root is Plan-002-declared via the `channel.list` gateway string; co-extension per the repo.\* precedent) |
+| `channel.create` | RPC | `ChannelCreateRequest` → `ChannelCreateResponse` | First daemon-native handler under the `channel` root |
 | `channel.mute` | RPC | `ChannelLifecycleRequest` → `ChannelLifecycleResponse` | Emits `channel.muted` |
 | `channel.unmute` | RPC | `ChannelLifecycleRequest` → `ChannelLifecycleResponse` | Emits `channel.unmuted` |
 | `channel.archive` | RPC | `ChannelLifecycleRequest` → `ChannelLifecycleResponse` | Emits `channel.archived`; terminal |
-| `channel.rosterRead` | RPC | `ChannelRosterReadRequest` → `ChannelRosterReadResponse` | Daemon-native session-local roster + arbitration facet; distinct from Plan-002's `channel.list` directory read |
+| `channel.rosterRead` | RPC | `ChannelRosterReadRequest` → `ChannelRosterReadResponse` | Daemon-native session-local roster + arbitration facet |
 | `orchestration.runCreate` | RPC | `OrchestrationRunCreateRequest` → `OrchestrationRunCreateResponse` | Admission pipeline; composes with Plan-004 queue admission in-process |
 | `orchestration.childRunLinkRead` | RPC | `ChildRunLinkReadRequest` → `ChildRunLinkReadResponse` | run_links projection + event-folded `rejectedCreates` (zero-residue refusals, I-016-8) |
 | `orchestration.budgetRead` | RPC | `OrchestrationBudgetReadRequest` → `OrchestrationBudgetReadResponse` |  |
@@ -5798,7 +5636,7 @@ type RateLimitIdentityType = "participant" | "ip" | "token_hash" | "session" | "
 type RateLimitTier = "anonymous" | "authenticated" | "elevated";
 
 interface RateLimitCheckRequest {
-  identity: string; // canonical form: participant/session UUID, IPv4 quad / IPv6 /64, Plan-002 token-hash; the reserved 'user' arm pins its form at V1.1 activation (D-021-14)
+  identity: string; // canonical form: participant/session UUID, IPv4 quad / IPv6 /64; the reserved 'user' arm pins its form at V1.1 activation (D-021-14)
   identityType: RateLimitIdentityType;
   endpoint: RateLimitEndpointGroup; // registry-key union (Spec-021 registry)
   tier?: RateLimitTier; // resolved server-side; never caller-supplied
