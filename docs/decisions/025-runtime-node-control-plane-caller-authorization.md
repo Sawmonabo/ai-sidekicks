@@ -9,7 +9,7 @@
 | **Author(s)** | `Claude` |
 | **Reviewers** | `User — ratified 2026-08-10 (Option A, Reading 1; heartbeat negative = thrown 403)` |
 
-> **Ratification record.** Authored for [BL-141](../archive/backlog-archive.md#bl-141-runtime-node-control-plane-caller-authorization-caller-owns-the-node-model) and ratified by the user on 2026-08-10: **Option A** (transaction-interior, row-locked ownership-and-membership predicate) with **Reading 1** on the one point where this decision diverged from an already-ratified campaign design — every non-permitted verdict collapses into the contracted `runtimenode.permission_denied` (403), and `heartbeat`'s negative is a thrown 403 rather than a silent success-shaped no-op. The divergence and its adjudication are recorded, not erased, at §Adjudication Record — Resolved At Ratification. Enforcement lands in code under Plan-003 T3.10–T3.12; this ADR binds the design, not the shipment date.
+> **Ratification record.** Authored for [BL-141](../archive/backlog-archive.md#bl-141-runtime-node-control-plane-caller-authorization-caller-owns-the-node-model) and ratified by the user on 2026-08-10: **Option A** (transaction-interior, row-locked ownership predicate) with **Reading 1** on the one point where this decision diverged from an already-ratified campaign design — every non-permitted verdict collapses into the contracted `runtimenode.permission_denied` (403), and `heartbeat`'s negative is a thrown 403 rather than a silent success-shaped no-op. The divergence and its adjudication are recorded, not erased, at §Adjudication Record — Resolved At Ratification. Enforcement lands in code under Plan-003 T3.10–T3.12; this ADR binds the design, not the shipment date.
 
 ## Context
 
