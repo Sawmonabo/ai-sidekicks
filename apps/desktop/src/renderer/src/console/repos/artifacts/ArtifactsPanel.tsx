@@ -26,10 +26,9 @@
 //    precisely because it is the one image type that is also a scriptable document.
 //
 // 3. NOTHING HERE DECIDES WHO MAY ACT. `artifact.delete_forbidden` is a 403 the
-//    daemon returns against the session roles — an owner may delete any session
-//    artifact, a collaborator only artifacts they produced, a viewer none — and
-//    greying a button out would mean holding a second copy of all three. Controls
-//    are offered; the typed refusal renders beside the one that was pressed.
+//    daemon returns, and greying a button out would mean holding a second copy of
+//    the rule it decides on. Controls are offered; the typed refusal renders beside
+//    the one that was pressed.
 //
 // THE DELETE CONFIRM IS TWO STEPS, IN PLACE. This panel states the foreclosure
 // consequence BEFORE the act and reports it AFTER, and both halves ship:
